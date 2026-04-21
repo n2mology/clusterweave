@@ -59,7 +59,7 @@ Before committing, check that staged files do not include:
 Typical commands:
 
 ```bash
-git remote add origin <REPO_URL>
+git remote add origin https://github.com/n2mology/clusterweave.git
 git push -u origin main
 ```
 

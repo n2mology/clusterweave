@@ -3,8 +3,13 @@ title: ClusterWeave
 message: "If you use ClusterWeave, please cite the software repository and the companion Application Note."
 type: software
 authors:
-  - name: "ClusterWeave contributors"
+  - given-names: "Julian"
+    family-names: "Cosner"
+    orcid: "https://orcid.org/0009-0007-6841-2270"
+  - given-names: "Tomas"
+    family-names: "Rush"
+    orcid: "https://orcid.org/0000-0002-3207-1466"
 version: 0.1.0
 date-released: 2026-04-16
 license: BSD-3-Clause
-repository-code: "https://github.com/<org>/clusterweave"
+repository-code: "https://github.com/n2mology/clusterweave"

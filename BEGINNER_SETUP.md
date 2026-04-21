@@ -70,11 +70,9 @@ If you are comfortable with Git, clone the repository:
 
 ```bash
 cd ~
-git clone <REPO_URL>
+git clone https://github.com/n2mology/clusterweave.git
 cd clusterweave
 ```
-
-Replace `<REPO_URL>` with the actual GitHub URL after the repository is published.
 
 If you are not ready to use `git clone`, you can also use the repository page on GitHub and choose `Code -> Download ZIP`, then unzip it and open the `clusterweave` folder in Ubuntu or VS Code.
 
