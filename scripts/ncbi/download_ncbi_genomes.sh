@@ -21,21 +21,43 @@ SLEEP_BETWEEN="${SLEEP_BETWEEN:-2}"
 
 die(){ echo "ERROR: $*" >&2; exit 1; }
 
+is_windowsapps_alias() {
+  local candidate_path="${1:-}"
+  [[ -n "${candidate_path}" ]] || return 1
+  case "${candidate_path}" in
+    *"/AppData/Local/Microsoft/WindowsApps/"*|*"\\AppData\\Local\\Microsoft\\WindowsApps\\"*)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+usable_python() {
+  local candidate="${1:-}"
+  [[ -n "${candidate}" ]] || return 1
+  command -v "${candidate}" >/dev/null 2>&1 || return 1
+  local resolved
+  resolved="$(command -v "${candidate}" 2>/dev/null || true)"
+  is_windowsapps_alias "${resolved}" && return 1
+  "${candidate}" -c "import sys; print(sys.executable)" >/dev/null 2>&1 || return 1
+  return 0
+}
+
 resolve_python() {
   if [[ -n "${PYTHON_BIN:-}" ]]; then
-    command -v "${PYTHON_BIN}" >/dev/null 2>&1 || die "PYTHON_BIN not found in PATH: ${PYTHON_BIN}"
+    usable_python "${PYTHON_BIN}" || die "PYTHON_BIN is not a usable Python interpreter: ${PYTHON_BIN}"
     printf '%s\n' "${PYTHON_BIN}"
     return 0
   fi
-  if command -v python3 >/dev/null 2>&1; then
+  if usable_python python3; then
     printf '%s\n' "python3"
     return 0
   fi
-  if command -v python >/dev/null 2>&1; then
+  if usable_python python; then
     printf '%s\n' "python"
     return 0
   fi
-  die "No Python interpreter found. Install python3 or set PYTHON_BIN."
+  die "No usable Python interpreter found. Install python3 or set PYTHON_BIN to a real interpreter."
 }
 
 detect_datasets() {

@@ -182,10 +182,27 @@ ensure_metadata_tsv() {
     --allow-missing-legacy
 }
 
-if command -v python3 >/dev/null 2>&1; then PYTHON_BIN=python3
-elif command -v python >/dev/null 2>&1; then PYTHON_BIN=python
-else die "Neither python3 nor python is available."
-fi
+resolve_python_cmd() {
+  if [[ -n "${PYTHON_BIN:-}" ]]; then
+    if [[ -x "${PYTHON_BIN}" ]]; then
+      printf '%s\n' "${PYTHON_BIN}"
+      return 0
+    fi
+    have "${PYTHON_BIN}" || die "PYTHON_BIN is not executable or not found: ${PYTHON_BIN}"
+    printf '%s\n' "${PYTHON_BIN}"
+    return 0
+  fi
+  if have python3; then
+    printf '%s\n' "python3"
+    return 0
+  fi
+  if have python; then
+    printf '%s\n' "python"
+    return 0
+  fi
+  die "Neither python3 nor python is available."
+}
+PYTHON_BIN="$(resolve_python_cmd)"
 
 [[ -f "${TARGETED_ANALYSIS_PY}" ]] || die "Missing Python helper: ${TARGETED_ANALYSIS_PY}"
 [[ -f "${EXPORT_FAMILY_ATLAS_PY}" ]] || die "Missing Python helper: ${EXPORT_FAMILY_ATLAS_PY}"

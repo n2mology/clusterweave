@@ -27,10 +27,32 @@ SUMMARY_CSV="${SUMMARY_CSV:-${OUTDIR}/all_tools_shared_unshared_summary.csv}"
 
 export ANTISMASH_ROOT FUNBGCEX_ROOT BIGSCAPE_ROOT SCAFFOLD_COMPARISON_CSV BGC_COMPARISON_CSV SUMMARY_CSV
 
-if command -v python3 >/dev/null 2>&1; then PYTHON_BIN=python3
-elif command -v python >/dev/null 2>&1; then PYTHON_BIN=python
-else echo "ERROR: neither python3 nor python found" >&2; exit 1
-fi
+have(){ command -v "$1" >/dev/null 2>&1; }
+resolve_python_cmd() {
+  if [[ -n "${PYTHON_BIN:-}" ]]; then
+    if [[ -x "${PYTHON_BIN}" ]]; then
+      printf '%s\n' "${PYTHON_BIN}"
+      return 0
+    fi
+    if have "${PYTHON_BIN}"; then
+      printf '%s\n' "${PYTHON_BIN}"
+      return 0
+    fi
+    echo "ERROR: PYTHON_BIN is not executable or not found: ${PYTHON_BIN}" >&2
+    exit 1
+  fi
+  if have python3; then
+    printf '%s\n' "python3"
+    return 0
+  fi
+  if have python; then
+    printf '%s\n' "python"
+    return 0
+  fi
+  echo "ERROR: neither python3 nor python found" >&2
+  exit 1
+}
+PYTHON_BIN="$(resolve_python_cmd)"
 
 BGC_GCF_CROSSWALK_PY="${BGC_GCF_CROSSWALK_PY:-${PROJECT_DIR}/bin/build_bgc_gcf_crosswalk.py}"
 TARGETED_ANALYSIS_PY="${TARGETED_ANALYSIS_PY:-${PROJECT_DIR}/bin/build_candidate_tables.py}"
