@@ -78,11 +78,19 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn('REFRESH_FAMILY_ATLAS="${REFRESH_FAMILY_ATLAS:-1}"', text)
         self.assertIn('ATLAS_MIN_RECORDS="${ATLAS_MIN_RECORDS:-2}"', text)
         self.assertIn('AUTO_NORMALIZE_METADATA="${AUTO_NORMALIZE_METADATA:-1}"', text)
+        self.assertIn('METADATA_TEMPLATE_TSV="${METADATA_TEMPLATE_TSV:-${RESULTS_ROOT}/summary_tables/ecofun_metadata_template.tsv}"', text)
         self.assertIn('EXPORT_FAMILY_ATLAS_PY="${EXPORT_FAMILY_ATLAS_PY:-${PROJECT_DIR}/bin/export_dataset_family_atlas.py}"', text)
         self.assertIn("ensure_metadata_tsv()", text)
         self.assertIn("infer_target_genome_from_existing_outputs()", text)
         self.assertIn("mode_includes_track()", text)
         self.assertIn("can_run_existing_panels_without_target()", text)
+
+    def test_metadata_template_is_runtime_local_not_repo_rewritten(self) -> None:
+        normalize_text = (REPO_ROOT / "bin" / "normalize_metadata.py").read_text(encoding="utf-8")
+        summary_text = (REPO_ROOT / "summarize_clusterweave.sh").read_text(encoding="utf-8")
+        self.assertIn('ecofun_metadata_template.tsv', normalize_text)
+        self.assertIn('--template-out "${METADATA_TEMPLATE_TSV}"', summary_text)
+        self.assertNotIn('template_default = project_root / "config" / "metadata_template.tsv"', normalize_text)
 
     def test_wrapper_writes_provenance_manifest(self) -> None:
         text = (REPO_ROOT / "run_clusterweave.sh").read_text(encoding="utf-8")

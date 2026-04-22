@@ -23,7 +23,7 @@
 7. `run_clusterweave.sh` now auto-includes `run_clinker.sh` in atlas-first mode unless `RUN_STAGE_CLINKER=0`. Leave `TARGET_GENOME` unset for dataset-wide family-atlas clinker panels, or set it when you want targeted priority/shared-family clinker tracks as well.
 8. `bash summarize_clusterweave.sh` writes the core BGC comparison outputs by default when you want to rerun summaries without earlier stages.
 9. Set `RUN_ECOLOGY_ANALYSIS=1` only when you want ecology-aware grouping, candidate ranking, and reviewer-shortlist outputs.
-10. Curate `summary_tables/ecofun_metadata_normalized.tsv` or start from `config/metadata_template.tsv` if you want ecology labels to drive that optional analysis.
+10. Curate `summary_tables/ecofun_metadata_normalized.tsv` if you want ecology labels to drive that optional analysis. A project-local editable scaffold is written to `summary_tables/ecofun_metadata_template.tsv` when metadata is auto-normalized, and the static repo header template remains at `config/metadata_template.tsv`.
 11. Set `FOCUS_ECOLOGY_LABEL` if you want one ecology label treated as the prioritization focus instead of relying on the target genome's ecology.
 12. Optionally run `bash run_figures.sh` to render lightweight PNG summaries from the generated tables.
 13. The canonical wrapper writes a small provenance bundle under `Data/Results/<project-name>/reproducibility/`.

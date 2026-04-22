@@ -86,13 +86,13 @@ def _build_alias_map() -> dict[str, str]:
 
 def main() -> None:
     project_root = Path(__file__).resolve().parents[1]
-    project_name = Path(__file__).resolve().parents[1].name
+    project_name = os.environ.get("PROJECT_NAME", project_root.name)
     legacy_default_root = project_root / "legacy_context"
     primary_default = Path(os.environ["ECOFUN_PRIMARY"]) if "ECOFUN_PRIMARY" in os.environ else legacy_default_root / "ecofun_primary_from_original.txt"
     secondary_default = Path(os.environ["ECOFUN_SECONDARY"]) if "ECOFUN_SECONDARY" in os.environ else legacy_default_root / "ecofun_secondary_from_original.txt"
     accessions_default = project_root / "Data" / "Genomes" / "Fungi" / project_name / "accessions_fungusID_taxonomyID.txt"
     out_default = project_root / "Data" / "Results" / project_name / "summary_tables" / "ecofun_metadata_normalized.tsv"
-    template_default = project_root / "config" / "metadata_template.tsv"
+    template_default = project_root / "Data" / "Results" / project_name / "summary_tables" / "ecofun_metadata_template.tsv"
 
     parser = argparse.ArgumentParser(
         description=(
@@ -129,7 +129,10 @@ def main() -> None:
         "--template-out",
         type=Path,
         default=template_default,
-        help="Optional header-only TSV template for downstream grouping.",
+        help=(
+            "Optional project-local header-only TSV scaffold for downstream grouping. "
+            "The static repo template lives at config/metadata_template.tsv."
+        ),
     )
     parser.add_argument(
         "--allow-missing-legacy",

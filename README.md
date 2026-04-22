@@ -173,8 +173,9 @@ bash run_figures.sh
 Ecology is optional in `ClusterWeave`. The main BGC outputs do not require it.
 
 - The user-facing ecology TSV lives at `Data/Results/<project-name>/summary_tables/ecofun_metadata_normalized.tsv` once generated for a project.
-- The repo template is [config/metadata_template.tsv](config/metadata_template.tsv).
-- The key columns are `accession`, `genome_id_current`, `taxonomy_id`, `genome_size_mb`, `ecofun_primary`, and `ecofun_secondary`.
+- The static repo template is [config/metadata_template.tsv](config/metadata_template.tsv), and it is intentionally header-only.
+- The generated project-local editable scaffold is `Data/Results/<project-name>/summary_tables/ecofun_metadata_template.tsv`.
+- The key columns are `accession`, `genome_id_current`, `taxonomy_id`, `genome_size_mb`, `genome_id_original_if_different`, `ecofun_primary`, and `ecofun_secondary`.
 - Leave ecology blank if you only want core BGC summaries.
 - Set `RUN_ECOLOGY_ANALYSIS=1` only when you want ecology-aware grouping and ranking.
 

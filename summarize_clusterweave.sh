@@ -63,6 +63,7 @@ RUN_ECOLOGY_ANALYSIS="${RUN_ECOLOGY_ANALYSIS:-0}"
 AUTO_NORMALIZE_METADATA="${AUTO_NORMALIZE_METADATA:-1}"
 ACCESSIONS_MAP="${ACCESSIONS_MAP:-${DATA_ROOT}/Genomes/Fungi/${PROJECT_NAME}/accessions_fungusID_taxonomyID.txt}"
 METADATA_TSV="${METADATA_TSV:-${RESULTS_ROOT}/summary_tables/ecofun_metadata_normalized.tsv}"
+METADATA_TEMPLATE_TSV="${METADATA_TEMPLATE_TSV:-${RESULTS_ROOT}/summary_tables/ecofun_metadata_template.tsv}"
 
 "${PYTHON_BIN}" - <<'PY'
 import csv, glob, json, os, re
@@ -383,6 +384,7 @@ if [[ ! -f "${METADATA_TSV}" && "${AUTO_NORMALIZE_METADATA}" == "1" ]]; then
     "${PYTHON_BIN}" "${NORMALIZE_METADATA_PY}" \
       --accessions "${ACCESSIONS_MAP}" \
       --out "${METADATA_TSV}" \
+      --template-out "${METADATA_TEMPLATE_TSV}" \
       --allow-missing-legacy
   else
     echo "WARN: metadata TSV missing and auto-normalization inputs are incomplete." >&2

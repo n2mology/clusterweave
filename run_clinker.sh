@@ -128,6 +128,7 @@ NORMALIZE_METADATA_PY="${NORMALIZE_METADATA_PY:-${PROJECT_DIR}/bin/normalize_met
 AUTO_NORMALIZE_METADATA="${AUTO_NORMALIZE_METADATA:-1}"
 ACCESSIONS_MAP="${ACCESSIONS_MAP:-${DATA_ROOT}/Genomes/Fungi/${PROJECT_NAME}/accessions_fungusID_taxonomyID.txt}"
 METADATA_TSV="${METADATA_TSV:-${RESULTS_ROOT}/summary_tables/ecofun_metadata_normalized.tsv}"
+METADATA_TEMPLATE_TSV="${METADATA_TEMPLATE_TSV:-${RESULTS_ROOT}/summary_tables/ecofun_metadata_template.tsv}"
 
 ts(){ date +"%Y-%m-%d %H:%M:%S"; }
 log(){ echo "[$(ts)] [INFO] $*"; }
@@ -179,6 +180,7 @@ ensure_metadata_tsv() {
   "${PYTHON_BIN}" "${NORMALIZE_METADATA_PY}" \
     --accessions "${ACCESSIONS_MAP}" \
     --out "${METADATA_TSV}" \
+    --template-out "${METADATA_TEMPLATE_TSV}" \
     --allow-missing-legacy
 }
 
