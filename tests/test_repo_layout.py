@@ -99,6 +99,21 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("printf 'run_stage_annotation", text)
         self.assertIn("printf 'clinker_mode", text)
 
+    def test_figures_wrapper_detects_rscript_robustly(self) -> None:
+        text = (REPO_ROOT / "run_figures.sh").read_text(encoding="utf-8")
+        self.assertIn("resolve_r_bin()", text)
+        self.assertIn('/mnt/c/Program Files/R/R-*/bin/Rscript.exe', text)
+        self.assertIn('/c/Program Files/R/R-*/bin/Rscript.exe', text)
+        self.assertIn('R_BIN="$(resolve_r_bin)"', text)
+        self.assertNotIn("FIGURES_TOP_N", text)
+
+    def test_render_summary_figures_focuses_on_core_summary_outputs(self) -> None:
+        text = (REPO_ROOT / "bin" / "render_summary_figures.R").read_text(encoding="utf-8")
+        self.assertIn("bgc_calls_by_tool_category.png", text)
+        self.assertIn("shared_vs_unshared_bgc_calls.png", text)
+        self.assertNotIn("plot_priority_scores", text)
+        self.assertNotIn("ranking_path", text)
+
     def test_clinker_postprocess_uses_repo_root(self) -> None:
         text = (REPO_ROOT / "bin" / "stage_clinker_panels.py").read_text(encoding="utf-8")
         self.assertIn('POSTPROCESS_PY=\\"${PROJECT_ROOT}/bin/postprocess_clinker_html.py\\"', text)

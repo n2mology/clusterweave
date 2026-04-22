@@ -41,4 +41,9 @@ The outputs are written under:
 
 - `Data/Results/<project-name>/figures/`
 
-The figure layer is intentionally lightweight and base-R only so it does not add a large plotting dependency burden for first-time users.
+The current figure layer writes:
+
+- `bgc_calls_by_tool_category.png`
+- `shared_vs_unshared_bgc_calls.png`
+
+These figures use the condensed BGC categories `NRP`, `PKS`, `RiPP`, `Terpene`, `Hybrid`, and `Other`. The figure layer is intentionally lightweight and base-R only so it does not add a large plotting dependency burden for first-time users.

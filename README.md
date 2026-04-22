@@ -19,8 +19,9 @@ The repository is organized as a standalone workflow so it can be versioned, sha
 - `config/`: default templates and env examples
 - `profiles/`: example profiles and overrides
 - `docs/`: install, release, and reproducibility notes
-- `examples/`: public-safe example context that should not be treated as required runtime input
+- `examples/`: public-safe example context or example-output bundles for docs and releases
 - `manuscript/application_note/`: publication-facing notes and outline assets
+- `tests/`: automated repo validation; these are software checks, not biological example data
 - `Data/`: expected input and output layout for a standalone clone
 - `Software/`: location for local containers, caches, and optional third-party tools
 - `docs/REPRODUCIBILITY.md`: run provenance and figure-rendering notes
@@ -168,6 +169,19 @@ Optionally render summary figures from the generated tables:
 bash run_figures.sh
 ```
 
+`run_figures.sh` uses `Rscript` and will also try common Windows `Rscript.exe` locations from Bash/WSL. If needed, set `R_BIN` explicitly.
+
+The figure layer is driven by the condensed BGC categories used in the summary tables:
+
+- `NRP`
+- `PKS`
+- `RiPP`
+- `Terpene`
+- `Hybrid`
+- `Other`
+
+Isolated labels such as `indole`, `alkaloid`, `saccharide`, `ICS`, and other non-core categories are grouped into `Other`, while terpene cyclases and terpene synthases are grouped under `Terpene`.
+
 ## Ecology Metadata
 
 Ecology is optional in `ClusterWeave`. The main BGC outputs do not require it.
@@ -178,6 +192,11 @@ Ecology is optional in `ClusterWeave`. The main BGC outputs do not require it.
 - The key columns are `accession`, `genome_id_current`, `taxonomy_id`, `genome_size_mb`, `genome_id_original_if_different`, `ecofun_primary`, and `ecofun_secondary`.
 - Leave ecology blank if you only want core BGC summaries.
 - Set `RUN_ECOLOGY_ANALYSIS=1` only when you want ecology-aware grouping and ranking.
+
+## Examples vs Tests
+
+- `examples/example_project/` is for public-safe walkthrough material, small example bundles, or manuscript/release companion assets meant for humans to browse.
+- `tests/` is for automated software validation and regression checks. It is not intended to represent a biological analysis project.
 
 ## Skipping Tools
 
