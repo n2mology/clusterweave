@@ -26,8 +26,25 @@ the wrapper writes:
 
 - `Data/Results/<project-name>/reproducibility/run_clusterweave_manifest.tsv`
 - `Data/Results/<project-name>/reproducibility/run_clusterweave_context.env`
+- `Data/Results/<project-name>/reproducibility/external_artifacts.tsv`
 
-These files capture the stage toggles, target genome, paths, and Git revision information visible to the wrapper at run time.
+These files capture the stage toggles, target genome, paths, Git revision information, and checksums for local external artifacts visible to the wrapper at run time.
+
+## External Artifacts
+
+`external_artifacts.tsv` is written by `bin/capture_external_artifacts.py` at the end of the canonical wrapper when `CAPTURE_EXTERNAL_ARTIFACTS=1` (the default).
+
+It records the source URI, local path, version/tag, optional digest pin, SHA256 checksum, and byte size for key runtime artifacts such as:
+
+- antiSMASH, FunBGCeX, BiG-SCAPE, funannotate, and clinker SIF files
+- Pfam HMM files
+- FastTree
+- MiBIG GBK cache
+- optional NPLinker base SIF when present
+
+This keeps everyday defaults flexible while preserving the exact bytes used in a manuscript or reviewer run.
+
+For stricter reruns, source `profiles/release_v0.1.0.env` from the repository root before running `run_clusterweave.sh`. That profile keeps the smoke-run tool URIs visible for provenance but disables automatic pulls/downloads so a rerun uses prepopulated local artifacts that can be compared against `external_artifacts.tsv`.
 
 ## Figures
 

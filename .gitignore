@@ -19,6 +19,11 @@ Data/Genomes/**
 
 Software/**
 !Software/.gitkeep
+!Software/funbgcex/
+Software/funbgcex/**
+!Software/funbgcex/build_funbgcex_sif.sh
+!Software/funbgcex/Dockerfile
+!Software/funbgcex/Singularity.def
 
 results/
 logs/

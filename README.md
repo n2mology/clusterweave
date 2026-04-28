@@ -2,7 +2,7 @@
 
 `ClusterWeave` is a workflow for biosynthetic target discovery and prioritization. It assembles annotation, BGC detection, BiG-SCAPE family context, shortlist generation, and clinker-ready panel staging into one reproducible workflow.
 
-The repository is organized as a standalone workflow so it can be versioned, shared, and prepared for an `iSCB Bioinformatics` Application Note.
+The repository is organized as a standalone workflow so it can be versioned and shared.
 
 ## Scope
 
@@ -10,7 +10,7 @@ The repository is organized as a standalone workflow so it can be versioned, sha
 - Stage 2: BiG-SCAPE family inference via `run_bigscape.sh`
 - Stage 3: core summary-table generation via `summarize_clusterweave.sh`
 - Optional within Stage 3: ecology-aware ranking and reviewer shortlist generation with `RUN_ECOLOGY_ANALYSIS=1`
-- Stage 4: dataset-wide clinker family-atlas staging by default, with optional target-aware synteny staging via `run_clinker.sh`
+- Stage 4: dataset-wide clinker family-atlas staging and clinker execution by default, with optional target-aware synteny panels via `run_clinker.sh`
 - Optional: NPLinker exploratory paired-omics follow-up via `run_nplinker.sh`
 
 ## Repository Layout
@@ -67,7 +67,7 @@ The mapping now includes:
 bash run_clusterweave.sh
 ```
 
-`run_clusterweave.sh` runs annotation/detection, BiG-SCAPE, summary generation, and clinker staging in one pass. The default clinker behavior is dataset-wide atlas staging.
+`run_clusterweave.sh` runs annotation/detection, BiG-SCAPE, summary generation, clinker staging, and clinker execution in one pass. The default clinker behavior is a dataset-wide atlas run.
 
 If you also set `TARGET_GENOME`, the same stage adds targeted clinker tracks for that genome:
 
@@ -143,10 +143,16 @@ If you want ecology-aware prioritization around a specific label, set `FOCUS_ECO
 RUN_ECOLOGY_ANALYSIS=1 TARGET_GENOME=Your_Target_Genome_ID FOCUS_ECOLOGY_LABEL=Your_Ecology_Label bash summarize_clusterweave.sh
 ```
 
-Stage clinker panels directly when you want to restage or rerender them. By default this creates a dataset-wide family atlas:
+Stage and execute clinker panels directly when you want to restage or rerender them. By default this creates and runs a dataset-wide family atlas:
 
 ```bash
 bash run_clinker.sh
+```
+
+Set `RUN_CLINKER=0` when you want to stage panel inputs and scripts without executing clinker:
+
+```bash
+RUN_CLINKER=0 bash run_clinker.sh
 ```
 
 If you want targeted synteny around one genome of interest, set `TARGET_GENOME`:
@@ -215,6 +221,7 @@ RUN_STAGE_BIGSCAPE=0 bash run_clusterweave.sh
 RUN_STAGE_SUMMARY=0 bash run_clusterweave.sh
 RUN_STAGE_ANNOTATION=0 RUN_STAGE_BIGSCAPE=1 RUN_STAGE_SUMMARY=1 bash run_clusterweave.sh
 RUN_STAGE_CLINKER=0 bash run_clusterweave.sh
+RUN_CLINKER=0 bash run_clusterweave.sh
 ```
 
 You can also run individual stages directly:
@@ -255,6 +262,8 @@ NPLINKER_BOOTSTRAP_ENV=0
 - NPLinker remains exploratory as an evidence layer for putative product claims. Project submission to the Paired Omics Data Platform (PODP) is required to utilize this workflow.
 - Ecology prioritization is optional and user-configurable through `RUN_ECOLOGY_ANALYSIS`, `ECOLOGY_FIELD`, and `FOCUS_ECOLOGY_LABEL`.
 - `run_clusterweave.sh` writes a small provenance bundle under `Data/Results/<project-name>/reproducibility/`.
+- Canonical runs also write `reproducibility/external_artifacts.tsv`, a checksum manifest for local SIFs, Pfam, FastTree, MiBIG, and other runtime artifacts.
+- For a stricter manuscript-style rerun of the smoke project, source `profiles/release_v0.1.0.env` before running `run_clusterweave.sh`; it disables automatic artifact fetching and relies on prepopulated, checksum-comparable local artifacts.
 
 ## Included Release Metadata
 

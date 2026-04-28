@@ -20,6 +20,7 @@ class RepoLayoutTests(unittest.TestCase):
             "scripts/ncbi/download_ncbi_genomes.sh",
             "scripts/ncbi/rename_ncbi_genomes.sh",
             "scripts/ncbi/flatten_ncbi_genomes.sh",
+            "bin/capture_external_artifacts.py",
         ]:
             self.assertTrue((REPO_ROOT / rel).exists(), rel)
 
@@ -95,9 +96,19 @@ class RepoLayoutTests(unittest.TestCase):
     def test_wrapper_writes_provenance_manifest(self) -> None:
         text = (REPO_ROOT / "run_clusterweave.sh").read_text(encoding="utf-8")
         self.assertIn("write_provenance_manifest()", text)
+        self.assertIn("write_external_artifacts_manifest()", text)
         self.assertIn('REPRO_ROOT="${REPRO_ROOT:-${RESULTS_ROOT}/reproducibility}"', text)
+        self.assertIn('CAPTURE_EXTERNAL_ARTIFACTS="${CAPTURE_EXTERNAL_ARTIFACTS:-1}"', text)
         self.assertIn("printf 'run_stage_annotation", text)
+        self.assertIn("printf 'capture_external_artifacts", text)
         self.assertIn("printf 'clinker_mode", text)
+
+    def test_bigscape_has_stage_specific_sif_source_aliases(self) -> None:
+        text = (REPO_ROOT / "run_bigscape.sh").read_text(encoding="utf-8")
+        self.assertIn('BIGSCAPE_SIF_PATH="${BIGSCAPE_SIF_PATH:-${BIGSCAPE_SOFTDIR}/bigscape_2.0.0-beta.6.sif}"', text)
+        self.assertIn('BIGSCAPE_SIF_SOURCE="${BIGSCAPE_SIF_SOURCE:-docker://ghcr.io/medema-group/big-scape:2.0.0-beta.6}"', text)
+        self.assertIn('SIF_PATH="${SIF_PATH:-${BIGSCAPE_SIF_PATH}}"', text)
+        self.assertIn('SIF_SOURCE="${SIF_SOURCE:-${BIGSCAPE_SIF_SOURCE}}"', text)
 
     def test_figures_wrapper_detects_rscript_robustly(self) -> None:
         text = (REPO_ROOT / "run_figures.sh").read_text(encoding="utf-8")
@@ -142,6 +153,30 @@ class RepoLayoutTests(unittest.TestCase):
             "Software/funbgcex/Singularity.def",
         ]:
             self.assertTrue((REPO_ROOT / rel).exists(), rel)
+
+    def test_gitignore_unignores_funbgcex_text_recipes(self) -> None:
+        text = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
+        for pattern in [
+            "!Software/funbgcex/",
+            "Software/funbgcex/**",
+            "!Software/funbgcex/build_funbgcex_sif.sh",
+            "!Software/funbgcex/Dockerfile",
+            "!Software/funbgcex/Singularity.def",
+        ]:
+            self.assertIn(pattern, text)
+
+    def test_ci_workflow_exists(self) -> None:
+        self.assertTrue((REPO_ROOT / ".github" / "workflows" / "ci.yml").exists())
+
+    def test_release_profile_exists(self) -> None:
+        profile = REPO_ROOT / "profiles" / "release_v0.1.0.env"
+        self.assertTrue(profile.exists())
+        text = profile.read_text(encoding="utf-8")
+        self.assertIn("PROJECT_NAME=clusterweave_smoke", text)
+        self.assertIn("CAPTURE_EXTERNAL_ARTIFACTS=1", text)
+        self.assertIn("AUTO_DOWNLOAD_PFAM=0", text)
+        self.assertIn("AUTO_DOWNLOAD_FASTTREE=0", text)
+        self.assertIn("INSTALL_CLINKER_SIF=0", text)
 
 
 if __name__ == "__main__":

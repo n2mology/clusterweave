@@ -23,11 +23,13 @@ DATA_ROOT="${DATA_ROOT:-${PROJECT_DIR}/Data}"
 RESULTS_BASE="${RESULTS_BASE:-${DATA_ROOT}/Results}"
 RESULTS_ROOT="${RESULTS_ROOT:-${RESULTS_BASE}/${PROJECT_NAME}}"
 REPRO_ROOT="${REPRO_ROOT:-${RESULTS_ROOT}/reproducibility}"
+CAPTURE_EXTERNAL_ARTIFACTS="${CAPTURE_EXTERNAL_ARTIFACTS:-1}"
 
 RUN_ANNOTATION_STAGE="${PROJECT_DIR}/run_annotation_and_detection.sh"
 RUN_BIGSCAPE="${PROJECT_DIR}/run_bigscape.sh"
 RUN_SUMMARY="${PROJECT_DIR}/summarize_clusterweave.sh"
 RUN_CLINKER_STAGE="${PROJECT_DIR}/run_clinker.sh"
+CAPTURE_EXTERNAL_ARTIFACTS_PY="${CAPTURE_EXTERNAL_ARTIFACTS_PY:-${PROJECT_DIR}/bin/capture_external_artifacts.py}"
 
 # Backward-compatible alias: older drafts exposed RUN_STAGE_NEW.
 if [[ -n "${RUN_STAGE_NEW+x}" && -z "${RUN_STAGE_ANNOTATION+x}" ]]; then
@@ -46,6 +48,27 @@ ts(){ date +"%Y-%m-%d %H:%M:%S"; }
 log(){ echo "[$(ts)] [INFO] $*"; }
 die(){ echo "[$(ts)] [ERROR] $*" >&2; exit 1; }
 warn(){ echo "[$(ts)] [WARN] $*" >&2; }
+have(){ command -v "$1" >/dev/null 2>&1; }
+resolve_python_cmd() {
+  if [[ -n "${PYTHON_BIN:-}" ]]; then
+    if [[ -x "${PYTHON_BIN}" || -n "$(command -v "${PYTHON_BIN}" 2>/dev/null || true)" ]]; then
+      printf '%s\n' "${PYTHON_BIN}"
+      return 0
+    fi
+    warn "PYTHON_BIN is not executable or not found: ${PYTHON_BIN}"
+    return 1
+  fi
+  if have python3; then
+    printf '%s\n' "python3"
+    return 0
+  fi
+  if have python; then
+    printf '%s\n' "python"
+    return 0
+  fi
+  warn "Neither python3 nor python is available."
+  return 1
+}
 git_value() {
   local args=("$@")
   git -C "${PROJECT_DIR}" "${args[@]}" 2>/dev/null || true
@@ -64,6 +87,7 @@ write_provenance_manifest() {
     printf 'run_stage_bigscape\t%s\n' "${RUN_STAGE_BIGSCAPE}"
     printf 'run_stage_summary\t%s\n' "${RUN_STAGE_SUMMARY}"
     printf 'run_stage_clinker\t%s\n' "${RUN_STAGE_CLINKER}"
+    printf 'capture_external_artifacts\t%s\n' "${CAPTURE_EXTERNAL_ARTIFACTS}"
     printf 'clinker_mode\t%s\n' "${CLINKER_MODE}"
     printf 'target_genome\t%s\n' "${TARGET_GENOME:-}"
     printf 'git_commit\t%s\n' "$(git_value rev-parse HEAD)"
@@ -79,10 +103,32 @@ write_provenance_manifest() {
     printf 'RUN_STAGE_BIGSCAPE=%s\n' "${RUN_STAGE_BIGSCAPE}"
     printf 'RUN_STAGE_SUMMARY=%s\n' "${RUN_STAGE_SUMMARY}"
     printf 'RUN_STAGE_CLINKER=%s\n' "${RUN_STAGE_CLINKER}"
+    printf 'CAPTURE_EXTERNAL_ARTIFACTS=%s\n' "${CAPTURE_EXTERNAL_ARTIFACTS}"
     printf 'CLINKER_MODE=%s\n' "${CLINKER_MODE}"
     printf 'TARGET_GENOME=%s\n' "${TARGET_GENOME:-}"
   } > "${env_path}"
   log "Wrote run provenance: ${manifest_path}"
+}
+write_external_artifacts_manifest() {
+  local py=""
+  local output_path="${REPRO_ROOT}/external_artifacts.tsv"
+  if [[ "${CAPTURE_EXTERNAL_ARTIFACTS}" != "1" ]]; then
+    log "External artifact capture skipped because CAPTURE_EXTERNAL_ARTIFACTS=${CAPTURE_EXTERNAL_ARTIFACTS}"
+    return 0
+  fi
+  if [[ ! -f "${CAPTURE_EXTERNAL_ARTIFACTS_PY}" ]]; then
+    warn "External artifact capture helper missing: ${CAPTURE_EXTERNAL_ARTIFACTS_PY}"
+    return 0
+  fi
+  py="$(resolve_python_cmd)" || return 0
+  if "${py}" "${CAPTURE_EXTERNAL_ARTIFACTS_PY}" \
+      --project-root "${PROJECT_DIR}" \
+      --project-name "${PROJECT_NAME}" \
+      --output "${output_path}"; then
+    log "Wrote external artifact manifest: ${output_path}"
+  else
+    warn "External artifact capture failed; continuing because workflow outputs are complete."
+  fi
 }
 
 [[ -x "${RUN_ANNOTATION_STAGE}" ]] || die "Missing executable stage runner: ${RUN_ANNOTATION_STAGE}"
@@ -113,6 +159,7 @@ log "RUN_STAGE_ANNOTATION=${RUN_STAGE_ANNOTATION}"
 log "RUN_STAGE_BIGSCAPE=${RUN_STAGE_BIGSCAPE}"
 log "RUN_STAGE_SUMMARY=${RUN_STAGE_SUMMARY}"
 log "RUN_STAGE_CLINKER=${RUN_STAGE_CLINKER}"
+log "CAPTURE_EXTERNAL_ARTIFACTS=${CAPTURE_EXTERNAL_ARTIFACTS}"
 log "CLINKER_MODE=${CLINKER_MODE}"
 log "TARGET_GENOME=${TARGET_GENOME:-unset}"
 
@@ -146,4 +193,5 @@ else
   log "Stage 4/4: skipped"
 fi
 
+write_external_artifacts_manifest
 log "Canonical workflow complete."
