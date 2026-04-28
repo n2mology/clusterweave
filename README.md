@@ -246,6 +246,8 @@ NPLINKER_BOOTSTRAP_ENV=0
 
 - `ClusterWeave` is currently a Linux/WSL-oriented Bash workflow.
 - Container and network-backed modules are configured to auto-fetch or auto-build missing assets by default so a fresh clone is easier to run.
+- The repository license covers `ClusterWeave` source files and build recipes only. Pulled images, SIFs, databases, and other third-party artifacts remain under their upstream terms and are intentionally not committed here.
+- For the current third-party matrix, citations, and redistribution caveats, especially the separate GeneMark restriction that affects the BRAKER path, see [THIRD_PARTY.md](THIRD_PARTY.md).
 - The first FunBGCeX-enabled run can take a while because `ClusterWeave` builds `Software/funbgcex/funbgcex_bundle.sif` locally.
 - The canonical wrapper now carries the run through clinker staging automatically unless `RUN_STAGE_CLINKER=0`.
 - The default clinker behavior is atlas-first across the whole dataset; set `TARGET_GENOME` to add targeted priority and shared-family panels.

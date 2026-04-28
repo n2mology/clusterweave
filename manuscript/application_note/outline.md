@@ -14,7 +14,7 @@
 
 ## Figures To Prepare
 
-- workflow diagram
+- workflow diagram: `figures/ClusterWeave.svg`
 - representative summary tables
 - clinker panel example
 - runtime or module-dependency overview
@@ -23,5 +23,5 @@
 
 - public code repository
 - pinned runtime notes
-- example profile
+- example profile 
 - minimal public example dataset or example-output bundle
