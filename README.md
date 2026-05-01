@@ -275,9 +275,9 @@ NPLINKER_BOOTSTRAP_ENV=0
 
 ## Status
 
-This repository is ready for a first public commit, but before journal submission or a production GitHub release you should still review:
+This repository is nearly-ready for a first public commit, but before journal submission or a production GitHub release I still need to review:
 
-- authorship and citation metadata
-- final license choice
-- third-party redistribution terms
-- pinned tool versions and either a minimal public example dataset or a small example-output bundle
+- authorship and citation metadata (.cff)
+- final license choice (BSD, MIT, etc.)
+- ANAQUA -> OSTI -> Resolution for compliance
+- third-party redistribution terms (verified, potential counsel)
