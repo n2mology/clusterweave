@@ -1,0 +1,1222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ClusterWeave — BGC Analysis</title>
+<style>
+  /* ── Reset & base ─────────────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:        #0f1117;
+    --surface:   #1a1d27;
+    --surface2:  #252836;
+    --border:    #2e3347;
+    --accent:    #4f8ef7;
+    --accent2:   #7c5cbf;
+    --success:   #3ecf8e;
+    --danger:    #e56060;
+    --warn:      #f0a500;
+    --text:      #e2e4ef;
+    --muted:     #7b8198;
+    --radius:    8px;
+    --shadow:    0 4px 24px rgba(0,0,0,.45);
+    --font:      'Inter', system-ui, -apple-system, sans-serif;
+    --mono:      'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  }
+  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; line-height: 1.6; }
+  a { color: var(--accent); }
+
+  /* ── Layout ───────────────────────────────────────────────────────────── */
+  .app { display: flex; flex-direction: column; min-height: 100vh; }
+  header {
+    background: linear-gradient(135deg, var(--surface) 0%, #1e1630 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 0 2rem;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .logo { display: flex; align-items: center; gap: .6rem; }
+  .logo-icon { font-size: 1.5rem; }
+  .logo-text { font-size: 1.1rem; font-weight: 700; letter-spacing: -.02em; }
+  .logo-text span { color: var(--accent); }
+  .header-tagline { color: var(--muted); font-size: .8rem; margin-left: .5rem; }
+
+  main { flex: 1; max-width: 960px; width: 100%; margin: 2rem auto; padding: 0 1.5rem; }
+
+  /* ── Cards ────────────────────────────────────────────────────────────── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 1.5rem;
+    overflow: hidden;
+  }
+  .card-header {
+    padding: .75rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+    font-weight: 600;
+    font-size: .85rem;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    cursor: pointer;
+    user-select: none;
+  }
+  .card-header .toggle-icon { margin-left: auto; transition: transform .2s; }
+  .card-header.collapsed .toggle-icon { transform: rotate(-90deg); }
+  .card-body { padding: 1.25rem; }
+  .card-body.hidden { display: none; }
+
+  /* ── Upload zone ──────────────────────────────────────────────────────── */
+  .upload-zone {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 2.5rem 1rem;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .2s, background .2s;
+    position: relative;
+  }
+  .upload-zone:hover, .upload-zone.drag-over {
+    border-color: var(--accent);
+    background: rgba(79,142,247,.05);
+  }
+  .upload-zone input[type=file] {
+    position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+  }
+  .upload-icon { font-size: 2.5rem; margin-bottom: .5rem; }
+  .upload-hint { color: var(--muted); font-size: .85rem; margin-top: .3rem; }
+
+  .file-list { margin-top: 1rem; display: flex; flex-direction: column; gap: .4rem; }
+  .file-item {
+    display: flex; align-items: center; gap: .75rem;
+    background: var(--surface2); border-radius: 6px; padding: .45rem .75rem;
+    font-size: .85rem;
+  }
+  .file-item .file-icon { color: var(--accent); }
+  .file-item .file-name { flex: 1; }
+  .file-item .file-size { color: var(--muted); }
+  .file-item .file-remove {
+    background: none; border: none; color: var(--danger); cursor: pointer;
+    font-size: 1rem; padding: 0 .25rem; line-height: 1;
+  }
+
+  /* ── Form controls ────────────────────────────────────────────────────── */
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  @media (max-width: 600px) { .form-grid { grid-template-columns: 1fr; } }
+  .form-group { display: flex; flex-direction: column; gap: .35rem; }
+  .form-group-inline { display: flex; align-items: center; gap: .55rem; min-height: 36px; }
+  .form-group-inline.disabled { opacity: .5; }
+  .switch-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem 1rem; margin-top: .75rem; }
+  @media (max-width: 720px) { .switch-grid { grid-template-columns: 1fr; } }
+  .advanced-wrap {
+    margin-top: 1rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: linear-gradient(180deg, rgba(255,255,255,.01), rgba(255,255,255,0));
+  }
+  .advanced-wrap > summary {
+    cursor: pointer;
+    list-style: none;
+    padding: .75rem 1rem;
+    font-size: .85rem;
+    font-weight: 600;
+    color: var(--muted);
+    border-bottom: 1px solid transparent;
+  }
+  .advanced-wrap[open] > summary { border-bottom-color: var(--border); }
+  .advanced-content { padding: 1rem; display: flex; flex-direction: column; gap: 1rem; }
+  .group-title { font-size: .76rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: .35rem; }
+  .help-note { color: var(--muted); font-size: .76rem; line-height: 1.45; }
+  .profile-bar { display: flex; align-items: center; gap: .6rem; margin-top: 1rem; flex-wrap: wrap; }
+  .summary-panel {
+    margin-top: 1rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: linear-gradient(180deg, rgba(79,142,247,.07), rgba(255,255,255,0));
+    overflow: hidden;
+  }
+  .summary-head {
+    padding: .75rem 1rem;
+    border-bottom: 1px solid var(--border);
+    font-size: .8rem;
+    font-weight: 700;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .85rem 1rem;
+    padding: 1rem;
+  }
+  @media (max-width: 720px) { .summary-grid { grid-template-columns: 1fr; } }
+  .summary-item { display: flex; flex-direction: column; gap: .18rem; }
+  .summary-label { font-size: .72rem; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+  .summary-value { font-size: .9rem; color: var(--text); }
+  .summary-chips { display: flex; gap: .4rem; flex-wrap: wrap; }
+  .summary-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: .2rem .55rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    font-size: .76rem;
+  }
+  .summary-chip.off { opacity: .55; text-decoration: line-through; }
+  label { font-size: .8rem; font-weight: 500; color: var(--muted); }
+  input[type=text], input[type=number], select {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: .5rem .75rem;
+    font-size: .9rem;
+    font-family: var(--font);
+    outline: none;
+    transition: border-color .2s;
+    width: 100%;
+  }
+  input:focus, select:focus { border-color: var(--accent); }
+
+  /* ── Buttons ──────────────────────────────────────────────────────────── */
+  .btn {
+    display: inline-flex; align-items: center; gap: .45rem;
+    padding: .55rem 1.2rem; border-radius: 6px; font-size: .9rem;
+    font-weight: 600; cursor: pointer; border: none; transition: opacity .15s, transform .1s;
+    font-family: var(--font);
+  }
+  .btn:active { transform: scale(.97); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover:not(:disabled) { opacity: .88; }
+  .btn-danger  { background: var(--danger); color: #fff; }
+  .btn-ghost   { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+  .btn-ghost:hover:not(:disabled) { border-color: var(--accent); }
+  .run-row { display: flex; align-items: center; gap: 1rem; margin-top: 1.25rem; flex-wrap: wrap; }
+
+  /* ── Status badge ─────────────────────────────────────────────────────── */
+  .badge {
+    display: inline-flex; align-items: center; gap: .35rem;
+    padding: .2rem .6rem; border-radius: 99px; font-size: .75rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .05em;
+  }
+  .badge-pending  { background: rgba(120,130,160,.2); color: var(--muted); }
+  .badge-running  { background: rgba(79,142,247,.15); color: var(--accent); }
+  .badge-success  { background: rgba(62,207,142,.15); color: var(--success); }
+  .badge-failed   { background: rgba(229,96,96,.15); color: var(--danger); }
+  .badge-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .badge-running .badge-dot { animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+  /* ── Progress bar ─────────────────────────────────────────────────────── */
+  .stage-bar { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: .75rem; }
+  .stage-step {
+    padding: .25rem .65rem; border-radius: 99px; font-size: .75rem;
+    background: var(--surface2); color: var(--muted); border: 1px solid var(--border);
+    transition: all .3s;
+  }
+  .stage-step.active  { background: rgba(79,142,247,.2); color: var(--accent); border-color: var(--accent); }
+  .stage-step.done    { background: rgba(62,207,142,.15); color: var(--success); border-color: var(--success); }
+
+  /* ── Log terminal ─────────────────────────────────────────────────────── */
+  .log-terminal {
+    background: #0a0c12;
+    border-radius: 6px;
+    padding: .75rem 1rem;
+    font-family: var(--mono);
+    font-size: .78rem;
+    line-height: 1.7;
+    height: 300px;
+    overflow-y: auto;
+    color: #c8d0e7;
+    border: 1px solid #1e2235;
+  }
+  .log-line { white-space: pre-wrap; word-break: break-all; }
+  .log-line.err  { color: var(--danger); }
+  .log-line.warn { color: var(--warn); }
+  .log-line.stage{ color: var(--accent); font-weight: bold; }
+  .log-line.ok   { color: var(--success); }
+
+  /* ── Results tabs ─────────────────────────────────────────────────────── */
+  .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 1rem; }
+  .tab {
+    padding: .6rem 1.1rem; cursor: pointer; font-size: .85rem; font-weight: 500;
+    border-bottom: 2px solid transparent; color: var(--muted); transition: color .2s, border-color .2s;
+    user-select: none;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* ── Clinker iframe ───────────────────────────────────────────────────── */
+  .viz-frame {
+    width: 100%; border: none; background: #fff;
+    border-radius: 6px; min-height: 500px; height: 600px;
+    display: block;
+  }
+  .viz-placeholder {
+    text-align: center; padding: 4rem 2rem; color: var(--muted);
+  }
+  .viz-placeholder .big-icon { font-size: 3rem; margin-bottom: 1rem; }
+
+  /* ── File table ───────────────────────────────────────────────────────── */
+  .file-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+  .file-table th {
+    text-align: left; padding: .5rem .75rem;
+    color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .05em;
+    border-bottom: 1px solid var(--border);
+  }
+  .file-table td { padding: .5rem .75rem; border-bottom: 1px solid var(--border); }
+  .file-table tr:last-child td { border-bottom: none; }
+  .file-table tr:hover td { background: var(--surface2); }
+  .ext-badge {
+    font-size: .7rem; padding: .1rem .4rem; border-radius: 4px;
+    background: var(--surface2); color: var(--muted); font-family: var(--mono);
+  }
+
+  /* ── Job history sidebar strip ────────────────────────────────────────── */
+  .job-history { display: flex; flex-direction: column; gap: .5rem; }
+  .job-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: .6rem .9rem;
+    display: flex; align-items: center; gap: .75rem;
+    cursor: pointer;
+    transition: border-color .2s;
+  }
+  .job-card:hover { border-color: var(--accent); }
+  .job-card.active-job { border-color: var(--accent); background: rgba(79,142,247,.05); }
+  .job-card-name { font-weight: 600; font-size: .85rem; }
+  .job-card-id   { color: var(--muted); font-size: .75rem; font-family: var(--mono); }
+  .job-card-meta { flex: 1; }
+  .job-delete    { background: none; border: none; color: var(--muted); cursor: pointer; font-size: .9rem; padding: .1rem .3rem; }
+  .job-delete:hover { color: var(--danger); }
+
+  .empty-state { text-align: center; padding: 2rem; color: var(--muted); font-size: .85rem; }
+
+  /* ── Scrollbar styling ────────────────────────────────────────────────── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--surface); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+  /* ── Utility ──────────────────────────────────────────────────────────── */
+  .hidden { display: none !important; }
+  .flex-gap { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; }
+  .mt1 { margin-top: .5rem; }
+  .mt2 { margin-top: 1rem; }
+  .text-muted { color: var(--muted); }
+  .text-sm { font-size: .8rem; }
+  hr.divider { border: none; border-top: 1px solid var(--border); margin: 1rem 0; }
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- ── Header ─────────────────────────────────────────────────────────── -->
+<header>
+  <div class="logo">
+    <span class="logo-icon">🧬</span>
+    <span class="logo-text">Cluster<span>Weave</span></span>
+  </div>
+  <span class="header-tagline">Biosynthetic Gene Cluster Discovery &amp; Prioritization</span>
+</header>
+
+<main>
+
+  <!-- ── Upload & Configure ─────────────────────────────────────────────── -->
+  <div class="card" id="upload-card">
+    <div class="card-header" onclick="toggleCard('upload-card')">
+      <span>📂</span> Upload Genome Files
+      <span class="toggle-icon">▾</span>
+    </div>
+    <div class="card-body" id="upload-card-body">
+
+      <div class="upload-zone" id="drop-zone">
+        <input type="file" id="file-input" multiple accept=".gbk,.gb,.gbff,.fasta,.fa,.fna" />
+        <div class="upload-icon">📄</div>
+        <div><strong>Drag &amp; drop annotation files here</strong></div>
+        <div class="upload-hint">Supports GenBank (.gbk, .gb, .gbff) and FASTA (.fasta, .fa, .fna)</div>
+      </div>
+
+      <div class="file-list" id="file-list"></div>
+
+      <hr class="divider" />
+
+      <!-- Settings -->
+      <div class="form-grid">
+        <div class="form-group">
+          <label for="project-name">Project name</label>
+          <input type="text" id="project-name" value="my_project" placeholder="e.g. aspergillus_survey" title="Namespace used to group outputs and history for this run." />
+        </div>
+        <div class="form-group">
+          <label for="cpus">CPU threads</label>
+          <input type="number" id="cpus" value="4" min="1" max="64" title="Threads used by compute-heavy stages like antiSMASH." />
+        </div>
+        <div class="form-group">
+          <label for="target-genome">Target genome (optional)</label>
+          <input type="text" id="target-genome" placeholder="Genome ID for targeted ranking/panels" title="Optional genome ID to focus shortlist and targeted analyses." />
+        </div>
+        <div class="form-group">
+          <label for="genefinding-mode">Gene finding mode</label>
+          <select id="genefinding-mode" title="Use auto for most inputs; select none for already-annotated GenBank uploads.">
+            <option value="auto" selected>Auto (default)</option>
+            <option value="prodigal">Prodigal</option>
+            <option value="none">None (already annotated GenBank)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="switch-grid">
+        <label class="form-group-inline"><input type="checkbox" id="run-bigscape" checked /> Run BiG-SCAPE stage</label>
+        <label class="form-group-inline"><input type="checkbox" id="run-crosswalk" checked /> Build BGC-GCF crosswalk</label>
+        <label class="form-group-inline"><input type="checkbox" id="run-clinker" checked /> Generate clinker visualization</label>
+        <label class="form-group-inline"><input type="checkbox" id="run-ecology" /> Enable ecology-aware analysis</label>
+      </div>
+
+      <details class="advanced-wrap" id="advanced-panel">
+        <summary>Advanced Settings</summary>
+        <div class="advanced-content">
+          <div>
+            <div class="group-title">Stage Behavior</div>
+            <div class="help-note">Control which analysis stages run for this specific job. Turning off BiG-SCAPE disables crosswalk automatically.</div>
+            <div class="form-grid">
+              <div class="form-group">
+                <label for="clinker-max-regions">Max regions for clinker (0 = all)</label>
+                <input type="number" id="clinker-max-regions" value="0" min="0" max="500" title="Cap number of BGC regions rendered in clinker to keep jobs responsive." />
+              </div>
+              <div class="form-group">
+                <label for="bigscape-mix-mode">BiG-SCAPE mode</label>
+                <select id="bigscape-mix-mode" title="Mixed mode groups classes together; disabling uses stricter class-specific behavior.">
+                  <option value="1" selected>Mixed mode (--mix)</option>
+                  <option value="0">No mix mode</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <div class="group-title">Clinker Runtime</div>
+            <div class="help-note">Use the prebuilt clinker container image to avoid local dependency installation errors.</div>
+            <div class="switch-grid">
+              <label class="form-group-inline"><input type="checkbox" id="clinker-use-docker-image" checked /> Use preinstalled clinker container</label>
+              <label class="form-group-inline"><input type="checkbox" id="capture-external-artifacts" checked /> Capture external artifact metadata</label>
+            </div>
+            <div class="form-grid mt1">
+              <div class="form-group">
+                <label for="clinker-docker-image">Clinker image</label>
+                <input type="text" id="clinker-docker-image" value="quay.io/biocontainers/clinker-py:0.0.32--pyhdfd78af_0" title="Container image used when clinker is executed via Docker." />
+              </div>
+              <div class="form-group">
+                <label for="clinker-docker-data-volume">Docker volume mapped to /data</label>
+                <input type="text" id="clinker-docker-data-volume" value="clusterweave_job_data" title="Named Docker volume where job inputs/results are shared with the clinker container." />
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <div class="group-title">Ecology & Metadata</div>
+            <div class="help-note">These options only matter when ecology-aware analysis is enabled.</div>
+            <div class="switch-grid">
+              <label class="form-group-inline"><input type="checkbox" id="auto-normalize-metadata" checked /> Auto-normalize metadata</label>
+            </div>
+            <div class="form-grid mt1">
+              <div class="form-group">
+                <label for="ecology-field">Ecology field</label>
+                <input type="text" id="ecology-field" value="ecofun_primary" />
+              </div>
+              <div class="form-group">
+                <label for="focus-ecology-label">Focus ecology label (optional)</label>
+                <input type="text" id="focus-ecology-label" placeholder="e.g. plant_associated" />
+              </div>
+              <div class="form-group">
+                <label for="metadata-tsv">Metadata TSV path (optional)</label>
+                <input type="text" id="metadata-tsv" placeholder="/data/path/to/ecology_metadata.tsv" />
+              </div>
+              <div class="form-group">
+                <label for="atlas-min-records">Atlas min records</label>
+                <input type="number" id="atlas-min-records" value="2" min="1" max="100" />
+              </div>
+              <div class="form-group">
+                <label for="shortlist-limit">Shortlist limit</label>
+                <input type="number" id="shortlist-limit" value="12" min="1" max="1000" />
+              </div>
+              <div class="form-group">
+                <label for="max-comparators">Max comparators</label>
+                <input type="number" id="max-comparators" value="50" min="1" max="1000" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <div class="form-grid mt2">
+        <div class="form-group">
+          <label for="run-preset">Preset</label>
+          <select id="run-preset" onchange="applyPreset(this.value)">
+            <option value="balanced" selected>Balanced</option>
+            <option value="beginner">Beginner (fastest)</option>
+            <option value="full">Full analysis</option>
+            <option value="repro">Reproducible-lite</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="profile-bar">
+        <button class="btn btn-ghost text-sm" type="button" onclick="document.getElementById('profile-file-input').click()">Load .env Profile</button>
+        <button class="btn btn-ghost text-sm" type="button" onclick="exportEnvProfile()">Export Current Settings</button>
+        <input type="file" id="profile-file-input" accept=".env,.txt" class="hidden" />
+        <span id="profile-load-status" class="text-muted text-sm"></span>
+      </div>
+
+      <div class="summary-panel">
+        <div class="summary-head">Current Run Summary</div>
+        <div class="summary-grid" id="run-summary"></div>
+      </div>
+
+      <div class="run-row">
+        <button class="btn btn-primary" id="run-btn" onclick="startAnalysis()" disabled>
+          ▶ Run Analysis
+        </button>
+        <span id="upload-status" class="text-muted text-sm"></span>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── Past Jobs ──────────────────────────────────────────────────────── -->
+  <div class="card" id="jobs-card">
+    <div class="card-header" onclick="toggleCard('jobs-card')">
+      <span>🗂</span> Jobs
+      <span class="toggle-icon">▾</span>
+    </div>
+    <div class="card-body" id="jobs-card-body">
+      <div class="job-history" id="job-history">
+        <div class="empty-state">No jobs yet. Upload files and run analysis above.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Progress / Logs ────────────────────────────────────────────────── -->
+  <div class="card hidden" id="progress-card">
+    <div class="card-header">
+      <span>⚡</span> Pipeline Progress
+      <span id="progress-badge" class="badge badge-running ml-auto"><span class="badge-dot"></span> Running</span>
+    </div>
+    <div class="card-body">
+      <div class="stage-bar" id="stage-bar">
+        <span class="stage-step" data-stage="antismash">1. antiSMASH</span>
+        <span class="stage-step" data-stage="bigscape">2. BiG-SCAPE</span>
+        <span class="stage-step" data-stage="crosswalk">3. Summary</span>
+        <span class="stage-step" data-stage="clinker">4. clinker</span>
+      </div>
+      <div class="log-terminal" id="log-terminal"></div>
+      <div class="flex-gap mt1">
+        <button class="btn btn-ghost text-sm" onclick="clearLog()">Clear display</button>
+        <button class="btn btn-ghost text-sm" onclick="scrollToBottom()">↓ Scroll to bottom</button>
+        <span id="log-count" class="text-muted text-sm"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Results ────────────────────────────────────────────────────────── -->
+  <div class="card hidden" id="results-card">
+    <div class="card-header">
+      <span>📊</span> Results
+      <span id="results-status" class="badge badge-success ml-auto"><span class="badge-dot"></span> Complete</span>
+    </div>
+    <div class="card-body">
+      <div class="tabs">
+        <div class="tab active" onclick="switchTab('viz')">Visualization</div>
+        <div class="tab" onclick="switchTab('files')">Files</div>
+      </div>
+
+      <!-- Visualization tab -->
+      <div class="tab-panel active" id="tab-viz">
+        <div id="viz-container">
+          <div class="viz-placeholder">
+            <div class="big-icon">🔬</div>
+            <div>clinker visualization will appear here once the pipeline completes.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Files tab -->
+      <div class="tab-panel" id="tab-files">
+        <div id="files-container">
+          <div class="empty-state">No result files yet.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</main>
+</div><!-- /app -->
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let selectedFiles = [];
+let activeJobId   = null;
+let pollTimerId = null;
+let logCursor     = 0;
+
+// Pipeline stages for the progress bar
+const STAGES = [
+  { key: 'antismash', label: '1. antiSMASH', match: /antismash/i },
+  { key: 'bigscape',  label: '2. BiG-SCAPE', match: /big.?scape|bigscape/i },
+  { key: 'crosswalk', label: '3. Summary',   match: /crosswalk|summary/i },
+  { key: 'clinker',   label: '4. clinker',   match: /clinker/i },
+];
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function fmt_size(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1048576) return (bytes/1024).toFixed(1) + ' KB';
+  return (bytes/1048576).toFixed(1) + ' MB';
+}
+function ext(name) { return name.split('.').pop().toLowerCase(); }
+function toggleCard(id) {
+  const body = document.getElementById(id + '-body');
+  const hdr  = document.querySelector('#' + id + ' .card-header');
+  body.classList.toggle('hidden');
+  hdr.classList.toggle('collapsed');
+}
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  const idx = ['viz','files'].indexOf(name);
+  document.querySelectorAll('.tab')[idx].classList.add('active');
+  document.getElementById('tab-' + name).classList.add('active');
+}
+
+function boolToFlag(value) { return value ? '1' : '0'; }
+
+function envToBool(value, defaultValue = false) {
+  if (value === undefined || value === null || value === '') return defaultValue;
+  return String(value).trim().toLowerCase() === '1' ||
+    ['true','yes','on'].includes(String(value).trim().toLowerCase());
+}
+
+function parseEnvProfile(text) {
+  const out = {};
+  const lines = text.split(/\r?\n/);
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const idx = line.indexOf('=');
+    if (idx < 1) continue;
+    const key = line.slice(0, idx).trim();
+    let value = line.slice(idx + 1).trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    out[key] = value;
+  }
+  return out;
+}
+
+function applyEnvProfileValues(cfg) {
+  const setText = (id, key) => {
+    if (cfg[key] !== undefined) document.getElementById(id).value = cfg[key];
+  };
+  const setNum = (id, key) => {
+    if (cfg[key] !== undefined) document.getElementById(id).value = parseInt(cfg[key] || '0', 10) || document.getElementById(id).value;
+  };
+  const setBool = (id, key, defaultVal) => {
+    if (cfg[key] !== undefined) document.getElementById(id).checked = envToBool(cfg[key], defaultVal);
+  };
+
+  setText('project-name', 'PROJECT_NAME');
+  setNum('cpus', 'CPUS');
+  setText('target-genome', 'TARGET_GENOME');
+  setBool('run-bigscape', 'RUN_STAGE_BIGSCAPE', true);
+  setBool('run-crosswalk', 'RUN_STAGE_SUMMARY', true);
+  setBool('run-clinker', 'RUN_CLINKER', true);
+  setBool('run-ecology', 'RUN_ECOLOGY_ANALYSIS', false);
+  setText('ecology-field', 'ECOLOGY_FIELD');
+  setText('focus-ecology-label', 'FOCUS_ECOLOGY_LABEL');
+  setText('metadata-tsv', 'METADATA_TSV');
+  setNum('atlas-min-records', 'ATLAS_MIN_RECORDS');
+  setNum('shortlist-limit', 'SHORTLIST_LIMIT');
+  setNum('max-comparators', 'MAX_COMPARATORS');
+  setBool('capture-external-artifacts', 'CAPTURE_EXTERNAL_ARTIFACTS', true);
+  setBool('auto-normalize-metadata', 'AUTO_NORMALIZE_METADATA', true);
+  setText('clinker-docker-image', 'CLINKER_DOCKER_IMAGE');
+  setText('clinker-docker-data-volume', 'CLINKER_DOCKER_DATA_VOLUME');
+  setBool('clinker-use-docker-image', 'CLINKER_USE_DOCKER_IMAGE', true);
+  setNum('clinker-max-regions', 'ATLAS_STAGE_LIMIT');
+  syncControlState();
+}
+
+function currentEnvProfileText() {
+  const lines = [
+    `PROJECT_NAME=${document.getElementById('project-name').value.trim() || 'my_project'}`,
+    `CPUS=${document.getElementById('cpus').value || '4'}`,
+    `TARGET_GENOME=${document.getElementById('target-genome').value.trim()}`,
+    `RUN_STAGE_BIGSCAPE=${document.getElementById('run-bigscape').checked ? '1' : '0'}`,
+    `RUN_STAGE_SUMMARY=${document.getElementById('run-crosswalk').checked ? '1' : '0'}`,
+    `RUN_CLINKER=${document.getElementById('run-clinker').checked ? '1' : '0'}`,
+    `RUN_ECOLOGY_ANALYSIS=${document.getElementById('run-ecology').checked ? '1' : '0'}`,
+    `ECOLOGY_FIELD=${document.getElementById('ecology-field').value.trim()}`,
+    `FOCUS_ECOLOGY_LABEL=${document.getElementById('focus-ecology-label').value.trim()}`,
+    `AUTO_NORMALIZE_METADATA=${document.getElementById('auto-normalize-metadata').checked ? '1' : '0'}`,
+    `METADATA_TSV=${document.getElementById('metadata-tsv').value.trim()}`,
+    `CAPTURE_EXTERNAL_ARTIFACTS=${document.getElementById('capture-external-artifacts').checked ? '1' : '0'}`,
+    `ATLAS_MIN_RECORDS=${document.getElementById('atlas-min-records').value || '2'}`,
+    `SHORTLIST_LIMIT=${document.getElementById('shortlist-limit').value || '12'}`,
+    `MAX_COMPARATORS=${document.getElementById('max-comparators').value || '50'}`,
+    `CLINKER_USE_DOCKER_IMAGE=${document.getElementById('clinker-use-docker-image').checked ? '1' : '0'}`,
+    `CLINKER_DOCKER_IMAGE=${document.getElementById('clinker-docker-image').value.trim()}`,
+    `CLINKER_DOCKER_DATA_VOLUME=${document.getElementById('clinker-docker-data-volume').value.trim()}`,
+    `ATLAS_STAGE_LIMIT=${document.getElementById('clinker-max-regions').value || '0'}`,
+  ];
+  return lines.join('\n') + '\n';
+}
+
+function exportEnvProfile() {
+  const status = document.getElementById('profile-load-status');
+  const projectName = (document.getElementById('project-name').value.trim() || 'clusterweave').replace(/[^a-zA-Z0-9._-]+/g, '_');
+  const blob = new Blob([currentEnvProfileText()], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${projectName}.env`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  status.textContent = `Exported profile: ${projectName}.env`;
+}
+
+function checkedLabel(id, label) {
+  return { label, enabled: !!document.getElementById(id).checked };
+}
+
+function yesNo(value) {
+  return value ? 'Yes' : 'No';
+}
+
+function renderStageChips() {
+  const chips = [
+    checkedLabel('run-bigscape', 'BiG-SCAPE'),
+    checkedLabel('run-crosswalk', 'Crosswalk'),
+    checkedLabel('run-clinker', 'clinker'),
+    checkedLabel('run-ecology', 'Ecology'),
+  ];
+  return `<div class="summary-chips">${chips.map(c => `<span class="summary-chip ${c.enabled ? '' : 'off'}">${c.label}</span>`).join('')}</div>`;
+}
+
+function updateRunSummary() {
+  const summary = document.getElementById('run-summary');
+  if (!summary) return;
+  const fileNames = selectedFiles.slice(0, 3).map(f => f.name).join(', ');
+  const moreCount = Math.max(0, selectedFiles.length - 3);
+  const selectedLabel = selectedFiles.length
+    ? `${selectedFiles.length} file(s)${fileNames ? `: ${fileNames}` : ''}${moreCount ? ` +${moreCount} more` : ''}`
+    : 'No files selected';
+  const targetGenome = document.getElementById('target-genome').value.trim() || 'None';
+  const projectName = document.getElementById('project-name').value.trim() || 'my_project';
+  const cpus = document.getElementById('cpus').value || '4';
+  const genefinding = document.getElementById('genefinding-mode').value;
+  const clinkerMode = document.getElementById('clinker-use-docker-image').checked ? 'Docker image' : 'Local/runtime';
+  const ecology = document.getElementById('run-ecology').checked
+    ? `${document.getElementById('ecology-field').value.trim() || 'ecofun_primary'}${document.getElementById('focus-ecology-label').value.trim() ? ` / ${document.getElementById('focus-ecology-label').value.trim()}` : ''}`
+    : 'Disabled';
+  const clinkerLimit = document.getElementById('run-clinker').checked
+    ? (document.getElementById('clinker-max-regions').value || '0')
+    : 'Off';
+
+  summary.innerHTML = `
+    <div class="summary-item">
+      <div class="summary-label">Project</div>
+      <div class="summary-value">${projectName}</div>
+    </div>
+    <div class="summary-item">
+      <div class="summary-label">Input Files</div>
+      <div class="summary-value">${selectedLabel}</div>
+    </div>
+    <div class="summary-item">
+      <div class="summary-label">Compute</div>
+      <div class="summary-value">${cpus} CPU thread(s), gene finding: ${genefinding}</div>
+    </div>
+    <div class="summary-item">
+      <div class="summary-label">Target Genome</div>
+      <div class="summary-value">${targetGenome}</div>
+    </div>
+    <div class="summary-item">
+      <div class="summary-label">Enabled Stages</div>
+      <div class="summary-value">${renderStageChips()}</div>
+    </div>
+    <div class="summary-item">
+      <div class="summary-label">clinker Runtime</div>
+      <div class="summary-value">${clinkerMode}; max regions: ${clinkerLimit}</div>
+    </div>
+    <div class="summary-item">
+      <div class="summary-label">Ecology</div>
+      <div class="summary-value">${ecology}</div>
+    </div>
+    <div class="summary-item">
+      <div class="summary-label">Artifacts & Metadata</div>
+      <div class="summary-value">Capture artifacts: ${yesNo(document.getElementById('capture-external-artifacts').checked)}, auto-normalize metadata: ${yesNo(document.getElementById('auto-normalize-metadata').checked)}</div>
+    </div>
+  `;
+}
+
+function syncControlState() {
+  const runBigscape = document.getElementById('run-bigscape');
+  const runCrosswalk = document.getElementById('run-crosswalk');
+  const runClinker = document.getElementById('run-clinker');
+  const runEcology = document.getElementById('run-ecology');
+
+  runCrosswalk.disabled = !runBigscape.checked;
+  if (!runBigscape.checked) runCrosswalk.checked = false;
+
+  const clinkerFields = [
+    'clinker-max-regions',
+    'clinker-use-docker-image',
+    'clinker-docker-image',
+    'clinker-docker-data-volume',
+  ];
+  for (const id of clinkerFields) {
+    const el = document.getElementById(id);
+    if (el) el.disabled = !runClinker.checked;
+  }
+
+  const ecologyFields = ['ecology-field', 'focus-ecology-label', 'metadata-tsv', 'auto-normalize-metadata'];
+  for (const id of ecologyFields) {
+    const el = document.getElementById(id);
+    if (el) el.disabled = !runEcology.checked;
+  }
+
+  updateRunSummary();
+}
+
+function applyPreset(name) {
+  const set = (id, val) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (el.type === 'checkbox') el.checked = !!val;
+    else el.value = String(val);
+  };
+
+  if (name === 'beginner') {
+    set('run-bigscape', false);
+    set('run-crosswalk', false);
+    set('run-clinker', true);
+    set('clinker-max-regions', 12);
+    set('bigscape-mix-mode', 1);
+  } else if (name === 'full') {
+    set('run-bigscape', true);
+    set('run-crosswalk', true);
+    set('run-clinker', true);
+    set('clinker-max-regions', 0);
+    set('bigscape-mix-mode', 1);
+  } else if (name === 'repro') {
+    set('run-bigscape', true);
+    set('run-crosswalk', true);
+    set('run-clinker', true);
+    set('capture-external-artifacts', true);
+    set('auto-normalize-metadata', true);
+  } else {
+    set('run-bigscape', true);
+    set('run-crosswalk', true);
+    set('run-clinker', true);
+    set('clinker-max-regions', 50);
+    set('bigscape-mix-mode', 1);
+  }
+  syncControlState();
+}
+
+// ── File selection ─────────────────────────────────────────────────────────
+const dropZone  = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+
+fileInput.addEventListener('change', () => addFiles([...fileInput.files]));
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  addFiles([...e.dataTransfer.files]);
+});
+
+function addFiles(files) {
+  const allowed = new Set(['gbk','gb','gbff','fasta','fa','fna']);
+  for (const f of files) {
+    if (!allowed.has(ext(f.name))) {
+      alert(`Unsupported file type: ${f.name}\nAllowed: .gbk, .gb, .gbff, .fasta, .fa, .fna`);
+      continue;
+    }
+    if (!selectedFiles.find(x => x.name === f.name)) selectedFiles.push(f);
+  }
+  renderFileList();
+}
+
+function removeFile(name) {
+  selectedFiles = selectedFiles.filter(f => f.name !== name);
+  renderFileList();
+}
+
+function renderFileList() {
+  const list = document.getElementById('file-list');
+  const btn  = document.getElementById('run-btn');
+  const stat = document.getElementById('upload-status');
+  list.innerHTML = selectedFiles.map(f => `
+    <div class="file-item">
+      <span class="file-icon">📄</span>
+      <span class="file-name">${f.name}</span>
+      <span class="file-size">${fmt_size(f.size)}</span>
+      <button class="file-remove" onclick="removeFile('${f.name}')" title="Remove">✕</button>
+    </div>`).join('');
+  btn.disabled = selectedFiles.length === 0;
+  stat.textContent = selectedFiles.length ? `${selectedFiles.length} file(s) ready` : '';
+  updateRunSummary();
+}
+
+// ── Start Analysis ─────────────────────────────────────────────────────────
+async function startAnalysis() {
+  if (selectedFiles.length === 0) return;
+
+  const name = document.getElementById('project-name').value.trim() || 'my_project';
+  const cpus = parseInt(document.getElementById('cpus').value) || 4;
+
+  const fd = new FormData();
+  for (const f of selectedFiles) fd.append('files', f);
+  fd.append('project_name', name);
+  fd.append('cpus', cpus);
+  fd.append('target_genome', document.getElementById('target-genome').value.trim());
+  fd.append('run_bigscape', boolToFlag(document.getElementById('run-bigscape').checked));
+  fd.append('run_crosswalk', boolToFlag(document.getElementById('run-crosswalk').checked));
+  fd.append('run_clinker', boolToFlag(document.getElementById('run-clinker').checked));
+  fd.append('run_ecology_analysis', boolToFlag(document.getElementById('run-ecology').checked));
+  fd.append('ecology_field', document.getElementById('ecology-field').value.trim());
+  fd.append('focus_ecology_label', document.getElementById('focus-ecology-label').value.trim());
+  fd.append('genefinding_mode', document.getElementById('genefinding-mode').value);
+  fd.append('bigscape_mix_mode', document.getElementById('bigscape-mix-mode').value);
+  fd.append('clinker_use_docker_image', boolToFlag(document.getElementById('clinker-use-docker-image').checked));
+  fd.append('clinker_docker_image', document.getElementById('clinker-docker-image').value.trim());
+  fd.append('clinker_docker_data_volume', document.getElementById('clinker-docker-data-volume').value.trim());
+  fd.append('clinker_max_regions', document.getElementById('clinker-max-regions').value || '0');
+  fd.append('atlas_min_records', document.getElementById('atlas-min-records').value || '2');
+  fd.append('shortlist_limit', document.getElementById('shortlist-limit').value || '12');
+  fd.append('max_comparators', document.getElementById('max-comparators').value || '50');
+  fd.append('capture_external_artifacts', boolToFlag(document.getElementById('capture-external-artifacts').checked));
+  fd.append('auto_normalize_metadata', boolToFlag(document.getElementById('auto-normalize-metadata').checked));
+  fd.append('metadata_tsv', document.getElementById('metadata-tsv').value.trim());
+
+  document.getElementById('run-btn').disabled = true;
+  document.getElementById('upload-status').textContent = 'Uploading…';
+
+  try {
+    const resp = await fetch('/api/jobs', { method: 'POST', body: fd });
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.detail || 'Upload failed');
+    }
+    const { job_id } = await resp.json();
+    selectedFiles = [];
+    renderFileList();
+    document.getElementById('upload-status').textContent = '';
+    loadJob(job_id, true);
+    refreshJobHistory();
+  } catch (err) {
+    document.getElementById('upload-status').textContent = '⚠ ' + err.message;
+    document.getElementById('run-btn').disabled = false;
+  }
+}
+
+// ── Job history ────────────────────────────────────────────────────────────
+async function refreshJobHistory() {
+  const resp = await fetch('/api/jobs');
+  if (!resp.ok) return;
+  const jobs = await resp.json();
+  const el = document.getElementById('job-history');
+  if (jobs.length === 0) {
+    el.innerHTML = '<div class="empty-state">No jobs yet. Upload files and run analysis above.</div>';
+    return;
+  }
+  el.innerHTML = jobs.map(j => `
+    <div class="job-card ${j.id === activeJobId ? 'active-job' : ''}" onclick="loadJob('${j.id}')">
+      <div class="job-card-meta">
+        <div class="job-card-name">${j.name}</div>
+        <div class="job-card-id">${j.id} · ${j.stage}</div>
+      </div>
+      ${statusBadge(j.status)}
+      <button class="job-delete" title="Delete" onclick="deleteJob(event,'${j.id}')">🗑</button>
+    </div>`).join('');
+}
+
+function statusBadge(status) {
+  const map = {
+    pending: ['pending','⏳'],
+    running: ['running','⚡'],
+    success: ['success','✅'],
+    failed:  ['failed', '❌'],
+  };
+  const [cls, icon] = map[status] || ['pending','?'];
+  return `<span class="badge badge-${cls}"><span class="badge-dot"></span>${icon} ${status}</span>`;
+}
+
+async function deleteJob(e, jobId) {
+  e.stopPropagation();
+  if (!confirm('Delete this job and all its data?')) return;
+  await fetch('/api/jobs/' + jobId, { method: 'DELETE' });
+  if (activeJobId === jobId) {
+    activeJobId = null;
+    stopPolling();
+    document.getElementById('progress-card').classList.add('hidden');
+    document.getElementById('results-card').classList.add('hidden');
+  }
+  refreshJobHistory();
+}
+
+// ── Load / watch a job ─────────────────────────────────────────────────────
+async function loadJob(jobId, autoScroll = false) {
+  activeJobId = jobId;
+  logCursor   = 0;
+  stopPolling();
+
+  // Show cards
+  document.getElementById('progress-card').classList.remove('hidden');
+  document.getElementById('log-terminal').innerHTML = '';
+  resetStages();
+  refreshJobHistory();
+
+  await pollJobFinal(jobId, autoScroll);
+  if (jobId !== activeJobId) return;
+  pollTimerId = setInterval(() => {
+    pollJobFinal(jobId, autoScroll);
+  }, 1500);
+}
+
+async function pollJobFinal(jobId, autoScroll = false) {
+  const resp = await fetch('/api/jobs/' + jobId);
+  if (!resp.ok) return;
+  const job = await resp.json();
+  // Catch up on any missed log lines
+  const logResp = await fetch(`/api/jobs/${jobId}/logs?since=${logCursor}`);
+  if (logResp.ok) {
+    const { lines } = await logResp.json();
+    for (const line of lines) {
+      appendLogLine(line);
+      updateStageBar(line);
+      logCursor++;
+      if (autoScroll) scrollToBottom();
+    }
+    document.getElementById('log-count').textContent = `${logCursor} lines`;
+  }
+  updateProgressBadge(job.status);
+  if (job.status !== 'running' && job.status !== 'pending') {
+    stopPolling();
+    loadResults(jobId, job.status);
+  }
+  refreshJobHistory();
+}
+
+function stopPolling() {
+  if (pollTimerId) {
+    clearInterval(pollTimerId);
+    pollTimerId = null;
+  }
+}
+
+// ── Log rendering ──────────────────────────────────────────────────────────
+function appendLogLine(text) {
+  const term = document.getElementById('log-terminal');
+  const div  = document.createElement('div');
+  div.className = 'log-line';
+  if (/error|fatal|failed/i.test(text)) div.classList.add('err');
+  else if (/warn/i.test(text)) div.classList.add('warn');
+  else if (/=== stage:/i.test(text)) div.classList.add('stage');
+  else if (/success|complete|finished/i.test(text)) div.classList.add('ok');
+  div.textContent = text;
+  term.appendChild(div);
+}
+
+function clearLog() { document.getElementById('log-terminal').innerHTML = ''; }
+function scrollToBottom() {
+  const t = document.getElementById('log-terminal');
+  t.scrollTop = t.scrollHeight;
+}
+
+// ── Stage bar ──────────────────────────────────────────────────────────────
+function resetStages() {
+  document.querySelectorAll('.stage-step').forEach(s => {
+    s.classList.remove('active','done');
+  });
+}
+
+let currentStageIdx = -1;
+function updateStageBar(line) {
+  for (let i = 0; i < STAGES.length; i++) {
+    if (STAGES[i].match.test(line) && i > currentStageIdx) {
+      // Mark previous stages done
+      for (let j = 0; j < i; j++) {
+        const el = document.querySelector(`.stage-step[data-stage="${STAGES[j].key}"]`);
+        if (el) { el.classList.remove('active'); el.classList.add('done'); }
+      }
+      // Mark current active
+      const el = document.querySelector(`.stage-step[data-stage="${STAGES[i].key}"]`);
+      if (el) { el.classList.add('active'); el.classList.remove('done'); }
+      currentStageIdx = i;
+      break;
+    }
+  }
+}
+
+function updateProgressBadge(status) {
+  const badge = document.getElementById('progress-badge');
+  const map = {
+    success: ['badge-success','✅ Complete'],
+    failed:  ['badge-failed', '❌ Failed'],
+    running: ['badge-running','⚡ Running'],
+    pending: ['badge-pending','⏳ Pending'],
+  };
+  const [cls, label] = map[status] || ['badge-pending', status];
+  badge.className = 'badge ' + cls;
+  badge.innerHTML = `<span class="badge-dot"></span> ${label}`;
+  // Mark all stages done on success
+  if (status === 'success') {
+    document.querySelectorAll('.stage-step').forEach(s => {
+      s.classList.remove('active'); s.classList.add('done');
+    });
+    currentStageIdx = STAGES.length - 1;
+  }
+}
+
+// ── Results ────────────────────────────────────────────────────────────────
+async function loadResults(jobId, status) {
+  const card = document.getElementById('results-card');
+  card.classList.remove('hidden');
+
+  // Update results status badge
+  const rBadge = document.getElementById('results-status');
+  if (status === 'success') {
+    rBadge.className = 'badge badge-success';
+    rBadge.innerHTML = '<span class="badge-dot"></span> ✅ Complete';
+  } else {
+    rBadge.className = 'badge badge-failed';
+    rBadge.innerHTML = '<span class="badge-dot"></span> ❌ Failed';
+  }
+
+  if (status !== 'success') return;
+
+  const resp = await fetch('/api/jobs/' + jobId + '/files');
+  if (!resp.ok) return;
+  const { files } = await resp.json();
+
+  renderViz(jobId, files);
+  renderFileTable(jobId, files);
+}
+
+function renderViz(jobId, files) {
+  const clinkerFile = files.find(f => f.endsWith('.html'));
+  const container = document.getElementById('viz-container');
+  if (clinkerFile) {
+    container.innerHTML = `
+      <div class="flex-gap mt1" style="margin-bottom:.75rem">
+        <a class="btn btn-ghost text-sm" href="/api/jobs/${jobId}/files/${clinkerFile}" target="_blank">
+          ↗ Open in new tab
+        </a>
+        <span class="text-muted text-sm">Interactive clinker BGC synteny visualization</span>
+      </div>
+      <iframe class="viz-frame" src="/api/jobs/${jobId}/files/${clinkerFile}" title="clinker visualization"></iframe>`;
+  } else {
+    container.innerHTML = `
+      <div class="viz-placeholder">
+        <div class="big-icon">⚠️</div>
+        <div>No clinker visualization was produced. This may happen if no BGC regions were detected.</div>
+        <div class="mt1 text-sm text-muted">Check the pipeline logs for details.</div>
+      </div>`;
+  }
+}
+
+function renderFileTable(jobId, files) {
+  const container = document.getElementById('files-container');
+  if (!files.length) {
+    container.innerHTML = '<div class="empty-state">No result files.</div>';
+    return;
+  }
+  const rows = files.map(f => {
+    const parts  = f.split('/');
+    const name   = parts.pop();
+    const dir    = parts.join('/') || '—';
+    const extStr = name.split('.').pop();
+    return `<tr>
+      <td><span class="ext-badge">.${extStr}</span></td>
+      <td><a href="/api/jobs/${jobId}/files/${f}" target="_blank">${name}</a></td>
+      <td class="text-muted text-sm">${dir}</td>
+      <td><a class="btn btn-ghost text-sm" href="/api/jobs/${jobId}/files/${f}" download="${name}">↓</a></td>
+    </tr>`;
+  }).join('');
+  container.innerHTML = `
+    <table class="file-table">
+      <thead><tr><th>Type</th><th>File</th><th>Path</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+refreshJobHistory();
+setInterval(refreshJobHistory, 5000);
+applyPreset('balanced');
+document.getElementById('run-bigscape').addEventListener('change', syncControlState);
+document.getElementById('run-clinker').addEventListener('change', syncControlState);
+document.getElementById('run-ecology').addEventListener('change', syncControlState);
+[
+  'project-name',
+  'cpus',
+  'target-genome',
+  'genefinding-mode',
+  'bigscape-mix-mode',
+  'clinker-use-docker-image',
+  'clinker-docker-image',
+  'clinker-docker-data-volume',
+  'clinker-max-regions',
+  'capture-external-artifacts',
+  'auto-normalize-metadata',
+  'ecology-field',
+  'focus-ecology-label',
+  'metadata-tsv',
+  'atlas-min-records',
+  'shortlist-limit',
+  'max-comparators',
+  'run-crosswalk',
+].forEach((id) => {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.addEventListener('input', updateRunSummary);
+  el.addEventListener('change', updateRunSummary);
+});
+document.getElementById('profile-file-input').addEventListener('change', async (e) => {
+  const status = document.getElementById('profile-load-status');
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const cfg = parseEnvProfile(text);
+    applyEnvProfileValues(cfg);
+    status.textContent = `Loaded profile: ${file.name}`;
+  } catch (err) {
+    status.textContent = `Failed to load profile: ${err.message || err}`;
+  }
+});
+updateRunSummary();
+</script>
+</body>
+</html>

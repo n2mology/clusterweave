@@ -224,6 +224,35 @@ RUN_STAGE_CLINKER=0 bash run_clusterweave.sh
 RUN_CLINKER=0 bash run_clusterweave.sh
 ```
 
+## Container Publishing
+
+This repository includes a GitHub Actions workflow to publish container images to GitHub Container Registry (GHCR):
+
+- Workflow file: `.github/workflows/publish-ghcr.yml`
+- Trigger: git tags matching `v*` (for example `v0.2.0`) and GitHub release publish events
+- Manual trigger: `workflow_dispatch`
+
+Published images:
+
+- `ghcr.io/<owner>/clusterweave-web`
+- `ghcr.io/<owner>/clusterweave-worker`
+
+The web and worker services currently share the same Docker build context and Dockerfile, with behavior selected at runtime via `SERVICE_MODE`.
+
+Example release publish flow:
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+After the workflow completes, pull with:
+
+```bash
+docker pull ghcr.io/<owner>/clusterweave-web:v0.2.0
+docker pull ghcr.io/<owner>/clusterweave-worker:v0.2.0
+```
+
 You can also run individual stages directly:
 
 ```bash

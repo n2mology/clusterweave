@@ -1,0 +1,11 @@
+.git
+.gitignore
+.github
+Data
+Software
+**/__pycache__
+**/.pytest_cache
+**/.ipynb_checkpoints
+*.log
+*.tmp
+*.swp
