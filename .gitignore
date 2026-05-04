@@ -35,3 +35,4 @@ tmp/
 *.hmm
 *.hmm.gz
 accessions_aspergillus.txt
+accessions_dse.txt
