@@ -220,6 +220,52 @@ def ranking_index(rows: list[dict[str, str]]) -> dict[tuple[str, str], dict[str,
     return index
 
 
+def target_region_key(row: dict[str, str]) -> tuple[str, str]:
+    return (clean(row.get("genome")), clean(row.get("antismash_region")))
+
+
+def is_dataset_atlas_target(row: dict[str, str]) -> bool:
+    return clean(row.get("selection_track")) == "dataset_family_atlas" or bool(clean(row.get("atlas_rank")))
+
+
+def target_selection_sort_key(row: dict[str, str]) -> tuple[object, ...]:
+    return (
+        to_int(
+            row.get("shortlist_rank")
+            or row.get("target_rank")
+            or row.get("shared_family_rank")
+            or row.get("atlas_rank")
+            or row.get("rank")
+        ),
+        -to_int(row.get("priority_score")),
+        clean(row.get("genome")),
+        clean(row.get("antismash_region")),
+    )
+
+
+def select_candidate_targets(
+    shortlist_rows: list[dict[str, str]],
+    bucket_column: str,
+    bucket: str,
+    genome: str,
+) -> list[dict[str, str]]:
+    if clean(genome):
+        candidates = [
+            row
+            for row in shortlist_rows
+            if clean(row.get("genome")) == genome and clean(row.get(bucket_column)) == bucket
+        ]
+    else:
+        candidates = [
+            row
+            for row in shortlist_rows
+            if clean(row.get(bucket_column)) == bucket
+            and clean(row.get("genome"))
+            and clean(row.get("antismash_region"))
+        ]
+    return sorted(candidates, key=target_selection_sort_key)
+
+
 def enrich_target_row(target_row: dict[str, str], ranking_row: dict[str, str] | None) -> dict[str, str]:
     if ranking_row is None:
         return dict(target_row)
@@ -640,44 +686,38 @@ def main() -> None:
     existing_manifest_paths = [manifest_path, *args.existing_manifest]
     existing_panel_dirs = load_existing_panel_dirs(args.project_root, existing_manifest_paths)
 
-    if clean(args.genome):
-        selected_targets = [
-            row
-            for row in shortlist_rows
-            if clean(row.get("genome")) == args.genome and clean(row.get(bucket_column)) == args.bucket
-        ]
-    else:
-        selected_targets = [
-            row
-            for row in shortlist_rows
-            if clean(row.get(bucket_column)) == args.bucket
-            and clean(row.get("genome"))
-            and clean(row.get("antismash_region"))
-        ]
-    selected_targets.sort(
-        key=lambda row: (
-            to_int(
-                row.get("shortlist_rank")
-                or row.get("target_rank")
-                or row.get("shared_family_rank")
-                or row.get("atlas_rank")
-                or row.get("rank")
-            ),
-            -to_int(row.get("priority_score")),
-            clean(row.get("genome")),
-            clean(row.get("antismash_region")),
-        )
-    )
-    selected_targets = selected_targets[: args.limit]
+    candidate_targets = select_candidate_targets(shortlist_rows, bucket_column, args.bucket, args.genome)
 
     panel_rows: list[dict[str, object]] = []
     panel_dirs: list[Path] = []
     used_panel_names: set[str] = set()
+    seen_target_keys: set[tuple[str, str]] = set()
+    covered_atlas_region_keys: set[tuple[str, str]] = set()
+    attempted_targets = 0
 
-    for target_row in selected_targets:
+    for target_row in candidate_targets:
+        raw_target_key = target_region_key(target_row)
+        if raw_target_key[0] and raw_target_key[1] and raw_target_key in seen_target_keys:
+            continue
+        if raw_target_key[0] and raw_target_key[1]:
+            seen_target_keys.add(raw_target_key)
+
         antismash_region = clean(target_row.get("antismash_region"))
         target_key = (clean(target_row.get("genome")), antismash_region)
         target_row = enrich_target_row(target_row, ranking_by_target.get(target_key))
+        enriched_target_key = target_region_key(target_row)
+        atlas_target = not clean(args.genome) and is_dataset_atlas_target(target_row)
+        if (
+            atlas_target
+            and enriched_target_key[0]
+            and enriched_target_key[1]
+            and enriched_target_key in covered_atlas_region_keys
+        ):
+            continue
+        if attempted_targets >= args.limit:
+            break
+        attempted_targets += 1
+
         shortlist_rank = to_int(
             target_row.get("shortlist_rank")
             or target_row.get("target_rank")
@@ -720,6 +760,13 @@ def main() -> None:
             max_other_ecology=args.max_other_ecology,
             max_comparators=args.max_comparators,
         )
+        if atlas_target:
+            if enriched_target_key[0] and enriched_target_key[1]:
+                covered_atlas_region_keys.add(enriched_target_key)
+            for comparator in comparators:
+                comparator_key = target_region_key(comparator)
+                if comparator_key[0] and comparator_key[1]:
+                    covered_atlas_region_keys.add(comparator_key)
 
         mibig_accessions = extract_mibig_accessions(
             clean(target_row.get("nearest_mibig_or_annotation_if_available")),

@@ -118,6 +118,45 @@ def atlas_candidate_sort_key(row: dict[str, str]) -> tuple[object, ...]:
     )
 
 
+def region_key_from_row(row: dict[str, object]) -> tuple[str, str]:
+    return (clean(row.get("genome")), clean(row.get("antismash_region")))
+
+
+def assign_atlas_review_buckets(
+    shortlist_rows: list[dict[str, object]],
+    candidate_regions_by_cc: dict[str, set[tuple[str, str]]],
+    stage_limit: int,
+    min_records: int,
+) -> None:
+    staged_count = 0
+    covered_regions: set[tuple[str, str]] = set()
+
+    for idx, row in enumerate(shortlist_rows, start=1):
+        row["atlas_rank"] = idx
+        representative_key = region_key_from_row(row)
+        cc_regions = {
+            key
+            for key in candidate_regions_by_cc.get(clean(row.get("bigscape_cc")), set())
+            if key[0] and key[1]
+        }
+        if representative_key[0] and representative_key[1]:
+            cc_regions.add(representative_key)
+
+        is_new_representative = not (
+            representative_key[0] and representative_key[1] and representative_key in covered_regions
+        )
+        should_stage = (
+            staged_count < stage_limit
+            and to_int(row.get("shared_cc_record_count")) >= min_records
+            and is_new_representative
+        )
+        row["manual_review_bucket"] = "atlas_now" if should_stage else "atlas_context"
+
+        if should_stage:
+            staged_count += 1
+            covered_regions.update(cc_regions)
+
+
 def build_safe_claim_text(row: dict[str, object]) -> str:
     genome = clean(row.get("genome")) or "unresolved genome"
     region = clean(row.get("antismash_region")) or "unresolved region"
@@ -158,7 +197,7 @@ def write_markdown_summary(
         f"- `atlas_now`: `{len(stage_rows)}`",
         f"- `atlas_context`: `{len(context_rows)}`",
         "",
-        f"Top `{stage_limit}` rows are marked `atlas_now` for clinker staging.",
+        f"Up to `{stage_limit}` nonredundant rows are marked `atlas_now` for clinker staging.",
         "",
         "## Atlas-Now Families",
         "",
@@ -336,6 +375,7 @@ def main() -> None:
 
     global_rows: list[dict[str, object]] = []
     shortlist_rows: list[dict[str, object]] = []
+    candidate_regions_by_cc: dict[str, set[tuple[str, str]]] = {}
 
     sorted_ccs = sorted(
         cc_stats.items(),
@@ -348,6 +388,7 @@ def main() -> None:
     )
 
     for cc_rank, (cc, info) in enumerate(sorted_ccs, start=1):
+        candidate_regions_by_cc[cc] = set(info["candidate_regions"])
         primary_category, primary_families = preferred_family_source(info["families_by_category"])
         primary_family_text = ";".join(primary_families)
         all_family_text = join_sorted(info["families_all"])
@@ -444,13 +485,8 @@ def main() -> None:
         )
     )
 
-    for idx, row in enumerate(shortlist_rows, start=1):
-        row["atlas_rank"] = idx
-        row["manual_review_bucket"] = (
-            "atlas_now"
-            if idx <= args.stage_limit and to_int(row.get("shared_cc_record_count")) >= args.min_records
-            else "atlas_context"
-        )
+    assign_atlas_review_buckets(shortlist_rows, candidate_regions_by_cc, args.stage_limit, args.min_records)
+    for row in shortlist_rows:
         row["safe_claim_text"] = build_safe_claim_text(row)
 
     write_tsv(
