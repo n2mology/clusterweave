@@ -64,6 +64,15 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn('re.sub(r"\\.\\d+$", "", scaf)', text)
         self.assertIn('return scaf.rstrip(".")', text)
 
+    def test_summary_counts_hybrid_bgcs_once(self) -> None:
+        text = (REPO_ROOT / "summarize_clusterweave.sh").read_text(encoding="utf-8")
+        self.assertIn("def summary_bgc_class", text)
+        self.assertIn('if len(primary) > 1: return "Hybrid"', text)
+        self.assertIn("a_class[summary_bgc_class(classes)]+=1", text)
+        self.assertIn("f_class[summary_bgc_class(classes)]+=1", text)
+        self.assertNotIn("a_summary_class", text)
+        self.assertNotIn("f_summary_class", text)
+
     def test_wrapper_supports_clinker_stage(self) -> None:
         text = (REPO_ROOT / "run_clusterweave.sh").read_text(encoding="utf-8")
         self.assertIn('RUN_STAGE_CLINKER="${RUN_STAGE_CLINKER:-auto}"', text)
@@ -120,8 +129,11 @@ class RepoLayoutTests(unittest.TestCase):
 
     def test_render_summary_figures_focuses_on_core_summary_outputs(self) -> None:
         text = (REPO_ROOT / "bin" / "render_summary_figures.R").read_text(encoding="utf-8")
-        self.assertIn("bgc_calls_by_tool_category.png", text)
-        self.assertIn("shared_vs_unshared_bgc_calls.png", text)
+        self.assertIn("bgc_calls_by_tool_category.svg", text)
+        self.assertIn("total ~ class_norm + genome + tool", text)
+        self.assertIn("BGC calls by genome and tool", text)
+        self.assertNotIn("shared_vs_unshared_bgc_calls", text)
+        self.assertNotIn("plot_shared_unshared", text)
         self.assertNotIn("plot_priority_scores", text)
         self.assertNotIn("ranking_path", text)
 

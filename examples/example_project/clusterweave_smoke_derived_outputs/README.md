@@ -19,10 +19,8 @@ protein translations, staged clinker inputs, or full third-party result trees.
 - `summary/ecofun_metadata_normalized.tsv`
   - accession/genome metadata scaffold with intentionally blank ecology fields
     so readers can see how optional ecology labels can be added
-- `figures/bgc_calls_by_tool_category.png`
-  - rendered summary plot from the aggregate table
-- `figures/shared_vs_unshared_bgc_calls.png`
-  - rendered shared-versus-unshared BGC summary plot
+- `figures/bgc_calls_by_tool_category.svg`
+  - rendered per-genome, per-tool summary plot from the aggregate table
 
 ## Excluded
 
@@ -44,6 +42,6 @@ resources.
 The atlas shortlist is the best single example output because it shows the
 workflow's practical review surface: family context, consensus support,
 annotation hints, ranking, and conservative safe-claim text. The aggregate
-summary table and PNG figures show how the workflow can be summarized without
+summary table and figures show how the workflow can be summarized without
 exposing sequence data. The blank ecology metadata file is included on purpose
 as a template-like example for users who want to enable ecology-aware ranking.

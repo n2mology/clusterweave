@@ -176,8 +176,27 @@ bash run_figures.sh
 ```
 
 `run_figures.sh` uses `Rscript` and will also try common Windows `Rscript.exe` locations from Bash/WSL. If needed, set `R_BIN` explicitly.
+When BiG-SCAPE outputs are present, the same command also renders a user-facing BiG-SCAPE record network by default:
 
-The figure layer is driven by the condensed BGC categories used in the summary tables:
+- `Data/Results/<project-name>/figures/bigscape_network.svg`
+- `Data/Results/<project-name>/figures/bigscape_network.graphml`
+- `Data/Results/<project-name>/figures/bigscape_network_node_attributes.tsv`
+- `Data/Results/<project-name>/figures/bigscape_network_fungal_id_legend.tsv`
+
+The network uses numbered node labels for fungal/sample IDs, node fill for BGC class, ecology-colored borders from metadata, a blue outer ring for MiBIG reference GBKs, and a small blue dot for the best representative dataset record with a MiBIG-style BGC accession hit in each accession/family group. Connected components are labeled with concise putative product names above antiSMASH ClusterCompare confidence percentages when ClusterWeave summary annotations provide them. The default metadata table is `summary_tables/ecofun_metadata_normalized.tsv`; generic user metadata with `sample_id` or `fungal_id` plus `ecology_category` is also accepted. If all ecology labels are blank, unknown, or unlabeled, the ecology border channel is omitted instead of drawing a redundant gray ring.
+
+```bash
+python bin/render_bigscape_network.py \
+  --project-root . \
+  --project-name your_project \
+  --metadata your_ecology_metadata.tsv \
+  --ecology-field ecology_category \
+  --formats svg,graphml,png
+```
+
+PNG/PDF export is optional and uses `cairosvg` when it is installed; SVG and GraphML do not require extra Python plotting packages. Set `RUN_BIGSCAPE_NETWORK_FIGURE=0` to skip this figure from `run_figures.sh`, or use `FORCE=1` to refresh existing network outputs. `BIGSCAPE_NETWORK_FORMATS`, `BIGSCAPE_NETWORK_DISTANCE_THRESHOLD`, `BIGSCAPE_NETWORK_SIMILARITY_THRESHOLD`, `BIGSCAPE_NETWORK_MAX_NODES`, `BIGSCAPE_NETWORK_MAX_COMPONENTS`, and `BIGSCAPE_NETWORK_CANVAS_WIDTH` support readability-focused runs. `BIGSCAPE_NETWORK_ANNOTATION_TABLE` can point to a custom table with `bigscape_record`, MiBIG BGC accession annotations, and product labels. MiBIG-only reference families are omitted by default; set `BIGSCAPE_NETWORK_INCLUDE_MIBIG_ONLY=1` only when you intentionally want the full MiBIG reference context.
+
+The summary bar-chart layer is driven by the condensed BGC categories used in the summary tables:
 
 - `NRP`
 - `PKS`
