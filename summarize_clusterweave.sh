@@ -112,6 +112,14 @@ def join_classes(cls):
     order=["NRPS","PKS","terpene","RiPP","indole","alkaloid","saccharide","other"]
     return ";".join([c for c in order if c in cls] + sorted([c for c in cls if c not in set(order)]))
 
+def summary_bgc_class(cls):
+    if not cls: return "other"
+    primary_order=["NRPS","PKS","RiPP","terpene"]
+    primary=[c for c in primary_order if c in cls]
+    if len(primary) > 1: return "Hybrid"
+    if primary: return primary[0]
+    return "other"
+
 def counter_to_text(c):
     return "" if not c else ";".join([f"{k}:{c[k]}" for k in sorted(c)])
 
@@ -270,10 +278,12 @@ for genome in all_genomes:
         a_rows=anti_by.get(scaf,[]); f_rows=fun_by.get(scaf,[])
         a_class=Counter(); f_class=Counter(); a_prod=Counter(); f_prod=Counter()
         for r in a_rows:
-            for c in (r['classes'] or {'other'}): a_class[c]+=1
+            classes = r['classes'] or {'other'}
+            a_class[summary_bgc_class(classes)]+=1
             if r.get('known_product'): a_prod[canon_term(r['known_product'])]+=1
         for r in f_rows:
-            for c in (r['classes'] or {'other'}): f_class[c]+=1
+            classes = r['classes'] or {'other'}
+            f_class[summary_bgc_class(classes)]+=1
             if r.get('metabolite'): f_prod[canon_term(r['metabolite'])]+=1
         scaffold_rows.append({
             'genome':genome,'scaffold':scaf,

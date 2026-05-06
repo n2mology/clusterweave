@@ -20,6 +20,7 @@ Python helper responsibilities:
 - `build_bgc_gcf_crosswalk.py`: join summary outputs to BiG-SCAPE families
 - `build_candidate_tables.py`: optional ecology-aware ranking and reviewer shortlist generation
 - `export_dataset_family_atlas.py`: dataset-wide BiG-SCAPE family atlas export for no-target clinker staging
+- `render_bigscape_network.py`: BiG-SCAPE record network SVG and Cytoscape GraphML export
 - `export_priority_shortlist.py`: target-genome shortlist extraction
 - `export_shared_family_shortlist.py`: shared-family shortlist extraction
 - `stage_clinker_panels.py`: comparator selection and panel staging
