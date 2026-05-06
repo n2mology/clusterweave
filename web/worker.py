@@ -8,10 +8,40 @@ import time
 from pathlib import Path
 from typing import Any
 
-from job_store import QUEUE_DIR, now_iso, read_job, read_logs, write_job, write_logs
-from pipeline import Job, JobStatus, run_pipeline
+try:
+    from job_store import DATA_DIR, QUEUE_DIR, now_iso, read_job, read_logs, write_job, write_logs
+    from canonical_pipeline import Job, JobStatus, run_pipeline
+except ImportError:  # pragma: no cover - package-style imports in local tests
+    from .job_store import DATA_DIR, QUEUE_DIR, now_iso, read_job, read_logs, write_job, write_logs
+    from .canonical_pipeline import Job, JobStatus, run_pipeline
 
 POLL_SECONDS = float(os.environ.get("WORKER_POLL_SECONDS", "1.0"))
+WORKER_DIR = DATA_DIR / "worker"
+WORKER_STATUS_PATH = WORKER_DIR / "status.json"
+
+
+def state_progress(state: str) -> int:
+    return {
+        "bootstrapping": 0,
+        "ready": 100,
+        "idle": 100,
+        "processing": 100,
+        "error": 100,
+    }.get(state, 0)
+
+
+def write_worker_status(state: str, detail: str = "", substep: str = "") -> None:
+    WORKER_DIR.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "ready": state in {"ready", "idle", "processing"},
+        "state": state,
+        "phase": state,
+        "progress": state_progress(state),
+        "detail": detail,
+        "substep": substep,
+        "updated_at": now_iso(),
+    }
+    WORKER_STATUS_PATH.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
 
 def claim_next_job() -> tuple[str, int, dict[str, Any]] | None:
@@ -54,6 +84,8 @@ def build_job_from_meta(meta: dict) -> Job:
         log_lines=read_logs(str(meta["id"])),
         result_files=list(meta.get("result_files", [])),
         error=meta.get("error"),
+        project_name=str(meta.get("project_name", "")),
+        result_root=str(meta.get("result_root", "")),
     )
     return job
 
@@ -100,15 +132,19 @@ async def process_one(job_id: str, cpus: int, queued_settings: dict[str, Any]) -
 
 def main() -> None:
     print("ClusterWeave worker started.")
+    write_worker_status("ready", "Worker loop started")
     while True:
         claim = claim_next_job()
         if claim is None:
+            write_worker_status("idle", "Waiting for queued jobs")
             time.sleep(POLL_SECONDS)
             continue
 
         job_id, cpus, settings = claim
+        write_worker_status("processing", f"Processing job {job_id}")
         try:
             asyncio.run(process_one(job_id, cpus, settings))
+            write_worker_status("idle", "Waiting for queued jobs")
         except Exception as exc:
             meta = read_job(job_id)
             if meta is not None:
@@ -117,6 +153,7 @@ def main() -> None:
                 job.error = str(exc)
                 job.add_log(f"FATAL: {exc}")
                 persist_job(job, cpus, settings)
+            write_worker_status("error", str(exc))
 
 
 if __name__ == "__main__":

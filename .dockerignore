@@ -2,7 +2,9 @@
 .gitignore
 .github
 Data
-Software
+Software/*
+!Software/funbgcex
+!Software/funbgcex/**
 **/__pycache__
 **/.pytest_cache
 **/.ipynb_checkpoints

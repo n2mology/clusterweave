@@ -237,7 +237,15 @@ Published images:
 - `ghcr.io/<owner>/clusterweave-web`
 - `ghcr.io/<owner>/clusterweave-worker`
 
-The web and worker services currently share the same Docker build context and Dockerfile, with behavior selected at runtime via `SERVICE_MODE`.
+Tagged releases also publish `latest`. The end-user compose file defaults to that tag; set `CLUSTERWEAVE_IMAGE_TAG=v0.2.0` to pin a specific release.
+
+The web and worker services share the same Docker build context but use separate Dockerfiles:
+
+- `Dockerfile.web` builds the lightweight public web/API service.
+- `Dockerfile.worker` builds the job worker with the canonical ClusterWeave shell entrypoints and helper scripts available under `/clusterweave`.
+
+The worker now treats the web app as a controller around the canonical shell workflow instead of maintaining a second implementation of the scientific pipeline in the UI layer.
+Long term, heavy stages such as BiG-SCAPE, clinker, and NPLinker can be split into dedicated worker images while keeping the web/API service as the controller and the canonical shell scripts as the source of truth.
 
 Example release publish flow:
 
@@ -251,6 +259,19 @@ After the workflow completes, pull with:
 ```bash
 docker pull ghcr.io/<owner>/clusterweave-web:v0.2.0
 docker pull ghcr.io/<owner>/clusterweave-worker:v0.2.0
+```
+
+Then run the published web and worker images together using the end-user compose file:
+
+```bash
+docker compose -f clusterweave.yml up -d
+```
+
+Useful follow-ups:
+
+```bash
+docker compose -f clusterweave.yml logs -f
+docker compose -f clusterweave.yml down
 ```
 
 You can also run individual stages directly:

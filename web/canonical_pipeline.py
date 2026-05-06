@@ -1,0 +1,532 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import asyncio
+import os
+import re
+import shutil
+import zipfile
+from dataclasses import dataclass, field
+from datetime import datetime
+from enum import Enum
+from pathlib import Path
+from typing import Any, Callable, Optional
+
+
+DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
+CLUSTERWEAVE_ROOT = Path(os.environ.get("CLUSTERWEAVE_ROOT", "/clusterweave"))
+GLOBAL_SOFTWARE_ROOT = Path(os.environ.get("CLUSTERWEAVE_SOFTWARE_ROOT", str(DATA_DIR / "software")))
+
+GENOME_EXTS = {".gbk", ".gb", ".gbff", ".fasta", ".fa", ".fna", ".fsa"}
+ACCESSION_EXTS = {".txt", ".tsv", ".csv"}
+METADATA_EXTS = {".tsv", ".csv"}
+ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+class JobStatus(str, Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCESS = "success"
+    FAILED = "failed"
+
+
+@dataclass
+class Job:
+    id: str
+    name: str
+    status: JobStatus = JobStatus.PENDING
+    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    stage: str = "queued"
+    log_lines: list[str] = field(default_factory=list)
+    result_files: list[str] = field(default_factory=list)
+    error: Optional[str] = None
+    project_name: str = ""
+    result_root: str = ""
+    on_change: Optional[Callable[[], None]] = field(default=None, repr=False, compare=False)
+
+    def add_log(self, line: str) -> None:
+        ts = datetime.now().strftime("%H:%M:%S")
+        self.log_lines.append(f"[{ts}] {line}")
+        self.updated_at = datetime.now().isoformat()
+        if self.on_change:
+            self.on_change()
+
+    def set_stage(self, stage: str) -> None:
+        self.stage = stage
+        self.add_log(f"=== Stage: {stage} ===")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "status": self.status.value,
+            "stage": self.stage,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+            "log_count": len(self.log_lines),
+            "result_files": self.result_files,
+            "error": self.error,
+            "project_name": self.project_name,
+            "result_root": self.result_root,
+        }
+
+
+@dataclass
+class ProjectLayout:
+    project_name: str
+    repo_root: Path
+    data_root: Path
+    genome_root: Path
+    results_root: Path
+    software_root: Path
+    work_root: Path
+    downloads_root: Path
+    accession_file: Optional[Path] = None
+    metadata_file: Optional[Path] = None
+    nplinker_gnps_dir: Optional[Path] = None
+    nplinker_strain_mapping: Optional[Path] = None
+    genome_inputs: list[Path] = field(default_factory=list)
+
+
+async def _stream_cmd(cmd: list[str], cwd: Path, job: Job, env: dict[str, str]) -> int:
+    job.add_log(f"$ {' '.join(str(item) for item in cmd)}")
+    proc_env = {**os.environ, **env}
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *[str(item) for item in cmd],
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=str(cwd),
+            env=proc_env,
+        )
+        assert proc.stdout is not None
+        async for raw_line in proc.stdout:
+            line = raw_line.decode("utf-8", errors="replace").rstrip()
+            if line:
+                job.add_log(line)
+        return await proc.wait()
+    except FileNotFoundError as exc:
+        job.add_log(f"ERROR: command not found: {exc}")
+        return 127
+
+
+async def _run_required_stage(job: Job, stage: str, cmd: list[str], cwd: Path, env: dict[str, str]) -> None:
+    job.set_stage(stage)
+    rc = await _stream_cmd(cmd, cwd=cwd, job=job, env=env)
+    if rc != 0:
+        raise RuntimeError(f"{stage} failed with exit code {rc}")
+
+
+async def _run_optional_stage(job: Job, stage: str, cmd: list[str], cwd: Path, env: dict[str, str]) -> bool:
+    job.set_stage(stage)
+    rc = await _stream_cmd(cmd, cwd=cwd, job=job, env=env)
+    if rc != 0:
+        job.add_log(f"WARN: optional stage '{stage}' failed with exit code {rc}; continuing.")
+        return False
+    return True
+
+
+def _safe_project_name(value: str) -> str:
+    value = (value or "my_project").strip()
+    value = re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("._-")
+    return value or "my_project"
+
+
+def _cfg_bool(settings: dict[str, Any], key: str, default: bool) -> bool:
+    value = settings.get(key, default)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        if value.strip() == "":
+            return default
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+def _cfg_int(settings: dict[str, Any], key: str, default: int) -> int:
+    value = settings.get(key, default)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _cfg_str(settings: dict[str, Any], key: str, default: str = "") -> str:
+    value = settings.get(key, default)
+    return str(value).strip() if value is not None else default
+
+
+def _first_noncomment_line(path: Path) -> str:
+    try:
+        with path.open("r", encoding="utf-8", errors="ignore") as handle:
+            for raw in handle:
+                line = raw.strip()
+                if line and not line.startswith("#"):
+                    return line
+    except OSError:
+        return ""
+    return ""
+
+
+def _looks_like_accession_file(path: Path) -> bool:
+    if path.suffix.lower() not in ACCESSION_EXTS:
+        return False
+    if "accession" in path.name.lower():
+        return True
+    first = _first_noncomment_line(path)
+    if not first:
+        return False
+    token = re.split(r"[\s,]+", first)[0]
+    return bool(re.match(r"^(GC[AF]_|NZ_|GCA_|GCF_)[A-Za-z0-9_.-]+$", token))
+
+
+def _looks_like_metadata_file(path: Path) -> bool:
+    if path.suffix.lower() not in METADATA_EXTS:
+        return False
+    name = path.name.lower()
+    if any(token in name for token in ["metadata", "ecofun", "ecology"]):
+        return True
+    first = _first_noncomment_line(path).lower()
+    return "genome_id_current" in first and "ecofun" in first
+
+
+def _looks_like_strain_mapping(path: Path) -> bool:
+    return path.suffix.lower() == ".json" and "strain" in path.name.lower() and "mapping" in path.name.lower()
+
+
+def _copy_unique(src: Path, dest_dir: Path, dest_name: str | None = None) -> Path:
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    target = dest_dir / (dest_name or src.name)
+    if not target.exists():
+        shutil.copy2(src, target)
+        return target
+    stem = target.stem
+    suffix = target.suffix
+    idx = 2
+    while True:
+        candidate = dest_dir / f"{stem}_{idx}{suffix}"
+        if not candidate.exists():
+            shutil.copy2(src, candidate)
+            return candidate
+        idx += 1
+
+
+def _safe_extract_zip(src: Path, dest_dir: Path) -> None:
+    dest_root = dest_dir.resolve()
+    with zipfile.ZipFile(src) as archive:
+        for member in archive.infolist():
+            if member.is_dir():
+                continue
+            target = (dest_dir / member.filename).resolve()
+            if dest_root not in target.parents and target != dest_root:
+                raise ValueError(f"Unsafe path in zip archive: {member.filename}")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with archive.open(member) as source, target.open("wb") as output:
+                shutil.copyfileobj(source, output)
+
+
+def _stage_uploaded_inputs(input_files: list[Path], layout: ProjectLayout, settings: dict[str, Any], job: Job) -> None:
+    layout.genome_root.mkdir(parents=True, exist_ok=True)
+    (layout.results_root / "summary_tables").mkdir(parents=True, exist_ok=True)
+    nplinker_upload_root = layout.work_root / "nplinker_uploads"
+    gnps_root = nplinker_upload_root / "gnps"
+    explicit_metadata = _cfg_str(settings, "metadata_tsv")
+
+    for src in input_files:
+        suffix = src.suffix.lower()
+        if suffix in GENOME_EXTS:
+            copied = _copy_unique(src, layout.genome_root)
+            layout.genome_inputs.append(copied)
+            job.add_log(f"Staged genome input: {copied.relative_to(layout.data_root)}")
+            continue
+        if _looks_like_accession_file(src) and layout.accession_file is None:
+            copied = _copy_unique(src, layout.downloads_root, "accessions.txt")
+            layout.accession_file = copied
+            job.add_log(f"Staged accession list: {copied.relative_to(layout.data_root.parent)}")
+            continue
+        if _looks_like_metadata_file(src) and layout.metadata_file is None:
+            dest_name = Path(explicit_metadata).name if explicit_metadata else "ecofun_metadata_normalized.tsv"
+            copied = _copy_unique(src, layout.results_root / "summary_tables", dest_name)
+            layout.metadata_file = copied
+            job.add_log(f"Staged ecology metadata: {copied.relative_to(layout.data_root)}")
+            continue
+        if _looks_like_strain_mapping(src):
+            copied = _copy_unique(src, nplinker_upload_root, "strain_mappings.json")
+            layout.nplinker_strain_mapping = copied
+            job.add_log(f"Staged NPLinker strain mapping: {copied.relative_to(layout.data_root.parent)}")
+            continue
+        if suffix == ".mgf":
+            copied = _copy_unique(src, gnps_root)
+            layout.nplinker_gnps_dir = gnps_root
+            job.add_log(f"Staged NPLinker GNPS asset: {copied.relative_to(layout.data_root.parent)}")
+            continue
+        if suffix == ".zip" and "gnps" in src.name.lower():
+            target_dir = gnps_root / src.stem
+            target_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                _safe_extract_zip(src, target_dir)
+                layout.nplinker_gnps_dir = gnps_root
+                job.add_log(f"Extracted NPLinker GNPS archive: {target_dir.relative_to(layout.data_root.parent)}")
+            except (zipfile.BadZipFile, ValueError) as exc:
+                copied = _copy_unique(src, layout.downloads_root / "unclassified")
+                job.add_log(f"WARN: GNPS archive could not be extracted ({exc}); kept as auxiliary upload: {copied.relative_to(layout.data_root.parent)}")
+            continue
+        copied = _copy_unique(src, layout.downloads_root / "unclassified")
+        job.add_log(f"Kept auxiliary upload: {copied.relative_to(layout.data_root.parent)}")
+
+
+def _parse_raw_env(raw: str) -> dict[str, str]:
+    overrides: dict[str, str] = {}
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if ENV_KEY_RE.match(key):
+            overrides[key] = value.strip().strip("\"'")
+    return overrides
+
+
+def _base_env(layout: ProjectLayout, settings: dict[str, Any], cpus: int) -> dict[str, str]:
+    threads = _cfg_int(settings, "threads", cpus)
+    env = {
+        "PROJECT_DIR": str(layout.repo_root),
+        "PROJECT_ROOT": str(layout.repo_root),
+        "PROJECTS_ROOT": str(layout.data_root.parent),
+        "PROJECT_NAME": layout.project_name,
+        "DATA_ROOT": str(layout.data_root),
+        "RESULTS_BASE": str(layout.data_root / "Results"),
+        "RESULTS_ROOT": str(layout.results_root),
+        "GENOMES_ROOT": str(layout.data_root / "Genomes" / "Fungi"),
+        "GENOME_ROOT": str(layout.genome_root),
+        "SOFTWARE_ROOT": str(layout.software_root),
+        "TOOLS_ROOT": str(layout.software_root),
+        "WORK_ROOT": str(layout.work_root),
+        "ANTISMASH_DB_DIR": os.environ.get("ANTISMASH_DB_DIR", "/databases/antismash"),
+        "PFAM_DIR": os.environ.get("PFAM_DIR", str(layout.software_root / "big_scape" / "resources" / "pfam")),
+        "PFAM_HMM": str(Path(os.environ.get("PFAM_DIR", str(layout.software_root / "big_scape" / "resources" / "pfam"))) / "Pfam-A.hmm"),
+        "NCBI_CLI_ROOT": str(layout.software_root / "ncbi_cli"),
+        "INSTALL_DIR": str(layout.software_root / "ncbi_cli"),
+        "CPUS": str(cpus),
+        "THREADS": str(threads),
+        "ANNO_CPUS": str(_cfg_int(settings, "anno_cpus", cpus)),
+        "WORKERS": str(_cfg_int(settings, "workers", 2)),
+        "FORCE": "1" if _cfg_bool(settings, "force", False) else "0",
+        "TARGET_GENOME": _cfg_str(settings, "target_genome"),
+        "CLINKER_MODE": _cfg_str(settings, "clinker_mode", "auto") or "auto",
+        "PANEL_TARGET_SET": _cfg_str(settings, "panel_target_set", "both") or "both",
+        "RUN_STAGE_ANNOTATION": "1" if _cfg_bool(settings, "run_annotation", True) else "0",
+        "RUN_STAGE_BIGSCAPE": "1" if _cfg_bool(settings, "run_bigscape", True) else "0",
+        "RUN_STAGE_SUMMARY": "1" if _cfg_bool(settings, "run_summary", _cfg_bool(settings, "run_crosswalk", True)) else "0",
+        "RUN_STAGE_CLINKER": "1" if _cfg_bool(settings, "run_clinker", True) else "0",
+        "RUN_CLINKER": "1" if _cfg_bool(settings, "execute_clinker", _cfg_bool(settings, "run_clinker", True)) else "0",
+        "RUN_ECOLOGY_ANALYSIS": "1" if _cfg_bool(settings, "run_ecology_analysis", False) else "0",
+        "ECOLOGY_FIELD": _cfg_str(settings, "ecology_field", "ecofun_primary") or "ecofun_primary",
+        "FOCUS_ECOLOGY_LABEL": _cfg_str(settings, "focus_ecology_label"),
+        "AUTO_NORMALIZE_METADATA": "1" if _cfg_bool(settings, "auto_normalize_metadata", True) else "0",
+        "CAPTURE_EXTERNAL_ARTIFACTS": "1" if _cfg_bool(settings, "capture_external_artifacts", True) else "0",
+        "ATLAS_STAGE_LIMIT": str(_cfg_int(settings, "atlas_stage_limit", _cfg_int(settings, "shortlist_limit", 12))),
+        "ATLAS_MIN_RECORDS": str(_cfg_int(settings, "atlas_min_records", 2)),
+        "SHORTLIST_LIMIT": str(_cfg_int(settings, "shortlist_limit", 12)),
+        "SHARED_FAMILY_STAGE_LIMIT": str(_cfg_int(settings, "shared_family_stage_limit", _cfg_int(settings, "shortlist_limit", 12))),
+        "SHARED_FAMILY_MIN_RECORDS": str(_cfg_int(settings, "shared_family_min_records", 4)),
+        "MAX_COMPARATORS": str(_cfg_int(settings, "max_comparators", 50)),
+        "MAX_SAME_ECOLOGY": str(_cfg_int(settings, "max_same_ecology", 20)),
+        "MAX_OTHER_ECOLOGY": str(_cfg_int(settings, "max_other_ecology", 20)),
+        "AUTO_PULL_IMAGES": _cfg_str(settings, "auto_pull_images", os.environ.get("AUTO_PULL_IMAGES", "always")) or "always",
+        "AUTO_BUILD_FUNBGCEX_SIF": "1" if _cfg_bool(settings, "auto_build_funbgcex_sif", True) else "0",
+        "AUTO_PULL_BIGSCAPE_SIF": "1" if _cfg_bool(settings, "auto_pull_bigscape_sif", True) else "0",
+        "AUTO_DOWNLOAD_PFAM": "1" if _cfg_bool(settings, "auto_download_pfam", True) else "0",
+        "AUTO_DOWNLOAD_FASTTREE": "1" if _cfg_bool(settings, "auto_download_fasttree", True) else "0",
+        "MIBIG_AUTO_DOWNLOAD": "1" if _cfg_bool(settings, "mibig_auto_download", True) else "0",
+    }
+    if layout.accession_file is not None:
+        env["ACCESSIONS_FILE"] = str(layout.accession_file)
+    if layout.metadata_file is not None:
+        env["METADATA_TSV"] = str(layout.metadata_file)
+    if layout.nplinker_gnps_dir is not None:
+        env["LOCAL_GNPS_DIR"] = str(layout.nplinker_gnps_dir)
+    if layout.nplinker_strain_mapping is not None:
+        env["LOCAL_STRAIN_MAPPING"] = str(layout.nplinker_strain_mapping)
+    if _cfg_str(settings, "annotation_fallback_order"):
+        env["ANNOTATION_FALLBACK_ORDER"] = _cfg_str(settings, "annotation_fallback_order")
+    if _cfg_bool(settings, "braker3_enabled", False):
+        env["BRAKER3_ENABLED"] = "1"
+    if _cfg_str(settings, "funannotate_busco_db"):
+        env["FUNANNOTATE_BUSCO_DB"] = _cfg_str(settings, "funannotate_busco_db")
+    if _cfg_str(settings, "funannotate_organism_name"):
+        env["FUNANNOTATE_ORGANISM_NAME"] = _cfg_str(settings, "funannotate_organism_name")
+    if _cfg_str(settings, "nplinker_podp_id"):
+        env["PODP_ID"] = _cfg_str(settings, "nplinker_podp_id")
+    if _cfg_str(settings, "massive_dataset_id"):
+        env["MASSIVE_DATASET_ID"] = _cfg_str(settings, "massive_dataset_id")
+    if _cfg_str(settings, "gnps_version"):
+        env["GNPS_VERSION"] = _cfg_str(settings, "gnps_version")
+    if "auto_pull_nplinker_sif" in settings:
+        env["AUTO_PULL_NPLINKER_SIF"] = "1" if _cfg_bool(settings, "auto_pull_nplinker_sif", True) else "0"
+    if "nplinker_bootstrap_env" in settings:
+        env["NPLINKER_BOOTSTRAP_ENV"] = "1" if _cfg_bool(settings, "nplinker_bootstrap_env", True) else "0"
+    env.update(_parse_raw_env(_cfg_str(settings, "env_overrides")))
+    return env
+
+
+def _script(layout: ProjectLayout, name: str) -> Path:
+    path = layout.repo_root / name
+    if not path.exists():
+        raise FileNotFoundError(f"Missing ClusterWeave script: {path}")
+    return path
+
+
+def _has_genome_inputs(layout: ProjectLayout) -> bool:
+    return any(path.is_file() for path in layout.genome_root.glob("*") if path.suffix.lower() in GENOME_EXTS)
+
+
+def _collect_result_files(job: Job, job_dir: Path, layout: ProjectLayout) -> None:
+    job.result_files = []
+    seen: set[str] = set()
+    if layout.results_root.exists():
+        for path in sorted(layout.results_root.rglob("*")):
+            if not path.is_file():
+                continue
+            rel = str(path.relative_to(job_dir))
+            seen.add(rel)
+            job.result_files.append(rel)
+
+    downloads_dir = job_dir / "downloads"
+    downloads_dir.mkdir(parents=True, exist_ok=True)
+    if layout.results_root.exists():
+        archive_base = downloads_dir / f"{layout.project_name}_Data_Results"
+        archive_path = Path(
+            shutil.make_archive(str(archive_base), "zip", root_dir=layout.results_root.parent, base_dir=layout.project_name)
+        )
+        rel = str(archive_path.relative_to(job_dir))
+        if rel not in seen:
+            job.result_files.insert(0, rel)
+
+
+async def run_pipeline(
+    job: Job,
+    input_files: list[Path],
+    job_dir: Path,
+    cpus: int = 4,
+    settings: Optional[dict[str, Any]] = None,
+    on_update: Optional[Callable[[], None]] = None,
+) -> None:
+    def notify() -> None:
+        if on_update:
+            on_update()
+
+    cfg = settings or {}
+    project_name = _safe_project_name(_cfg_str(cfg, "project_name", job.name))
+    repo_root = Path(_cfg_str(cfg, "clusterweave_root", str(CLUSTERWEAVE_ROOT))).resolve()
+    if not repo_root.exists():
+        repo_root = Path(__file__).resolve().parents[1]
+
+    layout = ProjectLayout(
+        project_name=project_name,
+        repo_root=repo_root,
+        data_root=job_dir / "Data",
+        genome_root=job_dir / "Data" / "Genomes" / "Fungi" / project_name,
+        results_root=job_dir / "Data" / "Results" / project_name,
+        software_root=GLOBAL_SOFTWARE_ROOT,
+        work_root=job_dir / "work",
+        downloads_root=job_dir / "downloads",
+    )
+    layout.software_root.mkdir(parents=True, exist_ok=True)
+    layout.work_root.mkdir(parents=True, exist_ok=True)
+    job.project_name = project_name
+    job.result_root = str(layout.results_root.relative_to(job_dir))
+
+    try:
+        job.status = JobStatus.RUNNING
+        notify()
+
+        job.set_stage("Preparing ClusterWeave project layout")
+        _stage_uploaded_inputs(input_files, layout, cfg, job)
+        env = _base_env(layout, cfg, cpus)
+        notify()
+
+        run_genome_prep = _cfg_bool(cfg, "run_genome_prep", layout.accession_file is not None)
+        run_ncbi_install = _cfg_bool(cfg, "run_ncbi_install", False)
+        run_figures = _cfg_bool(cfg, "run_figures", True)
+        figures_required = _cfg_bool(cfg, "figures_required", False)
+        run_nplinker = _cfg_bool(cfg, "run_nplinker", False)
+
+        if layout.accession_file is not None and run_ncbi_install:
+            await _run_required_stage(
+                job,
+                "Installing NCBI CLI",
+                ["bash", str(_script(layout, "install_ncbi_cli.sh"))],
+                cwd=layout.repo_root,
+                env=env,
+            )
+
+        if layout.accession_file is not None and run_genome_prep:
+            await _run_required_stage(
+                job,
+                "Preparing genomes from accessions",
+                ["bash", str(_script(layout, "prepare_genomes_from_accessions.sh"))],
+                cwd=layout.repo_root,
+                env=env,
+            )
+
+        if not _has_genome_inputs(layout):
+            raise RuntimeError(
+                "No genome inputs were staged. Upload FASTA/GenBank files or provide an accession list with genome preparation enabled."
+            )
+
+        await _run_required_stage(
+            job,
+            "Running canonical ClusterWeave workflow",
+            ["bash", str(_script(layout, "run_clusterweave.sh"))],
+            cwd=layout.repo_root,
+            env=env,
+        )
+
+        if run_figures:
+            figure_cmd = ["bash", str(_script(layout, "run_figures.sh"))]
+            figure_env = dict(env)
+            figure_env["PROJECT_DIR"] = str(layout.data_root.parent)
+            figure_env["RENDER_FIGURES_R"] = str(layout.repo_root / "bin" / "render_summary_figures.R")
+            if figures_required:
+                await _run_required_stage(job, "Rendering summary figures", figure_cmd, cwd=layout.repo_root, env=figure_env)
+            else:
+                await _run_optional_stage(job, "Rendering summary figures", figure_cmd, cwd=layout.repo_root, env=figure_env)
+        else:
+            job.add_log("Skipping summary figures because run_figures=0.")
+
+        if run_nplinker:
+            target = _cfg_str(cfg, "target_genome")
+            if not target:
+                raise RuntimeError("NPLinker follow-up requires a target genome or strain.")
+            nplinker_env = dict(env)
+            nplinker_env["SOFTWARE_ROOT"] = str(layout.software_root / "nplinker")
+            nplinker_env["TOOLS_ROOT"] = str(layout.software_root)
+            nplinker_env["NPLINKER_SOFTWARE_ROOT"] = str(layout.software_root / "nplinker")
+            nplinker_env["TARGET_STRAIN"] = _cfg_str(cfg, "target_strain", target) or target
+            nplinker_env["RUN_MODE"] = _cfg_str(cfg, "nplinker_run_mode", "local") or "local"
+            await _run_required_stage(
+                job,
+                "Running optional NPLinker follow-up",
+                ["bash", str(_script(layout, "run_nplinker.sh"))],
+                cwd=layout.repo_root,
+                env=nplinker_env,
+            )
+
+        _collect_result_files(job, job_dir, layout)
+        job.status = JobStatus.SUCCESS
+        job.stage = "complete"
+        job.add_log("Canonical ClusterWeave workflow finished successfully.")
+
+    except Exception as exc:
+        job.status = JobStatus.FAILED
+        job.error = str(exc)
+        job.add_log(f"FATAL: {exc}")
+        try:
+            _collect_result_files(job, job_dir, layout)
+        except Exception as collect_exc:
+            job.add_log(f"WARN: could not collect result files: {collect_exc}")
+    finally:
+        notify()

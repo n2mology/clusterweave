@@ -1,11 +1,10 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# docker-compose.yml — ClusterWeave Web
+# clusterweave.yml — ClusterWeave Web (End-user version - pulls pre-built images)
 #
 # Usage:
-#   docker compose up --build          # first run (builds image, downloads DBs)
-#   docker compose up -d               # subsequent runs (detached)
-#   docker compose down                # stop
-#   docker compose logs -f web         # tail logs
+#   docker compose -f clusterweave.yml up -d      # start services
+#   docker compose -f clusterweave.yml down       # stop services
+#   docker compose -f clusterweave.yml logs -f    # tail logs
 #
 # The web UI is available at http://localhost
 #
@@ -16,10 +15,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 services:
   web:
-    build:
-      context: .
-      dockerfile: Dockerfile.web
-    image: clusterweave-web:latest
+    image: ghcr.io/n2mology/clusterweave-web:${CLUSTERWEAVE_IMAGE_TAG:-latest}
     container_name: clusterweave-web
     restart: unless-stopped
     ports:
@@ -48,10 +44,7 @@ services:
       start_period: 60s
 
   worker:
-    build:
-      context: .
-      dockerfile: Dockerfile.worker
-    image: clusterweave-worker:latest
+    image: ghcr.io/n2mology/clusterweave-worker:${CLUSTERWEAVE_IMAGE_TAG:-latest}
     container_name: clusterweave-worker
     restart: unless-stopped
     volumes:

@@ -19,7 +19,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [web, worker]
+        include:
+          - service: web
+            dockerfile: Dockerfile.web
+          - service: worker
+            dockerfile: Dockerfile.worker
 
     steps:
       - name: Check out repository
@@ -52,12 +56,13 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=sha-
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
 
       - name: Build and push image
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./Dockerfile
+          file: ./${{ matrix.dockerfile }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

@@ -5,6 +5,7 @@ import json
 import mimetypes
 import os
 import shutil
+from datetime import datetime
 import urllib.parse
 import uuid
 from email.parser import BytesParser
@@ -27,7 +28,25 @@ from job_store import (
 HOST = "0.0.0.0"
 PORT = int(os.environ.get("PORT", "8080"))
 
-ALLOWED_EXTENSIONS = {".gbk", ".gb", ".gbff", ".fasta", ".fa", ".fna"}
+ALLOWED_EXTENSIONS = {
+    ".gbk",
+    ".gb",
+    ".gbff",
+    ".fasta",
+    ".fa",
+    ".fna",
+    ".fsa",
+    ".txt",
+    ".tsv",
+    ".csv",
+    ".json",
+    ".gff",
+    ".gff3",
+    ".faa",
+    ".mgf",
+    ".zip",
+}
+WORKER_STATUS_PATH = Path(os.environ.get("DATA_DIR", "/data")) / "worker" / "status.json"
 
 
 def json_bytes(payload: object) -> bytes:
@@ -50,6 +69,69 @@ def parse_bool(value: str | None, default: bool = False) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def worker_status() -> dict[str, object]:
+    if not WORKER_STATUS_PATH.exists():
+        return {
+            "ready": False,
+            "state": "bootstrapping",
+            "detail": "Worker has not started yet",
+            "substep": "Waiting for worker container",
+            "updated_at": None,
+            "stale": True,
+        }
+
+    try:
+        payload = json.loads(WORKER_STATUS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {
+            "ready": False,
+            "state": "bootstrapping",
+            "detail": "Worker status unreadable",
+            "substep": "Retrying status read",
+            "updated_at": None,
+            "stale": True,
+        }
+
+    updated_at = payload.get("updated_at")
+    stale = True
+    if isinstance(updated_at, str):
+        try:
+            age = (datetime.now() - datetime.fromisoformat(updated_at)).total_seconds()
+            stale = age > 30
+        except ValueError:
+            stale = True
+
+    state = str(payload.get("state", "bootstrapping"))
+    phase = str(payload.get("phase", state))
+    detail = str(payload.get("detail", ""))
+    substep = str(payload.get("substep", ""))
+
+    raw_progress = payload.get("progress", 0)
+    try:
+        progress = int(raw_progress)
+    except (TypeError, ValueError):
+        progress = 0
+
+    progress = max(0, min(100, progress))
+
+    payload_ready = payload.get("ready")
+    if isinstance(payload_ready, bool):
+        ready = payload_ready and not stale
+    else:
+        ready = (state in {"ready", "idle", "processing"}) and not stale
+
+    return {
+        "ready": ready,
+        "state": state,
+        "phase": phase,
+        "progress": progress,
+        "detail": detail,
+        "substep": substep,
+        "updated_at": updated_at,
+        "stale": stale,
+    }
 
 
 def parse_multipart_form_data(content_type: str, body: bytes) -> tuple[dict[str, list[str]], list[dict[str, object]]]:
@@ -136,6 +218,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(HTTPStatus.OK, list_jobs())
             return
 
+        if route == "/api/system/status":
+            self._send_json(HTTPStatus.OK, worker_status())
+            return
+
         if route.startswith("/api/jobs/"):
             parts = route.split("/")
             if len(parts) < 4:
@@ -162,10 +248,11 @@ class Handler(BaseHTTPRequestHandler):
                     self._send_json(HTTPStatus.OK, {"files": job.get("result_files", [])})
                     return
 
-                rel_path = "/".join(parts[5:])
-                full = job_dir(job_id) / rel_path
+                rel_path = urllib.parse.unquote("/".join(parts[5:]))
+                base_dir = job_dir(job_id).resolve()
+                full = (base_dir / rel_path).resolve()
                 try:
-                    full.relative_to(job_dir(job_id))
+                    full.relative_to(base_dir)
                 except ValueError:
                     self._bad_request("Invalid path")
                     return
@@ -202,25 +289,63 @@ class Handler(BaseHTTPRequestHandler):
         cpus = max(1, min(parse_int(fields.get("cpus", ["4"])[0], 4), os.cpu_count() or 4))
 
         settings = {
+            "project_name": project_name,
             "target_genome": str(fields.get("target_genome", [""])[0]).strip(),
+            "run_ncbi_install": parse_bool(fields.get("run_ncbi_install", ["0"])[0], False),
+            "run_genome_prep": parse_bool(fields.get("run_genome_prep", ["1"])[0], True),
+            "run_annotation": parse_bool(fields.get("run_annotation", ["1"])[0], True),
             "run_bigscape": parse_bool(fields.get("run_bigscape", ["1"])[0], True),
             "run_crosswalk": parse_bool(fields.get("run_crosswalk", ["1"])[0], True),
+            "run_summary": parse_bool(fields.get("run_summary", fields.get("run_crosswalk", ["1"]))[0], True),
             "run_clinker": parse_bool(fields.get("run_clinker", ["1"])[0], True),
+            "execute_clinker": parse_bool(fields.get("execute_clinker", fields.get("run_clinker", ["1"]))[0], True),
+            "run_figures": parse_bool(fields.get("run_figures", ["1"])[0], True),
+            "run_nplinker": parse_bool(fields.get("run_nplinker", ["0"])[0], False),
             "run_ecology_analysis": parse_bool(fields.get("run_ecology_analysis", ["0"])[0], False),
             "ecology_field": str(fields.get("ecology_field", ["ecofun_primary"])[0]).strip(),
             "focus_ecology_label": str(fields.get("focus_ecology_label", [""])[0]).strip(),
             "genefinding_mode": str(fields.get("genefinding_mode", ["auto"])[0]).strip() or "auto",
             "bigscape_mix_mode": parse_bool(fields.get("bigscape_mix_mode", ["1"])[0], True),
+            "force": parse_bool(fields.get("force", ["0"])[0], False),
+            "workers": max(1, parse_int(fields.get("workers", ["2"])[0], 2)),
+            "threads": max(1, parse_int(fields.get("threads", [str(cpus)])[0], cpus)),
+            "anno_cpus": max(1, parse_int(fields.get("anno_cpus", [str(cpus)])[0], cpus)),
+            "annotation_fallback_order": str(fields.get("annotation_fallback_order", ["funannotate"])[0]).strip(),
+            "braker3_enabled": parse_bool(fields.get("braker3_enabled", ["0"])[0], False),
+            "funannotate_busco_db": str(fields.get("funannotate_busco_db", ["dikarya"])[0]).strip(),
+            "funannotate_organism_name": str(fields.get("funannotate_organism_name", ["Fungal_sp"])[0]).strip(),
+            "clinker_mode": str(fields.get("clinker_mode", ["auto"])[0]).strip() or "auto",
+            "panel_target_set": str(fields.get("panel_target_set", ["both"])[0]).strip() or "both",
             "clinker_use_docker_image": parse_bool(fields.get("clinker_use_docker_image", ["1"])[0], True),
             "clinker_docker_image": str(fields.get("clinker_docker_image", [""])[0]).strip(),
             "clinker_docker_data_volume": str(fields.get("clinker_docker_data_volume", [""])[0]).strip(),
             "clinker_max_regions": max(0, parse_int(fields.get("clinker_max_regions", ["0"])[0], 0)),
+            "atlas_stage_limit": max(1, parse_int(fields.get("atlas_stage_limit", fields.get("shortlist_limit", ["12"]))[0], 12)),
             "atlas_min_records": max(1, parse_int(fields.get("atlas_min_records", ["2"])[0], 2)),
             "shortlist_limit": max(1, parse_int(fields.get("shortlist_limit", ["12"])[0], 12)),
+            "shared_family_stage_limit": max(1, parse_int(fields.get("shared_family_stage_limit", fields.get("shortlist_limit", ["12"]))[0], 12)),
+            "shared_family_min_records": max(1, parse_int(fields.get("shared_family_min_records", ["4"])[0], 4)),
             "max_comparators": max(1, parse_int(fields.get("max_comparators", ["50"])[0], 50)),
+            "max_same_ecology": max(0, parse_int(fields.get("max_same_ecology", ["20"])[0], 20)),
+            "max_other_ecology": max(0, parse_int(fields.get("max_other_ecology", ["20"])[0], 20)),
             "capture_external_artifacts": parse_bool(fields.get("capture_external_artifacts", ["1"])[0], True),
             "auto_normalize_metadata": parse_bool(fields.get("auto_normalize_metadata", ["1"])[0], True),
             "metadata_tsv": str(fields.get("metadata_tsv", [""])[0]).strip(),
+            "auto_pull_images": str(fields.get("auto_pull_images", ["always"])[0]).strip() or "always",
+            "auto_build_funbgcex_sif": parse_bool(fields.get("auto_build_funbgcex_sif", ["1"])[0], True),
+            "auto_pull_bigscape_sif": parse_bool(fields.get("auto_pull_bigscape_sif", ["1"])[0], True),
+            "auto_download_pfam": parse_bool(fields.get("auto_download_pfam", ["1"])[0], True),
+            "auto_download_fasttree": parse_bool(fields.get("auto_download_fasttree", ["1"])[0], True),
+            "mibig_auto_download": parse_bool(fields.get("mibig_auto_download", ["1"])[0], True),
+            "nplinker_run_mode": str(fields.get("nplinker_run_mode", ["local"])[0]).strip() or "local",
+            "nplinker_podp_id": str(fields.get("nplinker_podp_id", [""])[0]).strip(),
+            "massive_dataset_id": str(fields.get("massive_dataset_id", [""])[0]).strip(),
+            "target_strain": str(fields.get("target_strain", fields.get("target_genome", [""]))[0]).strip(),
+            "gnps_version": str(fields.get("gnps_version", ["2"])[0]).strip() or "2",
+            "auto_pull_nplinker_sif": parse_bool(fields.get("auto_pull_nplinker_sif", ["1"])[0], True),
+            "nplinker_bootstrap_env": parse_bool(fields.get("nplinker_bootstrap_env", ["1"])[0], True),
+            "figures_required": parse_bool(fields.get("figures_required", ["0"])[0], False),
+            "env_overrides": str(fields.get("env_overrides", [""])[0]),
         }
 
         if not settings["clinker_docker_image"]:
@@ -229,6 +354,10 @@ class Handler(BaseHTTPRequestHandler):
             )
         if not settings["clinker_docker_data_volume"]:
             settings["clinker_docker_data_volume"] = os.environ.get("CLINKER_DOCKER_DATA_VOLUME", "")
+        if settings["genefinding_mode"] in {"funannotate", "braker3,funannotate"}:
+            settings["annotation_fallback_order"] = settings["genefinding_mode"]
+            if "braker3" in settings["genefinding_mode"]:
+                settings["braker3_enabled"] = True
 
         uploads = [item for item in files if item["field"] == "files"]
         if not uploads:

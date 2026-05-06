@@ -47,7 +47,12 @@
   .logo-text span { color: var(--accent); }
   .header-tagline { color: var(--muted); font-size: .8rem; margin-left: .5rem; }
 
-  main { flex: 1; max-width: 960px; width: 100%; margin: 2rem auto; padding: 0 1.5rem; }
+  main { flex: 1; width: 100%; margin: 0; padding: 2rem 1.5rem; display: flex; flex-direction: column; }
+  .upload-section { margin-bottom: 2rem; }
+  .main-container { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; flex: 1; }
+  @media (max-width: 1200px) { .main-container { grid-template-columns: 1fr; } }
+  .left-column { display: flex; flex-direction: column; gap: 1.5rem; }
+  .right-column { display: flex; flex-direction: column; gap: 1.5rem; }
 
   /* ── Cards ────────────────────────────────────────────────────────────── */
   .card {
@@ -177,7 +182,7 @@
   }
   .summary-chip.off { opacity: .55; text-decoration: line-through; }
   label { font-size: .8rem; font-weight: 500; color: var(--muted); }
-  input[type=text], input[type=number], select {
+  input[type=text], input[type=number], select, textarea {
     background: var(--surface2);
     border: 1px solid var(--border);
     border-radius: 6px;
@@ -189,7 +194,8 @@
     transition: border-color .2s;
     width: 100%;
   }
-  input:focus, select:focus { border-color: var(--accent); }
+  textarea { min-height: 96px; resize: vertical; font-family: var(--mono); line-height: 1.5; }
+  input:focus, select:focus, textarea:focus { border-color: var(--accent); }
 
   /* ── Buttons ──────────────────────────────────────────────────────────── */
   .btn {
@@ -323,9 +329,155 @@
   .text-muted { color: var(--muted); }
   .text-sm { font-size: .8rem; }
   hr.divider { border: none; border-top: 1px solid var(--border); margin: 1rem 0; }
+
+  /* ── Bootstrap Splash Screen ──────────────────────────────────────────────── */
+  .bootstrap-splash {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(135deg, #0a0c12 0%, #1a1d27 100%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    gap: 2rem;
+    transition: opacity 0.6s ease-out, visibility 0.6s ease-out;
+  }
+  .bootstrap-splash.hidden {
+    opacity: 0;
+    visibility: hidden;
+  }
+  .bootstrap-content {
+    text-align: center;
+    max-width: 400px;
+  }
+  .bootstrap-icon {
+    font-size: 4rem;
+    margin-bottom: 1rem;
+    animation: pulse 2s ease-in-out infinite;
+  }
+  .bootstrap-title {
+    font-size: 1.8rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+    background: linear-gradient(135deg, #4f8ef7, #7c5cbf);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .bootstrap-subtitle {
+    color: var(--muted);
+    font-size: 0.9rem;
+    margin-bottom: 2rem;
+  }
+  .spinner {
+    width: 50px;
+    height: 50px;
+    border: 3px solid rgba(79, 142, 247, 0.2);
+    border-top: 3px solid var(--accent);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 1rem;
+  }
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+  .bootstrap-status {
+    color: var(--text);
+    font-size: 0.9rem;
+    margin-top: 1rem;
+    min-height: 1.5rem;
+  }
+  .bootstrap-status.ok {
+    color: var(--success);
+  }
+  .bootstrap-substep {
+    color: var(--muted);
+    font-size: 0.8rem;
+    margin-top: 0.35rem;
+    min-height: 1.2rem;
+  }
+  .bootstrap-progress-wrap {
+    margin-top: 0.85rem;
+  }
+  .bootstrap-progress-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 0.78rem;
+    color: var(--muted);
+    margin-bottom: 0.35rem;
+  }
+  .bootstrap-progress-track {
+    width: 100%;
+    height: 10px;
+    border-radius: 999px;
+    background: #171b2a;
+    border: 1px solid #28314a;
+    overflow: hidden;
+  }
+  .bootstrap-progress-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #3c7df0, #4f8ef7 55%, #7aa8ff);
+    transition: width 0.45s ease;
+  }
+  .bootstrap-progress-pct {
+    color: var(--text);
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+  .bootstrap-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    text-align: left;
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin-top: 1rem;
+  }
+  .bootstrap-step {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+  .bootstrap-step.done {
+    color: var(--success);
+  }
+  .bootstrap-step.running {
+    color: var(--accent);
+  }
+  .bootstrap-step-icon {
+    width: 1.2rem;
+    text-align: center;
+  }
 </style>
 </head>
 <body>
+
+<!-- ── Bootstrap Splash Screen ──────────────────────────────────────────────── -->
+<div class="bootstrap-splash" id="bootstrap-splash">
+  <div class="bootstrap-content">
+    <div class="bootstrap-icon">🧬</div>
+    <div class="bootstrap-title">ClusterWeave</div>
+    <div class="bootstrap-subtitle">Initializing worker services...</div>
+    <div class="spinner"></div>
+    <div class="bootstrap-progress-wrap">
+      <div class="bootstrap-progress-head">
+        <span id="bootstrap-phase-label">Bootstrapping</span>
+        <span class="bootstrap-progress-pct" id="bootstrap-progress-pct">0%</span>
+      </div>
+      <div class="bootstrap-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Worker bootstrap progress">
+        <div class="bootstrap-progress-fill" id="bootstrap-progress-fill"></div>
+      </div>
+    </div>
+    <div class="bootstrap-status" id="bootstrap-status">Checking worker status...</div>
+    <div class="bootstrap-substep" id="bootstrap-substep">Waiting for first bootstrap update...</div>
+    <div class="bootstrap-steps" id="bootstrap-steps"></div>
+  </div>
+</div>
+
 <div class="app">
 
 <!-- ── Header ─────────────────────────────────────────────────────────── -->
@@ -339,231 +491,404 @@
 
 <main>
 
-  <!-- ── Upload & Configure ─────────────────────────────────────────────── -->
-  <div class="card" id="upload-card">
-    <div class="card-header" onclick="toggleCard('upload-card')">
-      <span>📂</span> Upload Genome Files
-      <span class="toggle-icon">▾</span>
-    </div>
-    <div class="card-body" id="upload-card-body">
+  <!-- ── 2-Column Grid: Left (Upload + Widgets) & Right (Queue, Console) ──────────── -->
+  <div class="main-container">
 
-      <div class="upload-zone" id="drop-zone">
-        <input type="file" id="file-input" multiple accept=".gbk,.gb,.gbff,.fasta,.fa,.fna" />
-        <div class="upload-icon">📄</div>
-        <div><strong>Drag &amp; drop annotation files here</strong></div>
-        <div class="upload-hint">Supports GenBank (.gbk, .gb, .gbff) and FASTA (.fasta, .fa, .fna)</div>
+  <!-- ── Left Column: Upload & Widgets ──────────────────────────────────────────── -->
+  <div class="left-column">
+
+    <!-- ── Upload Section ────────────────────────────────────────────────────── -->
+    <div class="upload-section">
+      <div class="card" id="upload-card">
+      <div class="card-header" onclick="toggleCard('upload-card')">
+        <span>📂</span> Upload Genome Files & Configure
+        <span class="toggle-icon">▾</span>
       </div>
+      <div class="card-body" id="upload-card-body">
 
-      <div class="file-list" id="file-list"></div>
-
-      <hr class="divider" />
-
-      <!-- Settings -->
-      <div class="form-grid">
-        <div class="form-group">
-          <label for="project-name">Project name</label>
-          <input type="text" id="project-name" value="my_project" placeholder="e.g. aspergillus_survey" title="Namespace used to group outputs and history for this run." />
+        <div class="upload-zone" id="drop-zone">
+          <input type="file" id="file-input" multiple accept=".gbk,.gb,.gbff,.fasta,.fa,.fna,.fsa,.txt,.tsv,.csv,.json,.gff,.gff3,.faa,.mgf,.zip" />
+          <div class="upload-icon">📄</div>
+          <div><strong>Drag &amp; drop accession lists, genomes, or metadata here</strong></div>
+          <div class="upload-hint">Supports accession lists, GenBank/FASTA genomes, ecology metadata TSVs, and optional NPLinker assets</div>
         </div>
-        <div class="form-group">
-          <label for="cpus">CPU threads</label>
-          <input type="number" id="cpus" value="4" min="1" max="64" title="Threads used by compute-heavy stages like antiSMASH." />
-        </div>
-        <div class="form-group">
-          <label for="target-genome">Target genome (optional)</label>
-          <input type="text" id="target-genome" placeholder="Genome ID for targeted ranking/panels" title="Optional genome ID to focus shortlist and targeted analyses." />
-        </div>
-        <div class="form-group">
-          <label for="genefinding-mode">Gene finding mode</label>
-          <select id="genefinding-mode" title="Use auto for most inputs; select none for already-annotated GenBank uploads.">
-            <option value="auto" selected>Auto (default)</option>
-            <option value="prodigal">Prodigal</option>
-            <option value="none">None (already annotated GenBank)</option>
-          </select>
-        </div>
-      </div>
 
-      <div class="switch-grid">
-        <label class="form-group-inline"><input type="checkbox" id="run-bigscape" checked /> Run BiG-SCAPE stage</label>
-        <label class="form-group-inline"><input type="checkbox" id="run-crosswalk" checked /> Build BGC-GCF crosswalk</label>
-        <label class="form-group-inline"><input type="checkbox" id="run-clinker" checked /> Generate clinker visualization</label>
-        <label class="form-group-inline"><input type="checkbox" id="run-ecology" /> Enable ecology-aware analysis</label>
-      </div>
+        <div class="file-list" id="file-list"></div>
 
-      <details class="advanced-wrap" id="advanced-panel">
-        <summary>Advanced Settings</summary>
-        <div class="advanced-content">
-          <div>
-            <div class="group-title">Stage Behavior</div>
-            <div class="help-note">Control which analysis stages run for this specific job. Turning off BiG-SCAPE disables crosswalk automatically.</div>
-            <div class="form-grid">
-              <div class="form-group">
-                <label for="clinker-max-regions">Max regions for clinker (0 = all)</label>
-                <input type="number" id="clinker-max-regions" value="0" min="0" max="500" title="Cap number of BGC regions rendered in clinker to keep jobs responsive." />
+        <hr class="divider" />
+
+        <!-- Settings -->
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="project-name">Project name</label>
+            <input type="text" id="project-name" value="my_project" placeholder="e.g. aspergillus_survey" title="Namespace used to group outputs and history for this run." />
+          </div>
+          <div class="form-group">
+            <label for="cpus">CPU threads</label>
+            <input type="number" id="cpus" value="4" min="1" max="64" title="Threads used by compute-heavy stages like antiSMASH." />
+          </div>
+          <div class="form-group">
+            <label for="target-genome">Target genome (optional)</label>
+            <input type="text" id="target-genome" placeholder="Genome ID for targeted ranking/panels" title="Optional genome ID to focus shortlist and targeted analyses." />
+          </div>
+          <div class="form-group">
+            <label for="genefinding-mode">Annotation strategy</label>
+            <select id="genefinding-mode" title="Uses the canonical annotation fallback order for FASTA inputs; annotated GenBank inputs are passed through when usable.">
+              <option value="auto" selected>Auto (advanced fallback order)</option>
+              <option value="funannotate">funannotate</option>
+              <option value="braker3,funannotate">BRAKER3 then funannotate</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="switch-grid">
+          <label class="form-group-inline"><input type="checkbox" id="run-genome-prep" checked /> Prepare genomes from accessions</label>
+          <label class="form-group-inline"><input type="checkbox" id="run-annotation" checked /> Run annotation/detection</label>
+          <label class="form-group-inline"><input type="checkbox" id="run-bigscape" checked /> Run BiG-SCAPE stage</label>
+          <label class="form-group-inline"><input type="checkbox" id="run-summary" checked /> Build summary and crosswalk tables</label>
+          <label class="form-group-inline"><input type="checkbox" id="run-clinker" checked /> Generate clinker panels</label>
+          <label class="form-group-inline"><input type="checkbox" id="run-figures" checked /> Render summary figures</label>
+          <label class="form-group-inline"><input type="checkbox" id="run-ecology" /> Enable ecology-aware analysis</label>
+          <label class="form-group-inline"><input type="checkbox" id="run-nplinker" /> NPLinker follow-up job</label>
+        </div>
+
+        <details class="advanced-wrap" id="advanced-panel">
+          <summary>Advanced Settings</summary>
+          <div class="advanced-content">
+            <div>
+              <div class="group-title">Stage Behavior</div>
+              <div class="help-note">Control which canonical ClusterWeave stages run for this job.</div>
+              <div class="switch-grid">
+                <label class="form-group-inline"><input type="checkbox" id="run-ncbi-install" /> Install NCBI CLI before accession prep</label>
+                <label class="form-group-inline"><input type="checkbox" id="force-rerun" /> Force rerun existing outputs</label>
+                <label class="form-group-inline"><input type="checkbox" id="execute-clinker" checked /> Execute staged clinker panels</label>
+                <label class="form-group-inline"><input type="checkbox" id="figures-required" /> Require R figure stage success</label>
+                <label class="form-group-inline"><input type="checkbox" id="braker3-enabled" /> Enable BRAKER3 fallback</label>
               </div>
-              <div class="form-group">
-                <label for="bigscape-mix-mode">BiG-SCAPE mode</label>
-                <select id="bigscape-mix-mode" title="Mixed mode groups classes together; disabling uses stricter class-specific behavior.">
-                  <option value="1" selected>Mixed mode (--mix)</option>
-                  <option value="0">No mix mode</option>
-                </select>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label for="workers">FunBGCeX workers</label>
+                  <input type="number" id="workers" value="2" min="1" max="64" />
+                </div>
+                <div class="form-group">
+                  <label for="anno-cpus">Annotation CPUs</label>
+                  <input type="number" id="anno-cpus" value="4" min="1" max="64" />
+                </div>
+                <div class="form-group">
+                  <label for="annotation-fallback-order">Annotation fallback order</label>
+                  <input type="text" id="annotation-fallback-order" value="funannotate" />
+                </div>
+                <div class="form-group">
+                  <label for="funannotate-busco-db">funannotate BUSCO DB</label>
+                  <input type="text" id="funannotate-busco-db" value="dikarya" />
+                </div>
+                <div class="form-group">
+                  <label for="funannotate-organism-name">funannotate organism name</label>
+                  <input type="text" id="funannotate-organism-name" value="Fungal_sp" />
+                </div>
+                <div class="form-group">
+                  <label for="clinker-mode">clinker mode</label>
+                  <select id="clinker-mode">
+                    <option value="auto" selected>Auto</option>
+                    <option value="atlas">Atlas only</option>
+                    <option value="targeted">Targeted only</option>
+                    <option value="both">Atlas + targeted</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="panel-target-set">Targeted panel set</label>
+                  <select id="panel-target-set">
+                    <option value="both" selected>Priority + shared family</option>
+                    <option value="priority">Priority only</option>
+                    <option value="shared_family">Shared family only</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="clinker-max-regions">Atlas panel limit</label>
+                  <input type="number" id="clinker-max-regions" value="12" min="1" max="500" title="Number of atlas target rows staged for clinker." />
+                </div>
+                <div class="form-group">
+                  <label for="bigscape-mix-mode">BiG-SCAPE mode</label>
+                  <select id="bigscape-mix-mode" title="Mixed mode groups classes together; disabling uses stricter class-specific behavior.">
+                    <option value="1" selected>Mixed mode (--mix)</option>
+                    <option value="0">No mix mode</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div class="group-title">Clinker Runtime</div>
+              <div class="help-note">Use the prebuilt clinker container image to avoid local dependency installation errors.</div>
+              <div class="switch-grid">
+                <label class="form-group-inline"><input type="checkbox" id="clinker-use-docker-image" checked /> Use preinstalled clinker container</label>
+                <label class="form-group-inline"><input type="checkbox" id="capture-external-artifacts" checked /> Capture external artifact metadata</label>
+              </div>
+              <div class="form-grid mt1">
+                <div class="form-group">
+                  <label for="clinker-docker-image">Clinker image</label>
+                  <input type="text" id="clinker-docker-image" value="quay.io/biocontainers/clinker-py:0.0.32--pyhdfd78af_0" title="Container image used when clinker is executed via Docker." />
+                </div>
+                <div class="form-group">
+                  <label for="clinker-docker-data-volume">Docker volume mapped to /data</label>
+                  <input type="text" id="clinker-docker-data-volume" value="clusterweave_job_data" title="Named Docker volume where job inputs/results are shared with the clinker container." />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div class="group-title">Runtime Resources</div>
+              <div class="help-note">These map to the canonical script bootstrap toggles for containers, Pfam, FastTree, MiBIG, and FunBGCeX.</div>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label for="auto-pull-images">Annotation image pulls</label>
+                  <select id="auto-pull-images">
+                    <option value="always" selected>Always</option>
+                    <option value="ask">Ask in interactive shells</option>
+                    <option value="never">Never</option>
+                  </select>
+                </div>
+                <label class="form-group-inline"><input type="checkbox" id="auto-build-funbgcex-sif" checked /> Auto-build FunBGCeX SIF</label>
+                <label class="form-group-inline"><input type="checkbox" id="auto-pull-bigscape-sif" checked /> Auto-pull BiG-SCAPE SIF</label>
+                <label class="form-group-inline"><input type="checkbox" id="auto-download-pfam" checked /> Auto-download Pfam</label>
+                <label class="form-group-inline"><input type="checkbox" id="auto-download-fasttree" checked /> Auto-download FastTree</label>
+                <label class="form-group-inline"><input type="checkbox" id="mibig-auto-download" checked /> Auto-download MiBIG cache</label>
+              </div>
+              <div class="form-group mt1">
+                <label for="env-overrides">Raw env overrides</label>
+                <textarea id="env-overrides" placeholder="KEY=value&#10;ANOTHER_KEY=value"></textarea>
+              </div>
+            </div>
+
+            <div>
+              <div class="group-title">Ecology & Metadata</div>
+              <div class="help-note">These options only matter when ecology-aware analysis is enabled.</div>
+              <div class="switch-grid">
+                <label class="form-group-inline"><input type="checkbox" id="auto-normalize-metadata" checked /> Auto-normalize metadata</label>
+              </div>
+              <div class="form-grid mt1">
+                <div class="form-group">
+                  <label for="ecology-field">Ecology field</label>
+                  <input type="text" id="ecology-field" value="ecofun_primary" />
+                </div>
+                <div class="form-group">
+                  <label for="focus-ecology-label">Focus ecology label (optional)</label>
+                  <input type="text" id="focus-ecology-label" placeholder="e.g. plant_associated" />
+                </div>
+                <div class="form-group">
+                  <label for="metadata-tsv">Metadata TSV path (optional)</label>
+                  <input type="text" id="metadata-tsv" placeholder="/data/path/to/ecology_metadata.tsv" />
+                </div>
+                <div class="form-group">
+                  <label for="atlas-min-records">Atlas min records</label>
+                  <input type="number" id="atlas-min-records" value="2" min="1" max="100" />
+                </div>
+                <div class="form-group">
+                  <label for="shortlist-limit">Shortlist limit</label>
+                  <input type="number" id="shortlist-limit" value="12" min="1" max="1000" />
+                </div>
+                <div class="form-group">
+                  <label for="max-comparators">Max comparators</label>
+                  <input type="number" id="max-comparators" value="50" min="1" max="1000" />
+                </div>
+                <div class="form-group">
+                  <label for="shared-family-stage-limit">Shared-family panel limit</label>
+                  <input type="number" id="shared-family-stage-limit" value="12" min="1" max="1000" />
+                </div>
+                <div class="form-group">
+                  <label for="shared-family-min-records">Shared-family min records</label>
+                  <input type="number" id="shared-family-min-records" value="4" min="1" max="1000" />
+                </div>
+                <div class="form-group">
+                  <label for="max-same-ecology">Max same-ecology comparators</label>
+                  <input type="number" id="max-same-ecology" value="20" min="0" max="1000" />
+                </div>
+                <div class="form-group">
+                  <label for="max-other-ecology">Max other-ecology comparators</label>
+                  <input type="number" id="max-other-ecology" value="20" min="0" max="1000" />
+                </div>
+              </div>
+              <div class="summary-panel mt1">
+                <div class="summary-head">Editable Ecology Metadata</div>
+                <div class="card-body">
+                  <div class="help-note">Rows entered here are submitted as a project-local `ecofun_metadata_normalized.tsv` scaffold.</div>
+                  <table class="file-table mt1" id="metadata-table">
+                    <thead><tr><th>Genome ID</th><th>Primary Ecology</th><th>Secondary Ecology</th><th></th></tr></thead>
+                    <tbody id="metadata-table-body"></tbody>
+                  </table>
+                  <div class="flex-gap mt1">
+                    <button class="btn btn-ghost text-sm" type="button" onclick="addMetadataRow()">Add metadata row</button>
+                    <button class="btn btn-ghost text-sm" type="button" onclick="seedMetadataFromFiles()">Seed from selected genomes</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div class="group-title">NPLinker Follow-up</div>
+              <div class="help-note">Enable this only when metabolomics inputs or a Paired Omics project are ready for the selected target strain.</div>
+              <div class="switch-grid">
+                <label class="form-group-inline"><input type="checkbox" id="auto-pull-nplinker-sif" checked /> Auto-pull NPLinker SIF</label>
+                <label class="form-group-inline"><input type="checkbox" id="nplinker-bootstrap-env" checked /> Bootstrap NPLinker env</label>
+              </div>
+              <div class="form-grid mt1">
+                <div class="form-group">
+                  <label for="nplinker-run-mode">NPLinker mode</label>
+                  <select id="nplinker-run-mode">
+                    <option value="local" selected>Local GNPS upload</option>
+                    <option value="podp">Paired Omics project</option>
+                    <option value="auto">Auto</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="target-strain">Target strain override</label>
+                  <input type="text" id="target-strain" placeholder="Defaults to target genome" />
+                </div>
+                <div class="form-group">
+                  <label for="nplinker-podp-id">PODP ID</label>
+                  <input type="text" id="nplinker-podp-id" placeholder="Paired Omics project ID" />
+                </div>
+                <div class="form-group">
+                  <label for="massive-dataset-id">MassIVE dataset ID</label>
+                  <input type="text" id="massive-dataset-id" placeholder="Optional MassIVE ID" />
+                </div>
+                <div class="form-group">
+                  <label for="gnps-version">GNPS version</label>
+                  <select id="gnps-version">
+                    <option value="2" selected>GNPS2</option>
+                    <option value="1">GNPS1</option>
+                  </select>
+                </div>
               </div>
             </div>
           </div>
+        </details>
 
-          <div>
-            <div class="group-title">Clinker Runtime</div>
-            <div class="help-note">Use the prebuilt clinker container image to avoid local dependency installation errors.</div>
-            <div class="switch-grid">
-              <label class="form-group-inline"><input type="checkbox" id="clinker-use-docker-image" checked /> Use preinstalled clinker container</label>
-              <label class="form-group-inline"><input type="checkbox" id="capture-external-artifacts" checked /> Capture external artifact metadata</label>
-            </div>
-            <div class="form-grid mt1">
-              <div class="form-group">
-                <label for="clinker-docker-image">Clinker image</label>
-                <input type="text" id="clinker-docker-image" value="quay.io/biocontainers/clinker-py:0.0.32--pyhdfd78af_0" title="Container image used when clinker is executed via Docker." />
-              </div>
-              <div class="form-group">
-                <label for="clinker-docker-data-volume">Docker volume mapped to /data</label>
-                <input type="text" id="clinker-docker-data-volume" value="clusterweave_job_data" title="Named Docker volume where job inputs/results are shared with the clinker container." />
-              </div>
-            </div>
+        <div class="form-grid mt2">
+          <div class="form-group">
+            <label for="run-preset">Preset</label>
+            <select id="run-preset" onchange="applyPreset(this.value)">
+              <option value="balanced" selected>Balanced</option>
+              <option value="beginner">Beginner (fastest)</option>
+              <option value="full">Full analysis</option>
+              <option value="repro">Reproducible-lite</option>
+            </select>
           </div>
+        </div>
 
-          <div>
-            <div class="group-title">Ecology & Metadata</div>
-            <div class="help-note">These options only matter when ecology-aware analysis is enabled.</div>
-            <div class="switch-grid">
-              <label class="form-group-inline"><input type="checkbox" id="auto-normalize-metadata" checked /> Auto-normalize metadata</label>
-            </div>
-            <div class="form-grid mt1">
-              <div class="form-group">
-                <label for="ecology-field">Ecology field</label>
-                <input type="text" id="ecology-field" value="ecofun_primary" />
-              </div>
-              <div class="form-group">
-                <label for="focus-ecology-label">Focus ecology label (optional)</label>
-                <input type="text" id="focus-ecology-label" placeholder="e.g. plant_associated" />
-              </div>
-              <div class="form-group">
-                <label for="metadata-tsv">Metadata TSV path (optional)</label>
-                <input type="text" id="metadata-tsv" placeholder="/data/path/to/ecology_metadata.tsv" />
-              </div>
-              <div class="form-group">
-                <label for="atlas-min-records">Atlas min records</label>
-                <input type="number" id="atlas-min-records" value="2" min="1" max="100" />
-              </div>
-              <div class="form-group">
-                <label for="shortlist-limit">Shortlist limit</label>
-                <input type="number" id="shortlist-limit" value="12" min="1" max="1000" />
-              </div>
-              <div class="form-group">
-                <label for="max-comparators">Max comparators</label>
-                <input type="number" id="max-comparators" value="50" min="1" max="1000" />
-              </div>
+        <div class="profile-bar">
+          <button class="btn btn-ghost text-sm" type="button" onclick="document.getElementById('profile-file-input').click()">Load .env Profile</button>
+          <button class="btn btn-ghost text-sm" type="button" onclick="exportEnvProfile()">Export Current Settings</button>
+          <input type="file" id="profile-file-input" accept=".env,.txt" class="hidden" />
+          <span id="profile-load-status" class="text-muted text-sm"></span>
+        </div>
+
+        <div class="summary-panel">
+          <div class="summary-head">Current Run Summary</div>
+          <div class="summary-grid" id="run-summary-content"></div>
+        </div>
+
+        <div class="run-row">
+          <button class="btn btn-primary" id="run-btn" onclick="startAnalysis()" disabled>
+            ▶ Run Analysis
+          </button>
+          <span id="upload-status" class="text-muted text-sm"></span>
+        </div>
+
+      </div>
+    </div>
+    </div>
+    <!-- end upload-section -->
+    
+  </div>
+
+  <!-- ── Right Column: Job Queue & Console ──────────────────────────────── -->
+  <div class="right-column">
+
+    <!-- ── Job Queue (Top) ──────────────────────────────────────────────── -->
+    <div class="card" id="jobs-card">
+      <div class="card-header" onclick="toggleCard('jobs-card')">
+        <span>🗂</span> Job Queue
+        <span class="toggle-icon">▾</span>
+      </div>
+      <div class="card-body" id="jobs-card-body">
+        <div class="job-history" id="job-history">
+          <div class="empty-state">No jobs yet. Upload files and run analysis.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── System Console ─────────────────────────────────────────────── -->
+    <div class="card" id="console-card">
+      <div class="card-header">
+        <span>⚙️</span> System Console
+      </div>
+      <div class="card-body" id="console-card-body">
+        <div class="log-terminal" id="system-console"></div>
+      </div>
+    </div>
+
+    <!-- ── Progress / Logs ────────────────────────────────────────────── -->
+    <div class="card hidden" id="progress-card">
+      <div class="card-header">
+        <span>⚡</span> Pipeline Progress
+        <span id="progress-badge" class="badge badge-running ml-auto"><span class="badge-dot"></span> Running</span>
+      </div>
+      <div class="card-body">
+        <div class="stage-bar" id="stage-bar">
+          <span class="stage-step" data-stage="prep">Prep</span>
+          <span class="stage-step" data-stage="annotation">Annotation</span>
+          <span class="stage-step" data-stage="bigscape">BiG-SCAPE</span>
+          <span class="stage-step" data-stage="summary">Summary</span>
+          <span class="stage-step" data-stage="clinker">clinker</span>
+          <span class="stage-step" data-stage="figures">Figures</span>
+          <span class="stage-step" data-stage="nplinker">NPLinker</span>
+        </div>
+        <div class="log-terminal" id="log-terminal"></div>
+        <div class="flex-gap mt1">
+          <button class="btn btn-ghost text-sm" onclick="clearLog()">Clear display</button>
+          <button class="btn btn-ghost text-sm" onclick="scrollToBottom()">↓ Scroll to bottom</button>
+          <span id="log-count" class="text-muted text-sm"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Results ────────────────────────────────────────────────────── -->
+    <div class="card hidden" id="results-card">
+      <div class="card-header">
+        <span>📊</span> Results
+        <span id="results-status" class="badge badge-success ml-auto"><span class="badge-dot"></span> Complete</span>
+      </div>
+      <div class="card-body">
+        <div class="tabs">
+          <div class="tab active" onclick="switchTab('viz')">Visualization</div>
+          <div class="tab" onclick="switchTab('files')">Files</div>
+        </div>
+
+        <!-- Visualization tab -->
+        <div class="tab-panel active" id="tab-viz">
+          <div id="viz-container">
+            <div class="viz-placeholder">
+              <div class="big-icon">🔬</div>
+              <div>clinker visualization will appear here once the pipeline completes.</div>
             </div>
           </div>
         </div>
-      </details>
 
-      <div class="form-grid mt2">
-        <div class="form-group">
-          <label for="run-preset">Preset</label>
-          <select id="run-preset" onchange="applyPreset(this.value)">
-            <option value="balanced" selected>Balanced</option>
-            <option value="beginner">Beginner (fastest)</option>
-            <option value="full">Full analysis</option>
-            <option value="repro">Reproducible-lite</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="profile-bar">
-        <button class="btn btn-ghost text-sm" type="button" onclick="document.getElementById('profile-file-input').click()">Load .env Profile</button>
-        <button class="btn btn-ghost text-sm" type="button" onclick="exportEnvProfile()">Export Current Settings</button>
-        <input type="file" id="profile-file-input" accept=".env,.txt" class="hidden" />
-        <span id="profile-load-status" class="text-muted text-sm"></span>
-      </div>
-
-      <div class="summary-panel">
-        <div class="summary-head">Current Run Summary</div>
-        <div class="summary-grid" id="run-summary"></div>
-      </div>
-
-      <div class="run-row">
-        <button class="btn btn-primary" id="run-btn" onclick="startAnalysis()" disabled>
-          ▶ Run Analysis
-        </button>
-        <span id="upload-status" class="text-muted text-sm"></span>
-      </div>
-
-    </div>
-  </div>
-
-  <!-- ── Past Jobs ──────────────────────────────────────────────────────── -->
-  <div class="card" id="jobs-card">
-    <div class="card-header" onclick="toggleCard('jobs-card')">
-      <span>🗂</span> Jobs
-      <span class="toggle-icon">▾</span>
-    </div>
-    <div class="card-body" id="jobs-card-body">
-      <div class="job-history" id="job-history">
-        <div class="empty-state">No jobs yet. Upload files and run analysis above.</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ── Progress / Logs ────────────────────────────────────────────────── -->
-  <div class="card hidden" id="progress-card">
-    <div class="card-header">
-      <span>⚡</span> Pipeline Progress
-      <span id="progress-badge" class="badge badge-running ml-auto"><span class="badge-dot"></span> Running</span>
-    </div>
-    <div class="card-body">
-      <div class="stage-bar" id="stage-bar">
-        <span class="stage-step" data-stage="antismash">1. antiSMASH</span>
-        <span class="stage-step" data-stage="bigscape">2. BiG-SCAPE</span>
-        <span class="stage-step" data-stage="crosswalk">3. Summary</span>
-        <span class="stage-step" data-stage="clinker">4. clinker</span>
-      </div>
-      <div class="log-terminal" id="log-terminal"></div>
-      <div class="flex-gap mt1">
-        <button class="btn btn-ghost text-sm" onclick="clearLog()">Clear display</button>
-        <button class="btn btn-ghost text-sm" onclick="scrollToBottom()">↓ Scroll to bottom</button>
-        <span id="log-count" class="text-muted text-sm"></span>
-      </div>
-    </div>
-  </div>
-
-  <!-- ── Results ────────────────────────────────────────────────────────── -->
-  <div class="card hidden" id="results-card">
-    <div class="card-header">
-      <span>📊</span> Results
-      <span id="results-status" class="badge badge-success ml-auto"><span class="badge-dot"></span> Complete</span>
-    </div>
-    <div class="card-body">
-      <div class="tabs">
-        <div class="tab active" onclick="switchTab('viz')">Visualization</div>
-        <div class="tab" onclick="switchTab('files')">Files</div>
-      </div>
-
-      <!-- Visualization tab -->
-      <div class="tab-panel active" id="tab-viz">
-        <div id="viz-container">
-          <div class="viz-placeholder">
-            <div class="big-icon">🔬</div>
-            <div>clinker visualization will appear here once the pipeline completes.</div>
+        <!-- Files tab -->
+        <div class="tab-panel" id="tab-files">
+          <div id="files-container">
+            <div class="empty-state">No result files yet.</div>
           </div>
         </div>
       </div>
-
-      <!-- Files tab -->
-      <div class="tab-panel" id="tab-files">
-        <div id="files-container">
-          <div class="empty-state">No result files yet.</div>
-        </div>
-      </div>
     </div>
+
   </div>
+  <!-- end right-column -->
+
+  </div>
+  <!-- end main-container -->
 
 </main>
 </div><!-- /app -->
@@ -574,13 +899,19 @@ let selectedFiles = [];
 let activeJobId   = null;
 let pollTimerId = null;
 let logCursor     = 0;
+let systemLogCursor = 0;
+let workerStatus = 'unknown'; // unknown, starting, ready, processing
+let systemPollTimer = null;
 
 // Pipeline stages for the progress bar
 const STAGES = [
-  { key: 'antismash', label: '1. antiSMASH', match: /antismash/i },
-  { key: 'bigscape',  label: '2. BiG-SCAPE', match: /big.?scape|bigscape/i },
-  { key: 'crosswalk', label: '3. Summary',   match: /crosswalk|summary/i },
-  { key: 'clinker',   label: '4. clinker',   match: /clinker/i },
+  { key: 'prep',       label: 'Prep',       match: /Preparing ClusterWeave|Preparing genomes|NCBI CLI/i },
+  { key: 'annotation', label: 'Annotation', match: /annotation|antiSMASH|FunBGCeX/i },
+  { key: 'bigscape',   label: 'BiG-SCAPE',  match: /BiG.?SCAPE|bigscape/i },
+  { key: 'summary',    label: 'Summary',    match: /summary|crosswalk|candidate/i },
+  { key: 'clinker',    label: 'clinker',    match: /clinker/i },
+  { key: 'figures',    label: 'Figures',    match: /figures|rendering/i },
+  { key: 'nplinker',   label: 'NPLinker',   match: /NPLinker/i },
 ];
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -605,6 +936,20 @@ function switchTab(name) {
 }
 
 function boolToFlag(value) { return value ? '1' : '0'; }
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[ch]));
+}
+
+function resultHref(jobId, relPath) {
+  return `/api/jobs/${encodeURIComponent(jobId)}/files/${String(relPath).split('/').map(encodeURIComponent).join('/')}`;
+}
 
 function envToBool(value, defaultValue = false) {
   if (value === undefined || value === null || value === '') return defaultValue;
@@ -644,22 +989,54 @@ function applyEnvProfileValues(cfg) {
   setText('project-name', 'PROJECT_NAME');
   setNum('cpus', 'CPUS');
   setText('target-genome', 'TARGET_GENOME');
+  setBool('run-genome-prep', 'RUN_GENOME_PREP', true);
+  setBool('run-annotation', 'RUN_STAGE_ANNOTATION', true);
   setBool('run-bigscape', 'RUN_STAGE_BIGSCAPE', true);
-  setBool('run-crosswalk', 'RUN_STAGE_SUMMARY', true);
+  setBool('run-summary', 'RUN_STAGE_SUMMARY', true);
   setBool('run-clinker', 'RUN_CLINKER', true);
+  setBool('execute-clinker', 'RUN_CLINKER', true);
+  setBool('run-figures', 'RUN_FIGURES', true);
+  setBool('figures-required', 'FIGURES_REQUIRED', false);
+  setBool('run-nplinker', 'RUN_NPLINKER', false);
   setBool('run-ecology', 'RUN_ECOLOGY_ANALYSIS', false);
   setText('ecology-field', 'ECOLOGY_FIELD');
   setText('focus-ecology-label', 'FOCUS_ECOLOGY_LABEL');
   setText('metadata-tsv', 'METADATA_TSV');
+  setBool('force-rerun', 'FORCE', false);
+  setNum('workers', 'WORKERS');
+  setNum('anno-cpus', 'ANNO_CPUS');
+  setText('annotation-fallback-order', 'ANNOTATION_FALLBACK_ORDER');
+  setBool('braker3-enabled', 'BRAKER3_ENABLED', false);
+  setText('funannotate-busco-db', 'FUNANNOTATE_BUSCO_DB');
+  setText('funannotate-organism-name', 'FUNANNOTATE_ORGANISM_NAME');
+  setText('clinker-mode', 'CLINKER_MODE');
+  setText('panel-target-set', 'PANEL_TARGET_SET');
   setNum('atlas-min-records', 'ATLAS_MIN_RECORDS');
+  setNum('shared-family-stage-limit', 'SHARED_FAMILY_STAGE_LIMIT');
+  setNum('shared-family-min-records', 'SHARED_FAMILY_MIN_RECORDS');
   setNum('shortlist-limit', 'SHORTLIST_LIMIT');
   setNum('max-comparators', 'MAX_COMPARATORS');
+  setNum('max-same-ecology', 'MAX_SAME_ECOLOGY');
+  setNum('max-other-ecology', 'MAX_OTHER_ECOLOGY');
   setBool('capture-external-artifacts', 'CAPTURE_EXTERNAL_ARTIFACTS', true);
   setBool('auto-normalize-metadata', 'AUTO_NORMALIZE_METADATA', true);
+  setText('auto-pull-images', 'AUTO_PULL_IMAGES');
+  setBool('auto-build-funbgcex-sif', 'AUTO_BUILD_FUNBGCEX_SIF', true);
+  setBool('auto-pull-bigscape-sif', 'AUTO_PULL_BIGSCAPE_SIF', true);
+  setBool('auto-download-pfam', 'AUTO_DOWNLOAD_PFAM', true);
+  setBool('auto-download-fasttree', 'AUTO_DOWNLOAD_FASTTREE', true);
+  setBool('mibig-auto-download', 'MIBIG_AUTO_DOWNLOAD', true);
   setText('clinker-docker-image', 'CLINKER_DOCKER_IMAGE');
   setText('clinker-docker-data-volume', 'CLINKER_DOCKER_DATA_VOLUME');
   setBool('clinker-use-docker-image', 'CLINKER_USE_DOCKER_IMAGE', true);
   setNum('clinker-max-regions', 'ATLAS_STAGE_LIMIT');
+  setText('nplinker-run-mode', 'RUN_MODE');
+  setText('target-strain', 'TARGET_STRAIN');
+  setText('nplinker-podp-id', 'PODP_ID');
+  setText('massive-dataset-id', 'MASSIVE_DATASET_ID');
+  setText('gnps-version', 'GNPS_VERSION');
+  setBool('auto-pull-nplinker-sif', 'AUTO_PULL_NPLINKER_SIF', true);
+  setBool('nplinker-bootstrap-env', 'NPLINKER_BOOTSTRAP_ENV', true);
   syncControlState();
 }
 
@@ -668,22 +1045,53 @@ function currentEnvProfileText() {
     `PROJECT_NAME=${document.getElementById('project-name').value.trim() || 'my_project'}`,
     `CPUS=${document.getElementById('cpus').value || '4'}`,
     `TARGET_GENOME=${document.getElementById('target-genome').value.trim()}`,
+    `RUN_GENOME_PREP=${document.getElementById('run-genome-prep').checked ? '1' : '0'}`,
+    `RUN_STAGE_ANNOTATION=${document.getElementById('run-annotation').checked ? '1' : '0'}`,
     `RUN_STAGE_BIGSCAPE=${document.getElementById('run-bigscape').checked ? '1' : '0'}`,
-    `RUN_STAGE_SUMMARY=${document.getElementById('run-crosswalk').checked ? '1' : '0'}`,
+    `RUN_STAGE_SUMMARY=${document.getElementById('run-summary').checked ? '1' : '0'}`,
     `RUN_CLINKER=${document.getElementById('run-clinker').checked ? '1' : '0'}`,
+    `RUN_FIGURES=${document.getElementById('run-figures').checked ? '1' : '0'}`,
+    `FIGURES_REQUIRED=${document.getElementById('figures-required').checked ? '1' : '0'}`,
+    `RUN_NPLINKER=${document.getElementById('run-nplinker').checked ? '1' : '0'}`,
     `RUN_ECOLOGY_ANALYSIS=${document.getElementById('run-ecology').checked ? '1' : '0'}`,
+    `FORCE=${document.getElementById('force-rerun').checked ? '1' : '0'}`,
+    `WORKERS=${document.getElementById('workers').value || '2'}`,
+    `ANNO_CPUS=${document.getElementById('anno-cpus').value || document.getElementById('cpus').value || '4'}`,
+    `ANNOTATION_FALLBACK_ORDER=${document.getElementById('annotation-fallback-order').value.trim()}`,
+    `BRAKER3_ENABLED=${document.getElementById('braker3-enabled').checked ? '1' : '0'}`,
+    `FUNANNOTATE_BUSCO_DB=${document.getElementById('funannotate-busco-db').value.trim() || 'dikarya'}`,
+    `FUNANNOTATE_ORGANISM_NAME=${document.getElementById('funannotate-organism-name').value.trim() || 'Fungal_sp'}`,
+    `CLINKER_MODE=${document.getElementById('clinker-mode').value}`,
+    `PANEL_TARGET_SET=${document.getElementById('panel-target-set').value}`,
     `ECOLOGY_FIELD=${document.getElementById('ecology-field').value.trim()}`,
     `FOCUS_ECOLOGY_LABEL=${document.getElementById('focus-ecology-label').value.trim()}`,
     `AUTO_NORMALIZE_METADATA=${document.getElementById('auto-normalize-metadata').checked ? '1' : '0'}`,
     `METADATA_TSV=${document.getElementById('metadata-tsv').value.trim()}`,
     `CAPTURE_EXTERNAL_ARTIFACTS=${document.getElementById('capture-external-artifacts').checked ? '1' : '0'}`,
+    `AUTO_PULL_IMAGES=${document.getElementById('auto-pull-images').value}`,
+    `AUTO_BUILD_FUNBGCEX_SIF=${document.getElementById('auto-build-funbgcex-sif').checked ? '1' : '0'}`,
+    `AUTO_PULL_BIGSCAPE_SIF=${document.getElementById('auto-pull-bigscape-sif').checked ? '1' : '0'}`,
+    `AUTO_DOWNLOAD_PFAM=${document.getElementById('auto-download-pfam').checked ? '1' : '0'}`,
+    `AUTO_DOWNLOAD_FASTTREE=${document.getElementById('auto-download-fasttree').checked ? '1' : '0'}`,
+    `MIBIG_AUTO_DOWNLOAD=${document.getElementById('mibig-auto-download').checked ? '1' : '0'}`,
     `ATLAS_MIN_RECORDS=${document.getElementById('atlas-min-records').value || '2'}`,
     `SHORTLIST_LIMIT=${document.getElementById('shortlist-limit').value || '12'}`,
+    `SHARED_FAMILY_STAGE_LIMIT=${document.getElementById('shared-family-stage-limit').value || '12'}`,
+    `SHARED_FAMILY_MIN_RECORDS=${document.getElementById('shared-family-min-records').value || '4'}`,
     `MAX_COMPARATORS=${document.getElementById('max-comparators').value || '50'}`,
+    `MAX_SAME_ECOLOGY=${document.getElementById('max-same-ecology').value || '20'}`,
+    `MAX_OTHER_ECOLOGY=${document.getElementById('max-other-ecology').value || '20'}`,
     `CLINKER_USE_DOCKER_IMAGE=${document.getElementById('clinker-use-docker-image').checked ? '1' : '0'}`,
     `CLINKER_DOCKER_IMAGE=${document.getElementById('clinker-docker-image').value.trim()}`,
     `CLINKER_DOCKER_DATA_VOLUME=${document.getElementById('clinker-docker-data-volume').value.trim()}`,
-    `ATLAS_STAGE_LIMIT=${document.getElementById('clinker-max-regions').value || '0'}`,
+    `ATLAS_STAGE_LIMIT=${document.getElementById('clinker-max-regions').value || '12'}`,
+    `RUN_MODE=${document.getElementById('nplinker-run-mode').value}`,
+    `TARGET_STRAIN=${document.getElementById('target-strain').value.trim()}`,
+    `PODP_ID=${document.getElementById('nplinker-podp-id').value.trim()}`,
+    `MASSIVE_DATASET_ID=${document.getElementById('massive-dataset-id').value.trim()}`,
+    `GNPS_VERSION=${document.getElementById('gnps-version').value}`,
+    `AUTO_PULL_NPLINKER_SIF=${document.getElementById('auto-pull-nplinker-sif').checked ? '1' : '0'}`,
+    `NPLINKER_BOOTSTRAP_ENV=${document.getElementById('nplinker-bootstrap-env').checked ? '1' : '0'}`,
   ];
   return lines.join('\n') + '\n';
 }
@@ -713,16 +1121,20 @@ function yesNo(value) {
 
 function renderStageChips() {
   const chips = [
+    checkedLabel('run-genome-prep', 'NCBI prep'),
+    checkedLabel('run-annotation', 'Annotation'),
     checkedLabel('run-bigscape', 'BiG-SCAPE'),
-    checkedLabel('run-crosswalk', 'Crosswalk'),
+    checkedLabel('run-summary', 'Summary'),
     checkedLabel('run-clinker', 'clinker'),
+    checkedLabel('run-figures', 'Figures'),
     checkedLabel('run-ecology', 'Ecology'),
+    checkedLabel('run-nplinker', 'NPLinker'),
   ];
   return `<div class="summary-chips">${chips.map(c => `<span class="summary-chip ${c.enabled ? '' : 'off'}">${c.label}</span>`).join('')}</div>`;
 }
 
 function updateRunSummary() {
-  const summary = document.getElementById('run-summary');
+  const summary = document.getElementById('run-summary-content');
   if (!summary) return;
   const fileNames = selectedFiles.slice(0, 3).map(f => f.name).join(', ');
   const moreCount = Math.max(0, selectedFiles.length - 3);
@@ -732,7 +1144,7 @@ function updateRunSummary() {
   const targetGenome = document.getElementById('target-genome').value.trim() || 'None';
   const projectName = document.getElementById('project-name').value.trim() || 'my_project';
   const cpus = document.getElementById('cpus').value || '4';
-  const genefinding = document.getElementById('genefinding-mode').value;
+  const annotationStrategy = document.getElementById('genefinding-mode').value;
   const clinkerMode = document.getElementById('clinker-use-docker-image').checked ? 'Docker image' : 'Local/runtime';
   const ecology = document.getElementById('run-ecology').checked
     ? `${document.getElementById('ecology-field').value.trim() || 'ecofun_primary'}${document.getElementById('focus-ecology-label').value.trim() ? ` / ${document.getElementById('focus-ecology-label').value.trim()}` : ''}`
@@ -744,19 +1156,19 @@ function updateRunSummary() {
   summary.innerHTML = `
     <div class="summary-item">
       <div class="summary-label">Project</div>
-      <div class="summary-value">${projectName}</div>
+      <div class="summary-value">${escapeHtml(projectName)}</div>
     </div>
     <div class="summary-item">
       <div class="summary-label">Input Files</div>
-      <div class="summary-value">${selectedLabel}</div>
+      <div class="summary-value">${escapeHtml(selectedLabel)}</div>
     </div>
     <div class="summary-item">
       <div class="summary-label">Compute</div>
-      <div class="summary-value">${cpus} CPU thread(s), gene finding: ${genefinding}</div>
+      <div class="summary-value">${escapeHtml(cpus)} CPU thread(s), annotation: ${escapeHtml(annotationStrategy)}</div>
     </div>
     <div class="summary-item">
       <div class="summary-label">Target Genome</div>
-      <div class="summary-value">${targetGenome}</div>
+      <div class="summary-value">${escapeHtml(targetGenome)}</div>
     </div>
     <div class="summary-item">
       <div class="summary-label">Enabled Stages</div>
@@ -764,11 +1176,11 @@ function updateRunSummary() {
     </div>
     <div class="summary-item">
       <div class="summary-label">clinker Runtime</div>
-      <div class="summary-value">${clinkerMode}; max regions: ${clinkerLimit}</div>
+      <div class="summary-value">${escapeHtml(clinkerMode)}; atlas panels: ${escapeHtml(clinkerLimit)}</div>
     </div>
     <div class="summary-item">
       <div class="summary-label">Ecology</div>
-      <div class="summary-value">${ecology}</div>
+      <div class="summary-value">${escapeHtml(ecology)}</div>
     </div>
     <div class="summary-item">
       <div class="summary-label">Artifacts & Metadata</div>
@@ -779,15 +1191,20 @@ function updateRunSummary() {
 
 function syncControlState() {
   const runBigscape = document.getElementById('run-bigscape');
-  const runCrosswalk = document.getElementById('run-crosswalk');
+  const runSummary = document.getElementById('run-summary');
   const runClinker = document.getElementById('run-clinker');
   const runEcology = document.getElementById('run-ecology');
+  const runNplinker = document.getElementById('run-nplinker');
 
-  runCrosswalk.disabled = !runBigscape.checked;
-  if (!runBigscape.checked) runCrosswalk.checked = false;
+  if (!runBigscape.checked && runSummary.checked) {
+    // Summary can still run from existing outputs, so keep it enabled.
+  }
 
   const clinkerFields = [
     'clinker-max-regions',
+    'execute-clinker',
+    'clinker-mode',
+    'panel-target-set',
     'clinker-use-docker-image',
     'clinker-docker-image',
     'clinker-docker-data-volume',
@@ -803,6 +1220,20 @@ function syncControlState() {
     if (el) el.disabled = !runEcology.checked;
   }
 
+  const nplinkerFields = [
+    'nplinker-run-mode',
+    'target-strain',
+    'nplinker-podp-id',
+    'massive-dataset-id',
+    'gnps-version',
+    'auto-pull-nplinker-sif',
+    'nplinker-bootstrap-env',
+  ];
+  for (const id of nplinkerFields) {
+    const el = document.getElementById(id);
+    if (el) el.disabled = !runNplinker.checked;
+  }
+
   updateRunSummary();
 }
 
@@ -815,28 +1246,46 @@ function applyPreset(name) {
   };
 
   if (name === 'beginner') {
+    set('run-genome-prep', true);
+    set('run-annotation', true);
     set('run-bigscape', false);
-    set('run-crosswalk', false);
+    set('run-summary', true);
     set('run-clinker', true);
-    set('clinker-max-regions', 12);
+    set('run-figures', true);
+    set('run-nplinker', false);
+    set('figures-required', false);
+    set('clinker-max-regions', 6);
     set('bigscape-mix-mode', 1);
   } else if (name === 'full') {
+    set('run-genome-prep', true);
+    set('run-annotation', true);
     set('run-bigscape', true);
-    set('run-crosswalk', true);
+    set('run-summary', true);
     set('run-clinker', true);
-    set('clinker-max-regions', 0);
+    set('run-figures', true);
+    set('figures-required', false);
+    set('clinker-max-regions', 24);
     set('bigscape-mix-mode', 1);
   } else if (name === 'repro') {
+    set('run-genome-prep', true);
+    set('run-annotation', true);
     set('run-bigscape', true);
-    set('run-crosswalk', true);
+    set('run-summary', true);
     set('run-clinker', true);
+    set('run-figures', true);
+    set('figures-required', false);
     set('capture-external-artifacts', true);
     set('auto-normalize-metadata', true);
   } else {
+    set('run-genome-prep', true);
+    set('run-annotation', true);
     set('run-bigscape', true);
-    set('run-crosswalk', true);
+    set('run-summary', true);
     set('run-clinker', true);
-    set('clinker-max-regions', 50);
+    set('run-figures', true);
+    set('run-nplinker', false);
+    set('figures-required', false);
+    set('clinker-max-regions', 12);
     set('bigscape-mix-mode', 1);
   }
   syncControlState();
@@ -856,10 +1305,10 @@ dropZone.addEventListener('drop', e => {
 });
 
 function addFiles(files) {
-  const allowed = new Set(['gbk','gb','gbff','fasta','fa','fna']);
+  const allowed = new Set(['gbk','gb','gbff','fasta','fa','fna','fsa','txt','tsv','csv','json','gff','gff3','faa','mgf','zip']);
   for (const f of files) {
     if (!allowed.has(ext(f.name))) {
-      alert(`Unsupported file type: ${f.name}\nAllowed: .gbk, .gb, .gbff, .fasta, .fa, .fna`);
+      alert(`Unsupported file type: ${f.name}\nAllowed: .gbk, .gb, .gbff, .fasta, .fa, .fna, .fsa, .txt, .tsv, .csv, .json, .mgf, .zip`);
       continue;
     }
     if (!selectedFiles.find(x => x.name === f.name)) selectedFiles.push(f);
@@ -867,8 +1316,8 @@ function addFiles(files) {
   renderFileList();
 }
 
-function removeFile(name) {
-  selectedFiles = selectedFiles.filter(f => f.name !== name);
+function removeFile(index) {
+  selectedFiles.splice(index, 1);
   renderFileList();
 }
 
@@ -876,16 +1325,65 @@ function renderFileList() {
   const list = document.getElementById('file-list');
   const btn  = document.getElementById('run-btn');
   const stat = document.getElementById('upload-status');
-  list.innerHTML = selectedFiles.map(f => `
+  list.innerHTML = selectedFiles.map((f, idx) => `
     <div class="file-item">
       <span class="file-icon">📄</span>
-      <span class="file-name">${f.name}</span>
+      <span class="file-name">${escapeHtml(f.name)}</span>
       <span class="file-size">${fmt_size(f.size)}</span>
-      <button class="file-remove" onclick="removeFile('${f.name}')" title="Remove">✕</button>
+      <button class="file-remove" onclick="removeFile(${idx})" title="Remove">✕</button>
     </div>`).join('');
   btn.disabled = selectedFiles.length === 0;
   stat.textContent = selectedFiles.length ? `${selectedFiles.length} file(s) ready` : '';
   updateRunSummary();
+}
+
+function genomeStemFromName(name) {
+  return name.replace(/\.(gbk|gb|gbff|fasta|fa|fna|fsa)$/i, '');
+}
+
+function addMetadataRow(values = {}) {
+  const body = document.getElementById('metadata-table-body');
+  const row = document.createElement('tr');
+  row.innerHTML = `
+    <td><input type="text" class="metadata-genome" value="${escapeHtml(values.genome || '')}" placeholder="Genome ID" /></td>
+    <td><input type="text" class="metadata-primary" value="${escapeHtml(values.primary || '')}" placeholder="ecofun_primary" /></td>
+    <td><input type="text" class="metadata-secondary" value="${escapeHtml(values.secondary || '')}" placeholder="ecofun_secondary" /></td>
+    <td><button class="btn btn-ghost text-sm" type="button" onclick="this.closest('tr').remove(); updateRunSummary()">Remove</button></td>
+  `;
+  body.appendChild(row);
+  row.querySelectorAll('input').forEach(el => {
+    el.addEventListener('input', updateRunSummary);
+    el.addEventListener('change', updateRunSummary);
+  });
+  updateRunSummary();
+}
+
+function seedMetadataFromFiles() {
+  const existing = new Set([...document.querySelectorAll('.metadata-genome')].map(el => el.value.trim()).filter(Boolean));
+  for (const file of selectedFiles) {
+    if (!/\.(gbk|gb|gbff|fasta|fa|fna|fsa)$/i.test(file.name)) continue;
+    const genome = genomeStemFromName(file.name);
+    if (!genome || existing.has(genome)) continue;
+    existing.add(genome);
+    addMetadataRow({ genome });
+  }
+}
+
+function metadataProfileText() {
+  const rows = [...document.querySelectorAll('#metadata-table-body tr')].map((row) => {
+    return {
+      genome: row.querySelector('.metadata-genome')?.value.trim() || '',
+      primary: row.querySelector('.metadata-primary')?.value.trim() || '',
+      secondary: row.querySelector('.metadata-secondary')?.value.trim() || '',
+    };
+  }).filter(row => row.genome || row.primary || row.secondary);
+  if (!rows.length) return '';
+  const lines = ['accession\tgenome_id_current\ttaxonomy_id\tgenome_size_mb\tgenome_id_original_if_different\tecofun_primary\tecofun_secondary'];
+  for (const row of rows) {
+    if (!row.genome) continue;
+    lines.push(`\t${row.genome}\t\t\t\t${row.primary}\t${row.secondary}`);
+  }
+  return lines.join('\n') + '\n';
 }
 
 // ── Start Analysis ─────────────────────────────────────────────────────────
@@ -894,30 +1392,76 @@ async function startAnalysis() {
 
   const name = document.getElementById('project-name').value.trim() || 'my_project';
   const cpus = parseInt(document.getElementById('cpus').value) || 4;
+  const annotationStrategy = document.getElementById('genefinding-mode').value;
+  const fallbackOrder = annotationStrategy === 'auto'
+    ? document.getElementById('annotation-fallback-order').value.trim()
+    : annotationStrategy;
+  const brakerEnabled = document.getElementById('braker3-enabled').checked || annotationStrategy.includes('braker3');
 
   const fd = new FormData();
   for (const f of selectedFiles) fd.append('files', f);
+  const metadataText = metadataProfileText();
+  if (metadataText) {
+    fd.append('files', new File([metadataText], 'ecofun_metadata_normalized.tsv', { type: 'text/tab-separated-values' }));
+  }
   fd.append('project_name', name);
   fd.append('cpus', cpus);
   fd.append('target_genome', document.getElementById('target-genome').value.trim());
+  fd.append('run_ncbi_install', boolToFlag(document.getElementById('run-ncbi-install').checked));
+  fd.append('run_genome_prep', boolToFlag(document.getElementById('run-genome-prep').checked));
+  fd.append('run_annotation', boolToFlag(document.getElementById('run-annotation').checked));
   fd.append('run_bigscape', boolToFlag(document.getElementById('run-bigscape').checked));
-  fd.append('run_crosswalk', boolToFlag(document.getElementById('run-crosswalk').checked));
+  fd.append('run_summary', boolToFlag(document.getElementById('run-summary').checked));
+  fd.append('run_crosswalk', boolToFlag(document.getElementById('run-summary').checked));
   fd.append('run_clinker', boolToFlag(document.getElementById('run-clinker').checked));
+  fd.append('execute_clinker', boolToFlag(document.getElementById('execute-clinker').checked));
+  fd.append('run_figures', boolToFlag(document.getElementById('run-figures').checked));
+  fd.append('figures_required', boolToFlag(document.getElementById('figures-required').checked));
+  fd.append('run_nplinker', boolToFlag(document.getElementById('run-nplinker').checked));
   fd.append('run_ecology_analysis', boolToFlag(document.getElementById('run-ecology').checked));
   fd.append('ecology_field', document.getElementById('ecology-field').value.trim());
   fd.append('focus_ecology_label', document.getElementById('focus-ecology-label').value.trim());
   fd.append('genefinding_mode', document.getElementById('genefinding-mode').value);
   fd.append('bigscape_mix_mode', document.getElementById('bigscape-mix-mode').value);
+  fd.append('force', boolToFlag(document.getElementById('force-rerun').checked));
+  fd.append('workers', document.getElementById('workers').value || '2');
+  fd.append('threads', document.getElementById('cpus').value || '4');
+  fd.append('anno_cpus', document.getElementById('anno-cpus').value || document.getElementById('cpus').value || '4');
+  fd.append('annotation_fallback_order', fallbackOrder);
+  fd.append('braker3_enabled', boolToFlag(brakerEnabled));
+  fd.append('funannotate_busco_db', document.getElementById('funannotate-busco-db').value.trim());
+  fd.append('funannotate_organism_name', document.getElementById('funannotate-organism-name').value.trim());
+  fd.append('clinker_mode', document.getElementById('clinker-mode').value);
+  fd.append('panel_target_set', document.getElementById('panel-target-set').value);
   fd.append('clinker_use_docker_image', boolToFlag(document.getElementById('clinker-use-docker-image').checked));
   fd.append('clinker_docker_image', document.getElementById('clinker-docker-image').value.trim());
   fd.append('clinker_docker_data_volume', document.getElementById('clinker-docker-data-volume').value.trim());
   fd.append('clinker_max_regions', document.getElementById('clinker-max-regions').value || '0');
+  fd.append('atlas_stage_limit', document.getElementById('clinker-max-regions').value || '12');
   fd.append('atlas_min_records', document.getElementById('atlas-min-records').value || '2');
   fd.append('shortlist_limit', document.getElementById('shortlist-limit').value || '12');
+  fd.append('shared_family_stage_limit', document.getElementById('shared-family-stage-limit').value || '12');
+  fd.append('shared_family_min_records', document.getElementById('shared-family-min-records').value || '4');
   fd.append('max_comparators', document.getElementById('max-comparators').value || '50');
+  fd.append('max_same_ecology', document.getElementById('max-same-ecology').value || '20');
+  fd.append('max_other_ecology', document.getElementById('max-other-ecology').value || '20');
   fd.append('capture_external_artifacts', boolToFlag(document.getElementById('capture-external-artifacts').checked));
   fd.append('auto_normalize_metadata', boolToFlag(document.getElementById('auto-normalize-metadata').checked));
   fd.append('metadata_tsv', document.getElementById('metadata-tsv').value.trim());
+  fd.append('auto_pull_images', document.getElementById('auto-pull-images').value);
+  fd.append('auto_build_funbgcex_sif', boolToFlag(document.getElementById('auto-build-funbgcex-sif').checked));
+  fd.append('auto_pull_bigscape_sif', boolToFlag(document.getElementById('auto-pull-bigscape-sif').checked));
+  fd.append('auto_download_pfam', boolToFlag(document.getElementById('auto-download-pfam').checked));
+  fd.append('auto_download_fasttree', boolToFlag(document.getElementById('auto-download-fasttree').checked));
+  fd.append('mibig_auto_download', boolToFlag(document.getElementById('mibig-auto-download').checked));
+  fd.append('nplinker_run_mode', document.getElementById('nplinker-run-mode').value);
+  fd.append('target_strain', document.getElementById('target-strain').value.trim());
+  fd.append('nplinker_podp_id', document.getElementById('nplinker-podp-id').value.trim());
+  fd.append('massive_dataset_id', document.getElementById('massive-dataset-id').value.trim());
+  fd.append('gnps_version', document.getElementById('gnps-version').value);
+  fd.append('auto_pull_nplinker_sif', boolToFlag(document.getElementById('auto-pull-nplinker-sif').checked));
+  fd.append('nplinker_bootstrap_env', boolToFlag(document.getElementById('nplinker-bootstrap-env').checked));
+  fd.append('env_overrides', document.getElementById('env-overrides').value);
 
   document.getElementById('run-btn').disabled = true;
   document.getElementById('upload-status').textContent = 'Uploading…';
@@ -953,8 +1497,8 @@ async function refreshJobHistory() {
   el.innerHTML = jobs.map(j => `
     <div class="job-card ${j.id === activeJobId ? 'active-job' : ''}" onclick="loadJob('${j.id}')">
       <div class="job-card-meta">
-        <div class="job-card-name">${j.name}</div>
-        <div class="job-card-id">${j.id} · ${j.stage}</div>
+        <div class="job-card-name">${escapeHtml(j.name)}</div>
+        <div class="job-card-id">${escapeHtml(j.id)} · ${escapeHtml(j.stage)}</div>
       </div>
       ${statusBadge(j.status)}
       <button class="job-delete" title="Delete" onclick="deleteJob(event,'${j.id}')">🗑</button>
@@ -969,7 +1513,7 @@ function statusBadge(status) {
     failed:  ['failed', '❌'],
   };
   const [cls, icon] = map[status] || ['pending','?'];
-  return `<span class="badge badge-${cls}"><span class="badge-dot"></span>${icon} ${status}</span>`;
+  return `<span class="badge badge-${cls}"><span class="badge-dot"></span>${icon} ${escapeHtml(status)}</span>`;
 }
 
 async function deleteJob(e, jobId) {
@@ -1059,6 +1603,7 @@ function resetStages() {
   document.querySelectorAll('.stage-step').forEach(s => {
     s.classList.remove('active','done');
   });
+  currentStageIdx = -1;
 }
 
 let currentStageIdx = -1;
@@ -1125,25 +1670,33 @@ async function loadResults(jobId, status) {
 }
 
 function renderViz(jobId, files) {
-  const clinkerFile = files.find(f => f.endsWith('.html'));
+  const htmlFiles = files.filter(f => f.endsWith('.html'));
+  const pngFiles = files.filter(f => f.endsWith('.png'));
   const container = document.getElementById('viz-container');
-  if (clinkerFile) {
-    container.innerHTML = `
-      <div class="flex-gap mt1" style="margin-bottom:.75rem">
-        <a class="btn btn-ghost text-sm" href="/api/jobs/${jobId}/files/${clinkerFile}" target="_blank">
-          ↗ Open in new tab
-        </a>
-        <span class="text-muted text-sm">Interactive clinker BGC synteny visualization</span>
-      </div>
-      <iframe class="viz-frame" src="/api/jobs/${jobId}/files/${clinkerFile}" title="clinker visualization"></iframe>`;
-  } else {
+  if (!htmlFiles.length && !pngFiles.length) {
     container.innerHTML = `
       <div class="viz-placeholder">
         <div class="big-icon">⚠️</div>
-        <div>No clinker visualization was produced. This may happen if no BGC regions were detected.</div>
+        <div>No visualization files were produced. This may happen if no BGC regions were detected or figure rendering was skipped.</div>
         <div class="mt1 text-sm text-muted">Check the pipeline logs for details.</div>
       </div>`;
+    return;
   }
+
+  const htmlLinks = htmlFiles.map((f, idx) => `
+    <a class="btn btn-ghost text-sm" href="${resultHref(jobId, f)}" target="_blank">${idx === 0 ? 'Open primary HTML' : 'Open HTML'}: ${escapeHtml(f.split('/').pop())}</a>
+  `).join('');
+  const pngCards = pngFiles.map(f => `
+    <div class="summary-panel mt1">
+      <div class="summary-head">${escapeHtml(f.split('/').pop())}</div>
+      <img src="${resultHref(jobId, f)}" alt="${escapeHtml(f.split('/').pop())}" style="width:100%;background:#fff;border-radius:6px;display:block" />
+    </div>
+  `).join('');
+  const primaryHtml = htmlFiles[0];
+  container.innerHTML = `
+    <div class="flex-gap mt1" style="margin-bottom:.75rem">${htmlLinks}</div>
+    ${primaryHtml ? `<iframe class="viz-frame" src="${resultHref(jobId, primaryHtml)}" title="ClusterWeave HTML visualization"></iframe>` : ''}
+    ${pngCards}`;
 }
 
 function renderFileTable(jobId, files) {
@@ -1157,11 +1710,12 @@ function renderFileTable(jobId, files) {
     const name   = parts.pop();
     const dir    = parts.join('/') || '—';
     const extStr = name.split('.').pop();
+    const href = resultHref(jobId, f);
     return `<tr>
-      <td><span class="ext-badge">.${extStr}</span></td>
-      <td><a href="/api/jobs/${jobId}/files/${f}" target="_blank">${name}</a></td>
-      <td class="text-muted text-sm">${dir}</td>
-      <td><a class="btn btn-ghost text-sm" href="/api/jobs/${jobId}/files/${f}" download="${name}">↓</a></td>
+      <td><span class="ext-badge">.${escapeHtml(extStr)}</span></td>
+      <td><a href="${href}" target="_blank">${escapeHtml(name)}</a></td>
+      <td class="text-muted text-sm">${escapeHtml(dir)}</td>
+      <td><a class="btn btn-ghost text-sm" href="${href}" download="${escapeHtml(name)}">↓</a></td>
     </tr>`;
   }).join('');
   container.innerHTML = `
@@ -1171,52 +1725,300 @@ function renderFileTable(jobId, files) {
     </table>`;
 }
 
-// ── Init ───────────────────────────────────────────────────────────────────
-refreshJobHistory();
-setInterval(refreshJobHistory, 5000);
-applyPreset('balanced');
-document.getElementById('run-bigscape').addEventListener('change', syncControlState);
-document.getElementById('run-clinker').addEventListener('change', syncControlState);
-document.getElementById('run-ecology').addEventListener('change', syncControlState);
-[
-  'project-name',
-  'cpus',
-  'target-genome',
-  'genefinding-mode',
-  'bigscape-mix-mode',
-  'clinker-use-docker-image',
-  'clinker-docker-image',
-  'clinker-docker-data-volume',
-  'clinker-max-regions',
-  'capture-external-artifacts',
-  'auto-normalize-metadata',
-  'ecology-field',
-  'focus-ecology-label',
-  'metadata-tsv',
-  'atlas-min-records',
-  'shortlist-limit',
-  'max-comparators',
-  'run-crosswalk',
-].forEach((id) => {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.addEventListener('input', updateRunSummary);
-  el.addEventListener('change', updateRunSummary);
-});
-document.getElementById('profile-file-input').addEventListener('change', async (e) => {
-  const status = document.getElementById('profile-load-status');
-  const file = e.target.files && e.target.files[0];
-  if (!file) return;
-  try {
-    const text = await file.text();
-    const cfg = parseEnvProfile(text);
-    applyEnvProfileValues(cfg);
-    status.textContent = `Loaded profile: ${file.name}`;
-  } catch (err) {
-    status.textContent = `Failed to load profile: ${err.message || err}`;
+// ── System Console (Worker Status) ──────────────────────────────────────────
+function startSystemConsolePolling() {
+  appendSystemLog('[System] ClusterWeave initialization complete. Monitoring worker...');
+  systemPollTimer = setInterval(() => {
+    pollSystemStatus();
+  }, 2000);
+  // Initial poll
+  pollSystemStatus();
+}
+
+function stopSystemConsolePolling() {
+  if (systemPollTimer) {
+    clearInterval(systemPollTimer);
+    systemPollTimer = null;
   }
-});
-updateRunSummary();
+}
+
+async function pollSystemStatus() {
+  let jobs;
+  try {
+    const resp = await fetch('/api/jobs');
+    if (!resp.ok) return;
+    jobs = await resp.json();
+  } catch (err) {
+    return;
+  }
+  
+  const pendingCount = jobs.filter(j => j.status === 'pending').length;
+  const runningCount = jobs.filter(j => j.status === 'running').length;
+  
+  // Determine worker status based on pending jobs
+  if (pendingCount > 0 && activeJobId === null) {
+    const newStatus = 'ready';
+    if (newStatus !== workerStatus) {
+      workerStatus = newStatus;
+      appendSystemLog('[Worker] ✅ Ready — awaiting job assignment');
+    }
+  } else if (runningCount > 0) {
+    const newStatus = 'processing';
+    if (newStatus !== workerStatus) {
+      workerStatus = newStatus;
+      appendSystemLog('[Worker] ⚡ Processing job(s)...');
+    }
+  } else if (pendingCount === 0 && runningCount === 0) {
+    const newStatus = 'idle';
+    if (newStatus !== workerStatus) {
+      workerStatus = newStatus;
+      appendSystemLog('[Worker] ⏸ Idle — waiting for uploads');
+    }
+  }
+}
+
+function appendSystemLog(text) {
+  const term = document.getElementById('system-console');
+  const div = document.createElement('div');
+  div.className = 'log-line';
+  if (/error|failed/i.test(text)) div.classList.add('err');
+  else if (/warn/i.test(text)) div.classList.add('warn');
+  else if (/ready|✅/i.test(text)) div.classList.add('ok');
+  else if (/processing|⚡/i.test(text)) div.classList.add('stage');
+  div.textContent = text;
+  term.appendChild(div);
+  term.scrollTop = term.scrollHeight;
+}
+
+// ── Bootstrap Management ──────────────────────────────────────────────────────
+let bootstrapComplete = false;
+const bootstrapSteps = [
+  { key: 'antismash', label: 'antiSMASH databases' },
+  { key: 'pfam', label: 'Pfam database' },
+  { key: 'clinker_image', label: 'clinker image pre-pull' },
+  { key: 'bigscape_image', label: 'BiG-SCAPE image pre-pull' },
+  { key: 'starting_worker', label: 'Worker startup' },
+];
+
+const bootstrapPhaseOrder = ['prepare', ...bootstrapSteps.map(s => s.key), 'ready', 'idle', 'processing', 'error'];
+
+function phaseToLabel(phase) {
+  const map = {
+    prepare: 'Preparing bootstrap',
+    antismash: 'Downloading antiSMASH databases',
+    pfam: 'Downloading Pfam database',
+    clinker_image: 'Pulling clinker image',
+    bigscape_image: 'Pulling BiG-SCAPE image',
+    starting_worker: 'Starting worker process',
+    ready: 'Worker ready',
+    idle: 'Worker idle',
+    processing: 'Worker processing jobs',
+    error: 'Worker error',
+  };
+  return map[String(phase || '')] || 'Bootstrapping';
+}
+
+function updateBootstrapProgress(progress, phaseLabel) {
+  const pct = Math.max(0, Math.min(100, Number(progress) || 0));
+  const fill = document.getElementById('bootstrap-progress-fill');
+  const pctEl = document.getElementById('bootstrap-progress-pct');
+  const phaseEl = document.getElementById('bootstrap-phase-label');
+  const track = fill ? fill.parentElement : null;
+
+  if (fill) fill.style.width = `${pct}%`;
+  if (pctEl) pctEl.textContent = `${Math.round(pct)}%`;
+  if (phaseEl) phaseEl.textContent = phaseLabel || 'Bootstrapping';
+  if (track) track.setAttribute('aria-valuenow', String(Math.round(pct)));
+}
+
+async function fetchSystemStatus() {
+  try {
+    const resp = await fetch('/api/system/status');
+    if (!resp.ok) return null;
+    return await resp.json();
+  } catch (e) {
+    return null;
+  }
+}
+
+function updateBootstrapSteps(system) {
+  const phase = String((system && system.phase) || (system && system.state) || 'prepare');
+  const phaseIdx = bootstrapPhaseOrder.indexOf(phase);
+
+  const stepsList = document.getElementById('bootstrap-steps');
+  stepsList.innerHTML = bootstrapSteps.map((s) => {
+    const idx = bootstrapPhaseOrder.indexOf(s.key);
+    const done = phaseIdx > idx || (system && system.ready === true);
+    const running = !done && phase === s.key;
+    const icon = done ? '✅' : (running ? '⚙️' : '⏳');
+    const cls = done ? 'done' : (running ? 'running' : '');
+    return `
+    <div class="bootstrap-step ${cls}">
+      <div class="bootstrap-step-icon">${icon}</div>
+      <div>${s.label}</div>
+    </div>
+  `;
+  }).join('');
+}
+
+async function waitForWorkerReady() {
+  const splash = document.getElementById('bootstrap-splash');
+  const statusEl = document.getElementById('bootstrap-status');
+  const substepEl = document.getElementById('bootstrap-substep');
+  let lastPhase = 'prepare';
+  let lastProgress = 0;
+
+  while (true) {
+    const system = await fetchSystemStatus();
+
+    if (!system) {
+      statusEl.textContent = 'Waiting for web API...';
+      if (substepEl) substepEl.textContent = 'Connecting to status endpoint';
+      updateBootstrapProgress(0, 'Connecting to web API');
+      updateBootstrapSteps({ phase: 'prepare', ready: false });
+      await new Promise(r => setTimeout(r, 1000));
+      continue;
+    }
+
+    const state = String(system.state || 'bootstrapping');
+    const phase = String(system.phase || state);
+    const detail = String(system.detail || '').trim();
+    const substep = String(system.substep || '').trim();
+
+    if (phase !== lastPhase) {
+      lastPhase = phase;
+      lastProgress = 0;
+    }
+
+    const progress = Math.max(0, Math.min(100, Number(system.progress) || 0));
+    lastProgress = progress;
+
+    updateBootstrapProgress(progress, phaseToLabel(phase));
+    updateBootstrapSteps(system);
+    if (substepEl) substepEl.textContent = substep || 'Working...';
+
+    if (state === 'bootstrapping') {
+      statusEl.textContent = detail || 'Bootstrapping worker dependencies...';
+    } else if (state === 'error') {
+      statusEl.textContent = detail ? `Worker error: ${detail}` : 'Worker reported an error';
+    } else if (detail) {
+      statusEl.textContent = detail;
+    } else {
+      statusEl.textContent = 'Finalizing worker setup...';
+    }
+
+    if (system.ready) {
+      updateBootstrapProgress(100, 'Worker ready');
+      statusEl.textContent = '✅ Worker ready! Loading interface...';
+      if (substepEl) substepEl.textContent = 'Bootstrap complete';
+      statusEl.classList.add('ok');
+      bootstrapComplete = true;
+
+      await new Promise(r => setTimeout(r, 500));
+      splash.classList.add('hidden');
+      return true;
+    }
+
+    await new Promise(r => setTimeout(r, 1000));
+  }
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+async function initializeApp() {
+  // Wait for worker bootstrap to complete
+  await waitForWorkerReady();
+  
+  // Now initialize the main UI
+  refreshJobHistory();
+  setInterval(refreshJobHistory, 5000);
+  applyPreset('balanced');
+
+  // Start system console polling (worker status)
+  startSystemConsolePolling();
+
+  document.getElementById('run-bigscape').addEventListener('change', syncControlState);
+  document.getElementById('run-clinker').addEventListener('change', syncControlState);
+  document.getElementById('run-ecology').addEventListener('change', syncControlState);
+  document.getElementById('run-nplinker').addEventListener('change', syncControlState);
+  [
+    'project-name',
+    'cpus',
+    'target-genome',
+    'genefinding-mode',
+    'run-genome-prep',
+    'run-annotation',
+    'run-bigscape',
+    'run-summary',
+    'run-clinker',
+    'execute-clinker',
+    'run-figures',
+    'figures-required',
+    'run-nplinker',
+    'run-ncbi-install',
+    'force-rerun',
+    'workers',
+    'anno-cpus',
+    'annotation-fallback-order',
+    'braker3-enabled',
+    'funannotate-busco-db',
+    'funannotate-organism-name',
+    'clinker-mode',
+    'panel-target-set',
+    'bigscape-mix-mode',
+    'clinker-use-docker-image',
+    'clinker-docker-image',
+    'clinker-docker-data-volume',
+    'clinker-max-regions',
+    'auto-pull-images',
+    'auto-build-funbgcex-sif',
+    'auto-pull-bigscape-sif',
+    'auto-download-pfam',
+    'auto-download-fasttree',
+    'mibig-auto-download',
+    'env-overrides',
+    'capture-external-artifacts',
+    'auto-normalize-metadata',
+    'ecology-field',
+    'focus-ecology-label',
+    'metadata-tsv',
+    'atlas-min-records',
+    'shortlist-limit',
+    'shared-family-stage-limit',
+    'shared-family-min-records',
+    'max-comparators',
+    'max-same-ecology',
+    'max-other-ecology',
+    'nplinker-run-mode',
+    'target-strain',
+    'nplinker-podp-id',
+    'massive-dataset-id',
+    'gnps-version',
+    'auto-pull-nplinker-sif',
+    'nplinker-bootstrap-env',
+  ].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('input', updateRunSummary);
+    el.addEventListener('change', updateRunSummary);
+  });
+  document.getElementById('profile-file-input').addEventListener('change', async (e) => {
+    const status = document.getElementById('profile-load-status');
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const cfg = parseEnvProfile(text);
+      applyEnvProfileValues(cfg);
+      status.textContent = `Loaded profile: ${file.name}`;
+    } catch (err) {
+      status.textContent = `Failed to load profile: ${err.message || err}`;
+    }
+  });
+  updateRunSummary();
+}
+
+// Start the app initialization
+initializeApp().catch(err => console.error('Initialization failed:', err));
 </script>
 </body>
 </html>
