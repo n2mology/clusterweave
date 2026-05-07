@@ -9,6 +9,10 @@
 #
 # The web UI is available at http://localhost
 #
+# This compose file is for dev/lab QA. It mounts the host Docker socket so the
+# worker can launch stage containers from the canonical shell scripts.
+# Do not use this socket-mounted profile for public hosted deployments.
+#
 # On first startup the container downloads:
 #   - antiSMASH databases (~5 GB) to the `antismash_db` volume
 #   - Pfam-A.hmm (~1 GB) to the `pfam_db` volume
@@ -67,7 +71,17 @@ services:
       PFAM_DIR: /databases/pfam
       CLUSTERWEAVE_ROOT: /clusterweave
       CLUSTERWEAVE_SOFTWARE_ROOT: /data/software
+      CLUSTERWEAVE_RUNTIME_MODE: lab-docker
+      CLUSTERWEAVE_ENABLE_DOCKER_SOCKET: "1"
+      ENGINE: docker
+      DOCKER_DATA_VOLUME: clusterweave_job_data
+      DOCKER_ANTISMASH_DB_VOLUME: clusterweave_antismash_db
+      DOCKER_PFAM_VOLUME: clusterweave_pfam_db
       WORKER_POLL_SECONDS: "1"
+      PREPULL_FUNBGCEX_IMAGE: "1"
+      AUTO_BUILD_FUNBGCEX_DOCKER: "1"
+      FUNBGCEX_USE_DOCKER_IMAGE: "1"
+      FUNBGCEX_DOCKER_IMAGE: "clusterweave-funbgcex:latest"
       PREPULL_CLINKER_IMAGE: "1"
       PREPULL_BIGSCAPE_IMAGE: "1"
       BIGSCAPE_USE_DOCKER_IMAGE: "1"
@@ -77,6 +91,9 @@ services:
       CLINKER_USE_DOCKER_IMAGE: "1"
       CLINKER_DOCKER_IMAGE: "quay.io/biocontainers/clinker-py:0.0.32--pyhdfd78af_0"
       CLINKER_DOCKER_DATA_VOLUME: "clusterweave_job_data"
+      NPLINKER_USE_DOCKER_IMAGE: "1"
+      NPLINKER_DOCKER_IMAGE: "python:3.11-slim"
+      NPLINKER_DOCKER_DATA_VOLUME: "clusterweave_job_data"
       PIPELINE_CPUS: "4"
     mem_limit: 16g
     shm_size: 512m

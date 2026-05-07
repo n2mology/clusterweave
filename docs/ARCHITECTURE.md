@@ -35,3 +35,10 @@ Near-term refactor target:
 
 - move helper logic into `src/clusterweave/`
 - keep shell scripts thin wrappers only
+
+Web/runtime notes:
+
+- `web/canonical_pipeline.py` is the current bridge from web jobs into the canonical shell scripts.
+- The lab QA runtime uses `ENGINE=docker` with a host Docker socket only in `docker-compose.yml`.
+- Public hosted deployments should keep the web/API layer as the central orchestrator and move heavy stages into constrained, prebuilt worker images.
+- See `docs/WEB_RUNTIME.md` for the runtime strategy, stage DAG boundary, and socket-safety rules.

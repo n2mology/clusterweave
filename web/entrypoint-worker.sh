@@ -9,6 +9,11 @@ PREPULL_CLINKER_IMAGE="${PREPULL_CLINKER_IMAGE:-1}"
 CLINKER_DOCKER_IMAGE="${CLINKER_DOCKER_IMAGE:-quay.io/biocontainers/clinker-py:0.0.32--pyhdfd78af_0}"
 PREPULL_BIGSCAPE_IMAGE="${PREPULL_BIGSCAPE_IMAGE:-1}"
 BIGSCAPE_DOCKER_IMAGE="${BIGSCAPE_DOCKER_IMAGE:-ghcr.io/medema-group/big-scape:2.0.0-beta.6}"
+PREPULL_FUNBGCEX_IMAGE="${PREPULL_FUNBGCEX_IMAGE:-1}"
+AUTO_BUILD_FUNBGCEX_DOCKER="${AUTO_BUILD_FUNBGCEX_DOCKER:-1}"
+FUNBGCEX_DOCKER_IMAGE="${FUNBGCEX_DOCKER_IMAGE:-clusterweave-funbgcex:latest}"
+FUNBGCEX_DOCKERFILE="${FUNBGCEX_DOCKERFILE:-/clusterweave/Software/funbgcex/Dockerfile}"
+FUNBGCEX_BUILD_CONTEXT="${FUNBGCEX_BUILD_CONTEXT:-/clusterweave/Software/funbgcex}"
 
 log() { echo "[$(date +'%H:%M:%S')] [entrypoint] $*"; }
 have() { command -v "$1" >/dev/null 2>&1; }
@@ -16,6 +21,7 @@ phase_name() {
   case "$1" in
     antismash) echo "antiSMASH" ;;
     pfam) echo "Pfam" ;;
+    funbgcex_image) echo "FunBGCeX" ;;
     clinker_image) echo "clinker" ;;
     bigscape_image) echo "BiG-SCAPE" ;;
     starting_worker) echo "Worker startup" ;;
@@ -88,10 +94,17 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+sys.path.insert(0, "/app")
+try:
+    from runtime_capabilities import runtime_health
+except Exception:
+    runtime_health = None
+
 phase = sys.argv[1]
 progress = int(sys.argv[2])
 detail = sys.argv[3]
 substep = sys.argv[4]
+capabilities = runtime_health() if runtime_health is not None else {}
 
 payload = {
     "ready": False,
@@ -101,6 +114,13 @@ payload = {
     "detail": detail,
     "substep": substep,
     "updated_at": datetime.now().isoformat(),
+    "runtime": {
+        "mode": capabilities.get("mode"),
+        "engine": capabilities.get("engine"),
+        "docker_ready": capabilities.get("docker_ready"),
+        "docker_socket_enabled": capabilities.get("docker_socket_enabled"),
+    } if capabilities else {},
+    "capabilities": capabilities,
 }
 
 path = Path("/data/worker/status.json")
@@ -240,6 +260,24 @@ if [[ "${PREPULL_BIGSCAPE_IMAGE}" == "1" ]] && have docker; then
   set_status "bigscape_image" 100 "BiG-SCAPE container image ready" "Image ready"
 else
   set_status "bigscape_image" 100 "Skipping BiG-SCAPE image pre-pull" "Pre-pull disabled"
+fi
+
+if [[ "${PREPULL_FUNBGCEX_IMAGE}" == "1" && "${AUTO_BUILD_FUNBGCEX_DOCKER}" == "1" ]] && have docker; then
+  if docker image inspect "${FUNBGCEX_DOCKER_IMAGE}" >/dev/null 2>&1; then
+    log "FunBGCeX Docker image already present: ${FUNBGCEX_DOCKER_IMAGE}"
+    set_status "funbgcex_image" 100 "FunBGCeX container image ready" "Image already present"
+  elif [[ -f "${FUNBGCEX_DOCKERFILE}" ]]; then
+    log "Building FunBGCeX image: ${FUNBGCEX_DOCKER_IMAGE}"
+    run_with_progress "funbgcex_image" "Building FunBGCeX container image" \
+      docker build -t "${FUNBGCEX_DOCKER_IMAGE}" -f "${FUNBGCEX_DOCKERFILE}" "${FUNBGCEX_BUILD_CONTEXT}" \
+      || log "WARNING: FunBGCeX image build failed (will retry at runtime)."
+    set_status "funbgcex_image" 100 "FunBGCeX container image ready" "Image build attempted"
+  else
+    log "WARNING: FunBGCeX Dockerfile missing: ${FUNBGCEX_DOCKERFILE}"
+    set_status "funbgcex_image" 100 "FunBGCeX image build skipped" "Dockerfile missing"
+  fi
+else
+  set_status "funbgcex_image" 100 "Skipping FunBGCeX image build" "Pre-build disabled"
 fi
 
 set_status "starting_worker" 100 "Starting worker process" "Handing off to worker loop"

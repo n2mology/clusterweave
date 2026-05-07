@@ -31,9 +31,14 @@ BIGSCAPE_OUT="${BIGSCAPE_OUT:-${RESULTS_ROOT}/big_scape}"
 THREADS="${THREADS:-6}"
 FORCE="${FORCE:-0}"
 ENGINE="${ENGINE:-}"
+CLUSTERWEAVE_RUNTIME_MODE="${CLUSTERWEAVE_RUNTIME_MODE:-hpc-singularity}"
 AUTO_PULL_BIGSCAPE_SIF="${AUTO_PULL_BIGSCAPE_SIF:-1}"
 AUTO_DOWNLOAD_PFAM="${AUTO_DOWNLOAD_PFAM:-1}"
 AUTO_DOWNLOAD_FASTTREE="${AUTO_DOWNLOAD_FASTTREE:-1}"
+BIGSCAPE_USE_DOCKER_IMAGE="${BIGSCAPE_USE_DOCKER_IMAGE:-0}"
+BIGSCAPE_DOCKER_IMAGE="${BIGSCAPE_DOCKER_IMAGE:-ghcr.io/medema-group/big-scape:2.0.0-beta.6}"
+BIGSCAPE_DOCKER_DATA_VOLUME="${BIGSCAPE_DOCKER_DATA_VOLUME:-${DOCKER_DATA_VOLUME:-}}"
+BIGSCAPE_DOCKER_PFAM_VOLUME="${BIGSCAPE_DOCKER_PFAM_VOLUME:-${DOCKER_PFAM_VOLUME:-}}"
 
 BIGSCAPE_SOFTDIR="${BIGSCAPE_SOFTDIR:-${SOFTWARE_ROOT}/big_scape}"
 BIGSCAPE_SIF_PATH="${BIGSCAPE_SIF_PATH:-${BIGSCAPE_SOFTDIR}/bigscape_2.0.0-beta.6.sif}"
@@ -57,7 +62,8 @@ MIBIG_AUTO_DOWNLOAD="${MIBIG_AUTO_DOWNLOAD:-1}"
 MIBIG_URL_BASE="${MIBIG_URL_BASE:-https://dl.secondarymetabolites.org/mibig}"
 MIBIG_GBK_URL="${MIBIG_GBK_URL:-}"
 
-STAGE_DIR="${STAGE_DIR:-/tmp/$(basename "${RESULTS_ROOT}")_bigscape_stage_region_gbks}"
+WORK_ROOT="${WORK_ROOT:-/tmp/$(basename "${RESULTS_ROOT}")_work}"
+STAGE_DIR="${STAGE_DIR:-${WORK_ROOT}/bigscape_stage_region_gbks}"
 
 LOGDIR="${LOGDIR:-${RESULTS_ROOT}/logs}"
 mkdir -p "${LOGDIR}"
@@ -161,10 +167,19 @@ ensure_mibig_cache() {
 # Detect container engine
 ###############################################################################
 if [[ -z "${ENGINE}" ]]; then
-  if have singularity; then ENGINE="singularity"
+  if [[ "${BIGSCAPE_USE_DOCKER_IMAGE}" == "1" ]] && have docker; then ENGINE="docker"
+  elif have singularity; then ENGINE="singularity"
   elif have apptainer; then ENGINE="apptainer"
   else die "singularity/apptainer not found in PATH"
   fi
+fi
+
+case "${ENGINE}" in
+  singularity|apptainer|docker) ;;
+  *) die "Unsupported ENGINE=${ENGINE}; use singularity, apptainer, or docker" ;;
+esac
+if [[ "${ENGINE}" == "docker" ]] && ! have docker; then
+  die "ENGINE=docker requested but docker is not available in PATH"
 fi
 
 ###############################################################################
@@ -175,6 +190,7 @@ log "THREADS=${THREADS} FORCE=${FORCE}"
 log "ANTISMASH_ROOT=${ANTISMASH_ROOT}"
 log "BIGSCAPE_OUT=${BIGSCAPE_OUT}"
 log "SIF_PATH=${SIF_PATH}"
+log "BIGSCAPE_DOCKER_IMAGE=${BIGSCAPE_DOCKER_IMAGE}"
 log "PFAM_HMM=${PFAM_HMM}"
 log "MIBIG_CACHE=${MIBIG_CACHE}"
 log "STAGE_DIR=${STAGE_DIR}"
@@ -196,9 +212,17 @@ fi
 mkdir -p "${BIGSCAPE_SOFTDIR}" "${PFAM_DIR}" "${MIBIG_CACHE}" "${BIGSCAPE_OUT}"
 
 ###############################################################################
-# Ensure SIF present
+# Ensure container image present
 ###############################################################################
-if [[ ! -s "${SIF_PATH}" ]]; then
+if [[ "${ENGINE}" == "docker" ]]; then
+  if docker image inspect "${BIGSCAPE_DOCKER_IMAGE}" >/dev/null 2>&1; then
+    log "BiG-SCAPE Docker image already present: ${BIGSCAPE_DOCKER_IMAGE}"
+  else
+    [[ "${AUTO_PULL_BIGSCAPE_SIF}" == "1" ]] || die "BiG-SCAPE Docker image missing: ${BIGSCAPE_DOCKER_IMAGE}. Set AUTO_PULL_BIGSCAPE_SIF=1 to fetch it."
+    log "Pulling BiG-SCAPE Docker image: ${BIGSCAPE_DOCKER_IMAGE}"
+    docker pull "${BIGSCAPE_DOCKER_IMAGE}" 2>&1 | tee -a "${LOGFILE}" || die "Docker image pull failed"
+  fi
+elif [[ ! -s "${SIF_PATH}" ]]; then
   [[ "${AUTO_PULL_BIGSCAPE_SIF}" == "1" ]] || die "BiG-SCAPE SIF missing: ${SIF_PATH}. Set AUTO_PULL_BIGSCAPE_SIF=1 to fetch it."
   log "Pulling BiG-SCAPE container: ${SIF_SOURCE} -> ${SIF_PATH}"
   "${ENGINE}" pull "${SIF_PATH}" "${SIF_SOURCE}" 2>&1 | tee -a "${LOGFILE}" || die "Container pull failed"
@@ -266,8 +290,29 @@ if [[ -n "${MIBIG_VERSION}" ]]; then
   BIND_ARGS+=( --bind "${MIBIG_CACHE}:/home/mambauser/BiG-SCAPE/MIBiG" )
 fi
 
+docker_run_args() {
+  local -a args=(--rm -i --user 0:0)
+  if [[ -n "${BIGSCAPE_DOCKER_DATA_VOLUME}" ]]; then
+    args+=(-v "${BIGSCAPE_DOCKER_DATA_VOLUME}:/data")
+  else
+    args+=(-v "${PROJECT_DIR}:${PROJECT_DIR}" -v "${RESULTS_ROOT}:${RESULTS_ROOT}" -v "${BIGSCAPE_SOFTDIR}:${BIGSCAPE_SOFTDIR}" -v "${LOCAL_BIN}:${LOCAL_BIN}" -v "${BIGSCAPE_OUT}:${BIGSCAPE_OUT}" -v "${STAGE_DIR}:${STAGE_DIR}")
+  fi
+  if [[ -n "${BIGSCAPE_DOCKER_PFAM_VOLUME}" ]]; then
+    args+=(-v "${BIGSCAPE_DOCKER_PFAM_VOLUME}:${PFAM_DIR}")
+  elif [[ -z "${BIGSCAPE_DOCKER_DATA_VOLUME}" ]]; then
+    args+=(-v "${PFAM_DIR}:${PFAM_DIR}")
+  fi
+  printf '%s\0' "${args[@]}"
+}
+
 cexec() {
-  "${ENGINE}" exec "${BIND_ARGS[@]}" "${SIF_PATH}" "$@"
+  if [[ "${ENGINE}" == "docker" ]]; then
+    local -a args=()
+    mapfile -d '' -t args < <(docker_run_args)
+    docker run "${args[@]}" "${BIGSCAPE_DOCKER_IMAGE}" "$@"
+  else
+    "${ENGINE}" exec "${BIND_ARGS[@]}" "${SIF_PATH}" "$@"
+  fi
 }
 
 ###############################################################################

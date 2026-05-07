@@ -266,6 +266,12 @@ The web and worker services share the same Docker build context but use separate
 The worker now treats the web app as a controller around the canonical shell workflow instead of maintaining a second implementation of the scientific pipeline in the UI layer.
 Long term, heavy stages such as BiG-SCAPE, clinker, and NPLinker can be split into dedicated worker images while keeping the web/API service as the controller and the canonical shell scripts as the source of truth.
 
+Runtime profiles:
+
+- `docker-compose.yml` is the dev/lab QA profile. It sets `ENGINE=docker` and mounts the host Docker socket so the worker can launch stage containers against shared named volumes.
+- `clusterweave.yml` is socket-free. It is the safer baseline for public demos; stages that still need socket-backed workers are reported as unavailable through the UI/API until stage-specific queue workers are deployed.
+- See [docs/WEB_RUNTIME.md](docs/WEB_RUNTIME.md) for the runtime plan, DAG boundary, and public deployment safety model.
+
 Example release publish flow:
 
 ```bash

@@ -452,6 +452,26 @@
     width: 1.2rem;
     text-align: center;
   }
+  .runtime-banner {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: .75rem .9rem;
+    margin: .85rem 0;
+    background: #f8fafc;
+    color: var(--muted);
+    font-size: .88rem;
+    line-height: 1.45;
+  }
+  .runtime-banner.warn {
+    border-color: #f59e0b;
+    background: #fffbeb;
+    color: #92400e;
+  }
+  .runtime-banner.ok {
+    border-color: #10b981;
+    background: #ecfdf5;
+    color: #065f46;
+  }
 </style>
 </head>
 <body>
@@ -514,6 +534,7 @@
         </div>
 
         <div class="file-list" id="file-list"></div>
+        <div class="runtime-banner hidden" id="runtime-banner"></div>
 
         <hr class="divider" />
 
@@ -902,6 +923,7 @@ let logCursor     = 0;
 let systemLogCursor = 0;
 let workerStatus = 'unknown'; // unknown, starting, ready, processing
 let systemPollTimer = null;
+let runtimeCapabilities = null;
 
 // Pipeline stages for the progress bar
 const STAGES = [
@@ -1189,12 +1211,64 @@ function updateRunSummary() {
   `;
 }
 
+function stageAvailable(stage) {
+  const stages = runtimeCapabilities && runtimeCapabilities.stages;
+  if (!stages || !stages[stage]) return true;
+  return !!stages[stage].available;
+}
+
+function stageUnavailableReason(stage) {
+  const stages = runtimeCapabilities && runtimeCapabilities.stages;
+  const payload = stages && stages[stage];
+  if (!payload) return '';
+  const missing = Array.isArray(payload.missing) && payload.missing.length
+    ? ` Missing: ${payload.missing.join(', ')}.`
+    : '';
+  return `${payload.detail || 'Runtime unavailable.'}${missing}`;
+}
+
+function renderRuntimeBanner() {
+  const banner = document.getElementById('runtime-banner');
+  if (!banner) return;
+  if (!runtimeCapabilities) {
+    banner.className = 'runtime-banner hidden';
+    banner.textContent = '';
+    return;
+  }
+  const unavailable = ['annotation','bigscape','clinker','nplinker']
+    .filter(stage => !stageAvailable(stage));
+  const mode = runtimeCapabilities.mode || 'unknown';
+  const engine = runtimeCapabilities.engine || 'auto';
+  if (!unavailable.length) {
+    banner.className = 'runtime-banner ok';
+    banner.textContent = `Runtime ready: ${mode} using ${engine}.`;
+    return;
+  }
+  banner.className = 'runtime-banner warn';
+  banner.textContent = `Runtime mode ${mode} using ${engine}: ${unavailable.join(', ')} unavailable. ${unavailable.map(stageUnavailableReason).join(' ')}`;
+}
+
 function syncControlState() {
   const runBigscape = document.getElementById('run-bigscape');
   const runSummary = document.getElementById('run-summary');
   const runClinker = document.getElementById('run-clinker');
   const runEcology = document.getElementById('run-ecology');
   const runNplinker = document.getElementById('run-nplinker');
+
+  const stageControls = [
+    ['run-annotation', 'annotation'],
+    ['run-bigscape', 'bigscape'],
+    ['run-clinker', 'clinker'],
+    ['run-nplinker', 'nplinker'],
+  ];
+  for (const [id, stage] of stageControls) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    const available = stageAvailable(stage);
+    el.disabled = !available;
+    el.title = available ? '' : stageUnavailableReason(stage);
+    if (!available) el.checked = false;
+  }
 
   if (!runBigscape.checked && runSummary.checked) {
     // Summary can still run from existing outputs, so keep it enabled.
@@ -1235,6 +1309,7 @@ function syncControlState() {
   }
 
   updateRunSummary();
+  renderRuntimeBanner();
 }
 
 function applyPreset(name) {
@@ -1797,6 +1872,7 @@ const bootstrapSteps = [
   { key: 'pfam', label: 'Pfam database' },
   { key: 'clinker_image', label: 'clinker image pre-pull' },
   { key: 'bigscape_image', label: 'BiG-SCAPE image pre-pull' },
+  { key: 'funbgcex_image', label: 'FunBGCeX image build' },
   { key: 'starting_worker', label: 'Worker startup' },
 ];
 
@@ -1807,6 +1883,7 @@ function phaseToLabel(phase) {
     prepare: 'Preparing bootstrap',
     antismash: 'Downloading antiSMASH databases',
     pfam: 'Downloading Pfam database',
+    funbgcex_image: 'Preparing FunBGCeX image',
     clinker_image: 'Pulling clinker image',
     bigscape_image: 'Pulling BiG-SCAPE image',
     starting_worker: 'Starting worker process',
@@ -1835,7 +1912,12 @@ async function fetchSystemStatus() {
   try {
     const resp = await fetch('/api/system/status');
     if (!resp.ok) return null;
-    return await resp.json();
+    const payload = await resp.json();
+    if (payload && payload.capabilities) {
+      runtimeCapabilities = payload.capabilities;
+      renderRuntimeBanner();
+    }
+    return payload;
   } catch (e) {
     return null;
   }

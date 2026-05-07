@@ -28,6 +28,7 @@ SOFTWARE_ROOT="${SOFTWARE_ROOT:-${TOOLS_ROOT}/nplinker}"
 ENGINE="${ENGINE:-}"
 FORCE="${FORCE:-0}"
 CPUS="${CPUS:-6}"
+CLUSTERWEAVE_RUNTIME_MODE="${CLUSTERWEAVE_RUNTIME_MODE:-hpc-singularity}"
 
 # Run mode:
 #   auto  -> try PODP first (if PODP_ID exists), else require local inputs
@@ -47,6 +48,9 @@ MASSIVE_PASSWORD="${MASSIVE_PASSWORD:-}"
 # Container + environment
 SIF_PATH="${SIF_PATH:-${SOFTWARE_ROOT}/nplinker_python3.11.sif}"
 SIF_SOURCE="${SIF_SOURCE:-docker://python:3.11-slim}"
+NPLINKER_USE_DOCKER_IMAGE="${NPLINKER_USE_DOCKER_IMAGE:-0}"
+NPLINKER_DOCKER_IMAGE="${NPLINKER_DOCKER_IMAGE:-python:3.11-slim}"
+NPLINKER_DOCKER_DATA_VOLUME="${NPLINKER_DOCKER_DATA_VOLUME:-${DOCKER_DATA_VOLUME:-}}"
 VENV_DIR="${VENV_DIR:-${SOFTWARE_ROOT}/venv}"
 PIP_CACHE="${PIP_CACHE:-${SOFTWARE_ROOT}/pip_cache}"
 AUTO_PULL_NPLINKER_SIF="${AUTO_PULL_NPLINKER_SIF:-1}"
@@ -241,10 +245,19 @@ seed_bigscape_for_run() {
 # Detect container engine
 ###############################################################################
 if [[ -z "${ENGINE}" ]]; then
-  if have singularity; then ENGINE="singularity"
+  if [[ "${NPLINKER_USE_DOCKER_IMAGE}" == "1" ]] && have docker; then ENGINE="docker"
+  elif have singularity; then ENGINE="singularity"
   elif have apptainer; then ENGINE="apptainer"
   else die "singularity/apptainer not found in PATH"
   fi
+fi
+
+case "${ENGINE}" in
+  singularity|apptainer|docker) ;;
+  *) die "Unsupported ENGINE=${ENGINE}; use singularity, apptainer, or docker" ;;
+esac
+if [[ "${ENGINE}" == "docker" ]] && ! have docker; then
+  die "ENGINE=docker requested but docker is not available in PATH"
 fi
 
 [[ -n "${TARGET_STRAIN}" ]] || die "TARGET_STRAIN must be set before running NPLinker"
@@ -256,6 +269,7 @@ mkdir -p "${LOGDIR}" "${SOFTWARE_ROOT}" "${PIP_CACHE}" "${NPLINKER_ROOT}" "${WIN
 
 log "ENGINE=${ENGINE}"
 log "RUN_MODE=${RUN_MODE}"
+log "NPLINKER_DOCKER_IMAGE=${NPLINKER_DOCKER_IMAGE}"
 log "NPLINKER_USE_NATIVE=${NPLINKER_USE_NATIVE}"
 log "PODP_ID=${PODP_ID}"
 log "TARGET_STRAIN=${TARGET_STRAIN}"
@@ -272,7 +286,15 @@ log "LOGFILE=${LOGFILE}"
 ###############################################################################
 # Pull container
 ###############################################################################
-if [[ ! -s "${SIF_PATH}" ]]; then
+if [[ "${ENGINE}" == "docker" ]]; then
+  if docker image inspect "${NPLINKER_DOCKER_IMAGE}" >/dev/null 2>&1; then
+    log "NPLinker Docker base image already present: ${NPLINKER_DOCKER_IMAGE}"
+  else
+    [[ "${AUTO_PULL_NPLINKER_SIF}" == "1" ]] || die "NPLinker Docker image missing: ${NPLINKER_DOCKER_IMAGE}. Set AUTO_PULL_NPLINKER_SIF=1 to fetch it."
+    log "Pulling NPLinker Docker base image: ${NPLINKER_DOCKER_IMAGE}"
+    docker pull "${NPLINKER_DOCKER_IMAGE}" 2>&1 | tee -a "${LOGFILE}" || die "Docker image pull failed"
+  fi
+elif [[ ! -s "${SIF_PATH}" ]]; then
   [[ "${AUTO_PULL_NPLINKER_SIF}" == "1" ]] || die "NPLinker base image missing: ${SIF_PATH}. Set AUTO_PULL_NPLINKER_SIF=1 to fetch it."
   log "Pulling NPLinker base image: ${SIF_SOURCE} -> ${SIF_PATH}"
   "${ENGINE}" pull "${SIF_PATH}" "${SIF_SOURCE}" 2>&1 | tee -a "${LOGFILE}" || die "Container pull failed"
@@ -292,15 +314,43 @@ BIND_ARGS=(
   --bind "/tmp:/tmp"
 )
 
+docker_run_args() {
+  local -a args=(--rm -i --user 0:0)
+  if [[ -n "${NPLINKER_DOCKER_DATA_VOLUME}" ]]; then
+    args+=(-v "${NPLINKER_DOCKER_DATA_VOLUME}:/data")
+  else
+    args+=(
+      -v "${PROJECT_DIR}:${PROJECT_DIR}"
+      -v "${RESULTS_ROOT}:${RESULTS_ROOT}"
+      -v "${SOFTWARE_ROOT}:${SOFTWARE_ROOT}"
+      -v "${RUN_DIR}:${RUN_DIR}"
+      -v "${WORK_ROOT}:${WORK_ROOT}"
+      -v "/tmp:/tmp"
+    )
+  fi
+  printf '%s\0' "${args[@]}"
+}
+
 cexec() {
-  "${ENGINE}" exec "${BIND_ARGS[@]}" "${SIF_PATH}" "$@"
+  if [[ "${ENGINE}" == "docker" ]]; then
+    local -a args=()
+    mapfile -d '' -t args < <(docker_run_args)
+    docker run "${args[@]}" "${NPLINKER_DOCKER_IMAGE}" "$@"
+  else
+    "${ENGINE}" exec "${BIND_ARGS[@]}" "${SIF_PATH}" "$@"
+  fi
 }
 
 ###############################################################################
 # Runner/exporter script (host-side, executed inside container)
 ###############################################################################
-RUNNER_PY="${PROJECT_DIR}/bin/nplinker_run_and_export.py"
+if [[ "${ENGINE}" == "docker" && -n "${NPLINKER_DOCKER_DATA_VOLUME}" ]]; then
+  RUNNER_PY="${RUNNER_PY:-${RUN_DIR}/nplinker_run_and_export.py}"
+else
+  RUNNER_PY="${RUNNER_PY:-${PROJECT_DIR}/bin/nplinker_run_and_export.py}"
+fi
 if [[ ! -s "${RUNNER_PY}" ]]; then
+mkdir -p "$(dirname "${RUNNER_PY}")"
 cat > "${RUNNER_PY}" <<'PY'
 #!/usr/bin/env python3
 from __future__ import annotations

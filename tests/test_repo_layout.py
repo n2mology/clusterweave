@@ -33,6 +33,7 @@ class RepoLayoutTests(unittest.TestCase):
             "THIRD_PARTY.md",
             "DATA_SOURCES.md",
             "docs/REPRODUCIBILITY.md",
+            "docs/WEB_RUNTIME.md",
             "pyproject.toml",
         ]:
             self.assertTrue((REPO_ROOT / rel).exists(), rel)
@@ -50,6 +51,9 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn('ANTISMASH_IMAGE_URI="${ANTISMASH_IMAGE_URI:-docker://antismash/standalone:8.0.4}"', text)
         self.assertIn('AUTO_BUILD_FUNBGCEX_SIF="${AUTO_BUILD_FUNBGCEX_SIF:-1}"', text)
         self.assertIn('FUNBGCEX_BOOTSTRAP="${FUNBGCEX_BOOTSTRAP:-0}"', text)
+        self.assertIn('FUNBGCEX_DOCKER_IMAGE="${FUNBGCEX_DOCKER_IMAGE:-clusterweave-funbgcex:latest}"', text)
+        self.assertIn('ensure_docker_image()', text)
+        self.assertIn('antismash_exec()', text)
         self.assertIn("build_funbgcex_sif()", text)
         self.assertIn("ensure_primary_tooling", text)
         self.assertIn("normalize_gbk_record_headers_in_place()", text)
@@ -85,6 +89,8 @@ class RepoLayoutTests(unittest.TestCase):
     def test_clinker_supports_metadata_fallback(self) -> None:
         text = (REPO_ROOT / "run_clinker.sh").read_text(encoding="utf-8")
         self.assertIn('CLINKER_MODE="${CLINKER_MODE:-auto}"', text)
+        self.assertIn('CLINKER_USE_DOCKER_IMAGE="${CLINKER_USE_DOCKER_IMAGE:-0}"', text)
+        self.assertIn("ensure_clinker_docker_image()", text)
         self.assertIn('REFRESH_FAMILY_ATLAS="${REFRESH_FAMILY_ATLAS:-1}"', text)
         self.assertIn('ATLAS_MIN_RECORDS="${ATLAS_MIN_RECORDS:-2}"', text)
         self.assertIn('AUTO_NORMALIZE_METADATA="${AUTO_NORMALIZE_METADATA:-1}"', text)
@@ -118,6 +124,27 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn('BIGSCAPE_SIF_SOURCE="${BIGSCAPE_SIF_SOURCE:-docker://ghcr.io/medema-group/big-scape:2.0.0-beta.6}"', text)
         self.assertIn('SIF_PATH="${SIF_PATH:-${BIGSCAPE_SIF_PATH}}"', text)
         self.assertIn('SIF_SOURCE="${SIF_SOURCE:-${BIGSCAPE_SIF_SOURCE}}"', text)
+        self.assertIn('BIGSCAPE_USE_DOCKER_IMAGE="${BIGSCAPE_USE_DOCKER_IMAGE:-0}"', text)
+        self.assertIn('BIGSCAPE_DOCKER_IMAGE="${BIGSCAPE_DOCKER_IMAGE:-ghcr.io/medema-group/big-scape:2.0.0-beta.6}"', text)
+
+    def test_web_lab_runtime_is_docker_gated(self) -> None:
+        compose = (REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+        public_compose = (REPO_ROOT / "clusterweave.yml").read_text(encoding="utf-8")
+        self.assertIn("CLUSTERWEAVE_RUNTIME_MODE: lab-docker", compose)
+        self.assertIn("CLUSTERWEAVE_ENABLE_DOCKER_SOCKET: \"1\"", compose)
+        self.assertIn("ENGINE: docker", compose)
+        self.assertIn("/var/run/docker.sock:/var/run/docker.sock", compose)
+        self.assertIn("CLUSTERWEAVE_RUNTIME_MODE: public-queue", public_compose)
+        self.assertIn("CLUSTERWEAVE_ENABLE_DOCKER_SOCKET: \"0\"", public_compose)
+        self.assertNotIn("/var/run/docker.sock:/var/run/docker.sock", public_compose)
+
+    def test_canonical_bridge_passes_runtime_env(self) -> None:
+        text = (REPO_ROOT / "web" / "canonical_pipeline.py").read_text(encoding="utf-8")
+        self.assertIn('"ENGINE": _cfg_str(settings, "engine", os.environ.get("ENGINE", ""))', text)
+        self.assertIn('"DOCKER_DATA_VOLUME"', text)
+        self.assertIn('"FUNBGCEX_DOCKER_IMAGE"', text)
+        self.assertIn('"CLINKER_USE_DOCKER_IMAGE"', text)
+        self.assertIn('"NPLINKER_DOCKER_IMAGE"', text)
 
     def test_figures_wrapper_detects_rscript_robustly(self) -> None:
         text = (REPO_ROOT / "run_figures.sh").read_text(encoding="utf-8")

@@ -24,6 +24,7 @@ from job_store import (
     read_logs,
     write_job,
 )
+from runtime_capabilities import unavailable_stage_reason
 
 HOST = "0.0.0.0"
 PORT = int(os.environ.get("PORT", "8080"))
@@ -80,6 +81,8 @@ def worker_status() -> dict[str, object]:
             "substep": "Waiting for worker container",
             "updated_at": None,
             "stale": True,
+            "runtime": {},
+            "capabilities": {},
         }
 
     try:
@@ -92,6 +95,8 @@ def worker_status() -> dict[str, object]:
             "substep": "Retrying status read",
             "updated_at": None,
             "stale": True,
+            "runtime": {},
+            "capabilities": {},
         }
 
     updated_at = payload.get("updated_at")
@@ -131,7 +136,37 @@ def worker_status() -> dict[str, object]:
         "substep": substep,
         "updated_at": updated_at,
         "stale": stale,
+        "runtime": payload.get("runtime", {}),
+        "capabilities": payload.get("capabilities", {}),
     }
+
+
+def validate_runtime_request(settings: dict[str, object], status: dict[str, object]) -> str | None:
+    if not status.get("ready"):
+        return "Worker is not ready yet. Wait for bootstrap to finish before submitting a job."
+
+    capabilities = status.get("capabilities")
+    if not isinstance(capabilities, dict):
+        return None
+
+    stages = capabilities.get("stages")
+    if not isinstance(stages, dict):
+        return None
+
+    checks = [
+        ("annotation", bool(settings.get("run_annotation"))),
+        ("bigscape", bool(settings.get("run_bigscape"))),
+        ("clinker", bool(settings.get("run_clinker")) and bool(settings.get("execute_clinker"))),
+        ("nplinker", bool(settings.get("run_nplinker"))),
+        ("figures", bool(settings.get("run_figures")) and bool(settings.get("figures_required"))),
+    ]
+    for stage, required in checks:
+        if not required:
+            continue
+        payload = stages.get(stage)
+        if isinstance(payload, dict) and not payload.get("available", False):
+            return f"Selected stage unavailable: {stage}. {unavailable_stage_reason(capabilities, stage)}"
+    return None
 
 
 def parse_multipart_form_data(content_type: str, body: bytes) -> tuple[dict[str, list[str]], list[dict[str, object]]]:
@@ -358,6 +393,11 @@ class Handler(BaseHTTPRequestHandler):
             settings["annotation_fallback_order"] = settings["genefinding_mode"]
             if "braker3" in settings["genefinding_mode"]:
                 settings["braker3_enabled"] = True
+
+        runtime_error = validate_runtime_request(settings, worker_status())
+        if runtime_error:
+            self._send_json(HTTPStatus.CONFLICT, {"detail": runtime_error})
+            return
 
         uploads = [item for item in files if item["field"] == "files"]
         if not uploads:

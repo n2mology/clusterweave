@@ -21,6 +21,7 @@ ANTISMASH_SIF="${ANTISMASH_SIF:-${SOFTWARE_ROOT}/antismash/antismash_standalone.
 FUNBGCEX_SIF="${FUNBGCEX_SIF:-${SOFTWARE_ROOT}/funbgcex/funbgcex_bundle.sif}"
 BRAKER_SIF="${BRAKER_SIF:-${SOFTWARE_ROOT}/braker/braker3.sif}"
 FUNANNOTATE_SIF="${FUNANNOTATE_SIF:-${SOFTWARE_ROOT}/funannotate/funannotate_v1.8.17.sif}"
+ANTISMASH_DB_DIR="${ANTISMASH_DB_DIR:-${SOFTWARE_ROOT}/antismash/databases}"
 
 
 ###############################################################################
@@ -30,7 +31,10 @@ CPUS="${CPUS:-6}"           # antiSMASH cpus
 WORKERS="${WORKERS:-2}"     # funbgcex --workers
 FORCE="${FORCE:-0}"         # FORCE=1 clears staged gbk + tool outputs per genome
 THREADS="${THREADS:-6}"     # recorded; alias for CPUS unless CPUS explicitly set
-ENGINE="${ENGINE:-}"        # singularity or apptainer
+ENGINE="${ENGINE:-}"        # singularity, apptainer, or docker
+CLUSTERWEAVE_RUNTIME_MODE="${CLUSTERWEAVE_RUNTIME_MODE:-hpc-singularity}"
+DOCKER_DATA_VOLUME="${DOCKER_DATA_VOLUME:-${CLUSTERWEAVE_DOCKER_DATA_VOLUME:-}}"
+DOCKER_ANTISMASH_DB_VOLUME="${DOCKER_ANTISMASH_DB_VOLUME:-}"
 
 # Annotation knobs
 ANNO_CPUS="${ANNO_CPUS:-6}"
@@ -44,8 +48,12 @@ BRAKER_BAM="${BRAKER_BAM:-}"
 BRAKER_PROT_SEQ="${BRAKER_PROT_SEQ:-}"
 AUTO_PULL_IMAGES="${AUTO_PULL_IMAGES:-always}"   # ask|always|never
 ANTISMASH_IMAGE_URI="${ANTISMASH_IMAGE_URI:-docker://antismash/standalone:8.0.4}"
+ANTISMASH_DOCKER_IMAGE="${ANTISMASH_DOCKER_IMAGE:-antismash/standalone:8.0.4}"
 FUNBGCEX_IMAGE_URI="${FUNBGCEX_IMAGE_URI:-}"
 AUTO_BUILD_FUNBGCEX_SIF="${AUTO_BUILD_FUNBGCEX_SIF:-1}"
+FUNBGCEX_USE_DOCKER_IMAGE="${FUNBGCEX_USE_DOCKER_IMAGE:-0}"
+FUNBGCEX_DOCKER_IMAGE="${FUNBGCEX_DOCKER_IMAGE:-clusterweave-funbgcex:latest}"
+AUTO_BUILD_FUNBGCEX_DOCKER="${AUTO_BUILD_FUNBGCEX_DOCKER:-1}"
 BRAKER_IMAGE_URI="${BRAKER_IMAGE_URI:-docker://teambraker/braker3:latest}"
 FUNANNOTATE_IMAGE_URI="${FUNANNOTATE_IMAGE_URI:-docker://nextgenusfs/funannotate:v1.8.17}"
 FUNBGCEX_BOOTSTRAP="${FUNBGCEX_BOOTSTRAP:-0}"
@@ -68,12 +76,23 @@ export CUDA_VISIBLE_DEVICES=""
 have() { command -v "$1" >/dev/null 2>&1; }
 
 if [[ -z "${ENGINE}" ]]; then
-  if have singularity; then ENGINE="singularity"
+  if [[ "${FUNBGCEX_USE_DOCKER_IMAGE}" == "1" ]] && have docker; then ENGINE="docker"
+  elif have singularity; then ENGINE="singularity"
   elif have apptainer; then ENGINE="apptainer"
   else
     echo "ERROR: singularity/apptainer not found in PATH" >&2
     exit 1
   fi
+fi
+
+case "${ENGINE}" in
+  singularity|apptainer|docker) ;;
+  *) echo "ERROR: unsupported ENGINE=${ENGINE}; use singularity, apptainer, or docker" >&2; exit 1 ;;
+esac
+
+if [[ "${ENGINE}" == "docker" ]] && ! have docker; then
+  echo "ERROR: ENGINE=docker requested but docker is not available in PATH" >&2
+  exit 1
 fi
 
 # Binds as an array (paths contain spaces; do NOT store binds in a single string)
@@ -83,10 +102,69 @@ BIND_ARGS=(
   --bind "${RESULTS_ROOT}:${RESULTS_ROOT}"
 )
 
-# Helper: exec inside a container safely
+# Helper: exec inside a Singularity/Apptainer container safely
 sing_exec() {
   local image="$1"; shift
   "${ENGINE}" exec "${BIND_ARGS[@]}" "${image}" "$@"
+}
+
+docker_image_from_uri() {
+  local uri="$1"
+  printf '%s\n' "${uri#docker://}"
+}
+
+docker_run_args() {
+  local -a args=(--rm -i --user 0:0)
+  if [[ -n "${DOCKER_DATA_VOLUME}" ]]; then
+    args+=(-v "${DOCKER_DATA_VOLUME}:/data")
+  else
+    args+=(-v "${PROJECT_DIR}:${PROJECT_DIR}" -v "${GENOME_ROOT}:${GENOME_ROOT}" -v "${RESULTS_ROOT}:${RESULTS_ROOT}")
+  fi
+  if [[ -n "${DOCKER_ANTISMASH_DB_VOLUME}" ]]; then
+    args+=(-v "${DOCKER_ANTISMASH_DB_VOLUME}:${ANTISMASH_DB_DIR}")
+  elif [[ -d "${ANTISMASH_DB_DIR}" ]]; then
+    args+=(-v "${ANTISMASH_DB_DIR}:${ANTISMASH_DB_DIR}")
+  fi
+  if [[ -z "${DOCKER_DATA_VOLUME}" ]]; then
+    args+=(-v "${WORK_ROOT}:${WORK_ROOT}")
+  fi
+  args+=(-e "CUDA_VISIBLE_DEVICES=" -e "ANTISMASH_DB_DIR=${ANTISMASH_DB_DIR}")
+  printf '%s\0' "${args[@]}"
+}
+
+docker_exec() {
+  local image="$1"; shift
+  local -a args=()
+  mapfile -d '' -t args < <(docker_run_args)
+  docker run "${args[@]}" "${image}" "$@"
+}
+
+ensure_docker_image() {
+  local label="$1"
+  local image="$2"
+  [[ -n "${image}" ]] || return 1
+  if docker image inspect "${image}" >/dev/null 2>&1; then
+    log "${label} Docker image present: ${image}"
+    return 0
+  fi
+  if annotation_prompt_pull "${label}"; then
+    log "Pulling ${label} Docker image: ${image}"
+    docker pull "${image}" >> "${PIPELOG}" 2>&1 && return 0
+    warn "Failed to pull ${label} Docker image: ${image}"
+  fi
+  return 1
+}
+
+antismash_exec() {
+  if [[ "${ENGINE}" == "docker" ]]; then
+    if have antismash; then
+      ANTISMASH_DB_DIR="${ANTISMASH_DB_DIR}" "$@"
+    else
+      docker_exec "${ANTISMASH_DOCKER_IMAGE}" "$@"
+    fi
+  else
+    sing_exec "${ANTISMASH_SIF}" "$@"
+  fi
 }
 
 ###############################################################################
@@ -560,6 +638,11 @@ ensure_sif_or_prompt_pull() {
   local sif="$2"
   local uri="$3"
 
+  if [[ "${ENGINE}" == "docker" ]]; then
+    ensure_docker_image "${label}" "$(docker_image_from_uri "${uri}")"
+    return $?
+  fi
+
   if [[ -f "${sif}" ]]; then
     log "${label} SIF present: ${sif}"
     return 0
@@ -671,9 +754,37 @@ build_funbgcex_sif() {
   return 1
 }
 
+build_funbgcex_docker_image() {
+  [[ "${AUTO_BUILD_FUNBGCEX_DOCKER}" == "1" ]] || return 1
+  [[ -s "${FUNBGCEX_DOCKERFILE}" ]] || return 1
+
+  log "Building repo-local FunBGCeX Docker image: ${FUNBGCEX_DOCKER_IMAGE}"
+  docker build -t "${FUNBGCEX_DOCKER_IMAGE}" -f "${FUNBGCEX_DOCKERFILE}" "$(dirname "${FUNBGCEX_DOCKERFILE}")" >> "${PIPELOG}" 2>&1
+}
+
 ensure_funbgcex_runtime() {
   local cmd_path=""
   local py=""
+
+  if [[ "${ENGINE}" == "docker" || "${FUNBGCEX_USE_DOCKER_IMAGE}" == "1" ]]; then
+    if docker image inspect "${FUNBGCEX_DOCKER_IMAGE}" >/dev/null 2>&1; then
+      log "FunBGCeX Docker image present: ${FUNBGCEX_DOCKER_IMAGE}"
+      FUNBGCEX_RUNTIME="docker"
+      FUNBGCEX_CMD="run_funbgcex"
+      FUNBGCEX_PYTHON_CMD="python3"
+      log "FunBGCeX runtime configured from Docker image: ${FUNBGCEX_DOCKER_IMAGE}"
+      return 0
+    fi
+    if build_funbgcex_docker_image || ensure_docker_image "FunBGCeX" "${FUNBGCEX_DOCKER_IMAGE}"; then
+      FUNBGCEX_RUNTIME="docker"
+      FUNBGCEX_CMD="run_funbgcex"
+      FUNBGCEX_PYTHON_CMD="python3"
+      log "FunBGCeX runtime configured from Docker image: ${FUNBGCEX_DOCKER_IMAGE}"
+      return 0
+    fi
+    warn "FunBGCeX Docker image is unavailable: ${FUNBGCEX_DOCKER_IMAGE}"
+    [[ "${ENGINE}" == "docker" ]] && return 1
+  fi
 
   if [[ -s "${FUNBGCEX_SIF}" ]]; then
     FUNBGCEX_RUNTIME="sif"
@@ -730,6 +841,7 @@ ensure_funbgcex_runtime() {
 funbgcex_python_exec() {
   case "${FUNBGCEX_RUNTIME}" in
     sif) sing_exec "${FUNBGCEX_SIF}" "${FUNBGCEX_PYTHON_CMD}" "$@" ;;
+    docker) docker_exec "${FUNBGCEX_DOCKER_IMAGE}" "${FUNBGCEX_PYTHON_CMD}" "$@" ;;
     host) "${FUNBGCEX_PYTHON_CMD}" "$@" ;;
     *) die "FunBGCeX runtime not configured before python exec" ;;
   esac
@@ -748,6 +860,9 @@ run_funbgcex_cli() {
         funbgcex '${gbk_dir}' '${out_dir}' --workers '${WORKERS}'
       "
       ;;
+    docker)
+      docker_exec "${FUNBGCEX_DOCKER_IMAGE}" run_funbgcex "${gbk_dir}" "${out_dir}" "${WORKERS}"
+      ;;
     host)
       CUDA_VISIBLE_DEVICES="" TF_CPP_MIN_LOG_LEVEL=2 "${FUNBGCEX_CMD}" "${gbk_dir}" "${out_dir}" --workers "${WORKERS}"
       ;;
@@ -758,8 +873,17 @@ run_funbgcex_cli() {
 }
 
 ensure_primary_tooling() {
-  ensure_sif_or_prompt_pull "antiSMASH" "${ANTISMASH_SIF}" "${ANTISMASH_IMAGE_URI}" \
-    || die "antiSMASH is required but unavailable. Provide ANTISMASH_SIF or allow pulling from ${ANTISMASH_IMAGE_URI}."
+  if [[ "${ENGINE}" == "docker" ]]; then
+    if have antismash; then
+      log "antiSMASH available on worker PATH."
+    else
+      ensure_docker_image "antiSMASH" "${ANTISMASH_DOCKER_IMAGE}" \
+        || die "antiSMASH is required but unavailable. Install it in the worker or provide ANTISMASH_DOCKER_IMAGE."
+    fi
+  else
+    ensure_sif_or_prompt_pull "antiSMASH" "${ANTISMASH_SIF}" "${ANTISMASH_IMAGE_URI}" \
+      || die "antiSMASH is required but unavailable. Provide ANTISMASH_SIF or allow pulling from ${ANTISMASH_IMAGE_URI}."
+  fi
   ensure_funbgcex_runtime \
     || die "FunBGCeX is required but unavailable. Provide FUNBGCEX_SIF manually or fix the repo-local SIF build path."
 }
@@ -788,6 +912,7 @@ ensure_annotation_tooling() {
         fi
         ;;
       funannotate) need_fun=1 ;;
+      none|skip|off) ;;
       "") ;;
       *) warn "Unknown annotation fallback method in ANNOTATION_FALLBACK_ORDER: ${method}" ;;
     esac
@@ -797,7 +922,9 @@ ensure_annotation_tooling() {
     if command -v braker.pl >/dev/null 2>&1; then
       braker_ok=1
       log "BRAKER3 available on host PATH (braker.pl)."
-    elif ensure_sif_or_prompt_pull "BRAKER3" "${BRAKER_SIF}" "${BRAKER_IMAGE_URI}"; then
+    elif [[ "${ENGINE}" == "docker" ]] && ensure_docker_image "BRAKER3" "$(docker_image_from_uri "${BRAKER_IMAGE_URI}")"; then
+      braker_ok=1
+    elif [[ "${ENGINE}" != "docker" ]] && ensure_sif_or_prompt_pull "BRAKER3" "${BRAKER_SIF}" "${BRAKER_IMAGE_URI}"; then
       braker_ok=1
     fi
   fi
@@ -806,7 +933,9 @@ ensure_annotation_tooling() {
     if command -v funannotate >/dev/null 2>&1; then
       fun_ok=1
       log "funannotate available on host PATH."
-    elif ensure_sif_or_prompt_pull "funannotate" "${FUNANNOTATE_SIF}" "${FUNANNOTATE_IMAGE_URI}"; then
+    elif [[ "${ENGINE}" == "docker" ]] && ensure_docker_image "funannotate" "$(docker_image_from_uri "${FUNANNOTATE_IMAGE_URI}")"; then
+      fun_ok=1
+    elif [[ "${ENGINE}" != "docker" ]] && ensure_sif_or_prompt_pull "funannotate" "${FUNANNOTATE_SIF}" "${FUNANNOTATE_IMAGE_URI}"; then
       fun_ok=1
     fi
   fi
@@ -818,7 +947,7 @@ ensure_annotation_tooling() {
     die "funannotate is required by ANNOTATION_FALLBACK_ORDER but unavailable. Install funannotate or provide FUNANNOTATE_SIF."
   fi
   if [[ "${need_braker}" -eq 0 && "${need_fun}" -eq 0 ]]; then
-    die "No valid annotation fallback methods configured. Set ANNOTATION_FALLBACK_ORDER (e.g., funannotate)."
+    warn "No annotation fallback methods configured. Annotated GenBank inputs can still run; FASTA-only inputs may be dropped."
   fi
 }
 
@@ -850,7 +979,12 @@ run_braker3_to_gbk() {
   rm -f "${tmp_out}" 2>/dev/null || true
   log "${genome_id}: trying BRAKER3 annotation (outdir=${braker_out})"
 
-  if [[ -f "${BRAKER_SIF}" ]]; then
+  if [[ "${ENGINE}" == "docker" ]]; then
+    if ! docker_exec "$(docker_image_from_uri "${BRAKER_IMAGE_URI}")" braker.pl --genome "${fasta}" "${ev_args[@]}" --workingdir "${braker_out}" --species "${braker_species}" --fungus --gff3 --threads "${ANNO_CPUS}" >> "${braker_log}" 2>&1; then
+      warn "${genome_id}: BRAKER3 failed (see ${braker_log})"
+      return 2
+    fi
+  elif [[ -f "${BRAKER_SIF}" ]]; then
     if ! sing_exec "${BRAKER_SIF}" braker.pl --genome "${fasta}" "${ev_args[@]}" --workingdir "${braker_out}" --species "${braker_species}" --fungus --gff3 --threads "${ANNO_CPUS}" >> "${braker_log}" 2>&1; then
       warn "${genome_id}: BRAKER3 failed (see ${braker_log})"
       return 2
@@ -1006,8 +1140,11 @@ run_funannotate_predict_to_gbk() {
 
   local fun_cmd="funannotate"
   local use_sif=0
+  local use_docker=0
 
-  if [[ -f "${FUNANNOTATE_SIF}" ]]; then
+  if [[ "${ENGINE}" == "docker" ]]; then
+    use_docker=1
+  elif [[ -f "${FUNANNOTATE_SIF}" ]]; then
     use_sif=1
     if sing_exec "${FUNANNOTATE_SIF}" test -x "/venv/bin/funannotate" >/dev/null 2>&1; then
       fun_cmd="/venv/bin/funannotate"
@@ -1018,7 +1155,16 @@ run_funannotate_predict_to_gbk() {
   fi
 
   log "${genome_id}: running funannotate prepare workflow (sort + clean)"
-  if [[ "${use_sif}" -eq 1 ]]; then
+  if [[ "${use_docker}" -eq 1 ]]; then
+    if ! docker_exec "$(docker_image_from_uri "${FUNANNOTATE_IMAGE_URI}")" "${fun_cmd}" sort -i "${fasta}" -o "${sorted_fa}" --minlen 500 >> "${fun_log}" 2>&1; then
+      warn "${genome_id}: funannotate sort failed (see ${fun_log})"
+      return 2
+    fi
+    if ! docker_exec "$(docker_image_from_uri "${FUNANNOTATE_IMAGE_URI}")" "${fun_cmd}" clean -i "${sorted_fa}" -o "${cleaned_fa}" -m 500 >> "${fun_log}" 2>&1; then
+      warn "${genome_id}: funannotate clean failed; using sorted FASTA for predict"
+      cp -f "${sorted_fa}" "${cleaned_fa}"
+    fi
+  elif [[ "${use_sif}" -eq 1 ]]; then
     if ! sing_exec "${FUNANNOTATE_SIF}" "${fun_cmd}" sort -i "${fasta}" -o "${sorted_fa}" --minlen 500 >> "${fun_log}" 2>&1; then
       warn "${genome_id}: funannotate sort failed (see ${fun_log})"
       return 2
@@ -1041,7 +1187,13 @@ run_funannotate_predict_to_gbk() {
   [[ -s "${predict_fa}" ]] || { warn "${genome_id}: prepared FASTA missing for funannotate predict"; return 2; }
 
   log "${genome_id}: trying funannotate predict (outdir=${fun_run})"
-  if [[ "${use_sif}" -eq 1 ]]; then
+  if [[ "${use_docker}" -eq 1 ]]; then
+    if ! docker_exec "$(docker_image_from_uri "${FUNANNOTATE_IMAGE_URI}")" "${fun_cmd}" predict -i "${predict_fa}" -o "${fun_run}" --species "${species_name}" --organism fungus --busco_db "${busco_db}" "${fun_predict_extra[@]}" --cpus "${ANNO_CPUS}" --name "${safe_name}_" --tmpdir "${fun_tmp}" --force >> "${fun_log}" 2>&1; then
+      rsync -a --delete "${fun_run}/" "${fun_out}/" >/dev/null 2>&1 || true
+      warn "${genome_id}: funannotate predict failed (see ${fun_log})"
+      return 2
+    fi
+  elif [[ "${use_sif}" -eq 1 ]]; then
     if ! sing_exec "${FUNANNOTATE_SIF}" "${fun_cmd}" predict -i "${predict_fa}" -o "${fun_run}" --species "${species_name}" --organism fungus --busco_db "${busco_db}" "${fun_predict_extra[@]}" --cpus "${ANNO_CPUS}" --name "${safe_name}_" --tmpdir "${fun_tmp}" --force >> "${fun_log}" 2>&1; then
       rsync -a --delete "${fun_run}/" "${fun_out}/" >/dev/null 2>&1 || true
       warn "${genome_id}: funannotate predict failed (see ${fun_log})"
@@ -1154,7 +1306,7 @@ ANTISMASH_FLAGS_CANDIDATES=(
 
 antismash_supported_flags() {
   local help
-  help="$(sing_exec "${ANTISMASH_SIF}" antismash --help-showall 2>&1 || true)"
+  help="$(antismash_exec antismash --help-showall 2>&1 || true)"
 
   local out=()
   local i=0
@@ -1545,7 +1697,7 @@ for genome_id in "${GEN_ARR[@]}"; do
     mkdir -p "${ant_out}"
 
     log "${genome_id}: running antiSMASH (outdir=${ant_out})" | tee -a "${GENLOG}"
-    if sing_exec "${ANTISMASH_SIF}" antismash \
+    if antismash_exec antismash \
         "${ant_input}" \
         --output-dir "${ant_out}" \
         --cpus "${CPUS}" \

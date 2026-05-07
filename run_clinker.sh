@@ -118,6 +118,9 @@ PREFER_CLINKER_CONTAINER="${PREFER_CLINKER_CONTAINER:-0}"
 CLINKER_CONTAINER_TAG="${CLINKER_CONTAINER_TAG:-0.0.32--pyhdfd78af_0}"
 CLINKER_SIF_SOURCE="${CLINKER_SIF_SOURCE:-docker://quay.io/biocontainers/clinker-py:${CLINKER_CONTAINER_TAG}}"
 CLINKER_SIF_PATH="${CLINKER_SIF_PATH:-${CLINKER_SOFTDIR}/clinker-py_${CLINKER_CONTAINER_TAG}.sif}"
+CLINKER_USE_DOCKER_IMAGE="${CLINKER_USE_DOCKER_IMAGE:-0}"
+CLINKER_DOCKER_IMAGE="${CLINKER_DOCKER_IMAGE:-quay.io/biocontainers/clinker-py:${CLINKER_CONTAINER_TAG}}"
+CLINKER_DOCKER_DATA_VOLUME="${CLINKER_DOCKER_DATA_VOLUME:-${DOCKER_DATA_VOLUME:-}}"
 
 TARGETED_ANALYSIS_PY="${TARGETED_ANALYSIS_PY:-${PROJECT_DIR}/bin/build_candidate_tables.py}"
 EXPORT_FAMILY_ATLAS_PY="${EXPORT_FAMILY_ATLAS_PY:-${PROJECT_DIR}/bin/export_dataset_family_atlas.py}"
@@ -164,6 +167,16 @@ ensure_clinker_sif() {
   [[ "${INSTALL_CLINKER_SIF}" == "1" ]] || die "Clinker SIF missing and INSTALL_CLINKER_SIF=0"
   log "Pulling clinker container: ${CLINKER_SIF_SOURCE} -> ${CLINKER_SIF_PATH}"
   "${ENGINE}" pull "${CLINKER_SIF_PATH}" "${CLINKER_SIF_SOURCE}" || die "Failed to pull clinker container"
+}
+
+ensure_clinker_docker_image() {
+  have docker || die "CLINKER_USE_DOCKER_IMAGE=1 but docker is not available in PATH"
+  if docker image inspect "${CLINKER_DOCKER_IMAGE}" >/dev/null 2>&1; then
+    log "Using existing clinker Docker image: ${CLINKER_DOCKER_IMAGE}"
+    return 0
+  fi
+  log "Pulling clinker Docker image: ${CLINKER_DOCKER_IMAGE}"
+  docker pull "${CLINKER_DOCKER_IMAGE}" || die "Failed to pull clinker Docker image"
 }
 
 ensure_metadata_tsv() {
@@ -556,6 +569,7 @@ log "TARGET_GENOME=${TARGET_GENOME}"
 log "PANEL_TARGET_SET=${PANEL_TARGET_SET}"
 log "RUN_CLINKER=${RUN_CLINKER}"
 log "PREFER_CLINKER_CONTAINER=${PREFER_CLINKER_CONTAINER}"
+log "CLINKER_USE_DOCKER_IMAGE=${CLINKER_USE_DOCKER_IMAGE}"
 log "CLINKER_ROOT=${CLINKER_ROOT}"
 if [[ -z "${MIBIG_ROOT}" ]] && mibig_cache_has_gbks "${MIBIG_CACHE}"; then
   MIBIG_ROOT="${MIBIG_CACHE}"
@@ -563,6 +577,8 @@ fi
 log "MIBIG_CACHE=${MIBIG_CACHE}"
 log "MIBIG_ROOT=${MIBIG_ROOT:-none}"
 log "CLINKER_SIF_PATH=${CLINKER_SIF_PATH}"
+log "CLINKER_DOCKER_IMAGE=${CLINKER_DOCKER_IMAGE}"
+log "CLINKER_DOCKER_DATA_VOLUME=${CLINKER_DOCKER_DATA_VOLUME:-none}"
 log "AUTO_NORMALIZE_METADATA=${AUTO_NORMALIZE_METADATA}"
 log "METADATA_TSV=${METADATA_TSV}"
 for track in "${TRACKS[@]}"; do
@@ -667,6 +683,14 @@ fi
 if [[ "${RUN_CLINKER}" == "1" ]]; then
   if command -v clinker >/dev/null 2>&1 && [[ "${PREFER_CLINKER_CONTAINER}" != "1" ]]; then
     log "Using local clinker from PATH"
+  elif [[ "${CLINKER_USE_DOCKER_IMAGE}" == "1" ]]; then
+    ensure_clinker_docker_image
+    export CLINKER_DOCKER_IMAGE
+    export CLINKER_DOCKER_DATA_VOLUME
+    export PREFER_CLINKER_CONTAINER=1
+    log "Using clinker Docker image: ${CLINKER_DOCKER_IMAGE}"
+    docker run --rm -i --user 0:0 "${CLINKER_DOCKER_IMAGE}" clinker --help >/dev/null 2>&1 \
+      || die "Clinker Docker image sanity check failed"
   else
     ensure_clinker_sif
     export CLINKER_ENGINE="${ENGINE}"

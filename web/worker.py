@@ -11,9 +11,11 @@ from typing import Any
 try:
     from job_store import DATA_DIR, QUEUE_DIR, now_iso, read_job, read_logs, write_job, write_logs
     from canonical_pipeline import Job, JobStatus, run_pipeline
+    from runtime_capabilities import runtime_health
 except ImportError:  # pragma: no cover - package-style imports in local tests
     from .job_store import DATA_DIR, QUEUE_DIR, now_iso, read_job, read_logs, write_job, write_logs
     from .canonical_pipeline import Job, JobStatus, run_pipeline
+    from .runtime_capabilities import runtime_health
 
 POLL_SECONDS = float(os.environ.get("WORKER_POLL_SECONDS", "1.0"))
 WORKER_DIR = DATA_DIR / "worker"
@@ -31,6 +33,7 @@ def state_progress(state: str) -> int:
 
 
 def write_worker_status(state: str, detail: str = "", substep: str = "") -> None:
+    runtime = runtime_health()
     WORKER_DIR.mkdir(parents=True, exist_ok=True)
     payload = {
         "ready": state in {"ready", "idle", "processing"},
@@ -40,6 +43,13 @@ def write_worker_status(state: str, detail: str = "", substep: str = "") -> None
         "detail": detail,
         "substep": substep,
         "updated_at": now_iso(),
+        "runtime": {
+            "mode": runtime.get("mode"),
+            "engine": runtime.get("engine"),
+            "docker_ready": runtime.get("docker_ready"),
+            "docker_socket_enabled": runtime.get("docker_socket_enabled"),
+        },
+        "capabilities": runtime,
     }
     WORKER_STATUS_PATH.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
