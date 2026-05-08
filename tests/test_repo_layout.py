@@ -149,20 +149,24 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn('"FUNBGCEX_DOCKER_IMAGE"', text)
         self.assertIn('"CLINKER_USE_DOCKER_IMAGE"', text)
         self.assertIn('"NPLINKER_DOCKER_IMAGE"', text)
+        self.assertIn('"RENDER_BIGSCAPE_NETWORK_PY"', text)
 
     def test_web_supports_in_place_stage_reruns(self) -> None:
         app_text = (REPO_ROOT / "web" / "app.py").read_text(encoding="utf-8")
         ui_text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
         self.assertIn('route.startswith("/api/jobs/") and route.endswith("/rerun")', app_text)
         self.assertIn('"reuse_existing_layout"] = True', app_text)
+        self.assertIn('"submission_settings"', app_text)
         self.assertIn("Rerun Selected Stages", ui_text)
         self.assertIn("rerunActiveJob()", ui_text)
+        self.assertIn("function rerunStageAllowed(key)", ui_text)
 
     def test_worker_supports_bounded_concurrency(self) -> None:
         text = (REPO_ROOT / "web" / "worker.py").read_text(encoding="utf-8")
         self.assertIn('WORKER_CONCURRENCY = max(1, int(os.environ.get("WORKER_CONCURRENCY", "1")))', text)
         self.assertIn("async def worker_loop()", text)
         self.assertIn("active_jobs", text)
+        self.assertIn("payload = dict(read_job(job.id) or {})", text)
 
     def test_ui_stage_states_use_semantic_classes(self) -> None:
         text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
@@ -188,7 +192,9 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn('/mnt/c/Program Files/R/R-*/bin/Rscript.exe', text)
         self.assertIn('/c/Program Files/R/R-*/bin/Rscript.exe', text)
         self.assertIn('R_BIN="$(resolve_r_bin)"', text)
+        self.assertIn('RENDER_BIGSCAPE_NETWORK_PY="${RENDER_BIGSCAPE_NETWORK_PY:-${SCRIPT_DIR}/bin/render_bigscape_network.py}"', text)
         self.assertIn("Skipping R summary figures; continuing to BiG-SCAPE network rendering", text)
+        self.assertIn("skipping network figure", text)
         self.assertNotIn("FIGURES_TOP_N", text)
 
     def test_worker_image_includes_rscript_for_figures(self) -> None:

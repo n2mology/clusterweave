@@ -7,8 +7,8 @@ PROJECT_DIR="${PROJECT_DIR:-${SCRIPT_DIR}}"
 PROJECT_NAME="${PROJECT_NAME:-$(basename "${PROJECT_DIR}")}"
 R_BIN="${R_BIN:-}"
 FORCE="${FORCE:-0}"
-RENDER_FIGURES_R="${RENDER_FIGURES_R:-${PROJECT_DIR}/bin/render_summary_figures.R}"
-RENDER_BIGSCAPE_NETWORK_PY="${RENDER_BIGSCAPE_NETWORK_PY:-${PROJECT_DIR}/bin/render_bigscape_network.py}"
+RENDER_FIGURES_R="${RENDER_FIGURES_R:-${SCRIPT_DIR}/bin/render_summary_figures.R}"
+RENDER_BIGSCAPE_NETWORK_PY="${RENDER_BIGSCAPE_NETWORK_PY:-${SCRIPT_DIR}/bin/render_bigscape_network.py}"
 RUN_BIGSCAPE_NETWORK_FIGURE="${RUN_BIGSCAPE_NETWORK_FIGURE:-1}"
 BIGSCAPE_NETWORK_METADATA_TSV="${BIGSCAPE_NETWORK_METADATA_TSV:-${PROJECT_DIR}/Data/Results/${PROJECT_NAME}/summary_tables/ecofun_metadata_normalized.tsv}"
 BIGSCAPE_NETWORK_ANNOTATION_TABLE="${BIGSCAPE_NETWORK_ANNOTATION_TABLE:-${PROJECT_DIR}/Data/Results/${PROJECT_NAME}/summary/candidate_bgc_gcf_crosswalk.tsv}"
@@ -151,8 +151,9 @@ if [[ "${RUN_BIGSCAPE_NETWORK_FIGURE}" == "1" ]]; then
   BIGSCAPE_OUTPUT_FILES="${PROJECT_DIR}/Data/Results/${PROJECT_NAME}/big_scape/output_files"
   BIGSCAPE_NETWORK_OUTPUT_DIR="${PROJECT_DIR}/Data/Results/${PROJECT_NAME}/figures"
   if [[ -d "${BIGSCAPE_OUTPUT_FILES}" ]]; then
-    [[ -f "${RENDER_BIGSCAPE_NETWORK_PY}" ]] || die "Missing BiG-SCAPE network helper: ${RENDER_BIGSCAPE_NETWORK_PY}"
-    if [[ "${FORCE}" != "1" ]] && bigscape_network_outputs_ready "${BIGSCAPE_NETWORK_OUTPUT_DIR}" "bigscape_network"; then
+    if [[ ! -f "${RENDER_BIGSCAPE_NETWORK_PY}" ]]; then
+      warn "Missing BiG-SCAPE network helper: ${RENDER_BIGSCAPE_NETWORK_PY}; skipping network figure."
+    elif [[ "${FORCE}" != "1" ]] && bigscape_network_outputs_ready "${BIGSCAPE_NETWORK_OUTPUT_DIR}" "bigscape_network"; then
       log "Skipping BiG-SCAPE network figure; outputs already exist (set FORCE=1 to refresh)"
     else
       PYTHON_BIN="$(resolve_python_bin)"

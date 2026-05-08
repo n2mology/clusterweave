@@ -1719,6 +1719,26 @@ function jobStageEnabled(job, key) {
   return true;
 }
 
+function stageCapabilityKey(key) {
+  const map = {
+    prep: 'prepare',
+    annotation: 'annotation',
+    bigscape: 'bigscape',
+    summary: 'summary',
+    clinker: 'clinker',
+    figures: 'figures',
+    nplinker: 'nplinker',
+  };
+  return map[key] || key;
+}
+
+function rerunStageAllowed(key) {
+  const stageCaps = runtimeCapabilities && runtimeCapabilities.stages;
+  if (!stageCaps) return true;
+  const cap = stageCaps[stageCapabilityKey(key)];
+  return !cap || cap.available !== false;
+}
+
 function initializeStageState(job) {
   const enabled = new Set(STAGES.filter(s => jobStageEnabled(job, s.key)).map(s => s.key));
   activeStageState = {
@@ -1858,6 +1878,7 @@ async function loadResults(jobId, status) {
 
 function rerunDefaultChecked(job, key) {
   if (!job || job.status === 'success') return false;
+  if (!rerunStageAllowed(key)) return false;
   if (!activeStageState || !activeStageState.enabled.has(key)) return false;
   return !activeStageState.completed.has(key);
 }
@@ -1870,7 +1891,7 @@ function renderRerunPanel(jobId, job) {
     return;
   }
   const stageRows = STAGES.map(stage => {
-    const enabled = jobStageEnabled(job, stage.key);
+    const enabled = rerunStageAllowed(stage.key);
     const checked = rerunDefaultChecked(job, stage.key);
     return `
       <label class="form-group-inline ${enabled ? '' : 'disabled'}">

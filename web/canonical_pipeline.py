@@ -545,6 +545,7 @@ async def run_pipeline(
             figure_env = dict(env)
             figure_env["PROJECT_DIR"] = str(layout.data_root.parent)
             figure_env["RENDER_FIGURES_R"] = str(layout.repo_root / "bin" / "render_summary_figures.R")
+            figure_env["RENDER_BIGSCAPE_NETWORK_PY"] = str(layout.repo_root / "bin" / "render_bigscape_network.py")
             if figures_required:
                 await _run_required_stage(job, "Rendering summary figures", figure_cmd, cwd=layout.repo_root, env=figure_env)
             else:

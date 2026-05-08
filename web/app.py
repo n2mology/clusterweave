@@ -207,8 +207,16 @@ def enqueue_job(job_id: str, cpus: int, settings: dict[str, object]) -> None:
     queue_file.write_text(json.dumps(queue_payload), encoding="utf-8")
 
 
-def rerun_settings(existing: dict[str, object], payload: dict[str, object]) -> dict[str, object]:
-    settings = dict(existing)
+def base_job_settings(job: dict[str, object]) -> dict[str, object]:
+    submission_settings = job.get("submission_settings")
+    if isinstance(submission_settings, dict):
+        return dict(submission_settings)
+    current_settings = job.get("settings")
+    return dict(current_settings) if isinstance(current_settings, dict) else {}
+
+
+def rerun_settings(base_settings: dict[str, object], payload: dict[str, object]) -> dict[str, object]:
+    settings = dict(base_settings)
     bool_fields = [
         "run_genome_prep",
         "run_annotation",
@@ -387,7 +395,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._bad_request("Expected JSON object")
                 return
 
-            settings = rerun_settings(dict(job.get("settings") or {}), payload)
+            base_settings = base_job_settings(job)
+            settings = rerun_settings(base_settings, payload)
             if not any(
                 settings_bool(settings, key)
                 for key in ["run_genome_prep", "run_annotation", "run_bigscape", "run_summary", "run_clinker", "run_figures", "run_nplinker"]
@@ -407,6 +416,8 @@ class Handler(BaseHTTPRequestHandler):
             job["error"] = None
             job["cpus"] = cpus
             job["settings"] = settings
+            job["submission_settings"] = base_settings
+            job["last_rerun_settings"] = settings
             job["log_count"] = len(lines)
             job["updated_at"] = now_iso()
             job["rerun_count"] = int(job.get("rerun_count", 0) or 0) + 1
@@ -530,6 +541,7 @@ class Handler(BaseHTTPRequestHandler):
             "error": None,
             "cpus": cpus,
             "settings": settings,
+            "submission_settings": dict(settings),
         }
 
         out_dir = job_dir(job_id)

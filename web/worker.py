@@ -112,7 +112,8 @@ def build_job_from_meta(meta: dict) -> Job:
 
 def persist_job(job: Job, cpus: int, settings: dict[str, Any]) -> None:
     write_logs(job.id, job.log_lines)
-    payload = job.to_dict()
+    payload = dict(read_job(job.id) or {})
+    payload.update(job.to_dict())
     payload["status"] = job.status.value
     payload["log_count"] = len(job.log_lines)
     payload["cpus"] = cpus
