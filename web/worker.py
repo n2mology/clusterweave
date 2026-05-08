@@ -4,7 +4,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import time
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +17,7 @@ except ImportError:  # pragma: no cover - package-style imports in local tests
     from .runtime_capabilities import runtime_health
 
 POLL_SECONDS = float(os.environ.get("WORKER_POLL_SECONDS", "1.0"))
+WORKER_CONCURRENCY = max(1, int(os.environ.get("WORKER_CONCURRENCY", "1")))
 WORKER_DIR = DATA_DIR / "worker"
 WORKER_STATUS_PATH = WORKER_DIR / "status.json"
 
@@ -32,7 +32,12 @@ def state_progress(state: str) -> int:
     }.get(state, 0)
 
 
-def write_worker_status(state: str, detail: str = "", substep: str = "") -> None:
+def write_worker_status(
+    state: str,
+    detail: str = "",
+    substep: str = "",
+    active_jobs: list[str] | None = None,
+) -> None:
     runtime = runtime_health()
     WORKER_DIR.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -48,6 +53,11 @@ def write_worker_status(state: str, detail: str = "", substep: str = "") -> None
             "engine": runtime.get("engine"),
             "docker_ready": runtime.get("docker_ready"),
             "docker_socket_enabled": runtime.get("docker_socket_enabled"),
+        },
+        "worker": {
+            "concurrency": WORKER_CONCURRENCY,
+            "active_jobs": active_jobs or [],
+            "active_count": len(active_jobs or []),
         },
         "capabilities": runtime,
     }
@@ -140,30 +150,51 @@ async def process_one(job_id: str, cpus: int, queued_settings: dict[str, Any]) -
     persist_job(job, cpus, settings)
 
 
-def main() -> None:
-    print("ClusterWeave worker started.")
-    write_worker_status("ready", "Worker loop started")
-    while True:
-        claim = claim_next_job()
-        if claim is None:
-            write_worker_status("idle", "Waiting for queued jobs")
-            time.sleep(POLL_SECONDS)
-            continue
+async def process_claim(job_id: str, cpus: int, settings: dict[str, Any]) -> None:
+    try:
+        await process_one(job_id, cpus, settings)
+    except Exception as exc:
+        meta = read_job(job_id)
+        if meta is not None:
+            job = build_job_from_meta(meta)
+            job.status = JobStatus.FAILED
+            job.error = str(exc)
+            job.add_log(f"FATAL: {exc}")
+            persist_job(job, cpus, settings)
+        raise
 
-        job_id, cpus, settings = claim
-        write_worker_status("processing", f"Processing job {job_id}")
-        try:
-            asyncio.run(process_one(job_id, cpus, settings))
+
+async def worker_loop() -> None:
+    print(f"ClusterWeave worker started. concurrency={WORKER_CONCURRENCY}")
+    write_worker_status("ready", f"Worker loop started (concurrency={WORKER_CONCURRENCY})")
+    active: dict[str, asyncio.Task[None]] = {}
+    while True:
+        for job_id, task in list(active.items()):
+            if not task.done():
+                continue
+            active.pop(job_id, None)
+            try:
+                task.result()
+            except Exception as exc:
+                write_worker_status("error", str(exc), active_jobs=sorted(active))
+
+        while len(active) < WORKER_CONCURRENCY:
+            claim = claim_next_job()
+            if claim is None:
+                break
+            job_id, cpus, settings = claim
+            active[job_id] = asyncio.create_task(process_claim(job_id, cpus, settings))
+
+        if active:
+            ids = sorted(active)
+            write_worker_status("processing", f"Processing {len(ids)} job(s)", ", ".join(ids), active_jobs=ids)
+        else:
             write_worker_status("idle", "Waiting for queued jobs")
-        except Exception as exc:
-            meta = read_job(job_id)
-            if meta is not None:
-                job = build_job_from_meta(meta)
-                job.status = JobStatus.FAILED
-                job.error = str(exc)
-                job.add_log(f"FATAL: {exc}")
-                persist_job(job, cpus, settings)
-            write_worker_status("error", str(exc))
+        await asyncio.sleep(POLL_SECONDS)
+
+
+def main() -> None:
+    asyncio.run(worker_loop())
 
 
 if __name__ == "__main__":

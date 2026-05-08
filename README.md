@@ -270,6 +270,8 @@ Runtime profiles:
 
 - `docker-compose.yml` is the dev/lab QA profile. It sets `ENGINE=docker` and mounts the host Docker socket so the worker can launch stage containers against shared named volumes.
 - `clusterweave.yml` is socket-free. It is the safer baseline for public demos; stages that still need socket-backed workers are reported as unavailable through the UI/API until stage-specific queue workers are deployed.
+- `WORKER_CONCURRENCY` defaults to `1`. Increase it only on lab machines with enough resources for simultaneous antiSMASH/BiG-SCAPE jobs.
+- The web UI can re-queue a completed or failed job in place with selected stage toggles, preserving expensive completed outputs such as antiSMASH.
 - See [docs/WEB_RUNTIME.md](docs/WEB_RUNTIME.md) for the runtime plan, DAG boundary, and public deployment safety model.
 
 Example release publish flow:

@@ -276,6 +276,35 @@ def _stage_uploaded_inputs(input_files: list[Path], layout: ProjectLayout, setti
         job.add_log(f"Kept auxiliary upload: {copied.relative_to(layout.data_root.parent)}")
 
 
+def _restore_existing_layout_inputs(layout: ProjectLayout, job: Job) -> None:
+    accession_file = layout.downloads_root / "accessions.txt"
+    if accession_file.exists():
+        layout.accession_file = accession_file
+
+    metadata_root = layout.results_root / "summary_tables"
+    for candidate in [
+        metadata_root / "ecofun_metadata_normalized.tsv",
+        metadata_root / "ecofun_metadata_template.tsv",
+    ]:
+        if candidate.exists():
+            layout.metadata_file = candidate
+            break
+
+    gnps_root = layout.work_root / "nplinker_uploads" / "gnps"
+    if gnps_root.exists() and any(path.is_file() for path in gnps_root.rglob("*")):
+        layout.nplinker_gnps_dir = gnps_root
+
+    strain_mapping = layout.work_root / "nplinker_uploads" / "strain_mappings.json"
+    if strain_mapping.exists():
+        layout.nplinker_strain_mapping = strain_mapping
+
+    layout.genome_inputs = [
+        path for path in sorted(layout.genome_root.glob("*"))
+        if path.is_file() and path.suffix.lower() in GENOME_EXTS
+    ]
+    job.add_log("Reusing existing staged ClusterWeave layout for rerun.")
+
+
 def _parse_raw_env(raw: str) -> dict[str, str]:
     overrides: dict[str, str] = {}
     for line in raw.splitlines():
@@ -465,7 +494,12 @@ async def run_pipeline(
         notify()
 
         job.set_stage("Preparing ClusterWeave project layout")
-        _stage_uploaded_inputs(input_files, layout, cfg, job)
+        if _cfg_bool(cfg, "reuse_existing_layout", False) and (
+            layout.genome_root.exists() or layout.results_root.exists()
+        ):
+            _restore_existing_layout_inputs(layout, job)
+        else:
+            _stage_uploaded_inputs(input_files, layout, cfg, job)
         env = _base_env(layout, cfg, cpus)
         notify()
 

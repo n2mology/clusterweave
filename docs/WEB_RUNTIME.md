@@ -14,6 +14,8 @@ The dev/lab compose file (`docker-compose.yml`) uses `CLUSTERWEAVE_RUNTIME_MODE=
 
 This is intentionally a lab convenience. It lets the current web UI run the canonical scripts without installing Apptainer inside the worker container.
 
+The worker processes one job at a time by default. For lab machines with enough CPU, memory, and disk I/O, set `WORKER_CONCURRENCY=2` or higher before starting compose. Each job still keeps an isolated `/data/jobs/<job-id>` workspace, but shared caches under `/data/software` and database volumes are common to all jobs.
+
 Current Docker-native bridge paths:
 
 - `run_annotation_and_detection.sh`: uses local worker antiSMASH when present and a repo-built `clusterweave-funbgcex:latest` Docker image for FunBGCeX; optional funannotate/BRAKER fallbacks can run via Docker images when enabled.
@@ -55,3 +57,4 @@ The published compose file (`clusterweave.yml`) is deliberately socket-free. It 
 - `clusterweave.yml` is socket-free and should be the baseline for public demos.
 - Public deployments should run prebuilt stage images through a queue worker model, not Docker-from-Docker.
 - Runtime capabilities are reported through `/api/system/status`; the API rejects jobs requesting unavailable required stages.
+- Failed or completed jobs can be re-queued in place with selected stages. This reuses the existing job workspace so expensive completed stages such as antiSMASH do not need to be repeated unless selected with force rerun.

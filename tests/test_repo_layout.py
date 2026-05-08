@@ -126,6 +126,7 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn('SIF_SOURCE="${SIF_SOURCE:-${BIGSCAPE_SIF_SOURCE}}"', text)
         self.assertIn('BIGSCAPE_USE_DOCKER_IMAGE="${BIGSCAPE_USE_DOCKER_IMAGE:-0}"', text)
         self.assertIn('BIGSCAPE_DOCKER_IMAGE="${BIGSCAPE_DOCKER_IMAGE:-ghcr.io/medema-group/big-scape:2.0.0-beta.6}"', text)
+        self.assertIn('local -a args=(--rm -i --user 0:0 --entrypoint "")', text)
 
     def test_web_lab_runtime_is_docker_gated(self) -> None:
         compose = (REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
@@ -133,18 +134,44 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("CLUSTERWEAVE_RUNTIME_MODE: lab-docker", compose)
         self.assertIn("CLUSTERWEAVE_ENABLE_DOCKER_SOCKET: \"1\"", compose)
         self.assertIn("ENGINE: docker", compose)
+        self.assertIn('WORKER_CONCURRENCY: "${WORKER_CONCURRENCY:-1}"', compose)
         self.assertIn("/var/run/docker.sock:/var/run/docker.sock", compose)
         self.assertIn("CLUSTERWEAVE_RUNTIME_MODE: public-queue", public_compose)
         self.assertIn("CLUSTERWEAVE_ENABLE_DOCKER_SOCKET: \"0\"", public_compose)
+        self.assertIn('WORKER_CONCURRENCY: "${WORKER_CONCURRENCY:-1}"', public_compose)
         self.assertNotIn("/var/run/docker.sock:/var/run/docker.sock", public_compose)
 
     def test_canonical_bridge_passes_runtime_env(self) -> None:
         text = (REPO_ROOT / "web" / "canonical_pipeline.py").read_text(encoding="utf-8")
         self.assertIn('"ENGINE": _cfg_str(settings, "engine", os.environ.get("ENGINE", ""))', text)
+        self.assertIn('"reuse_existing_layout"', text)
         self.assertIn('"DOCKER_DATA_VOLUME"', text)
         self.assertIn('"FUNBGCEX_DOCKER_IMAGE"', text)
         self.assertIn('"CLINKER_USE_DOCKER_IMAGE"', text)
         self.assertIn('"NPLINKER_DOCKER_IMAGE"', text)
+
+    def test_web_supports_in_place_stage_reruns(self) -> None:
+        app_text = (REPO_ROOT / "web" / "app.py").read_text(encoding="utf-8")
+        ui_text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('route.startswith("/api/jobs/") and route.endswith("/rerun")', app_text)
+        self.assertIn('"reuse_existing_layout"] = True', app_text)
+        self.assertIn("Rerun Selected Stages", ui_text)
+        self.assertIn("rerunActiveJob()", ui_text)
+
+    def test_worker_supports_bounded_concurrency(self) -> None:
+        text = (REPO_ROOT / "web" / "worker.py").read_text(encoding="utf-8")
+        self.assertIn('WORKER_CONCURRENCY = max(1, int(os.environ.get("WORKER_CONCURRENCY", "1")))', text)
+        self.assertIn("async def worker_loop()", text)
+        self.assertIn("active_jobs", text)
+
+    def test_ui_stage_states_use_semantic_classes(self) -> None:
+        text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        self.assertIn(".stage-step.upcoming", text)
+        self.assertIn(".stage-step.active", text)
+        self.assertIn(".stage-step.done", text)
+        self.assertIn(".stage-step.disabled", text)
+        self.assertIn("function initializeStageState(job)", text)
+        self.assertIn("function finalizeStageState(status)", text)
 
     def test_figures_wrapper_detects_rscript_robustly(self) -> None:
         text = (REPO_ROOT / "run_figures.sh").read_text(encoding="utf-8")

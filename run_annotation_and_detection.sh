@@ -114,7 +114,7 @@ docker_image_from_uri() {
 }
 
 docker_run_args() {
-  local -a args=(--rm -i --user 0:0)
+  local -a args=(--rm -i --user 0:0 --entrypoint "")
   if [[ -n "${DOCKER_DATA_VOLUME}" ]]; then
     args+=(-v "${DOCKER_DATA_VOLUME}:/data")
   else

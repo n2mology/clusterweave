@@ -291,7 +291,7 @@ if [[ -n "${MIBIG_VERSION}" ]]; then
 fi
 
 docker_run_args() {
-  local -a args=(--rm -i --user 0:0)
+  local -a args=(--rm -i --user 0:0 --entrypoint "")
   if [[ -n "${BIGSCAPE_DOCKER_DATA_VOLUME}" ]]; then
     args+=(-v "${BIGSCAPE_DOCKER_DATA_VOLUME}:/data")
   else

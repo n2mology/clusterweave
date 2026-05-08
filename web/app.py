@@ -72,6 +72,35 @@ def parse_bool(value: str | None, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def parse_payload_bool(payload: dict[str, object], key: str, default: bool = False) -> bool:
+    value = payload.get(key, default)
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def settings_bool(settings: dict[str, object], key: str, default: bool = False) -> bool:
+    value = settings.get(key, default)
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def read_json_body(handler: BaseHTTPRequestHandler) -> dict[str, object] | None:
+    content_length = parse_int(handler.headers.get("Content-Length", "0"), 0)
+    if content_length <= 0:
+        return {}
+    try:
+        payload = json.loads(handler.rfile.read(content_length).decode("utf-8"))
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
 def worker_status() -> dict[str, object]:
     if not WORKER_STATUS_PATH.exists():
         return {
@@ -82,6 +111,7 @@ def worker_status() -> dict[str, object]:
             "updated_at": None,
             "stale": True,
             "runtime": {},
+            "worker": {},
             "capabilities": {},
         }
 
@@ -96,6 +126,7 @@ def worker_status() -> dict[str, object]:
             "updated_at": None,
             "stale": True,
             "runtime": {},
+            "worker": {},
             "capabilities": {},
         }
 
@@ -137,6 +168,7 @@ def worker_status() -> dict[str, object]:
         "updated_at": updated_at,
         "stale": stale,
         "runtime": payload.get("runtime", {}),
+        "worker": payload.get("worker", {}),
         "capabilities": payload.get("capabilities", {}),
     }
 
@@ -154,11 +186,11 @@ def validate_runtime_request(settings: dict[str, object], status: dict[str, obje
         return None
 
     checks = [
-        ("annotation", bool(settings.get("run_annotation"))),
-        ("bigscape", bool(settings.get("run_bigscape"))),
-        ("clinker", bool(settings.get("run_clinker")) and bool(settings.get("execute_clinker"))),
-        ("nplinker", bool(settings.get("run_nplinker"))),
-        ("figures", bool(settings.get("run_figures")) and bool(settings.get("figures_required"))),
+        ("annotation", settings_bool(settings, "run_annotation")),
+        ("bigscape", settings_bool(settings, "run_bigscape")),
+        ("clinker", settings_bool(settings, "run_clinker") and settings_bool(settings, "execute_clinker")),
+        ("nplinker", settings_bool(settings, "run_nplinker")),
+        ("figures", settings_bool(settings, "run_figures") and settings_bool(settings, "figures_required")),
     ]
     for stage, required in checks:
         if not required:
@@ -167,6 +199,39 @@ def validate_runtime_request(settings: dict[str, object], status: dict[str, obje
         if isinstance(payload, dict) and not payload.get("available", False):
             return f"Selected stage unavailable: {stage}. {unavailable_stage_reason(capabilities, stage)}"
     return None
+
+
+def enqueue_job(job_id: str, cpus: int, settings: dict[str, object]) -> None:
+    queue_payload = {"job_id": job_id, "cpus": cpus, "settings": settings}
+    queue_file = QUEUE_DIR / f"{job_id}.json"
+    queue_file.write_text(json.dumps(queue_payload), encoding="utf-8")
+
+
+def rerun_settings(existing: dict[str, object], payload: dict[str, object]) -> dict[str, object]:
+    settings = dict(existing)
+    bool_fields = [
+        "run_genome_prep",
+        "run_annotation",
+        "run_bigscape",
+        "run_summary",
+        "run_crosswalk",
+        "run_clinker",
+        "execute_clinker",
+        "run_figures",
+        "run_nplinker",
+        "force",
+    ]
+    for key in bool_fields:
+        if key in payload:
+            settings[key] = parse_payload_bool(payload, key, settings_bool(settings, key, False))
+
+    settings["run_ncbi_install"] = parse_payload_bool(payload, "run_ncbi_install", False)
+    settings["reuse_existing_layout"] = True
+    if "run_summary" in payload and "run_crosswalk" not in payload:
+        settings["run_crosswalk"] = settings["run_summary"]
+    if "execute_clinker" not in payload and "run_clinker" in payload:
+        settings["execute_clinker"] = settings["run_clinker"]
+    return settings
 
 
 def parse_multipart_form_data(content_type: str, body: bytes) -> tuple[dict[str, list[str]], list[dict[str, object]]]:
@@ -303,6 +368,53 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         route, _ = parse_path(self.path)
+        if route.startswith("/api/jobs/") and route.endswith("/rerun"):
+            parts = route.split("/")
+            if len(parts) != 5:
+                self._not_found()
+                return
+            job_id = parts[3]
+            job = read_job(job_id)
+            if job is None:
+                self._not_found(f"Job '{job_id}' not found")
+                return
+            if job.get("status") in {"pending", "running"}:
+                self._send_json(HTTPStatus.CONFLICT, {"detail": "Job is already queued or running"})
+                return
+
+            payload = read_json_body(self)
+            if payload is None:
+                self._bad_request("Expected JSON object")
+                return
+
+            settings = rerun_settings(dict(job.get("settings") or {}), payload)
+            if not any(
+                settings_bool(settings, key)
+                for key in ["run_genome_prep", "run_annotation", "run_bigscape", "run_summary", "run_clinker", "run_figures", "run_nplinker"]
+            ):
+                self._bad_request("Select at least one stage to rerun")
+                return
+            runtime_error = validate_runtime_request(settings, worker_status())
+            if runtime_error:
+                self._send_json(HTTPStatus.CONFLICT, {"detail": runtime_error})
+                return
+
+            cpus = max(1, min(parse_int(str(payload.get("cpus", job.get("cpus", 4))), 4), os.cpu_count() or 4))
+            append_log(job_id, "Re-queued existing job with selected stage rerun settings.")
+            lines = read_logs(job_id)
+            job["status"] = "pending"
+            job["stage"] = "queued"
+            job["error"] = None
+            job["cpus"] = cpus
+            job["settings"] = settings
+            job["log_count"] = len(lines)
+            job["updated_at"] = now_iso()
+            job["rerun_count"] = int(job.get("rerun_count", 0) or 0) + 1
+            write_job(job)
+            enqueue_job(job_id, cpus, settings)
+            self._send_json(HTTPStatus.ACCEPTED, {"job_id": job_id, "status": "pending", "message": "Rerun queued"})
+            return
+
         if route != "/api/jobs":
             self._not_found()
             return
@@ -443,9 +555,7 @@ class Handler(BaseHTTPRequestHandler):
         job["updated_at"] = now_iso()
         write_job(job)
 
-        queue_payload = {"job_id": job_id, "cpus": cpus, "settings": settings}
-        queue_file = QUEUE_DIR / f"{job_id}.json"
-        queue_file.write_text(json.dumps(queue_payload), encoding="utf-8")
+        enqueue_job(job_id, cpus, settings)
 
         self._send_json(HTTPStatus.CREATED, {"job_id": job_id, "status": job["status"], "message": "Pipeline queued"})
 

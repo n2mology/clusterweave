@@ -315,7 +315,7 @@ BIND_ARGS=(
 )
 
 docker_run_args() {
-  local -a args=(--rm -i --user 0:0)
+  local -a args=(--rm -i --user 0:0 --entrypoint "")
   if [[ -n "${NPLINKER_DOCKER_DATA_VOLUME}" ]]; then
     args+=(-v "${NPLINKER_DOCKER_DATA_VOLUME}:/data")
   else

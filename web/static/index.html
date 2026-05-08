@@ -234,8 +234,11 @@
     background: var(--surface2); color: var(--muted); border: 1px solid var(--border);
     transition: all .3s;
   }
-  .stage-step.active  { background: rgba(79,142,247,.2); color: var(--accent); border-color: var(--accent); }
+  .stage-step.upcoming { background: rgba(79,142,247,.12); color: var(--accent); border-color: rgba(79,142,247,.45); }
+  .stage-step.active  { background: rgba(240,165,0,.18); color: var(--warn); border-color: var(--warn); }
   .stage-step.done    { background: rgba(62,207,142,.15); color: var(--success); border-color: var(--success); }
+  .stage-step.failed  { background: rgba(229,96,96,.15); color: var(--danger); border-color: var(--danger); }
+  .stage-step.disabled { background: rgba(120,130,160,.08); color: var(--muted); border-color: var(--border); opacity: .5; }
 
   /* ── Log terminal ─────────────────────────────────────────────────────── */
   .log-terminal {
@@ -312,6 +315,9 @@
   .job-card-meta { flex: 1; }
   .job-delete    { background: none; border: none; color: var(--muted); cursor: pointer; font-size: .9rem; padding: .1rem .3rem; }
   .job-delete:hover { color: var(--danger); }
+  .rerun-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem .9rem; }
+  @media (max-width: 720px) { .rerun-grid { grid-template-columns: 1fr; } }
+  .rerun-panel-body { padding: 1rem; display: flex; flex-direction: column; gap: .75rem; }
 
   .empty-state { text-align: center; padding: 2rem; color: var(--muted); font-size: .85rem; }
 
@@ -881,6 +887,7 @@
         <span id="results-status" class="badge badge-success ml-auto"><span class="badge-dot"></span> Complete</span>
       </div>
       <div class="card-body">
+        <div id="rerun-panel"></div>
         <div class="tabs">
           <div class="tab active" onclick="switchTab('viz')">Visualization</div>
           <div class="tab" onclick="switchTab('files')">Files</div>
@@ -924,16 +931,18 @@ let systemLogCursor = 0;
 let workerStatus = 'unknown'; // unknown, starting, ready, processing
 let systemPollTimer = null;
 let runtimeCapabilities = null;
+let activeJobMeta = null;
+let activeStageState = null;
 
 // Pipeline stages for the progress bar
 const STAGES = [
-  { key: 'prep',       label: 'Prep',       match: /Preparing ClusterWeave|Preparing genomes|NCBI CLI/i },
-  { key: 'annotation', label: 'Annotation', match: /annotation|antiSMASH|FunBGCeX/i },
-  { key: 'bigscape',   label: 'BiG-SCAPE',  match: /BiG.?SCAPE|bigscape/i },
-  { key: 'summary',    label: 'Summary',    match: /summary|crosswalk|candidate/i },
-  { key: 'clinker',    label: 'clinker',    match: /clinker/i },
-  { key: 'figures',    label: 'Figures',    match: /figures|rendering/i },
-  { key: 'nplinker',   label: 'NPLinker',   match: /NPLinker/i },
+  { key: 'prep',       label: 'Prep' },
+  { key: 'annotation', label: 'Annotation' },
+  { key: 'bigscape',   label: 'BiG-SCAPE' },
+  { key: 'summary',    label: 'Summary' },
+  { key: 'clinker',    label: 'clinker' },
+  { key: 'figures',    label: 'Figures' },
+  { key: 'nplinker',   label: 'NPLinker' },
 ];
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -1613,6 +1622,8 @@ async function loadJob(jobId, autoScroll = false) {
   // Show cards
   document.getElementById('progress-card').classList.remove('hidden');
   document.getElementById('log-terminal').innerHTML = '';
+  activeJobMeta = null;
+  activeStageState = null;
   resetStages();
   refreshJobHistory();
 
@@ -1627,6 +1638,8 @@ async function pollJobFinal(jobId, autoScroll = false) {
   const resp = await fetch('/api/jobs/' + jobId);
   if (!resp.ok) return;
   const job = await resp.json();
+  activeJobMeta = job;
+  if (!activeStageState || activeStageState.jobId !== jobId) initializeStageState(job);
   // Catch up on any missed log lines
   const logResp = await fetch(`/api/jobs/${jobId}/logs?since=${logCursor}`);
   if (logResp.ok) {
@@ -1674,29 +1687,108 @@ function scrollToBottom() {
 }
 
 // ── Stage bar ──────────────────────────────────────────────────────────────
-function resetStages() {
-  document.querySelectorAll('.stage-step').forEach(s => {
-    s.classList.remove('active','done');
-  });
-  currentStageIdx = -1;
+function jobStageEnabled(job, key) {
+  const settings = (job && job.settings) || {};
+  const setting = (name, defaultValue) => {
+    if (settings[name] === undefined || settings[name] === null || settings[name] === '') return defaultValue;
+    if (typeof settings[name] === 'boolean') return settings[name];
+    return envToBool(settings[name], defaultValue);
+  };
+  if (key === 'prep') return true;
+  if (key === 'annotation') return setting('run_annotation', true);
+  if (key === 'bigscape') return setting('run_bigscape', true);
+  if (key === 'summary') return setting('run_summary', setting('run_crosswalk', true));
+  if (key === 'clinker') return setting('run_clinker', true);
+  if (key === 'figures') return setting('run_figures', true);
+  if (key === 'nplinker') return setting('run_nplinker', false);
+  return true;
 }
 
-let currentStageIdx = -1;
-function updateStageBar(line) {
-  for (let i = 0; i < STAGES.length; i++) {
-    if (STAGES[i].match.test(line) && i > currentStageIdx) {
-      // Mark previous stages done
-      for (let j = 0; j < i; j++) {
-        const el = document.querySelector(`.stage-step[data-stage="${STAGES[j].key}"]`);
-        if (el) { el.classList.remove('active'); el.classList.add('done'); }
-      }
-      // Mark current active
-      const el = document.querySelector(`.stage-step[data-stage="${STAGES[i].key}"]`);
-      if (el) { el.classList.add('active'); el.classList.remove('done'); }
-      currentStageIdx = i;
-      break;
-    }
+function initializeStageState(job) {
+  const enabled = new Set(STAGES.filter(s => jobStageEnabled(job, s.key)).map(s => s.key));
+  activeStageState = {
+    jobId: job ? job.id : null,
+    enabled,
+    completed: new Set(),
+    current: null,
+    failed: null,
+  };
+  renderStageState();
+}
+
+function resetStages(job = null) {
+  initializeStageState(job || activeJobMeta || {});
+}
+
+function stageIndex(key) {
+  return STAGES.findIndex(s => s.key === key);
+}
+
+function stageFromLine(line) {
+  if (/=== Stage: (Preparing ClusterWeave project layout|Installing NCBI CLI|Preparing genomes from accessions)/i.test(line)) return 'prep';
+  if (/Stage 1\/4: running run_annotation_and_detection\.sh/i.test(line)) return 'annotation';
+  if (/Stage 2\/4: running run_bigscape\.sh/i.test(line)) return 'bigscape';
+  if (/Stage 3\/4: running summarize_clusterweave\.sh/i.test(line)) return 'summary';
+  if (/Stage 4\/4: running run_clinker\.sh/i.test(line)) return 'clinker';
+  if (/=== Stage: Rendering summary figures/i.test(line)) return 'figures';
+  if (/=== Stage: Running optional NPLinker follow-up/i.test(line)) return 'nplinker';
+  return null;
+}
+
+function advanceToStage(key) {
+  if (!activeStageState || !activeStageState.enabled.has(key)) return;
+  const nextIdx = stageIndex(key);
+  if (activeStageState.current && activeStageState.current !== key) {
+    const currentIdx = stageIndex(activeStageState.current);
+    if (currentIdx >= 0 && currentIdx < nextIdx) activeStageState.completed.add(activeStageState.current);
   }
+  for (let i = 0; i < nextIdx; i++) {
+    const prior = STAGES[i].key;
+    if (activeStageState.enabled.has(prior)) activeStageState.completed.add(prior);
+  }
+  activeStageState.current = key;
+  activeStageState.failed = null;
+  renderStageState();
+}
+
+function updateStageBar(line) {
+  const key = stageFromLine(line);
+  if (key) advanceToStage(key);
+  if (/FATAL:|ERROR:|failed with exit code/i.test(line) && activeStageState && activeStageState.current) {
+    activeStageState.failed = activeStageState.current;
+    renderStageState();
+  }
+}
+
+function finalizeStageState(status) {
+  if (!activeStageState) return;
+  if (status === 'success') {
+    for (const key of activeStageState.enabled) activeStageState.completed.add(key);
+    activeStageState.current = null;
+    activeStageState.failed = null;
+  } else if (status === 'failed' && activeStageState.current) {
+    activeStageState.failed = activeStageState.current;
+  }
+  renderStageState();
+}
+
+function renderStageState() {
+  if (!activeStageState) return;
+  document.querySelectorAll('.stage-step').forEach(el => {
+    const key = el.dataset.stage;
+    el.classList.remove('active','done','upcoming','disabled','failed');
+    if (!activeStageState.enabled.has(key)) {
+      el.classList.add('disabled');
+    } else if (activeStageState.failed === key) {
+      el.classList.add('failed');
+    } else if (activeStageState.completed.has(key)) {
+      el.classList.add('done');
+    } else if (activeStageState.current === key) {
+      el.classList.add('active');
+    } else {
+      el.classList.add('upcoming');
+    }
+  });
 }
 
 function updateProgressBadge(status) {
@@ -1710,19 +1802,16 @@ function updateProgressBadge(status) {
   const [cls, label] = map[status] || ['badge-pending', status];
   badge.className = 'badge ' + cls;
   badge.innerHTML = `<span class="badge-dot"></span> ${label}`;
-  // Mark all stages done on success
-  if (status === 'success') {
-    document.querySelectorAll('.stage-step').forEach(s => {
-      s.classList.remove('active'); s.classList.add('done');
-    });
-    currentStageIdx = STAGES.length - 1;
-  }
+  finalizeStageState(status);
 }
 
 // ── Results ────────────────────────────────────────────────────────────────
 async function loadResults(jobId, status) {
   const card = document.getElementById('results-card');
   card.classList.remove('hidden');
+  const jobResp = await fetch('/api/jobs/' + jobId);
+  const job = jobResp.ok ? await jobResp.json() : activeJobMeta;
+  activeJobMeta = job || activeJobMeta;
 
   // Update results status badge
   const rBadge = document.getElementById('results-status');
@@ -1734,14 +1823,99 @@ async function loadResults(jobId, status) {
     rBadge.innerHTML = '<span class="badge-dot"></span> ❌ Failed';
   }
 
-  if (status !== 'success') return;
+  renderRerunPanel(jobId, activeJobMeta);
 
   const resp = await fetch('/api/jobs/' + jobId + '/files');
   if (!resp.ok) return;
   const { files } = await resp.json();
 
-  renderViz(jobId, files);
+  if (status === 'success') renderViz(jobId, files);
+  else {
+    document.getElementById('viz-container').innerHTML = `
+      <div class="viz-placeholder">
+        <div class="big-icon">⚠️</div>
+        <div>This job did not finish, but partial outputs and logs remain available.</div>
+        <div class="mt1 text-sm text-muted">Use the rerun controls above to resume selected stages in the same job workspace.</div>
+      </div>`;
+  }
   renderFileTable(jobId, files);
+}
+
+function rerunDefaultChecked(job, key) {
+  if (!job || job.status === 'success') return false;
+  if (!activeStageState || !activeStageState.enabled.has(key)) return false;
+  return !activeStageState.completed.has(key);
+}
+
+function renderRerunPanel(jobId, job) {
+  const panel = document.getElementById('rerun-panel');
+  if (!panel || !job) return;
+  if (job.status === 'pending' || job.status === 'running') {
+    panel.innerHTML = '';
+    return;
+  }
+  const stageRows = STAGES.map(stage => {
+    const enabled = jobStageEnabled(job, stage.key);
+    const checked = rerunDefaultChecked(job, stage.key);
+    return `
+      <label class="form-group-inline ${enabled ? '' : 'disabled'}">
+        <input type="checkbox" class="rerun-stage" data-stage="${stage.key}" ${checked ? 'checked' : ''} ${enabled ? '' : 'disabled'} />
+        ${escapeHtml(stage.label)}
+      </label>`;
+  }).join('');
+  panel.innerHTML = `
+    <div class="summary-panel">
+      <div class="summary-head">Rerun Selected Stages</div>
+      <div class="rerun-panel-body">
+        <div class="help-note">Reuses this job workspace and existing staged inputs/results. Leave completed stages unchecked to resume after a failure.</div>
+        <div class="rerun-grid">${stageRows}</div>
+        <label class="form-group-inline"><input type="checkbox" id="rerun-force" /> Force selected stages to overwrite existing outputs</label>
+        <div class="flex-gap">
+          <button class="btn btn-primary text-sm" type="button" onclick="rerunActiveJob()">Rerun selected stages</button>
+          <span class="text-muted text-sm" id="rerun-status"></span>
+        </div>
+      </div>
+    </div>`;
+}
+
+async function rerunActiveJob() {
+  if (!activeJobId) return;
+  const statusEl = document.getElementById('rerun-status');
+  const selected = new Set([...document.querySelectorAll('.rerun-stage:checked')].map(el => el.dataset.stage));
+  if (!selected.size) {
+    if (statusEl) statusEl.textContent = 'Choose at least one stage.';
+    return;
+  }
+  const payload = {
+    run_genome_prep: selected.has('prep'),
+    run_annotation: selected.has('annotation'),
+    run_bigscape: selected.has('bigscape'),
+    run_summary: selected.has('summary'),
+    run_crosswalk: selected.has('summary'),
+    run_clinker: selected.has('clinker'),
+    execute_clinker: selected.has('clinker'),
+    run_figures: selected.has('figures'),
+    run_nplinker: selected.has('nplinker'),
+    force: !!document.getElementById('rerun-force')?.checked,
+  };
+  if (statusEl) statusEl.textContent = 'Queueing rerun...';
+  try {
+    const resp = await fetch(`/api/jobs/${encodeURIComponent(activeJobId)}/rerun`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.detail || 'Rerun failed');
+    }
+    if (statusEl) statusEl.textContent = 'Rerun queued.';
+    document.getElementById('results-card').classList.add('hidden');
+    loadJob(activeJobId, true);
+    refreshJobHistory();
+  } catch (err) {
+    if (statusEl) statusEl.textContent = err.message || String(err);
+  }
 }
 
 function renderViz(jobId, files) {
@@ -1819,29 +1993,37 @@ function stopSystemConsolePolling() {
 
 async function pollSystemStatus() {
   let jobs;
+  let system;
   try {
-    const resp = await fetch('/api/jobs');
-    if (!resp.ok) return;
-    jobs = await resp.json();
+    const [jobsResp, systemPayload] = await Promise.all([
+      fetch('/api/jobs'),
+      fetchSystemStatus(),
+    ]);
+    if (!jobsResp.ok) return;
+    jobs = await jobsResp.json();
+    system = systemPayload || {};
   } catch (err) {
     return;
   }
   
   const pendingCount = jobs.filter(j => j.status === 'pending').length;
   const runningCount = jobs.filter(j => j.status === 'running').length;
+  const worker = system.worker || {};
+  const concurrency = worker.concurrency || 1;
+  const activeCount = worker.active_count || runningCount;
   
   // Determine worker status based on pending jobs
-  if (pendingCount > 0 && activeJobId === null) {
-    const newStatus = 'ready';
-    if (newStatus !== workerStatus) {
-      workerStatus = newStatus;
-      appendSystemLog('[Worker] ✅ Ready — awaiting job assignment');
-    }
-  } else if (runningCount > 0) {
+  if (runningCount > 0) {
     const newStatus = 'processing';
     if (newStatus !== workerStatus) {
       workerStatus = newStatus;
-      appendSystemLog('[Worker] ⚡ Processing job(s)...');
+      appendSystemLog(`[Worker] ⚡ Processing ${activeCount} job(s); ${pendingCount} queued`);
+    }
+  } else if (pendingCount > 0 && activeJobId === null) {
+    const newStatus = 'ready';
+    if (newStatus !== workerStatus) {
+      workerStatus = newStatus;
+      appendSystemLog(`[Worker] ✅ Ready — ${pendingCount} queued, concurrency ${concurrency}`);
     }
   } else if (pendingCount === 0 && runningCount === 0) {
     const newStatus = 'idle';

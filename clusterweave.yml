@@ -77,6 +77,7 @@ services:
       CLINKER_DOCKER_DATA_VOLUME: "clusterweave_job_data"
       NPLINKER_USE_DOCKER_IMAGE: "0"
       NPLINKER_DOCKER_DATA_VOLUME: "clusterweave_job_data"
+      WORKER_CONCURRENCY: "${WORKER_CONCURRENCY:-1}"
       PIPELINE_CPUS: "4"
     mem_limit: 16g
     shm_size: 512m
