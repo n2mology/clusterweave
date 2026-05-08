@@ -311,6 +311,54 @@
     font-size: .7rem; padding: .1rem .4rem; border-radius: 4px;
     background: var(--surface2); color: var(--muted); font-family: var(--mono);
   }
+  .file-tree { display: flex; flex-direction: column; gap: .55rem; }
+  .file-folder {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: rgba(255,255,255,.015);
+    overflow: hidden;
+  }
+  .file-folder > summary {
+    cursor: pointer;
+    list-style: none;
+  }
+  .file-folder > summary::-webkit-details-marker { display: none; }
+  .file-folder-summary {
+    display: flex; align-items: center; gap: .6rem;
+    padding: .55rem .75rem;
+    color: var(--text);
+    font-size: .84rem;
+    font-weight: 600;
+    border-bottom: 1px solid transparent;
+  }
+  .file-folder[open] > .file-folder-summary { border-bottom-color: var(--border); }
+  .file-folder-summary::before {
+    content: '▸';
+    color: var(--muted);
+    font-size: .75rem;
+    transition: transform .15s;
+  }
+  .file-folder[open] > .file-folder-summary::before { transform: rotate(90deg); }
+  .file-folder-name {
+    flex: 1;
+    font-family: var(--mono);
+    font-size: .78rem;
+    overflow-wrap: anywhere;
+  }
+  .file-folder-count {
+    color: var(--muted);
+    font-size: .72rem;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .file-folder-body {
+    display: flex;
+    flex-direction: column;
+    gap: .55rem;
+    padding: .55rem;
+  }
+  .file-folder-body .file-folder { background: rgba(255,255,255,.01); }
+  .file-tree-table { background: rgba(15,17,23,.28); border-radius: 6px; overflow: hidden; }
 
   /* ── Job history sidebar strip ────────────────────────────────────────── */
   .job-history { display: flex; flex-direction: column; gap: .5rem; }
@@ -1967,6 +2015,91 @@ function isFigureAsset(path) {
   return /^Data\/Results\/[^/]+\/figures\/[^/]+\.(svg|png|jpe?g|webp)$/i.test(normalizedResultPath(path));
 }
 
+function fileTypeLabel(path) {
+  const name = fileNameFromPath(path);
+  if (!name.includes('.')) return 'file';
+  const extStr = name.split('.').pop().toLowerCase();
+  return extStr ? `.${extStr}` : 'file';
+}
+
+function makeFileTreeNode(name, path) {
+  return { name, path, count: 0, folders: new Map(), files: [] };
+}
+
+function buildFileTree(files) {
+  const root = makeFileTreeNode('', '');
+  files.map(normalizedResultPath).filter(Boolean).sort((a, b) => a.localeCompare(b)).forEach(path => {
+    const parts = path.split('/').filter(Boolean);
+    if (!parts.length) return;
+    let node = root;
+    node.count += 1;
+    parts.slice(0, -1).forEach(part => {
+      const childPath = node.path ? `${node.path}/${part}` : part;
+      if (!node.folders.has(part)) node.folders.set(part, makeFileTreeNode(part, childPath));
+      node = node.folders.get(part);
+      node.count += 1;
+    });
+    node.files.push(path);
+  });
+  return root;
+}
+
+function defaultFolderOpen(path, depth) {
+  const normalized = normalizedResultPath(path);
+  if (normalized === 'downloads') return true;
+  if (/^Data(\/Results(\/[^/]+)?)?$/i.test(normalized)) return true;
+  if (/^Data\/Results\/[^/]+\/figures$/i.test(normalized)) return true;
+  if (/^Data\/Results\/[^/]+\/[^/]+$/i.test(normalized)) return true;
+  return depth <= 0;
+}
+
+function folderSortKey(node) {
+  if (node.path === 'downloads') return '0-downloads';
+  if (node.path === 'Data') return '1-Data';
+  return `2-${node.path.toLowerCase()}`;
+}
+
+function renderFileRow(jobId, f) {
+  const name = fileNameFromPath(f);
+  const href = resultHref(jobId, f);
+  return `<tr>
+    <td><span class="ext-badge">${escapeHtml(fileTypeLabel(f))}</span></td>
+    <td><a class="file-path-link" href="${href}" target="_blank">${escapeHtml(normalizedResultPath(f))}</a></td>
+    <td class="file-actions">
+      <a class="btn btn-ghost text-sm" href="${href}" target="_blank">Open</a>
+      <a class="btn btn-ghost text-sm" href="${href}" download="${escapeHtml(name)}">Download</a>
+    </td>
+  </tr>`;
+}
+
+function renderFileRows(jobId, files) {
+  if (!files.length) return '';
+  return `
+    <table class="file-table file-tree-table">
+      <thead><tr><th>Type</th><th>Result Path</th><th></th></tr></thead>
+      <tbody>${files.map(f => renderFileRow(jobId, f)).join('')}</tbody>
+    </table>`;
+}
+
+function renderFileFolder(jobId, node, depth = 0) {
+  const openAttr = defaultFolderOpen(node.path, depth) ? ' open' : '';
+  return `
+    <details class="file-folder" data-folder-path="${escapeHtml(node.path)}"${openAttr}>
+      <summary class="file-folder-summary">
+        <span class="file-folder-name">${escapeHtml(node.path)}</span>
+        <span class="file-folder-count">${node.count} file${node.count === 1 ? '' : 's'}</span>
+      </summary>
+      <div class="file-folder-body">
+        ${renderFileTreeChildren(jobId, node, depth + 1)}
+      </div>
+    </details>`;
+}
+
+function renderFileTreeChildren(jobId, node, depth = 0) {
+  const folders = Array.from(node.folders.values()).sort((a, b) => folderSortKey(a).localeCompare(folderSortKey(b)));
+  return `${folders.map(child => renderFileFolder(jobId, child, depth)).join('')}${renderFileRows(jobId, node.files)}`;
+}
+
 function figureSortKey(path) {
   const name = fileNameFromPath(path).toLowerCase();
   const preferred = [
@@ -2012,24 +2145,8 @@ function renderFileTable(jobId, files) {
     container.innerHTML = '<div class="empty-state">No result files.</div>';
     return;
   }
-  const rows = files.map(f => {
-    const name = fileNameFromPath(f);
-    const extStr = name.includes('.') ? name.split('.').pop() : 'file';
-    const href = resultHref(jobId, f);
-    return `<tr>
-      <td><span class="ext-badge">.${escapeHtml(extStr)}</span></td>
-      <td><a class="file-path-link" href="${href}" target="_blank">${escapeHtml(normalizedResultPath(f))}</a></td>
-      <td class="file-actions">
-        <a class="btn btn-ghost text-sm" href="${href}" target="_blank">Open</a>
-        <a class="btn btn-ghost text-sm" href="${href}" download="${escapeHtml(name)}">↓</a>
-      </td>
-    </tr>`;
-  }).join('');
-  container.innerHTML = `
-    <table class="file-table">
-      <thead><tr><th>Type</th><th>Result Path</th><th></th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>`;
+  const tree = buildFileTree(files);
+  container.innerHTML = `<div class="file-tree">${renderFileTreeChildren(jobId, tree)}</div>`;
 }
 
 // ── System Console (Worker Status) ──────────────────────────────────────────

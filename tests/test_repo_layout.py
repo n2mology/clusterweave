@@ -186,6 +186,19 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("<th>Result Path</th>", text)
         self.assertNotIn("const htmlFiles = files.filter", text)
 
+    def test_web_files_tab_groups_results_into_collapsible_folders(self) -> None:
+        text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("function buildFileTree(files)", text)
+        self.assertIn("function renderFileFolder(jobId, node, depth = 0)", text)
+        self.assertIn('<details class="file-folder"', text)
+        self.assertIn('<summary class="file-folder-summary">', text)
+        self.assertIn("file-folder-count", text)
+        self.assertIn("function defaultFolderOpen(path, depth)", text)
+        self.assertIn("normalized === 'downloads'", text)
+        self.assertIn('Data\\/Results\\/[^/]+\\/figures', text)
+        self.assertIn("renderFileRows(jobId, node.files)", text)
+        self.assertIn("renderFileRow(jobId, f)", text)
+
     def test_figures_wrapper_detects_rscript_robustly(self) -> None:
         text = (REPO_ROOT / "run_figures.sh").read_text(encoding="utf-8")
         self.assertIn("resolve_r_bin()", text)
