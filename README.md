@@ -175,7 +175,7 @@ Optionally render summary figures from the generated tables:
 bash run_figures.sh
 ```
 
-`run_figures.sh` uses `Rscript` and will also try common Windows `Rscript.exe` locations from Bash/WSL. If needed, set `R_BIN` explicitly.
+`run_figures.sh` uses `Rscript` for summary SVGs and will also try common Windows `Rscript.exe` locations from Bash/WSL. The web worker image includes base R; if Rscript is missing in another runtime, the wrapper skips the R-only summary SVGs and still attempts the pure-Python BiG-SCAPE network figure. If needed, set `R_BIN` explicitly.
 When BiG-SCAPE outputs are present, the same command also renders a user-facing BiG-SCAPE record network by default:
 
 - `Data/Results/<project-name>/figures/bigscape_network.svg`

@@ -173,13 +173,27 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("function initializeStageState(job)", text)
         self.assertIn("function finalizeStageState(status)", text)
 
+    def test_web_visualization_is_limited_to_figure_outputs(self) -> None:
+        text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("function isFigureAsset(path)", text)
+        self.assertIn('Data\\/Results\\/[^/]+\\/figures', text)
+        self.assertIn("bgc_calls_by_tool_category.svg", text)
+        self.assertIn("bigscape_network.svg", text)
+        self.assertIn("<th>Result Path</th>", text)
+        self.assertNotIn("const htmlFiles = files.filter", text)
+
     def test_figures_wrapper_detects_rscript_robustly(self) -> None:
         text = (REPO_ROOT / "run_figures.sh").read_text(encoding="utf-8")
         self.assertIn("resolve_r_bin()", text)
         self.assertIn('/mnt/c/Program Files/R/R-*/bin/Rscript.exe', text)
         self.assertIn('/c/Program Files/R/R-*/bin/Rscript.exe', text)
         self.assertIn('R_BIN="$(resolve_r_bin)"', text)
+        self.assertIn("Skipping R summary figures; continuing to BiG-SCAPE network rendering", text)
         self.assertNotIn("FIGURES_TOP_N", text)
+
+    def test_worker_image_includes_rscript_for_figures(self) -> None:
+        text = (REPO_ROOT / "Dockerfile.worker").read_text(encoding="utf-8")
+        self.assertIn("r-base-core", text)
 
     def test_render_summary_figures_focuses_on_core_summary_outputs(self) -> None:
         text = (REPO_ROOT / "bin" / "render_summary_figures.R").read_text(encoding="utf-8")

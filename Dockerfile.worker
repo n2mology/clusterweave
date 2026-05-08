@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
         gzip \
         hmmer \
+        r-base-core \
         rsync \
         tar \
         unzip \

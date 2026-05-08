@@ -277,6 +277,19 @@
     border-radius: 6px; min-height: 500px; height: 600px;
     display: block;
   }
+  .figure-grid { display: grid; gap: 1rem; }
+  .figure-panel {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface2);
+    overflow: hidden;
+  }
+  .figure-panel-head {
+    display: flex; align-items: center; justify-content: space-between; gap: .75rem;
+    padding: .65rem .8rem; border-bottom: 1px solid var(--border);
+  }
+  .figure-name { font-weight: 600; font-size: .85rem; word-break: break-word; }
+  .figure-preview { width: 100%; background: #fff; display: block; }
   .viz-placeholder {
     text-align: center; padding: 4rem 2rem; color: var(--muted);
   }
@@ -292,6 +305,8 @@
   .file-table td { padding: .5rem .75rem; border-bottom: 1px solid var(--border); }
   .file-table tr:last-child td { border-bottom: none; }
   .file-table tr:hover td { background: var(--surface2); }
+  .file-path-link { font-family: var(--mono); font-size: .78rem; overflow-wrap: anywhere; }
+  .file-actions { display: flex; gap: .35rem; justify-content: flex-end; }
   .ext-badge {
     font-size: .7rem; padding: .1rem .4rem; border-radius: 4px;
     background: var(--surface2); color: var(--muted); font-family: var(--mono);
@@ -898,7 +913,7 @@
           <div id="viz-container">
             <div class="viz-placeholder">
               <div class="big-icon">🔬</div>
-              <div>clinker visualization will appear here once the pipeline completes.</div>
+              <div>Summary figures will appear here once the pipeline completes.</div>
             </div>
           </div>
         </div>
@@ -979,7 +994,7 @@ function escapeHtml(value) {
 }
 
 function resultHref(jobId, relPath) {
-  return `/api/jobs/${encodeURIComponent(jobId)}/files/${String(relPath).split('/').map(encodeURIComponent).join('/')}`;
+  return `/api/jobs/${encodeURIComponent(jobId)}/files/${normalizedResultPath(relPath).split('/').map(encodeURIComponent).join('/')}`;
 }
 
 function envToBool(value, defaultValue = false) {
@@ -1918,34 +1933,56 @@ async function rerunActiveJob() {
   }
 }
 
+function normalizedResultPath(path) {
+  return String(path || '').replace(/\\/g, '/');
+}
+
+function fileNameFromPath(path) {
+  const parts = normalizedResultPath(path).split('/');
+  return parts[parts.length - 1] || normalizedResultPath(path);
+}
+
+function isFigureAsset(path) {
+  return /^Data\/Results\/[^/]+\/figures\/[^/]+\.(svg|png|jpe?g|webp)$/i.test(normalizedResultPath(path));
+}
+
+function figureSortKey(path) {
+  const name = fileNameFromPath(path).toLowerCase();
+  const preferred = [
+    'bgc_calls_by_tool_category.svg',
+    'bigscape_network.svg',
+    'bigscape_network.png',
+  ];
+  const idx = preferred.indexOf(name);
+  return `${idx === -1 ? preferred.length : idx}:${name}`;
+}
+
 function renderViz(jobId, files) {
-  const htmlFiles = files.filter(f => f.endsWith('.html'));
-  const pngFiles = files.filter(f => f.endsWith('.png'));
+  const figureFiles = files.filter(isFigureAsset).sort((a, b) => figureSortKey(a).localeCompare(figureSortKey(b)));
   const container = document.getElementById('viz-container');
-  if (!htmlFiles.length && !pngFiles.length) {
+  if (!figureFiles.length) {
     container.innerHTML = `
       <div class="viz-placeholder">
         <div class="big-icon">⚠️</div>
-        <div>No visualization files were produced. This may happen if no BGC regions were detected or figure rendering was skipped.</div>
-        <div class="mt1 text-sm text-muted">Check the pipeline logs for details.</div>
+        <div>No figure SVG/PNG outputs were found under Data/Results/&lt;project&gt;/figures.</div>
+        <div class="mt1 text-sm text-muted">Check the figure-stage logs or rerun the Figures stage after Rscript is available.</div>
       </div>`;
     return;
   }
 
-  const htmlLinks = htmlFiles.map((f, idx) => `
-    <a class="btn btn-ghost text-sm" href="${resultHref(jobId, f)}" target="_blank">${idx === 0 ? 'Open primary HTML' : 'Open HTML'}: ${escapeHtml(f.split('/').pop())}</a>
-  `).join('');
-  const pngCards = pngFiles.map(f => `
-    <div class="summary-panel mt1">
-      <div class="summary-head">${escapeHtml(f.split('/').pop())}</div>
-      <img src="${resultHref(jobId, f)}" alt="${escapeHtml(f.split('/').pop())}" style="width:100%;background:#fff;border-radius:6px;display:block" />
-    </div>
-  `).join('');
-  const primaryHtml = htmlFiles[0];
-  container.innerHTML = `
-    <div class="flex-gap mt1" style="margin-bottom:.75rem">${htmlLinks}</div>
-    ${primaryHtml ? `<iframe class="viz-frame" src="${resultHref(jobId, primaryHtml)}" title="ClusterWeave HTML visualization"></iframe>` : ''}
-    ${pngCards}`;
+  const cards = figureFiles.map(f => {
+    const name = fileNameFromPath(f);
+    const href = resultHref(jobId, f);
+    return `
+      <div class="figure-panel">
+        <div class="figure-panel-head">
+          <div class="figure-name">${escapeHtml(name)}</div>
+          <a class="btn btn-ghost text-sm" href="${href}" target="_blank">Open</a>
+        </div>
+        <img class="figure-preview" src="${href}" alt="${escapeHtml(name)}" />
+      </div>`;
+  }).join('');
+  container.innerHTML = `<div class="figure-grid">${cards}</div>`;
 }
 
 function renderFileTable(jobId, files) {
@@ -1955,21 +1992,21 @@ function renderFileTable(jobId, files) {
     return;
   }
   const rows = files.map(f => {
-    const parts  = f.split('/');
-    const name   = parts.pop();
-    const dir    = parts.join('/') || '—';
-    const extStr = name.split('.').pop();
+    const name = fileNameFromPath(f);
+    const extStr = name.includes('.') ? name.split('.').pop() : 'file';
     const href = resultHref(jobId, f);
     return `<tr>
       <td><span class="ext-badge">.${escapeHtml(extStr)}</span></td>
-      <td><a href="${href}" target="_blank">${escapeHtml(name)}</a></td>
-      <td class="text-muted text-sm">${escapeHtml(dir)}</td>
-      <td><a class="btn btn-ghost text-sm" href="${href}" download="${escapeHtml(name)}">↓</a></td>
+      <td><a class="file-path-link" href="${href}" target="_blank">${escapeHtml(normalizedResultPath(f))}</a></td>
+      <td class="file-actions">
+        <a class="btn btn-ghost text-sm" href="${href}" target="_blank">Open</a>
+        <a class="btn btn-ghost text-sm" href="${href}" download="${escapeHtml(name)}">↓</a>
+      </td>
     </tr>`;
   }).join('');
   container.innerHTML = `
     <table class="file-table">
-      <thead><tr><th>Type</th><th>File</th><th>Path</th><th></th></tr></thead>
+      <thead><tr><th>Type</th><th>Result Path</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
 }

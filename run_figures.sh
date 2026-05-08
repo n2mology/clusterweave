@@ -61,7 +61,7 @@ resolve_r_bin() {
     fi
   done
 
-  die "Rscript not found. Install R, add Rscript to PATH, or set R_BIN."
+  return 1
 }
 
 resolve_python_bin() {
@@ -128,20 +128,23 @@ bigscape_network_outputs_ready() {
   return 0
 }
 
-[[ -f "${RENDER_FIGURES_R}" ]] || die "Missing R helper: ${RENDER_FIGURES_R}"
-R_BIN="$(resolve_r_bin)"
-RENDER_FIGURES_R_ARG="${RENDER_FIGURES_R}"
-PROJECT_DIR_FOR_R="${PROJECT_DIR}"
-if is_windows_exe "${R_BIN}"; then
-  RENDER_FIGURES_R_ARG="$(native_path_for_windows_exe "${RENDER_FIGURES_R}")"
-  PROJECT_DIR_FOR_R="$(native_path_for_windows_exe "${PROJECT_DIR}")"
-fi
+if R_BIN="$(resolve_r_bin)"; then
+  [[ -f "${RENDER_FIGURES_R}" ]] || die "Missing R helper: ${RENDER_FIGURES_R}"
+  RENDER_FIGURES_R_ARG="${RENDER_FIGURES_R}"
+  PROJECT_DIR_FOR_R="${PROJECT_DIR}"
+  if is_windows_exe "${R_BIN}"; then
+    RENDER_FIGURES_R_ARG="$(native_path_for_windows_exe "${RENDER_FIGURES_R}")"
+    PROJECT_DIR_FOR_R="$(native_path_for_windows_exe "${PROJECT_DIR}")"
+  fi
 
-log "Rendering summary figures for ${PROJECT_NAME}"
-if ! "${R_BIN}" "${RENDER_FIGURES_R_ARG}" \
-  --project-root "${PROJECT_DIR_FOR_R}" \
-  --project-name "${PROJECT_NAME}"; then
-  warn "Summary figure rendering failed for ${PROJECT_NAME}; continuing to BiG-SCAPE network rendering."
+  log "Rendering summary figures for ${PROJECT_NAME}"
+  if ! "${R_BIN}" "${RENDER_FIGURES_R_ARG}" \
+    --project-root "${PROJECT_DIR_FOR_R}" \
+    --project-name "${PROJECT_NAME}"; then
+    warn "Summary figure rendering failed for ${PROJECT_NAME}; continuing to BiG-SCAPE network rendering."
+  fi
+else
+  warn "Rscript not found. Skipping R summary figures; continuing to BiG-SCAPE network rendering."
 fi
 
 if [[ "${RUN_BIGSCAPE_NETWORK_FIGURE}" == "1" ]]; then
