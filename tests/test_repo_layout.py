@@ -190,14 +190,17 @@ class RepoLayoutTests(unittest.TestCase):
         text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
         self.assertIn("function buildFileTree(files)", text)
         self.assertIn("function renderFileFolder(jobId, node, depth = 0)", text)
+        self.assertIn("function handleFileFolderToggle(detailsEl)", text)
         self.assertIn('<details class="file-folder"', text)
         self.assertIn('<summary class="file-folder-summary">', text)
+        self.assertIn("data-rendered", text)
         self.assertIn("file-folder-count", text)
         self.assertIn("function defaultFolderOpen(path, depth)", text)
         self.assertIn("normalized === 'downloads'", text)
         self.assertIn('Data\\/Results\\/[^/]+\\/figures', text)
         self.assertIn("renderFileRows(jobId, node.files)", text)
         self.assertIn("renderFileRow(jobId, f)", text)
+        self.assertIn("resultHref(jobId, f, { download: true })", text)
 
     def test_web_upload_supports_manual_accession_entry(self) -> None:
         text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
@@ -212,9 +215,20 @@ class RepoLayoutTests(unittest.TestCase):
         text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
         self.assertIn("let jobLoadSeq = 0", text)
         self.assertIn("function markActiveJobCard(jobId)", text)
+        self.assertIn("let jobHistoryInFlight = false", text)
+        self.assertIn("function renderJobHistory(jobs)", text)
+        self.assertIn("function jobHistoryRenderKey(jobs)", text)
         self.assertIn("const seq = ++jobLoadSeq", text)
-        self.assertIn("loadResults(jobId, job.status, seq)", text)
+        self.assertIn("loadResults(jobId, job.status, seq, job)", text)
         self.assertIn("seq !== jobLoadSeq || jobId !== activeJobId", text)
+
+    def test_web_serves_result_assets_inline_unless_download_requested(self) -> None:
+        text = (REPO_ROOT / "web" / "app.py").read_text(encoding="utf-8")
+        self.assertIn('"image/svg+xml; charset=utf-8"', text)
+        self.assertIn("def result_file_mime(path: Path) -> str:", text)
+        self.assertIn("def content_disposition(disposition: str, filename: str) -> str:", text)
+        self.assertIn('"attachment" if parse_bool(query.get("download", ["0"])[0], False) else "inline"', text)
+        self.assertIn('"Content-Disposition": content_disposition(disposition, full.name)', text)
 
     def test_figures_wrapper_detects_rscript_robustly(self) -> None:
         text = (REPO_ROOT / "run_figures.sh").read_text(encoding="utf-8")

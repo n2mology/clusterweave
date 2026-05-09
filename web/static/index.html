@@ -314,7 +314,8 @@
   .file-table tr:last-child td { border-bottom: none; }
   .file-table tr:hover td { background: var(--surface2); }
   .file-path-link { font-family: var(--mono); font-size: .78rem; overflow-wrap: anywhere; }
-  .file-actions { display: flex; gap: .35rem; justify-content: flex-end; }
+  .file-actions { text-align: right; white-space: nowrap; }
+  .file-actions-inner { display: inline-flex; gap: .35rem; justify-content: flex-end; }
   .ext-badge {
     font-size: .7rem; padding: .1rem .4rem; border-radius: 4px;
     background: var(--surface2); color: var(--muted); font-family: var(--mono);
@@ -365,6 +366,7 @@
     gap: .55rem;
     padding: .55rem;
   }
+  .file-folder-body:empty { display: none; }
   .file-folder-body .file-folder { background: rgba(255,255,255,.01); }
   .file-tree-table { background: rgba(15,17,23,.28); border-radius: 6px; overflow: hidden; }
 
@@ -1017,6 +1019,11 @@ let systemPollTimer = null;
 let runtimeCapabilities = null;
 let activeJobMeta = null;
 let activeStageState = null;
+let activeFileTree = null;
+let activeFileTreeIndex = new Map();
+let activeFileTreeJobId = null;
+let jobHistoryInFlight = false;
+let lastJobHistoryRenderKey = '';
 
 // Pipeline stages for the progress bar
 const STAGES = [
@@ -1062,8 +1069,9 @@ function escapeHtml(value) {
   }[ch]));
 }
 
-function resultHref(jobId, relPath) {
-  return `/api/jobs/${encodeURIComponent(jobId)}/files/${normalizedResultPath(relPath).split('/').map(encodeURIComponent).join('/')}`;
+function resultHref(jobId, relPath, options = {}) {
+  const base = `/api/jobs/${encodeURIComponent(jobId)}/files/${normalizedResultPath(relPath).split('/').map(encodeURIComponent).join('/')}`;
+  return options.download ? `${base}?download=1` : base;
 }
 
 function envToBool(value, defaultValue = false) {
@@ -1716,10 +1724,36 @@ async function startAnalysis() {
 
 // ── Job history ────────────────────────────────────────────────────────────
 async function refreshJobHistory() {
-  const resp = await fetch('/api/jobs');
-  if (!resp.ok) return;
-  const jobs = await resp.json();
+  if (jobHistoryInFlight) return;
+  jobHistoryInFlight = true;
+  try {
+    const resp = await fetch('/api/jobs');
+    if (!resp.ok) return;
+    const jobs = await resp.json();
+    renderJobHistory(jobs);
+  } catch (err) {
+    console.warn('Job history refresh failed', err);
+  } finally {
+    jobHistoryInFlight = false;
+  }
+}
+
+function jobHistoryRenderKey(jobs) {
+  return JSON.stringify(jobs.map(j => [
+    j.id,
+    j.name,
+    j.status,
+    j.stage,
+    j.updated_at,
+    j.id === activeJobId,
+  ]));
+}
+
+function renderJobHistory(jobs) {
   const el = document.getElementById('job-history');
+  const renderKey = jobHistoryRenderKey(jobs);
+  if (renderKey === lastJobHistoryRenderKey) return;
+  lastJobHistoryRenderKey = renderKey;
   if (jobs.length === 0) {
     el.innerHTML = '<div class="empty-state">No jobs yet. Upload files and run analysis above.</div>';
     return;
@@ -1816,9 +1850,9 @@ async function pollJobFinal(jobId, autoScroll = false, seq = jobLoadSeq) {
   updateProgressBadge(job.status);
   if (job.status !== 'running' && job.status !== 'pending') {
     stopPolling();
-    await loadResults(jobId, job.status, seq);
+    await loadResults(jobId, job.status, seq, job);
   }
-  if (!previousJob || previousJob.status !== job.status || previousJob.stage !== job.stage) {
+  if (previousJob && (previousJob.status !== job.status || previousJob.stage !== job.stage)) {
     refreshJobHistory();
   }
   return job;
@@ -1990,13 +2024,15 @@ function updateProgressBadge(status) {
 }
 
 // ── Results ────────────────────────────────────────────────────────────────
-async function loadResults(jobId, status, seq = jobLoadSeq) {
+async function loadResults(jobId, status, seq = jobLoadSeq, job = activeJobMeta) {
   if (seq !== jobLoadSeq || jobId !== activeJobId) return;
   const card = document.getElementById('results-card');
   card.classList.remove('hidden');
-  const jobResp = await fetch('/api/jobs/' + jobId);
-  if (seq !== jobLoadSeq || jobId !== activeJobId) return;
-  const job = jobResp.ok ? await jobResp.json() : activeJobMeta;
+  if (!job) {
+    const jobResp = await fetch('/api/jobs/' + jobId);
+    if (seq !== jobLoadSeq || jobId !== activeJobId) return;
+    job = jobResp.ok ? await jobResp.json() : activeJobMeta;
+  }
   activeJobMeta = job || activeJobMeta;
 
   // Update results status badge
@@ -2133,6 +2169,7 @@ function makeFileTreeNode(name, path) {
 
 function buildFileTree(files) {
   const root = makeFileTreeNode('', '');
+  const index = new Map([['', root]]);
   files.map(normalizedResultPath).filter(Boolean).sort((a, b) => a.localeCompare(b)).forEach(path => {
     const parts = path.split('/').filter(Boolean);
     if (!parts.length) return;
@@ -2140,12 +2177,17 @@ function buildFileTree(files) {
     node.count += 1;
     parts.slice(0, -1).forEach(part => {
       const childPath = node.path ? `${node.path}/${part}` : part;
-      if (!node.folders.has(part)) node.folders.set(part, makeFileTreeNode(part, childPath));
+      if (!node.folders.has(part)) {
+        const child = makeFileTreeNode(part, childPath);
+        node.folders.set(part, child);
+        index.set(childPath, child);
+      }
       node = node.folders.get(part);
       node.count += 1;
     });
     node.files.push(path);
   });
+  root.index = index;
   return root;
 }
 
@@ -2154,8 +2196,7 @@ function defaultFolderOpen(path, depth) {
   if (normalized === 'downloads') return true;
   if (/^Data(\/Results(\/[^/]+)?)?$/i.test(normalized)) return true;
   if (/^Data\/Results\/[^/]+\/figures$/i.test(normalized)) return true;
-  if (/^Data\/Results\/[^/]+\/[^/]+$/i.test(normalized)) return true;
-  return depth <= 0;
+  return false;
 }
 
 function folderSortKey(node) {
@@ -2167,12 +2208,15 @@ function folderSortKey(node) {
 function renderFileRow(jobId, f) {
   const name = fileNameFromPath(f);
   const href = resultHref(jobId, f);
+  const downloadHref = resultHref(jobId, f, { download: true });
   return `<tr>
     <td><span class="ext-badge">${escapeHtml(fileTypeLabel(f))}</span></td>
     <td><a class="file-path-link" href="${href}" target="_blank">${escapeHtml(normalizedResultPath(f))}</a></td>
     <td class="file-actions">
-      <a class="btn btn-ghost text-sm" href="${href}" target="_blank">Open</a>
-      <a class="btn btn-ghost text-sm" href="${href}" download="${escapeHtml(name)}">Download</a>
+      <div class="file-actions-inner">
+        <a class="btn btn-ghost text-sm" href="${href}" target="_blank">Open</a>
+        <a class="btn btn-ghost text-sm" href="${downloadHref}" download="${escapeHtml(name)}">Download</a>
+      </div>
     </td>
   </tr>`;
 }
@@ -2187,15 +2231,17 @@ function renderFileRows(jobId, files) {
 }
 
 function renderFileFolder(jobId, node, depth = 0) {
-  const openAttr = defaultFolderOpen(node.path, depth) ? ' open' : '';
+  const shouldRenderOpen = defaultFolderOpen(node.path, depth);
+  const openAttr = shouldRenderOpen ? ' open' : '';
+  const body = shouldRenderOpen ? renderFileTreeChildren(jobId, node, depth + 1) : '';
   return `
-    <details class="file-folder" data-folder-path="${escapeHtml(node.path)}"${openAttr}>
+    <details class="file-folder" data-folder-path="${escapeHtml(node.path)}" data-depth="${depth}" data-rendered="${shouldRenderOpen ? '1' : '0'}" ontoggle="handleFileFolderToggle(this)"${openAttr}>
       <summary class="file-folder-summary">
         <span class="file-folder-name">${escapeHtml(node.path)}</span>
         <span class="file-folder-count">${node.count} file${node.count === 1 ? '' : 's'}</span>
       </summary>
       <div class="file-folder-body">
-        ${renderFileTreeChildren(jobId, node, depth + 1)}
+        ${body}
       </div>
     </details>`;
 }
@@ -2203,6 +2249,17 @@ function renderFileFolder(jobId, node, depth = 0) {
 function renderFileTreeChildren(jobId, node, depth = 0) {
   const folders = Array.from(node.folders.values()).sort((a, b) => folderSortKey(a).localeCompare(folderSortKey(b)));
   return `${folders.map(child => renderFileFolder(jobId, child, depth)).join('')}${renderFileRows(jobId, node.files)}`;
+}
+
+function handleFileFolderToggle(detailsEl) {
+  if (!detailsEl.open || detailsEl.dataset.rendered === '1') return;
+  const node = activeFileTreeIndex.get(detailsEl.dataset.folderPath || '');
+  if (!node || !activeFileTreeJobId) return;
+  const body = Array.from(detailsEl.children).find(child => child.classList && child.classList.contains('file-folder-body'));
+  if (!body) return;
+  const depth = Number(detailsEl.dataset.depth || 0) + 1;
+  body.innerHTML = renderFileTreeChildren(activeFileTreeJobId, node, depth);
+  detailsEl.dataset.rendered = '1';
 }
 
 function figureSortKey(path) {
@@ -2247,10 +2304,16 @@ function renderViz(jobId, files) {
 function renderFileTable(jobId, files) {
   const container = document.getElementById('files-container');
   if (!files.length) {
+    activeFileTree = null;
+    activeFileTreeIndex = new Map();
+    activeFileTreeJobId = null;
     container.innerHTML = '<div class="empty-state">No result files.</div>';
     return;
   }
   const tree = buildFileTree(files);
+  activeFileTree = tree;
+  activeFileTreeIndex = tree.index || new Map();
+  activeFileTreeJobId = jobId;
   container.innerHTML = `<div class="file-tree">${renderFileTreeChildren(jobId, tree)}</div>`;
 }
 

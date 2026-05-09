@@ -48,6 +48,18 @@ ALLOWED_EXTENSIONS = {
     ".zip",
 }
 WORKER_STATUS_PATH = Path(os.environ.get("DATA_DIR", "/data")) / "worker" / "status.json"
+INLINE_MIME_OVERRIDES = {
+    ".svg": "image/svg+xml; charset=utf-8",
+    ".svgz": "image/svg+xml",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".tsv": "text/tab-separated-values; charset=utf-8",
+    ".csv": "text/csv; charset=utf-8",
+    ".txt": "text/plain; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+}
 
 
 def json_bytes(payload: object) -> bytes:
@@ -173,6 +185,22 @@ def worker_status() -> dict[str, object]:
     }
 
 
+def result_file_mime(path: Path) -> str:
+    override = INLINE_MIME_OVERRIDES.get(path.suffix.lower())
+    if override:
+        return override
+    mime, _ = mimetypes.guess_type(str(path))
+    return mime or "application/octet-stream"
+
+
+def content_disposition(disposition: str, filename: str) -> str:
+    basename = Path(filename).name or "download"
+    ascii_name = basename.encode("ascii", errors="ignore").decode("ascii") or "download"
+    ascii_name = ascii_name.replace("\\", "_").replace('"', '\\"')
+    encoded_name = urllib.parse.quote(basename)
+    return f'{disposition}; filename="{ascii_name}"; filename*=UTF-8\'\'{encoded_name}'
+
+
 def validate_runtime_request(settings: dict[str, object], status: dict[str, object]) -> str | None:
     if not status.get("ready"):
         return "Worker is not ready yet. Wait for bootstrap to finish before submitting a job."
@@ -290,11 +318,19 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def _send_text(self, status: int, content_type: str, body: bytes) -> None:
+    def _send_text(
+        self,
+        status: int,
+        content_type: str,
+        body: bytes,
+        extra_headers: dict[str, str] | None = None,
+    ) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Access-Control-Allow-Origin", "*")
+        for key, value in (extra_headers or {}).items():
+            self.send_header(key, value)
         self.end_headers()
         self.wfile.write(body)
 
@@ -368,8 +404,12 @@ class Handler(BaseHTTPRequestHandler):
                     self._not_found("File not found")
                     return
 
-                mime, _ = mimetypes.guess_type(str(full))
-                self._send_text(HTTPStatus.OK, mime or "application/octet-stream", full.read_bytes())
+                disposition = "attachment" if parse_bool(query.get("download", ["0"])[0], False) else "inline"
+                headers = {
+                    "Content-Disposition": content_disposition(disposition, full.name),
+                    "X-Content-Type-Options": "nosniff",
+                }
+                self._send_text(HTTPStatus.OK, result_file_mime(full), full.read_bytes(), headers)
                 return
 
         self._not_found()
