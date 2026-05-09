@@ -199,6 +199,23 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("renderFileRows(jobId, node.files)", text)
         self.assertIn("renderFileRow(jobId, f)", text)
 
+    def test_web_upload_supports_manual_accession_entry(self) -> None:
+        text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="manual-accessions"', text)
+        self.assertIn("function manualAccessionLines()", text)
+        self.assertIn("const MANUAL_ACCESSIONS_FILENAME = 'manual_accessions.txt'", text)
+        self.assertIn("manualLines.join('\\n') + '\\n'", text)
+        self.assertIn("new File([manualAccessionText], MANUAL_ACCESSIONS_FILENAME", text)
+        self.assertIn("input source(s) ready", text)
+
+    def test_web_job_queue_clicks_guard_against_stale_result_loads(self) -> None:
+        text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("let jobLoadSeq = 0", text)
+        self.assertIn("function markActiveJobCard(jobId)", text)
+        self.assertIn("const seq = ++jobLoadSeq", text)
+        self.assertIn("loadResults(jobId, job.status, seq)", text)
+        self.assertIn("seq !== jobLoadSeq || jobId !== activeJobId", text)
+
     def test_figures_wrapper_detects_rscript_robustly(self) -> None:
         text = (REPO_ROOT / "run_figures.sh").read_text(encoding="utf-8")
         self.assertIn("resolve_r_bin()", text)

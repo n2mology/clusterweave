@@ -100,6 +100,14 @@
   }
   .upload-icon { font-size: 2.5rem; margin-bottom: .5rem; }
   .upload-hint { color: var(--muted); font-size: .85rem; margin-top: .3rem; }
+  .accession-entry {
+    margin-top: .85rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: .75rem;
+    background: rgba(255,255,255,.015);
+  }
+  .accession-entry textarea { min-height: 76px; }
 
   .file-list { margin-top: 1rem; display: flex; flex-direction: column; gap: .4rem; }
   .file-item {
@@ -602,6 +610,18 @@
           <div class="upload-hint">Supports accession lists, GenBank/FASTA genomes, ecology metadata TSVs, and optional NPLinker assets</div>
         </div>
 
+        <div class="accession-entry">
+          <div class="form-group">
+            <label for="manual-accessions">Manual accessions</label>
+            <textarea id="manual-accessions" placeholder="GCA_000011425.1&#10;GCF_000002655.1"></textarea>
+          </div>
+          <div class="flex-gap mt1">
+            <button class="btn btn-ghost text-sm" type="button" onclick="normalizeManualAccessions()">Add accessions</button>
+            <button class="btn btn-ghost text-sm" type="button" onclick="clearManualAccessions()">Clear</button>
+            <span id="manual-accessions-status" class="text-muted text-sm"></span>
+          </div>
+        </div>
+
         <div class="file-list" id="file-list"></div>
         <div class="runtime-banner hidden" id="runtime-banner"></div>
 
@@ -988,6 +1008,7 @@
 // ── State ──────────────────────────────────────────────────────────────────
 let selectedFiles = [];
 let activeJobId   = null;
+let jobLoadSeq = 0;
 let pollTimerId = null;
 let logCursor     = 0;
 let systemLogCursor = 0;
@@ -1230,11 +1251,14 @@ function renderStageChips() {
 function updateRunSummary() {
   const summary = document.getElementById('run-summary-content');
   if (!summary) return;
-  const fileNames = selectedFiles.slice(0, 3).map(f => f.name).join(', ');
-  const moreCount = Math.max(0, selectedFiles.length - 3);
-  const selectedLabel = selectedFiles.length
-    ? `${selectedFiles.length} file(s)${fileNames ? `: ${fileNames}` : ''}${moreCount ? ` +${moreCount} more` : ''}`
-    : 'No files selected';
+  const manualCount = manualAccessionLines().length;
+  const inputLabels = selectedFiles.map(f => f.name);
+  if (manualCount) inputLabels.push(`${MANUAL_ACCESSIONS_FILENAME} (${manualCount} accession${manualCount === 1 ? '' : 's'})`);
+  const shownInputs = inputLabels.slice(0, 3).join(', ');
+  const moreCount = Math.max(0, inputLabels.length - 3);
+  const selectedLabel = inputLabels.length
+    ? `${inputLabels.length} input source(s)${shownInputs ? `: ${shownInputs}` : ''}${moreCount ? ` +${moreCount} more` : ''}`
+    : 'No inputs selected';
   const targetGenome = document.getElementById('target-genome').value.trim() || 'None';
   const projectName = document.getElementById('project-name').value.trim() || 'my_project';
   const cpus = document.getElementById('cpus').value || '4';
@@ -1441,8 +1465,14 @@ function applyPreset(name) {
 // ── File selection ─────────────────────────────────────────────────────────
 const dropZone  = document.getElementById('drop-zone');
 const fileInput = document.getElementById('file-input');
+const manualAccessionsInput = document.getElementById('manual-accessions');
+const MANUAL_ACCESSIONS_FILENAME = 'manual_accessions.txt';
 
 fileInput.addEventListener('change', () => addFiles([...fileInput.files]));
+manualAccessionsInput.addEventListener('input', () => {
+  updateManualAccessionsStatus();
+  renderFileList();
+});
 dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
 dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
 dropZone.addEventListener('drop', e => {
@@ -1450,6 +1480,43 @@ dropZone.addEventListener('drop', e => {
   dropZone.classList.remove('drag-over');
   addFiles([...e.dataTransfer.files]);
 });
+
+function manualAccessionLines() {
+  const raw = manualAccessionsInput ? manualAccessionsInput.value : '';
+  const seen = new Set();
+  const accessions = [];
+  raw.split(/\r?\n/).forEach(line => {
+    const cleanLine = line.replace(/#.*/, '').trim();
+    if (!cleanLine) return;
+    cleanLine.split(/[\s,;]+/).forEach(token => {
+      const accession = token.trim();
+      if (!accession || /^accession$/i.test(accession) || seen.has(accession)) return;
+      seen.add(accession);
+      accessions.push(accession);
+    });
+  });
+  return accessions;
+}
+
+function updateManualAccessionsStatus() {
+  const status = document.getElementById('manual-accessions-status');
+  if (!status) return;
+  const count = manualAccessionLines().length;
+  status.textContent = count ? `${count} accession${count === 1 ? '' : 's'} ready` : '';
+}
+
+function normalizeManualAccessions() {
+  const lines = manualAccessionLines();
+  if (manualAccessionsInput) manualAccessionsInput.value = lines.join('\n');
+  updateManualAccessionsStatus();
+  renderFileList();
+}
+
+function clearManualAccessions() {
+  if (manualAccessionsInput) manualAccessionsInput.value = '';
+  updateManualAccessionsStatus();
+  renderFileList();
+}
 
 function addFiles(files) {
   const allowed = new Set(['gbk','gb','gbff','fasta','fa','fna','fsa','txt','tsv','csv','json','gff','gff3','faa','mgf','zip']);
@@ -1472,15 +1539,25 @@ function renderFileList() {
   const list = document.getElementById('file-list');
   const btn  = document.getElementById('run-btn');
   const stat = document.getElementById('upload-status');
+  const manualLines = manualAccessionLines();
+  const manualItem = manualLines.length ? `
+    <div class="file-item">
+      <span class="file-icon">📄</span>
+      <span class="file-name">${MANUAL_ACCESSIONS_FILENAME}</span>
+      <span class="file-size">${manualLines.length} accession${manualLines.length === 1 ? '' : 's'}</span>
+      <button class="file-remove" onclick="clearManualAccessions()" title="Remove">✕</button>
+    </div>` : '';
   list.innerHTML = selectedFiles.map((f, idx) => `
     <div class="file-item">
       <span class="file-icon">📄</span>
       <span class="file-name">${escapeHtml(f.name)}</span>
       <span class="file-size">${fmt_size(f.size)}</span>
       <button class="file-remove" onclick="removeFile(${idx})" title="Remove">✕</button>
-    </div>`).join('');
-  btn.disabled = selectedFiles.length === 0;
-  stat.textContent = selectedFiles.length ? `${selectedFiles.length} file(s) ready` : '';
+    </div>`).join('') + manualItem;
+  const inputSourceCount = selectedFiles.length + (manualLines.length ? 1 : 0);
+  btn.disabled = inputSourceCount === 0;
+  stat.textContent = inputSourceCount ? `${inputSourceCount} input source(s) ready` : '';
+  updateManualAccessionsStatus();
   updateRunSummary();
 }
 
@@ -1535,7 +1612,8 @@ function metadataProfileText() {
 
 // ── Start Analysis ─────────────────────────────────────────────────────────
 async function startAnalysis() {
-  if (selectedFiles.length === 0) return;
+  const manualLines = manualAccessionLines();
+  if (selectedFiles.length === 0 && manualLines.length === 0) return;
 
   const name = document.getElementById('project-name').value.trim() || 'my_project';
   const cpus = parseInt(document.getElementById('cpus').value) || 4;
@@ -1547,6 +1625,10 @@ async function startAnalysis() {
 
   const fd = new FormData();
   for (const f of selectedFiles) fd.append('files', f);
+  if (manualLines.length) {
+    const manualAccessionText = manualLines.join('\n') + '\n';
+    fd.append('files', new File([manualAccessionText], MANUAL_ACCESSIONS_FILENAME, { type: 'text/plain' }));
+  }
   const metadataText = metadataProfileText();
   if (metadataText) {
     fd.append('files', new File([metadataText], 'ecofun_metadata_normalized.tsv', { type: 'text/tab-separated-values' }));
@@ -1621,6 +1703,7 @@ async function startAnalysis() {
     }
     const { job_id } = await resp.json();
     selectedFiles = [];
+    if (manualAccessionsInput) manualAccessionsInput.value = '';
     renderFileList();
     document.getElementById('upload-status').textContent = '';
     loadJob(job_id, true);
@@ -1642,7 +1725,7 @@ async function refreshJobHistory() {
     return;
   }
   el.innerHTML = jobs.map(j => `
-    <div class="job-card ${j.id === activeJobId ? 'active-job' : ''}" onclick="loadJob('${j.id}')">
+    <div class="job-card ${j.id === activeJobId ? 'active-job' : ''}" data-job-id="${escapeHtml(j.id)}" onclick="loadJob('${j.id}')">
       <div class="job-card-meta">
         <div class="job-card-name">${escapeHtml(j.name)}</div>
         <div class="job-card-id">${escapeHtml(j.id)} · ${escapeHtml(j.stage)}</div>
@@ -1663,6 +1746,12 @@ function statusBadge(status) {
   return `<span class="badge badge-${cls}"><span class="badge-dot"></span>${icon} ${escapeHtml(status)}</span>`;
 }
 
+function markActiveJobCard(jobId) {
+  document.querySelectorAll('.job-card').forEach(card => {
+    card.classList.toggle('active-job', card.dataset.jobId === jobId);
+  });
+}
+
 async function deleteJob(e, jobId) {
   e.stopPropagation();
   if (!confirm('Delete this job and all its data?')) return;
@@ -1678,35 +1767,44 @@ async function deleteJob(e, jobId) {
 
 // ── Load / watch a job ─────────────────────────────────────────────────────
 async function loadJob(jobId, autoScroll = false) {
+  const seq = ++jobLoadSeq;
   activeJobId = jobId;
   logCursor   = 0;
   stopPolling();
+  markActiveJobCard(jobId);
 
   // Show cards
   document.getElementById('progress-card').classList.remove('hidden');
+  document.getElementById('results-card').classList.add('hidden');
+  document.getElementById('rerun-panel').innerHTML = '';
   document.getElementById('log-terminal').innerHTML = '';
   activeJobMeta = null;
   activeStageState = null;
   resetStages();
-  refreshJobHistory();
 
-  await pollJobFinal(jobId, autoScroll);
-  if (jobId !== activeJobId) return;
-  pollTimerId = setInterval(() => {
-    pollJobFinal(jobId, autoScroll);
-  }, 1500);
+  const job = await pollJobFinal(jobId, autoScroll, seq);
+  if (!job || seq !== jobLoadSeq || jobId !== activeJobId) return;
+  if (job.status === 'running' || job.status === 'pending') {
+    pollTimerId = setInterval(() => {
+      pollJobFinal(jobId, autoScroll, seq);
+    }, 1500);
+  }
 }
 
-async function pollJobFinal(jobId, autoScroll = false) {
+async function pollJobFinal(jobId, autoScroll = false, seq = jobLoadSeq) {
   const resp = await fetch('/api/jobs/' + jobId);
-  if (!resp.ok) return;
+  if (!resp.ok || seq !== jobLoadSeq || jobId !== activeJobId) return null;
   const job = await resp.json();
+  if (seq !== jobLoadSeq || jobId !== activeJobId) return null;
+  const previousJob = activeJobMeta;
   activeJobMeta = job;
   if (!activeStageState || activeStageState.jobId !== jobId) initializeStageState(job);
   // Catch up on any missed log lines
   const logResp = await fetch(`/api/jobs/${jobId}/logs?since=${logCursor}`);
+  if (seq !== jobLoadSeq || jobId !== activeJobId) return null;
   if (logResp.ok) {
     const { lines } = await logResp.json();
+    if (seq !== jobLoadSeq || jobId !== activeJobId) return null;
     for (const line of lines) {
       appendLogLine(line);
       updateStageBar(line);
@@ -1718,9 +1816,12 @@ async function pollJobFinal(jobId, autoScroll = false) {
   updateProgressBadge(job.status);
   if (job.status !== 'running' && job.status !== 'pending') {
     stopPolling();
-    loadResults(jobId, job.status);
+    await loadResults(jobId, job.status, seq);
   }
-  refreshJobHistory();
+  if (!previousJob || previousJob.status !== job.status || previousJob.stage !== job.stage) {
+    refreshJobHistory();
+  }
+  return job;
 }
 
 function stopPolling() {
@@ -1889,10 +1990,12 @@ function updateProgressBadge(status) {
 }
 
 // ── Results ────────────────────────────────────────────────────────────────
-async function loadResults(jobId, status) {
+async function loadResults(jobId, status, seq = jobLoadSeq) {
+  if (seq !== jobLoadSeq || jobId !== activeJobId) return;
   const card = document.getElementById('results-card');
   card.classList.remove('hidden');
   const jobResp = await fetch('/api/jobs/' + jobId);
+  if (seq !== jobLoadSeq || jobId !== activeJobId) return;
   const job = jobResp.ok ? await jobResp.json() : activeJobMeta;
   activeJobMeta = job || activeJobMeta;
 
@@ -1909,8 +2012,10 @@ async function loadResults(jobId, status) {
   renderRerunPanel(jobId, activeJobMeta);
 
   const resp = await fetch('/api/jobs/' + jobId + '/files');
+  if (seq !== jobLoadSeq || jobId !== activeJobId) return;
   if (!resp.ok) return;
   const { files } = await resp.json();
+  if (seq !== jobLoadSeq || jobId !== activeJobId) return;
 
   if (status === 'success') renderViz(jobId, files);
   else {
