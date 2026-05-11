@@ -256,17 +256,75 @@
   .card-body.hidden { display: none; }
 
   /* ── Upload zone ──────────────────────────────────────────────────────── */
+  .input-node-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: flex-start;
+    margin-bottom: 1rem;
+  }
+  .node-kicker {
+    color: var(--cw-amber-2);
+    font-size: .72rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    line-height: 1.2;
+  }
+  .node-title {
+    color: var(--text);
+    font-size: 1.05rem;
+    font-weight: 800;
+    line-height: 1.2;
+    margin-top: .12rem;
+  }
+  .node-flow {
+    display: flex;
+    gap: .35rem;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .node-flow span {
+    border: 1px solid rgba(202,231,226,.2);
+    border-radius: 999px;
+    padding: .22rem .52rem;
+    background: rgba(255,252,244,.035);
+    color: var(--cw-mint-100);
+    font-size: .72rem;
+    font-weight: 700;
+  }
+  .intake-grid {
+    display: grid;
+    grid-template-columns: minmax(260px, 1.2fr) minmax(240px, .8fr);
+    gap: .9rem;
+    align-items: stretch;
+  }
   .upload-zone {
     border: 1px dashed rgba(91,230,208,.42);
     border-radius: var(--radius);
-    padding: 2.5rem 1rem;
+    padding: 2.2rem 1rem;
     text-align: center;
     cursor: pointer;
     transition: border-color .2s, background .2s, box-shadow .2s;
     position: relative;
+    min-height: 100%;
+    display: grid;
+    place-content: center;
+    overflow: hidden;
     background:
       radial-gradient(circle at 50% 0%, rgba(91,230,208,.1), transparent 18rem),
       rgba(11,11,18,.22);
+  }
+  .upload-zone::before {
+    content: '';
+    position: absolute;
+    inset: .7rem;
+    border-radius: calc(var(--radius) - 2px);
+    pointer-events: none;
+    background:
+      linear-gradient(115deg, transparent 0 39%, rgba(91,230,208,.16) 39% 40%, transparent 40% 48%, rgba(148,105,247,.16) 48% 49%, transparent 49%),
+      radial-gradient(rgba(236,254,251,.18) .8px, transparent 1px);
+    background-size: auto, 17px 17px;
+    opacity: .54;
   }
   .upload-zone:hover, .upload-zone.drag-over {
     border-color: var(--accent);
@@ -280,20 +338,54 @@
     box-shadow: var(--focus-ring), inset 0 0 0 1px rgba(91,230,208,.16);
   }
   .upload-zone input[type=file] {
-    position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+    position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; z-index: 2;
   }
-  .upload-icon { font-size: 2.5rem; margin-bottom: .5rem; }
+  .upload-zone-content { position: relative; z-index: 1; }
+  .upload-icon {
+    width: 3.1rem;
+    height: 3.1rem;
+    margin: 0 auto .65rem;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    border: 1px solid rgba(91,230,208,.34);
+    background: rgba(11,11,18,.48);
+    font-size: 1.65rem;
+  }
+  .upload-title { font-size: .96rem; font-weight: 800; color: var(--text); }
   .upload-hint { color: var(--muted); font-size: .85rem; margin-top: .3rem; }
   .accession-entry {
-    margin-top: .85rem;
+    position: relative;
     border: 1px solid var(--border);
     border-radius: 6px;
-    padding: .75rem;
-    background: rgba(255,252,244,.025);
+    padding: .85rem;
+    background:
+      linear-gradient(180deg, rgba(245,158,11,.045), transparent 55%),
+      rgba(255,252,244,.025);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    min-height: 100%;
   }
   .accession-entry textarea { min-height: 76px; }
+  .accession-actions {
+    display: flex;
+    gap: .5rem;
+    align-items: center;
+    flex-wrap: wrap;
+  }
 
   .file-list { margin-top: 1rem; display: flex; flex-direction: column; gap: .4rem; }
+  .file-list:empty::before {
+    content: 'No input sources selected';
+    display: block;
+    border: 1px dashed rgba(202,231,226,.18);
+    border-radius: 6px;
+    padding: .55rem .75rem;
+    color: var(--muted);
+    font-size: .82rem;
+    background: rgba(255,252,244,.02);
+  }
   .file-item {
     display: flex; align-items: center; gap: .75rem;
     background: linear-gradient(90deg, rgba(91,230,208,.06), rgba(255,252,244,.02)); border-radius: 6px; padding: .45rem .75rem;
@@ -316,6 +408,65 @@
   .form-group-inline.disabled { opacity: .5; }
   .switch-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem 1rem; margin-top: .75rem; }
   @media (max-width: 720px) { .switch-grid { grid-template-columns: 1fr; } }
+  .settings-section {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid rgba(202,231,226,.16);
+  }
+  .section-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+    margin-bottom: .75rem;
+  }
+  .section-note {
+    color: var(--muted);
+    font-size: .76rem;
+    font-weight: 700;
+  }
+  .core-settings-grid .form-group {
+    position: relative;
+    padding-left: .72rem;
+  }
+  .core-settings-grid .form-group::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: .25rem;
+    bottom: .25rem;
+    width: 2px;
+    border-radius: 999px;
+    background: linear-gradient(var(--cw-mint-400), var(--cw-violet-500));
+    opacity: .55;
+  }
+  .stage-toggle-panel {
+    margin-top: 1rem;
+    padding-top: .9rem;
+    border-top: 1px solid rgba(202,231,226,.16);
+  }
+  .stage-toggle-grid {
+    gap: .5rem;
+  }
+  .stage-toggle-grid .form-group-inline {
+    min-height: 42px;
+    padding: .48rem .6rem;
+    border: 1px solid rgba(202,231,226,.14);
+    border-radius: 6px;
+    background: rgba(255,252,244,.025);
+    color: var(--cw-mint-100);
+    font-weight: 700;
+    line-height: 1.25;
+  }
+  .stage-toggle-grid .form-group-inline:has(input:checked) {
+    border-color: rgba(91,230,208,.34);
+    background: rgba(20,184,166,.075);
+  }
+  .stage-toggle-grid input[type=checkbox] {
+    width: 1rem;
+    height: 1rem;
+    flex: 0 0 auto;
+  }
   .advanced-wrap {
     margin-top: 1rem;
     border: 1px solid var(--border);
@@ -593,6 +744,12 @@
     .stage-step { min-height: auto; }
     .stage-step::before,
     .stage-step::after { display: none; }
+  }
+  @media (max-width: 760px) {
+    .input-node-head,
+    .section-title-row { flex-direction: column; align-items: flex-start; }
+    .node-flow { justify-content: flex-start; }
+    .intake-grid { grid-template-columns: 1fr; }
   }
 
   /* ── Log terminal ─────────────────────────────────────────────────────── */
@@ -984,67 +1141,98 @@
       </div>
       <div class="card-body" id="upload-card-body">
 
-        <div class="upload-zone" id="drop-zone">
-          <input type="file" id="file-input" multiple accept=".gbk,.gb,.gbff,.fasta,.fa,.fna,.fsa,.txt,.tsv,.csv,.json,.gff,.gff3,.faa,.mgf,.zip" />
-          <div class="upload-icon">📄</div>
-          <div><strong>Drag &amp; drop accession lists, genomes, or metadata here</strong></div>
-          <div class="upload-hint">Supports accession lists, GenBank/FASTA genomes, ecology metadata TSVs, and optional NPLinker assets</div>
+        <div class="input-node-head">
+          <div>
+            <div class="node-kicker">Input node</div>
+            <div class="node-title">Genome / accession intake</div>
+          </div>
+          <div class="node-flow" aria-hidden="true">
+            <span>Files</span>
+            <span>Accessions</span>
+            <span>Metadata</span>
+          </div>
         </div>
 
-        <div class="accession-entry">
-          <div class="form-group">
-            <label for="manual-accessions">Manual accessions</label>
-            <textarea id="manual-accessions" placeholder="GCA_000011425.1&#10;GCF_000002655.1"></textarea>
+        <div class="intake-grid">
+          <div class="upload-zone" id="drop-zone">
+            <input type="file" id="file-input" multiple accept=".gbk,.gb,.gbff,.fasta,.fa,.fna,.fsa,.txt,.tsv,.csv,.json,.gff,.gff3,.faa,.mgf,.zip" />
+            <div class="upload-zone-content">
+              <div class="upload-icon">📄</div>
+              <div class="upload-title">Drop genomes, accession lists, or metadata</div>
+              <div class="upload-hint">GenBank, FASTA, TSV/CSV/JSON, GFF, FAA, MGF, and ZIP inputs</div>
+            </div>
           </div>
-          <div class="flex-gap mt1">
-            <button class="btn btn-ghost text-sm" type="button" onclick="normalizeManualAccessions()">Add accessions</button>
-            <button class="btn btn-ghost text-sm" type="button" onclick="clearManualAccessions()">Clear</button>
-            <span id="manual-accessions-status" class="text-muted text-sm"></span>
+
+          <div class="accession-entry">
+            <div class="form-group">
+              <label for="manual-accessions">Manual accessions</label>
+              <textarea id="manual-accessions" placeholder="GCA_000011425.1&#10;GCF_000002655.1"></textarea>
+            </div>
+            <div class="accession-actions mt1">
+              <button class="btn btn-ghost text-sm" type="button" onclick="normalizeManualAccessions()">Add accessions</button>
+              <button class="btn btn-ghost text-sm" type="button" onclick="clearManualAccessions()">Clear</button>
+              <span id="manual-accessions-status" class="text-muted text-sm"></span>
+            </div>
           </div>
         </div>
 
         <div class="file-list" id="file-list"></div>
         <div class="runtime-banner hidden" id="runtime-banner"></div>
 
-        <hr class="divider" />
+        <div class="settings-section">
+          <div class="section-title-row">
+            <div>
+              <div class="node-kicker">Run coordinates</div>
+              <div class="node-title">Project, target, compute, annotation</div>
+            </div>
+          </div>
 
-        <!-- Settings -->
-        <div class="form-grid">
-          <div class="form-group">
-            <label for="project-name">Project name</label>
-            <input type="text" id="project-name" value="my_project" placeholder="e.g. aspergillus_survey" title="Namespace used to group outputs and history for this run." />
-          </div>
-          <div class="form-group">
-            <label for="cpus">CPU threads</label>
-            <input type="number" id="cpus" value="4" min="1" max="64" title="Threads used by compute-heavy stages like antiSMASH." />
-          </div>
-          <div class="form-group">
-            <label for="target-genome">Target genome (optional)</label>
-            <input type="text" id="target-genome" placeholder="Genome ID for targeted ranking/panels" title="Optional genome ID to focus shortlist and targeted analyses." />
-          </div>
-          <div class="form-group">
-            <label for="genefinding-mode">Annotation strategy</label>
-            <select id="genefinding-mode" title="Uses the canonical annotation fallback order for FASTA inputs; annotated GenBank inputs are passed through when usable.">
-              <option value="auto" selected>Auto (advanced fallback order)</option>
-              <option value="funannotate">funannotate</option>
-              <option value="braker3,funannotate">BRAKER3 then funannotate</option>
-            </select>
+          <div class="form-grid core-settings-grid">
+            <div class="form-group">
+              <label for="project-name">Project name</label>
+              <input type="text" id="project-name" value="my_project" placeholder="e.g. aspergillus_survey" title="Namespace used to group outputs and history for this run." />
+            </div>
+            <div class="form-group">
+              <label for="cpus">CPU threads</label>
+              <input type="number" id="cpus" value="4" min="1" max="64" title="Threads used by compute-heavy stages like antiSMASH." />
+            </div>
+            <div class="form-group">
+              <label for="target-genome">Target genome (optional)</label>
+              <input type="text" id="target-genome" placeholder="Genome ID for targeted ranking/panels" title="Optional genome ID to focus shortlist and targeted analyses." />
+            </div>
+            <div class="form-group">
+              <label for="genefinding-mode">Annotation strategy</label>
+              <select id="genefinding-mode" title="Uses the canonical annotation fallback order for FASTA inputs; annotated GenBank inputs are passed through when usable.">
+                <option value="auto" selected>Auto (advanced fallback order)</option>
+                <option value="funannotate">funannotate</option>
+                <option value="braker3,funannotate">BRAKER3 then funannotate</option>
+              </select>
+            </div>
           </div>
         </div>
 
-        <div class="switch-grid">
-          <label class="form-group-inline"><input type="checkbox" id="run-genome-prep" checked /> Prepare genomes from accessions</label>
-          <label class="form-group-inline"><input type="checkbox" id="run-annotation" checked /> Run annotation/detection</label>
-          <label class="form-group-inline"><input type="checkbox" id="run-bigscape" checked /> Run BiG-SCAPE stage</label>
-          <label class="form-group-inline"><input type="checkbox" id="run-summary" checked /> Build summary and crosswalk tables</label>
-          <label class="form-group-inline"><input type="checkbox" id="run-clinker" checked /> Generate clinker panels</label>
-          <label class="form-group-inline"><input type="checkbox" id="run-figures" checked /> Render summary figures</label>
-          <label class="form-group-inline"><input type="checkbox" id="run-ecology" /> Enable ecology-aware analysis</label>
-          <label class="form-group-inline"><input type="checkbox" id="run-nplinker" /> NPLinker follow-up job</label>
+        <div class="stage-toggle-panel">
+          <div class="section-title-row">
+            <div>
+              <div class="node-kicker">Stage switches</div>
+              <div class="node-title">Canonical workflow stages</div>
+            </div>
+            <span class="section-note">Enabled by default unless optional</span>
+          </div>
+          <div class="switch-grid stage-toggle-grid">
+            <label class="form-group-inline"><input type="checkbox" id="run-genome-prep" checked /> Prepare genomes from accessions</label>
+            <label class="form-group-inline"><input type="checkbox" id="run-annotation" checked /> Run annotation/detection</label>
+            <label class="form-group-inline"><input type="checkbox" id="run-bigscape" checked /> Run BiG-SCAPE stage</label>
+            <label class="form-group-inline"><input type="checkbox" id="run-summary" checked /> Build summary and crosswalk tables</label>
+            <label class="form-group-inline"><input type="checkbox" id="run-clinker" checked /> Generate clinker panels</label>
+            <label class="form-group-inline"><input type="checkbox" id="run-figures" checked /> Render summary figures</label>
+            <label class="form-group-inline"><input type="checkbox" id="run-ecology" /> Enable ecology-aware analysis</label>
+            <label class="form-group-inline"><input type="checkbox" id="run-nplinker" /> NPLinker follow-up job</label>
+          </div>
         </div>
 
         <details class="advanced-wrap" id="advanced-panel">
-          <summary>Advanced Settings</summary>
+          <summary>Advanced knobs</summary>
           <div class="advanced-content">
             <div>
               <div class="group-title">Stage Behavior</div>
