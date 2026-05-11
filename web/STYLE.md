@@ -145,7 +145,8 @@ Progress:
 - Completed: Slice 4 - Runs / Job Queue.
 - Completed: Slice 5 - Worker Telemetry / Lab Console.
 - Completed: Slice 6 - Results And Output Discovery.
-- Next: Slice 7 - Responsive And Accessibility Pass.
+- Completed: Slice 7 - Responsive And Accessibility Pass.
+- Next: Slice 8 - Final QA And Documentation.
 
 Complete these slices in order. Each slice should leave the app usable.
 

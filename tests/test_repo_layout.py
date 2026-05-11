@@ -194,6 +194,17 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("<th>Result Path</th>", text)
         self.assertNotIn("const htmlFiles = files.filter", text)
 
+    def test_web_results_tabs_are_keyboard_accessible(self) -> None:
+        text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('role="tablist"', text)
+        self.assertIn('button class="tab active"', text)
+        self.assertIn('role="tab"', text)
+        self.assertIn('aria-selected="true"', text)
+        self.assertIn('role="tabpanel"', text)
+        self.assertIn("function handleResultTabKeydown(event)", text)
+        self.assertIn("tab.setAttribute('aria-selected'", text)
+        self.assertIn("panel.hidden = !active", text)
+
     def test_web_files_tab_groups_results_into_collapsible_folders(self) -> None:
         text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
         self.assertIn("function buildFileTree(files)", text)

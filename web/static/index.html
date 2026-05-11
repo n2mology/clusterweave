@@ -246,6 +246,7 @@
     display: flex;
     align-items: center;
     gap: .5rem;
+    flex-wrap: wrap;
     cursor: pointer;
     user-select: none;
     background: linear-gradient(90deg, rgba(91,230,208,.06), rgba(148,105,247,.04), transparent);
@@ -550,6 +551,12 @@
     padding: .55rem 1.2rem; border-radius: 6px; font-size: .9rem;
     font-weight: 700; cursor: pointer; border: none; transition: opacity .15s, transform .1s, box-shadow .15s, border-color .15s;
     font-family: var(--font);
+    justify-content: center;
+    line-height: 1.25;
+    min-height: 36px;
+    max-width: 100%;
+    text-align: center;
+    white-space: normal;
   }
   .btn:active { transform: scale(.97); }
   .btn:disabled { opacity: .45; cursor: not-allowed; }
@@ -565,6 +572,11 @@
     display: inline-flex; align-items: center; gap: .35rem;
     padding: .2rem .6rem; border-radius: 99px; font-size: .75rem; font-weight: 700;
     text-transform: uppercase; letter-spacing: 0;
+    flex-wrap: wrap;
+    justify-content: center;
+    line-height: 1.2;
+    max-width: 100%;
+    text-align: center;
   }
   .badge-pending  { background: rgba(129,134,137,.18); color: var(--muted); }
   .badge-running  { background: rgba(91,230,208,.14); color: var(--accent); }
@@ -585,6 +597,7 @@
   .stage-step {
     position: relative;
     isolation: isolate;
+    min-width: 0;
     min-height: 92px;
     padding: .64rem .62rem .54rem;
     border-radius: var(--radius);
@@ -630,6 +643,7 @@
     align-items: center;
     justify-content: space-between;
     gap: .5rem;
+    min-width: 0;
   }
   .stage-number {
     display: inline-flex;
@@ -651,6 +665,8 @@
     font-weight: 800;
     text-transform: uppercase;
     line-height: 1;
+    overflow-wrap: anywhere;
+    text-align: right;
   }
   .stage-copy {
     display: flex;
@@ -663,11 +679,13 @@
     font-size: .88rem;
     line-height: 1.15;
     font-weight: 800;
+    overflow-wrap: anywhere;
   }
   .stage-hint {
     color: var(--muted);
     font-size: .7rem;
     line-height: 1.25;
+    overflow-wrap: anywhere;
   }
   .stage-progress {
     position: relative;
@@ -738,6 +756,13 @@
     .stage-bar { grid-template-columns: repeat(4, minmax(130px, 1fr)); }
     .stage-step:nth-child(4n)::before,
     .stage-step:nth-child(4n)::after { display: none; }
+  }
+  @media (max-width: 960px) {
+    .stage-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .stage-step::before,
+    .stage-step::after { display: block; }
+    .stage-step:nth-child(2n)::before,
+    .stage-step:nth-child(2n)::after { display: none; }
   }
   @media (max-width: 720px) {
     .stage-bar { grid-template-columns: 1fr; }
@@ -950,6 +975,7 @@
     font-size: .86rem;
     font-weight: 800;
     line-height: 1.2;
+    overflow-wrap: anywhere;
   }
   .output-state {
     flex: 0 0 auto;
@@ -973,6 +999,7 @@
     color: var(--muted);
     font-size: .75rem;
     line-height: 1.4;
+    overflow-wrap: anywhere;
   }
   .output-link {
     margin-top: auto;
@@ -997,14 +1024,36 @@
   }
 
   /* ── Results tabs ─────────────────────────────────────────────────────── */
-  .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 1rem; }
-  .tab {
-    padding: .6rem 1.1rem; cursor: pointer; font-size: .85rem; font-weight: 500;
-    border-bottom: 2px solid transparent; color: var(--muted); transition: color .2s, border-color .2s;
-    user-select: none;
+  .tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .15rem .35rem;
+    align-items: flex-end;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 1rem;
   }
-  .tab:hover { color: var(--text); }
-  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab {
+    appearance: none;
+    background: transparent;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    border-radius: 6px 6px 0 0;
+    padding: .6rem 1.1rem;
+    cursor: pointer;
+    font-size: .85rem;
+    font-weight: 700;
+    color: var(--muted);
+    transition: color .2s, border-color .2s, background .2s;
+    user-select: none;
+    font-family: var(--font);
+    line-height: 1.25;
+    min-height: 38px;
+    max-width: 100%;
+    text-align: center;
+    white-space: normal;
+  }
+  .tab:hover { color: var(--text); background: rgba(255,252,244,.035); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); background: rgba(91,230,208,.055); }
   .tab-panel { display: none; }
   .tab-panel.active { display: block; }
 
@@ -1034,7 +1083,7 @@
     gap: .18rem;
   }
   .figure-name { font-weight: 800; font-size: .9rem; word-break: break-word; }
-  .figure-caption { color: var(--muted); font-size: .76rem; line-height: 1.35; }
+  .figure-caption { color: var(--muted); font-size: .76rem; line-height: 1.35; overflow-wrap: anywhere; }
   .figure-actions {
     flex: 0 0 auto;
     display: inline-flex;
@@ -1082,8 +1131,8 @@
   .file-table tr:last-child td { border-bottom: none; }
   .file-table tr:hover td { background: var(--surface2); }
   .file-path-link { font-family: var(--mono); font-size: .78rem; overflow-wrap: anywhere; }
-  .file-actions { text-align: right; white-space: nowrap; }
-  .file-actions-inner { display: inline-flex; gap: .35rem; justify-content: flex-end; }
+  .file-actions { text-align: right; white-space: normal; }
+  .file-actions-inner { display: inline-flex; gap: .35rem; justify-content: flex-end; flex-wrap: wrap; }
   .ext-badge {
     font-size: .7rem; padding: .1rem .4rem; border-radius: 4px;
     background: var(--surface2); color: var(--muted); font-family: var(--mono);
@@ -1137,6 +1186,16 @@
   .file-folder-body:empty { display: none; }
   .file-folder-body .file-folder { background: rgba(255,255,255,.01); }
   .file-tree-table { background: rgba(15,17,23,.28); border-radius: 6px; overflow: hidden; }
+  @media (max-width: 680px) {
+    .file-table th,
+    .file-table td { padding: .48rem .5rem; }
+    .file-table th:nth-child(1),
+    .file-table td:nth-child(1) { display: none; }
+    .file-actions { text-align: left; }
+    .file-actions-inner { justify-content: flex-start; }
+    .file-folder-summary { align-items: flex-start; flex-wrap: wrap; }
+    .file-folder-count { white-space: normal; }
+  }
 
   /* ── Run queue cards ──────────────────────────────────────────────────── */
   .job-history { display: flex; flex-direction: column; gap: .65rem; }
@@ -1294,6 +1353,12 @@
     color: var(--danger);
     border-color: rgba(248,113,113,.42);
     background: rgba(248,113,113,.08);
+  }
+  @media (max-width: 560px) {
+    .job-card { grid-template-columns: minmax(0, 1fr); }
+    .job-card-topline { flex-direction: column; }
+    .job-card-status { justify-content: flex-start; }
+    .job-delete { justify-self: end; }
   }
   .rerun-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem .9rem; }
   @media (max-width: 720px) { .rerun-grid { grid-template-columns: 1fr; } }
@@ -2003,13 +2068,13 @@
             <div class="output-card-copy">Figure assets from Data/Results/&lt;project&gt;/figures will render below.</div>
           </div>
         </div>
-        <div class="tabs">
-          <div class="tab active" onclick="switchTab('viz')">Visualization</div>
-          <div class="tab" onclick="switchTab('files')">Files</div>
+        <div class="tabs" role="tablist" aria-label="Result views">
+          <button class="tab active" id="tab-control-viz" type="button" role="tab" aria-controls="tab-viz" aria-selected="true" onclick="switchTab('viz')" onkeydown="handleResultTabKeydown(event)">Visualization</button>
+          <button class="tab" id="tab-control-files" type="button" role="tab" aria-controls="tab-files" aria-selected="false" tabindex="-1" onclick="switchTab('files')" onkeydown="handleResultTabKeydown(event)">Files</button>
         </div>
 
         <!-- Visualization tab -->
-        <div class="tab-panel active" id="tab-viz">
+        <div class="tab-panel active" id="tab-viz" role="tabpanel" aria-labelledby="tab-control-viz">
           <div id="viz-container">
             <div class="viz-placeholder">
               <div class="big-icon">🔬</div>
@@ -2019,7 +2084,7 @@
         </div>
 
         <!-- Files tab -->
-        <div class="tab-panel" id="tab-files">
+        <div class="tab-panel" id="tab-files" role="tabpanel" aria-labelledby="tab-control-files" hidden>
           <div id="files-container">
             <div class="empty-state">No result files yet.</div>
           </div>
@@ -2080,11 +2145,37 @@ function toggleCard(id) {
   hdr.classList.toggle('collapsed');
 }
 function switchTab(name) {
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-  const idx = ['viz','files'].indexOf(name);
-  document.querySelectorAll('.tab')[idx].classList.add('active');
-  document.getElementById('tab-' + name).classList.add('active');
+  const tabs = Array.from(document.querySelectorAll('.tab'));
+  const panels = Array.from(document.querySelectorAll('.tab-panel'));
+  const names = ['viz','files'];
+  const idx = Math.max(0, names.indexOf(name));
+  tabs.forEach((tab, tabIdx) => {
+    const active = tabIdx === idx;
+    tab.classList.toggle('active', active);
+    tab.setAttribute('aria-selected', active ? 'true' : 'false');
+    tab.tabIndex = active ? 0 : -1;
+  });
+  panels.forEach(panel => {
+    const active = panel.id === 'tab-' + names[idx];
+    panel.classList.toggle('active', active);
+    panel.hidden = !active;
+  });
+}
+
+function handleResultTabKeydown(event) {
+  const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End'];
+  if (!keys.includes(event.key)) return;
+  event.preventDefault();
+  const names = ['viz', 'files'];
+  const tabs = Array.from(document.querySelectorAll('.tab'));
+  const currentIdx = tabs.indexOf(event.currentTarget);
+  let nextIdx = currentIdx;
+  if (event.key === 'ArrowLeft') nextIdx = (currentIdx + tabs.length - 1) % tabs.length;
+  if (event.key === 'ArrowRight') nextIdx = (currentIdx + 1) % tabs.length;
+  if (event.key === 'Home') nextIdx = 0;
+  if (event.key === 'End') nextIdx = tabs.length - 1;
+  switchTab(names[nextIdx]);
+  tabs[nextIdx].focus();
 }
 
 function boolToFlag(value) { return value ? '1' : '0'; }
