@@ -58,6 +58,7 @@
     --font:      'Inter', system-ui, -apple-system, sans-serif;
     --mono:      'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
   }
+  html { scroll-behavior: smooth; scroll-padding-top: 82px; }
   html, body { min-height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; line-height: 1.6; }
   body {
     position: relative;
@@ -101,18 +102,21 @@
   /* ── Layout ───────────────────────────────────────────────────────────── */
   .app { display: flex; flex-direction: column; min-height: 100vh; position: relative; z-index: 1; }
   header {
-    background: linear-gradient(100deg, rgba(11,11,18,.96) 0%, rgba(17,24,39,.94) 46%, rgba(67,29,91,.78) 100%);
+    background:
+      linear-gradient(100deg, rgba(11,11,18,.97) 0%, rgba(17,24,39,.94) 50%, rgba(67,29,91,.76) 100%);
     border-bottom: 1px solid var(--border);
-    padding: 0 2rem;
-    height: 56px;
-    display: flex;
+    padding: .52rem 1.25rem .6rem;
+    min-height: 66px;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
     align-items: center;
-    gap: 1rem;
+    gap: .8rem;
     position: sticky;
     top: 0;
     z-index: 100;
-    overflow: hidden;
+    overflow: visible;
     box-shadow: var(--cw-edge), 0 1px 0 rgba(255,255,255,.04), 0 12px 36px rgba(0,0,0,.28);
+    backdrop-filter: blur(18px);
   }
   header::after {
     content: '';
@@ -124,38 +128,192 @@
       repeating-linear-gradient(90deg, transparent 0 22px, rgba(255,252,244,.5) 23px, transparent 24px);
     opacity: .78;
   }
-  .logo { display: flex; align-items: center; gap: .6rem; }
+  .logo {
+    display: inline-flex;
+    align-items: center;
+    gap: .62rem;
+    min-width: max-content;
+    color: var(--text);
+    text-decoration: none;
+  }
   .logo-icon {
-    width: 2rem;
-    height: 2rem;
+    width: 2.08rem;
+    height: 2.08rem;
     display: grid;
     place-items: center;
-    border: 1px solid rgba(91,230,208,.38);
+    border: 1px solid rgba(91,230,208,.44);
     border-radius: 50%;
-    background: radial-gradient(circle, rgba(91,230,208,.16), rgba(79,70,229,.08) 64%, transparent);
-    font-size: 1.2rem;
+    background:
+      radial-gradient(circle at 42% 38%, rgba(91,230,208,.34), transparent 35%),
+      radial-gradient(circle at 62% 60%, rgba(245,158,11,.28), transparent 34%),
+      rgba(11,11,18,.64);
+    color: var(--cw-mint-50);
+    font-family: var(--mono);
+    font-size: .68rem;
+    font-weight: 900;
+    box-shadow: var(--cw-raise-control), var(--cw-edge), 0 0 18px rgba(91,230,208,.12);
   }
-  .logo-text { font-size: 1.1rem; font-weight: 800; letter-spacing: 0; }
-  .logo-text span { color: var(--accent); }
+  .logo-text {
+    position: relative;
+    display: inline-flex;
+    align-items: baseline;
+    color: var(--cw-mint-50);
+    font-size: 1.12rem;
+    font-weight: 900;
+    letter-spacing: 0;
+    line-height: 1;
+  }
+  .wordmark-cluster { color: var(--cw-mint-50); }
+  .wordmark-weave { color: var(--accent); }
+  .helix-cross {
+    position: relative;
+    width: .86rem;
+    height: 1.05rem;
+    margin: 0 -.02rem;
+    transform: translateY(.13rem);
+  }
+  .helix-cross::before,
+  .helix-cross::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 10%;
+    width: 2px;
+    height: 88%;
+    border-radius: 999px;
+    transform-origin: center;
+  }
+  .helix-cross::before {
+    background: linear-gradient(var(--cw-mint-400), var(--cw-teal-500));
+    transform: translateX(-50%) rotate(28deg);
+    box-shadow: 0 0 10px rgba(91,230,208,.28);
+  }
+  .helix-cross::after {
+    background: linear-gradient(var(--cw-amber-2), var(--cw-amber));
+    transform: translateX(-50%) rotate(-28deg);
+    box-shadow: 0 0 10px rgba(245,158,11,.22);
+  }
   .header-tagline { color: var(--muted); font-size: .8rem; margin-left: .5rem; }
+  .primary-nav {
+    justify-self: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: .25rem;
+    min-width: 0;
+  }
+  .nav-link {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 34px;
+    padding: .38rem .62rem;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    color: var(--cw-mint-100);
+    text-decoration: none;
+    font-size: .78rem;
+    font-weight: 800;
+    line-height: 1.15;
+    white-space: nowrap;
+    transition: color .18s, border-color .18s, background .18s, box-shadow .18s;
+  }
+  .nav-link:hover {
+    color: var(--text);
+    border-color: rgba(202,231,226,.18);
+    background: rgba(255,252,244,.035);
+  }
+  .nav-link.active {
+    color: var(--cw-mint-50);
+    border-color: rgba(91,230,208,.42);
+    background:
+      linear-gradient(180deg, rgba(91,230,208,.14), rgba(11,11,18,.38)),
+      rgba(11,11,18,.42);
+    box-shadow: var(--cw-pressed), inset 0 -2px 0 rgba(91,230,208,.72);
+  }
+  .header-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: .42rem;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+  .nav-action {
+    min-height: 34px;
+    padding: .44rem .72rem;
+    font-size: .76rem;
+    white-space: nowrap;
+  }
+  .status-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    min-height: 34px;
+    padding: .32rem .6rem;
+    border: 1px solid rgba(202,231,226,.17);
+    border-radius: 999px;
+    background: rgba(11,11,18,.45);
+    color: var(--cw-mint-100);
+    font-size: .72rem;
+    font-weight: 800;
+    white-space: nowrap;
+    box-shadow: var(--cw-inset-1), var(--cw-edge);
+  }
+  .status-chip .signal-lamp {
+    width: .48rem;
+    height: .48rem;
+    border-radius: 50%;
+    background: var(--muted);
+    box-shadow: 0 0 10px rgba(129,134,137,.24);
+  }
+  .status-chip.status-ready .signal-lamp,
+  .status-chip.status-idle .signal-lamp { background: var(--success); box-shadow: 0 0 12px rgba(20,184,166,.28); }
+  .status-chip.status-processing .signal-lamp { background: var(--warn); box-shadow: 0 0 12px rgba(245,158,11,.3); }
+  .status-chip.status-error .signal-lamp { background: var(--danger); box-shadow: 0 0 12px rgba(248,113,113,.3); }
+  .nav-toggle {
+    display: none;
+    width: 2.25rem;
+    height: 2.25rem;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(202,231,226,.2);
+    border-radius: 6px;
+    background: rgba(11,11,18,.42);
+    color: var(--cw-mint-50);
+    cursor: pointer;
+    box-shadow: var(--cw-raise-control), var(--cw-edge);
+  }
 
   main { flex: 1; width: 100%; margin: 0; padding: 1.1rem 1.5rem 2rem; display: flex; flex-direction: column; }
+  .section-anchor {
+    scroll-margin-top: 86px;
+  }
+  .section-focus {
+    animation: sectionFocus 1.2s ease-out 1;
+  }
+  @keyframes sectionFocus {
+    0% { box-shadow: var(--focus-ring), var(--cw-raise-2), var(--cw-edge), var(--panel-glow); }
+    100% { box-shadow: var(--cw-raise-2), var(--cw-edge), var(--panel-glow); }
+  }
   .identity-band {
     position: relative;
     overflow: hidden;
-    min-height: 88px;
+    min-height: 248px;
     margin-bottom: 1.1rem;
-    padding: .9rem 1rem;
+    padding: 1.25rem;
     border: 1px solid rgba(202,231,226,.22);
     border-radius: var(--radius);
     background:
-      linear-gradient(110deg, rgba(255,252,244,.08), rgba(17,24,39,.58) 42%, rgba(67,29,91,.42)),
-      radial-gradient(circle at 86% 50%, rgba(91,230,208,.14), transparent 16rem);
+      radial-gradient(circle at 82% 42%, rgba(91,230,208,.16), transparent 18rem),
+      radial-gradient(circle at 98% 0%, rgba(245,158,11,.12), transparent 18rem),
+      linear-gradient(110deg, rgba(255,252,244,.08), rgba(17,24,39,.62) 43%, rgba(67,29,91,.42));
     box-shadow: var(--cw-raise-2), var(--cw-edge), var(--panel-glow);
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1.05fr) minmax(340px, .95fr);
     align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
+    gap: 1.25rem;
   }
   .identity-band::before {
     content: '';
@@ -167,8 +325,8 @@
     background-size: auto, 16px 16px;
     opacity: .38;
   }
-  .identity-copy, .identity-flow { position: relative; z-index: 1; }
-  .identity-copy { max-width: 760px; }
+  .identity-copy, .hero-weavemap { position: relative; z-index: 1; }
+  .identity-copy { max-width: 820px; }
   .identity-kicker {
     color: var(--cw-amber-2);
     font-size: .74rem;
@@ -176,58 +334,275 @@
     text-transform: uppercase;
   }
   .identity-title {
-    font-size: clamp(1.25rem, 2.2vw, 2rem);
-    line-height: 1.1;
-    margin-top: .12rem;
+    font-size: clamp(1.45rem, 2.45vw, 2.45rem);
+    line-height: 1.02;
+    margin-top: .26rem;
+    max-width: 28ch;
   }
   .identity-subtitle {
     color: var(--cw-mint-100);
-    font-size: .88rem;
-    margin-top: .28rem;
-    max-width: 64ch;
+    font-size: .94rem;
+    margin-top: .72rem;
+    max-width: 70ch;
   }
-  .identity-flow {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(82px, 1fr));
+  .hero-actions {
+    display: flex;
     align-items: center;
-    gap: .45rem;
-    min-width: min(420px, 38vw);
+    gap: .55rem;
+    flex-wrap: wrap;
+    margin-top: 1rem;
   }
-  .identity-node {
+  .journey-cues {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: .55rem;
+    margin-top: 1rem;
+  }
+  .journey-cue {
     position: relative;
-    border: 1px solid rgba(202,231,226,.28);
-    border-radius: 999px;
-    padding: .36rem .55rem;
-    background: rgba(11,11,18,.62);
-    color: var(--cw-mint-50);
-    font-size: .78rem;
-    font-weight: 700;
-    text-align: center;
-    white-space: nowrap;
-    box-shadow: var(--cw-raise-control), var(--cw-edge);
+    min-width: 0;
+    padding: .58rem .68rem .58rem .86rem;
+    border: 1px solid rgba(202,231,226,.16);
+    border-radius: 7px;
+    background: rgba(11,11,18,.36);
+    color: var(--cw-mint-100);
+    font-size: .76rem;
+    font-weight: 750;
+    box-shadow: var(--cw-inset-1), var(--cw-edge);
   }
-  .identity-node:not(:last-child)::after {
+  .journey-cue::before {
     content: '';
     position: absolute;
-    left: calc(100% + .1rem);
-    top: 50%;
-    width: .42rem;
-    height: 2px;
-    background: linear-gradient(90deg, var(--cw-mint-400), var(--cw-violet-500));
+    left: .42rem;
+    top: .64rem;
+    bottom: .64rem;
+    width: 2px;
+    border-radius: 999px;
+    background: linear-gradient(var(--cw-mint-400), var(--cw-amber-2));
   }
+  .hero-weavemap {
+    min-height: 214px;
+    border: 1px solid rgba(202,231,226,.2);
+    border-radius: 8px;
+    padding: .95rem;
+    background:
+      linear-gradient(180deg, rgba(255,252,244,.04), rgba(11,11,18,.2)),
+      rgba(11,11,18,.38);
+    box-shadow: var(--cw-inset-2), var(--cw-edge);
+  }
+  .hero-map-title {
+    display: grid;
+    align-items: center;
+    grid-template-columns: auto 1fr auto;
+    gap: .6rem;
+    color: var(--cw-amber-2);
+    font-size: .72rem;
+    font-weight: 900;
+    text-transform: uppercase;
+  }
+  .hero-map-title::before,
+  .hero-map-title::after {
+    content: '';
+    height: 1px;
+    background: linear-gradient(90deg, rgba(91,230,208,.1), rgba(91,230,208,.6), rgba(245,158,11,.35));
+  }
+  .hero-map-title::before { display: none; }
+  .hero-braid {
+    position: relative;
+    width: 100%;
+    height: 74px;
+    margin: .35rem 0 .2rem;
+  }
+  .hero-braid svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+    overflow: visible;
+  }
+  .braid-teal,
+  .braid-amber {
+    fill: none;
+    stroke-width: 3;
+    stroke-linecap: round;
+    stroke-dasharray: 6 8;
+  }
+  .braid-teal {
+    stroke: var(--cw-mint-400);
+    filter: drop-shadow(0 0 7px rgba(91,230,208,.2));
+  }
+  .braid-amber {
+    stroke: var(--cw-amber-2);
+    filter: drop-shadow(0 0 7px rgba(245,158,11,.18));
+  }
+  .hero-stage-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: .5rem;
+  }
+  .hero-stage {
+    position: relative;
+    min-height: 54px;
+    padding: .52rem .58rem .48rem;
+    border: 1px solid rgba(202,231,226,.16);
+    border-radius: 7px;
+    background: rgba(255,252,244,.026);
+    color: var(--cw-mint-100);
+    box-shadow: var(--cw-raise-control), var(--cw-edge);
+  }
+  .hero-stage-num {
+    color: var(--cw-amber-2);
+    font-family: var(--mono);
+    font-size: .64rem;
+    font-weight: 900;
+  }
+  .hero-stage-name {
+    display: block;
+    color: var(--text);
+    font-size: .78rem;
+    font-weight: 700;
+    line-height: 1.2;
+    margin-top: .08rem;
+    overflow-wrap: anywhere;
+  }
+  .hero-stage-lamp {
+    position: absolute;
+    right: .5rem;
+    top: .5rem;
+    width: .45rem;
+    height: .45rem;
+    border-radius: 50%;
+    background: rgba(91,230,208,.72);
+    box-shadow: 0 0 11px rgba(91,230,208,.26);
+  }
+  .hero-stage:nth-child(3n) .hero-stage-lamp { background: rgba(245,158,11,.82); box-shadow: 0 0 11px rgba(245,158,11,.24); }
+  .docs-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-top: 1.1rem;
+    padding: .85rem 1rem;
+    border: 1px solid rgba(202,231,226,.16);
+    border-radius: var(--radius);
+    background: rgba(11,11,18,.36);
+    box-shadow: var(--cw-inset-1), var(--cw-edge);
+  }
+  .docs-kicker {
+    color: var(--cw-amber-2);
+    font-size: .72rem;
+    font-weight: 900;
+    text-transform: uppercase;
+  }
+  .docs-title {
+    display: block;
+    color: var(--text);
+    font-weight: 800;
+  }
+  .docs-links {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: .5rem;
+    flex-wrap: wrap;
+  }
+  .docs-links a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 32px;
+    padding: .34rem .62rem;
+    border: 1px solid rgba(202,231,226,.16);
+    border-radius: 999px;
+    color: var(--cw-mint-100);
+    text-decoration: none;
+    font-size: .76rem;
+    font-weight: 800;
+    box-shadow: var(--cw-raise-control), var(--cw-edge);
+  }
+  .docs-links a:hover {
+    color: var(--text);
+    border-color: rgba(91,230,208,.38);
+  }
+  .hero-weavemap.section-focus {
+    animation: mapFocus 1.2s ease-out 1;
+  }
+  @keyframes mapFocus {
+    0% { box-shadow: var(--focus-ring), var(--cw-inset-2), var(--cw-edge); }
+    100% { box-shadow: var(--cw-inset-2), var(--cw-edge); }
+  }
+  .docs-strip.section-focus,
+  #upload-card.section-focus,
+  #jobs-card.section-focus,
+  #console-card.section-focus,
+  #results-card.section-focus {
+    animation: sectionFocus 1.2s ease-out 1;
+  }
+  .hero-stage:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    left: calc(100% - .08rem);
+    top: 50%;
+    width: .58rem;
+    height: 2px;
+    background: linear-gradient(90deg, var(--cw-mint-400), var(--cw-amber-2));
+    opacity: .5;
+  }
+  .hero-stage:nth-child(3n)::after { display: none; }
   .upload-section { margin-bottom: 2rem; }
   .main-container { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; flex: 1; }
   @media (max-width: 1200px) { .main-container { grid-template-columns: 1fr; } }
+  @media (max-width: 1120px) {
+    header {
+      grid-template-columns: auto minmax(0, 1fr) auto;
+    }
+    .primary-nav {
+      grid-column: 1 / -1;
+      justify-self: stretch;
+      justify-content: flex-start;
+      flex-wrap: wrap;
+      max-height: 0;
+      overflow: hidden;
+      opacity: 0;
+      padding-top: 0;
+      transition: max-height .2s ease, opacity .2s ease, padding-top .2s ease;
+    }
+    .primary-nav.open {
+      max-height: 180px;
+      opacity: 1;
+      padding-top: .35rem;
+    }
+    .nav-link { flex: 1 1 120px; }
+    .header-actions {
+      justify-self: end;
+    }
+    .nav-toggle {
+      display: inline-flex;
+    }
+  }
   @media (max-width: 860px) {
-    header { padding: 0 1rem; }
+    header { padding-inline: 1rem; }
     .header-tagline { display: none; }
     main { padding-inline: 1rem; }
-    .identity-band { align-items: flex-start; flex-direction: column; }
-    .identity-flow { width: 100%; min-width: 0; }
+    .identity-band { grid-template-columns: 1fr; align-items: flex-start; }
+    .identity-title { max-width: 16ch; }
+    .hero-weavemap { width: 100%; }
+    .docs-strip { align-items: flex-start; flex-direction: column; }
+    .docs-links { justify-content: flex-start; }
+  }
+  @media (max-width: 700px) {
+    .header-actions {
+      grid-column: 1 / -1;
+      justify-self: stretch;
+      justify-content: flex-start;
+    }
+    .status-chip { flex: 1 1 auto; }
+    .journey-cues,
+    .hero-stage-grid { grid-template-columns: 1fr; }
+    .hero-stage:not(:last-child)::after { display: none; }
   }
   @media (max-width: 520px) {
-    .identity-flow { grid-template-columns: 1fr; }
-    .identity-node:not(:last-child)::after { display: none; }
+    .identity-band { padding: 1rem; }
+    .hero-actions .btn { width: 100%; }
+    .nav-action { flex: 1 1 130px; }
   }
   .left-column { display: flex; flex-direction: column; gap: 1.5rem; }
   .right-column { display: flex; flex-direction: column; gap: 1.5rem; }
@@ -1703,24 +2078,65 @@
 
 <!-- ── Header ─────────────────────────────────────────────────────────── -->
 <header>
-  <div class="logo">
-    <span class="logo-icon">🧬</span>
-    <span class="logo-text">Cluster<span>Weave</span></span>
+  <a class="logo" href="#overview" data-nav-target="overview" onclick="navigateToSection(event, 'overview')" aria-label="ClusterWeave overview">
+    <span class="logo-icon" aria-hidden="true">CW</span>
+    <span class="logo-text">
+      <span class="wordmark-cluster">Cluster</span><span class="helix-cross" aria-hidden="true"></span><span class="wordmark-weave">Weave</span>
+    </span>
+  </a>
+  <nav class="primary-nav" id="primary-nav" aria-label="Primary navigation">
+    <a class="nav-link active" href="#overview" data-nav-target="overview" onclick="navigateToSection(event, 'overview')">Overview</a>
+    <a class="nav-link" href="#intake" data-nav-target="intake" onclick="navigateToSection(event, 'intake', 'manual-accessions')">Intake</a>
+    <a class="nav-link" href="#weavemap" data-nav-target="weavemap" onclick="navigateToSection(event, 'weavemap')">WeaveMap</a>
+    <a class="nav-link" href="#jobs-card" data-nav-target="runs" onclick="navigateToSection(event, 'runs')">Runs</a>
+    <a class="nav-link" href="#results-card" data-nav-target="outputs" onclick="navigateToSection(event, 'outputs')">Outputs</a>
+    <a class="nav-link" href="#console-card" data-nav-target="qa" onclick="navigateToSection(event, 'qa')">QA Console</a>
+    <a class="nav-link" href="#docs" data-nav-target="docs" onclick="navigateToSection(event, 'docs')">Docs</a>
+  </nav>
+  <div class="header-actions" aria-label="Workflow actions">
+    <button class="btn btn-ghost nav-action" type="button" onclick="loadDemoAccessions(event)">Load demo</button>
+    <button class="btn btn-primary nav-action" type="button" onclick="focusRunAction(event)">Start run</button>
+    <span class="status-chip status-unknown" id="runtime-status-chip"><span class="signal-lamp" aria-hidden="true"></span> Runtime: checking</span>
+    <a class="btn btn-ghost nav-action" href="#results-card" onclick="navigateToSection(event, 'outputs')">Results</a>
   </div>
-  <span class="header-tagline">Biosynthetic Gene Cluster Discovery &amp; Prioritization</span>
+  <button class="nav-toggle" id="nav-toggle" type="button" aria-label="Toggle navigation" aria-controls="primary-nav" aria-expanded="false" onclick="togglePrimaryNav()">☰</button>
 </header>
 
 <main>
-  <section class="identity-band" aria-label="ClusterWeave workflow">
+  <section class="identity-band section-anchor" id="overview" tabindex="-1" aria-label="ClusterWeave workflow overview">
     <div class="identity-copy">
       <div class="identity-kicker">Woven fungal discovery command center</div>
-      <h1 class="identity-title">ClusterWeave</h1>
-      <p class="identity-subtitle">Genome intake, canonical shell stages, inspectable telemetry, and figure/file outputs in one research-control surface.</p>
+      <h1 class="identity-title">Upload genomes or accessions, run canonical discovery stages, and inspect every output from annotation to gene cluster family context.</h1>
+      <p class="identity-subtitle">ClusterWeave keeps the shell-first workflow visible: source intake, stage progress, run history, worker telemetry, figures, files, and reruns stay connected on one research-control surface.</p>
+      <div class="hero-actions" aria-label="Quick start actions">
+        <button class="btn btn-primary" type="button" onclick="navigateToSection(event, 'intake', 'manual-accessions')">Start from accessions</button>
+        <button class="btn btn-ghost" type="button" onclick="loadDemoAccessions(event)">Load demo run</button>
+        <button class="btn btn-ghost" type="button" onclick="navigateToSection(event, 'weavemap')">View workflow map</button>
+      </div>
+      <div class="journey-cues" aria-label="ClusterWeave journey">
+        <div class="journey-cue">Add fungal genomes, accession lists, and metadata.</div>
+        <div class="journey-cue">Weave through canonical BGC workflow stages.</div>
+        <div class="journey-cue">Inspect outputs, synteny, family context, logs, and artifacts.</div>
+      </div>
     </div>
-    <div class="identity-flow" aria-hidden="true">
-      <span class="identity-node">Intake</span>
-      <span class="identity-node">Pipeline</span>
-      <span class="identity-node">Outputs</span>
+    <div class="hero-weavemap section-anchor" id="weavemap" tabindex="-1" aria-label="Static WeaveMap motif">
+      <div class="hero-map-title"><span>WeaveMap</span><span>sources to outputs</span></div>
+      <div class="hero-braid" aria-hidden="true">
+        <svg viewBox="0 0 520 76" focusable="false">
+          <path class="braid-teal" d="M10 38 C72 4 118 4 180 38 S290 72 350 38 450 4 510 38" />
+          <path class="braid-amber" d="M10 38 C72 72 118 72 180 38 S290 4 350 38 450 72 510 38" />
+          <circle cx="10" cy="38" r="5" fill="currentColor" opacity=".65" />
+          <circle cx="510" cy="38" r="5" fill="currentColor" opacity=".65" />
+        </svg>
+      </div>
+      <div class="hero-stage-grid" aria-hidden="true">
+        <div class="hero-stage"><span class="hero-stage-num">01</span><span class="hero-stage-name">Intake</span><span class="hero-stage-lamp"></span></div>
+        <div class="hero-stage"><span class="hero-stage-num">02</span><span class="hero-stage-name">Prep</span><span class="hero-stage-lamp"></span></div>
+        <div class="hero-stage"><span class="hero-stage-num">03</span><span class="hero-stage-name">Annotation / BGC</span><span class="hero-stage-lamp"></span></div>
+        <div class="hero-stage"><span class="hero-stage-num">04</span><span class="hero-stage-name">BiG-SCAPE</span><span class="hero-stage-lamp"></span></div>
+        <div class="hero-stage"><span class="hero-stage-num">05</span><span class="hero-stage-name">clinker / Figures</span><span class="hero-stage-lamp"></span></div>
+        <div class="hero-stage"><span class="hero-stage-num">06</span><span class="hero-stage-name">Outputs</span><span class="hero-stage-lamp"></span></div>
+      </div>
     </div>
   </section>
 
@@ -1731,8 +2147,8 @@
   <div class="left-column">
 
     <!-- ── Upload Section ────────────────────────────────────────────────────── -->
-    <div class="upload-section">
-      <div class="card" id="upload-card">
+    <div class="upload-section section-anchor" id="intake" tabindex="-1">
+      <div class="card" id="upload-card" tabindex="-1">
       <div class="card-header" onclick="toggleCard('upload-card')">
         <span>📂</span> Upload Genome Files & Configure
         <span class="toggle-icon">▾</span>
@@ -2083,7 +2499,7 @@
   <div class="right-column">
 
     <!-- ── Job Queue (Top) ──────────────────────────────────────────────── -->
-    <div class="card" id="jobs-card">
+    <div class="card section-anchor" id="jobs-card" tabindex="-1">
       <div class="card-header" onclick="toggleCard('jobs-card')">
         <span>🗂</span> Job Queue
         <span class="toggle-icon">▾</span>
@@ -2096,7 +2512,7 @@
     </div>
 
     <!-- ── Worker Telemetry ───────────────────────────────────────────── -->
-    <div class="card telemetry-card" id="console-card">
+    <div class="card telemetry-card section-anchor" id="console-card" tabindex="-1">
       <div class="card-header">
         <span>⚙️</span> Worker Telemetry
         <span id="worker-telemetry-badge" class="badge badge-pending ml-auto"><span class="badge-dot"></span> Monitoring</span>
@@ -2115,7 +2531,7 @@
     </div>
 
     <!-- ── Progress / Logs ────────────────────────────────────────────── -->
-    <div class="card hidden lab-console-card" id="progress-card">
+    <div class="card hidden lab-console-card section-anchor" id="progress-card" tabindex="-1">
       <div class="card-header">
         <span>⚡</span> Lab Console
         <span id="progress-badge" class="badge badge-running ml-auto"><span class="badge-dot"></span> Running</span>
@@ -2174,7 +2590,7 @@
     </div>
 
     <!-- ── Results ────────────────────────────────────────────────────── -->
-    <div class="card hidden" id="results-card">
+    <div class="card hidden section-anchor" id="results-card" tabindex="-1">
       <div class="card-header">
         <span>📊</span> Results
         <span id="results-status" class="badge badge-success ml-auto"><span class="badge-dot"></span> Complete</span>
@@ -2230,6 +2646,19 @@
   </div>
   <!-- end main-container -->
 
+  <section class="docs-strip section-anchor" id="docs" tabindex="-1" aria-label="Documentation references">
+    <div>
+      <span class="docs-kicker">Resources</span>
+      <span class="docs-title">Methods, artifacts, logs, and runtime notes</span>
+    </div>
+    <div class="docs-links">
+      <a href="#weavemap" onclick="navigateToSection(event, 'weavemap')">Workflow stages</a>
+      <a href="#results-card" onclick="navigateToSection(event, 'outputs')">Artifacts</a>
+      <a href="#console-card" onclick="navigateToSection(event, 'qa')">Logs</a>
+      <a href="#intake" onclick="navigateToSection(event, 'intake', 'advanced-panel')">Advanced knobs</a>
+    </div>
+  </section>
+
 </main>
 </div><!-- /app -->
 
@@ -2263,7 +2692,97 @@ const STAGES = [
   { key: 'nplinker',   label: 'NPLinker' },
 ];
 
+const NAV_TARGETS = {
+  overview: { anchor: 'overview', focus: 'overview' },
+  intake: { anchor: 'intake', focus: 'manual-accessions' },
+  weavemap: { anchor: 'weavemap', focus: 'weavemap' },
+  runs: { anchor: 'jobs-card', focus: 'jobs-card' },
+  outputs: { anchor: 'results-card', focus: 'results-card', fallback: 'jobs-card' },
+  qa: { anchor: 'console-card', focus: 'console-card' },
+  docs: { anchor: 'docs', focus: 'docs' },
+};
+
 // ── Helpers ────────────────────────────────────────────────────────────────
+function setActiveNav(target) {
+  document.querySelectorAll('[data-nav-target]').forEach(el => {
+    el.classList.toggle('active', el.dataset.navTarget === target);
+  });
+}
+
+function closePrimaryNav() {
+  const nav = document.getElementById('primary-nav');
+  const toggle = document.getElementById('nav-toggle');
+  if (nav) nav.classList.remove('open');
+  if (toggle) toggle.setAttribute('aria-expanded', 'false');
+}
+
+function togglePrimaryNav() {
+  const nav = document.getElementById('primary-nav');
+  const toggle = document.getElementById('nav-toggle');
+  if (!nav || !toggle) return;
+  const open = !nav.classList.contains('open');
+  nav.classList.toggle('open', open);
+  toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+function navElementFor(target) {
+  const cfg = NAV_TARGETS[target] || NAV_TARGETS.overview;
+  let el = document.getElementById(cfg.anchor);
+  if (el && el.classList.contains('hidden') && cfg.fallback) {
+    el = document.getElementById(cfg.fallback);
+  }
+  return el || document.getElementById('overview');
+}
+
+function focusSection(el, focusId) {
+  const focusEl = focusId ? document.getElementById(focusId) : el;
+  const target = focusEl || el;
+  if (!target) return;
+  target.focus({ preventScroll: true });
+  const pulseEl = el && !el.classList.contains('hidden') ? el : target;
+  pulseEl.classList.remove('section-focus');
+  void pulseEl.offsetWidth;
+  pulseEl.classList.add('section-focus');
+}
+
+function navigateToSection(event, target, focusId = null) {
+  if (event) event.preventDefault();
+  const cfg = NAV_TARGETS[target] || NAV_TARGETS.overview;
+  const el = navElementFor(target);
+  setActiveNav(target);
+  closePrimaryNav();
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    window.history.replaceState(null, '', `#${cfg.anchor}`);
+    window.setTimeout(() => focusSection(el, focusId || cfg.focus), 220);
+  }
+}
+
+function syncNavFromHash() {
+  const hash = window.location.hash.replace(/^#/, '');
+  const match = Object.entries(NAV_TARGETS).find(([, cfg]) => cfg.anchor === hash);
+  if (match) setActiveNav(match[0]);
+}
+
+function focusRunAction(event) {
+  const runBtn = document.getElementById('run-btn');
+  const disabled = !runBtn || runBtn.disabled;
+  navigateToSection(event, 'intake', disabled ? 'manual-accessions' : 'run-btn');
+  if (disabled) {
+    const status = document.getElementById('upload-status');
+    if (status) status.textContent = 'Add an input source before starting.';
+  }
+}
+
+function updateRuntimeStatusChip(status, label) {
+  const chip = document.getElementById('runtime-status-chip');
+  if (!chip) return;
+  const safeStatus = String(status || 'unknown').toLowerCase();
+  const shown = label || 'Checking';
+  chip.className = `status-chip status-${safeStatus}`;
+  chip.innerHTML = `<span class="signal-lamp" aria-hidden="true"></span> Runtime: ${escapeHtml(shown)}`;
+}
+
 function fmt_size(bytes) {
   if (bytes < 1024) return bytes + ' B';
   if (bytes < 1048576) return (bytes/1024).toFixed(1) + ' KB';
@@ -2805,6 +3324,21 @@ function clearManualAccessions() {
   if (manualAccessionsInput) manualAccessionsInput.value = '';
   updateManualAccessionsStatus();
   renderFileList();
+}
+
+function loadDemoAccessions(event) {
+  if (event) event.preventDefault();
+  const demoAccessions = ['GCA_000011425.1', 'GCA_030770425.1'];
+  if (manualAccessionsInput) manualAccessionsInput.value = demoAccessions.join('\n');
+  const projectName = document.getElementById('project-name');
+  if (projectName && (!projectName.value.trim() || projectName.value.trim() === 'my_project')) {
+    projectName.value = 'clusterweave_demo';
+  }
+  updateManualAccessionsStatus();
+  renderFileList();
+  const status = document.getElementById('upload-status');
+  if (status) status.textContent = 'Demo accessions loaded; review settings before starting.';
+  navigateToSection(event, 'intake', 'manual-accessions');
 }
 
 function addFiles(files) {
@@ -3885,6 +4419,7 @@ async function pollSystemStatus() {
 
 function updateWorkerTelemetryBadge(status, label) {
   const badge = document.getElementById('worker-telemetry-badge');
+  updateRuntimeStatusChip(status, label);
   if (!badge) return;
   const map = {
     unknown: ['badge-pending', 'Monitoring'],
@@ -4053,6 +4588,9 @@ async function waitForWorkerReady() {
 
 // ── Init ───────────────────────────────────────────────────────────────────
 async function initializeApp() {
+  window.addEventListener('hashchange', syncNavFromHash);
+  syncNavFromHash();
+
   // Wait for worker bootstrap to complete
   await waitForWorkerReady();
   

@@ -230,6 +230,25 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("new File([manualAccessionText], MANUAL_ACCESSIONS_FILENAME", text)
         self.assertIn("input source(s) ready", text)
 
+    def test_web_has_journey_first_navigation_and_hero(self) -> None:
+        text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="primary-nav"', text)
+        self.assertIn('data-nav-target="overview"', text)
+        self.assertIn('data-nav-target="intake"', text)
+        self.assertIn('data-nav-target="weavemap"', text)
+        self.assertIn('data-nav-target="runs"', text)
+        self.assertIn('data-nav-target="outputs"', text)
+        self.assertIn('data-nav-target="qa"', text)
+        self.assertIn('data-nav-target="docs"', text)
+        self.assertIn('id="runtime-status-chip"', text)
+        self.assertIn('id="weavemap"', text)
+        self.assertIn('class="hero-weavemap', text)
+        self.assertIn('class="helix-cross"', text)
+        self.assertIn("function navigateToSection(event, target", text)
+        self.assertIn("function loadDemoAccessions(event)", text)
+        self.assertIn("const demoAccessions = ['GCA_000011425.1', 'GCA_030770425.1'];", text)
+        self.assertIn("Upload genomes or accessions, run canonical discovery stages", text)
+
     def test_web_job_queue_clicks_guard_against_stale_result_loads(self) -> None:
         text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
         self.assertIn("let jobLoadSeq = 0", text)
