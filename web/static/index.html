@@ -752,26 +752,155 @@
     .intake-grid { grid-template-columns: 1fr; }
   }
 
-  /* ── Log terminal ─────────────────────────────────────────────────────── */
-  .log-terminal {
+  /* ── Worker telemetry / lab console ──────────────────────────────────── */
+  .telemetry-card .card-header,
+  .lab-console-card .card-header {
     background:
-      linear-gradient(180deg, rgba(91,230,208,.035), transparent 42%),
-      #080A0E;
-    border-radius: 6px;
-    padding: .75rem 1rem;
+      linear-gradient(90deg, rgba(91,230,208,.09), rgba(245,158,11,.04) 48%, rgba(148,105,247,.05)),
+      rgba(11,11,18,.22);
+  }
+  .telemetry-body,
+  .lab-console-body {
+    display: flex;
+    flex-direction: column;
+    gap: .85rem;
+  }
+  .telemetry-strip {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: .35rem;
+  }
+  .telemetry-strip span {
+    height: 4px;
+    border-radius: 999px;
+    background: rgba(255,252,244,.09);
+    border: 1px solid rgba(255,252,244,.05);
+  }
+  .telemetry-strip span:nth-child(1) { background: var(--cw-mint-400); }
+  .telemetry-strip span:nth-child(2) { background: var(--cw-indigo-600); }
+  .telemetry-strip span:nth-child(3) { background: var(--cw-amber-2); }
+  .telemetry-strip span:nth-child(4) { background: var(--cw-violet-500); }
+  .terminal-shell {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid rgba(202,231,226,.18);
+    border-radius: 8px;
+    background:
+      radial-gradient(circle at 12% 0%, rgba(91,230,208,.08), transparent 16rem),
+      linear-gradient(180deg, rgba(255,252,244,.035), rgba(255,252,244,0) 42%),
+      #07090D;
+    box-shadow: inset 0 1px 0 rgba(255,252,244,.05);
+  }
+  .terminal-shell::before {
+    content: '';
+    position: absolute;
+    inset: 2.35rem 0 0;
+    pointer-events: none;
+    background:
+      repeating-linear-gradient(0deg, rgba(255,252,244,.028) 0 1px, transparent 1px 4px),
+      radial-gradient(rgba(91,230,208,.11) .7px, transparent .9px);
+    background-size: auto, 14px 14px;
+    opacity: .42;
+    mix-blend-mode: screen;
+  }
+  .terminal-titlebar {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: .55rem;
+    min-height: 2.35rem;
+    padding: .48rem .75rem;
+    border-bottom: 1px solid rgba(202,231,226,.13);
+    background: rgba(255,252,244,.028);
+  }
+  .terminal-lights {
+    display: inline-flex;
+    align-items: center;
+    gap: .28rem;
+    flex: 0 0 auto;
+  }
+  .terminal-lights span {
+    width: .48rem;
+    height: .48rem;
+    border-radius: 50%;
+    background: var(--cw-mint-400);
+    box-shadow: 0 0 10px rgba(91,230,208,.22);
+  }
+  .terminal-lights span:nth-child(2) { background: var(--cw-amber-2); box-shadow: 0 0 10px rgba(245,158,11,.2); }
+  .terminal-lights span:nth-child(3) { background: var(--cw-violet-500); box-shadow: 0 0 10px rgba(139,92,246,.2); }
+  .terminal-title {
+    min-width: 0;
+    color: var(--cw-mint-100);
+    font-family: var(--mono);
+    font-size: .74rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .terminal-signal {
+    margin-left: auto;
+    color: var(--muted);
+    font-size: .68rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .log-terminal {
+    position: relative;
+    z-index: 1;
+    background: transparent;
+    padding: .75rem .9rem;
     font-family: var(--mono);
     font-size: .78rem;
-    line-height: 1.7;
-    height: 300px;
+    line-height: 1.75;
+    height: 280px;
     overflow-y: auto;
-    color: #c8d0e7;
-    border: 1px solid rgba(202,231,226,.14);
+    color: #D5E2E0;
   }
-  .log-line { white-space: pre-wrap; word-break: break-all; }
-  .log-line.err  { color: var(--danger); }
-  .log-line.warn { color: var(--warn); }
-  .log-line.stage{ color: var(--accent); font-weight: bold; }
-  .log-line.ok   { color: var(--success); }
+  .terminal-compact .log-terminal { height: 168px; }
+  .terminal-run .log-terminal { height: 260px; }
+  .log-line {
+    position: relative;
+    padding-left: .85rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .log-line::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: .68em;
+    width: .32rem;
+    height: .32rem;
+    border-radius: 50%;
+    background: rgba(213,226,224,.34);
+  }
+  .log-line.err  { color: #FFAAA7; }
+  .log-line.warn { color: #F8D48C; }
+  .log-line.stage{ color: var(--cw-mint-400); font-weight: 700; }
+  .log-line.ok   { color: #7EF0D7; }
+  .log-line.err::before { background: var(--danger); box-shadow: 0 0 10px rgba(248,113,113,.34); }
+  .log-line.warn::before { background: var(--warn); box-shadow: 0 0 10px rgba(245,158,11,.28); }
+  .log-line.stage::before { background: var(--accent); box-shadow: 0 0 10px rgba(91,230,208,.32); }
+  .log-line.ok::before { background: var(--success); box-shadow: 0 0 10px rgba(20,184,166,.32); }
+  .console-actions {
+    align-items: center;
+    justify-content: space-between;
+    padding-top: .15rem;
+  }
+  .console-actions .btn {
+    padding-inline: .85rem;
+  }
+  @media (max-width: 560px) {
+    .terminal-titlebar { align-items: flex-start; flex-wrap: wrap; }
+    .terminal-signal { margin-left: 0; }
+    .terminal-compact .log-terminal,
+    .terminal-run .log-terminal { height: 220px; }
+    .console-actions { justify-content: flex-start; }
+  }
 
   /* ── Results tabs ─────────────────────────────────────────────────────── */
   .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 1rem; }
@@ -1636,23 +1765,32 @@
       </div>
     </div>
 
-    <!-- ── System Console ─────────────────────────────────────────────── -->
-    <div class="card" id="console-card">
+    <!-- ── Worker Telemetry ───────────────────────────────────────────── -->
+    <div class="card telemetry-card" id="console-card">
       <div class="card-header">
-        <span>⚙️</span> System Console
+        <span>⚙️</span> Worker Telemetry
+        <span id="worker-telemetry-badge" class="badge badge-pending ml-auto"><span class="badge-dot"></span> Monitoring</span>
       </div>
-      <div class="card-body" id="console-card-body">
-        <div class="log-terminal" id="system-console"></div>
+      <div class="card-body telemetry-body" id="console-card-body">
+        <div class="telemetry-strip" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+        <div class="terminal-shell terminal-compact">
+          <div class="terminal-titlebar">
+            <span class="terminal-lights" aria-hidden="true"><span></span><span></span><span></span></span>
+            <span class="terminal-title">System Stream</span>
+            <span class="terminal-signal">polling</span>
+          </div>
+          <div class="log-terminal" id="system-console" aria-live="polite" aria-label="Worker telemetry log"></div>
+        </div>
       </div>
     </div>
 
     <!-- ── Progress / Logs ────────────────────────────────────────────── -->
-    <div class="card hidden" id="progress-card">
+    <div class="card hidden lab-console-card" id="progress-card">
       <div class="card-header">
-        <span>⚡</span> Pipeline Progress
+        <span>⚡</span> Lab Console
         <span id="progress-badge" class="badge badge-running ml-auto"><span class="badge-dot"></span> Running</span>
       </div>
-      <div class="card-body">
+      <div class="card-body lab-console-body">
         <div class="stage-bar" id="stage-bar" role="list" aria-label="Canonical ClusterWeave workflow stages">
           <span class="stage-step" data-stage="prep" role="listitem">
             <span class="stage-topline"><span class="stage-number">01</span><span class="stage-state">Queued</span></span>
@@ -1690,11 +1828,17 @@
             <span class="stage-progress" aria-hidden="true"></span>
           </span>
         </div>
-        <div class="log-terminal" id="log-terminal"></div>
-        <div class="flex-gap mt1">
-          <button class="btn btn-ghost text-sm" onclick="clearLog()">Clear display</button>
-          <button class="btn btn-ghost text-sm" onclick="scrollToBottom()">↓ Scroll to bottom</button>
-          <span id="log-count" class="text-muted text-sm"></span>
+        <div class="terminal-shell terminal-run">
+          <div class="terminal-titlebar">
+            <span class="terminal-lights" aria-hidden="true"><span></span><span></span><span></span></span>
+            <span class="terminal-title">Run Log</span>
+            <span id="log-count" class="terminal-signal">0 lines</span>
+          </div>
+          <div class="log-terminal" id="log-terminal" aria-live="polite" aria-label="Selected run log"></div>
+        </div>
+        <div class="flex-gap console-actions mt1">
+          <button class="btn btn-ghost text-sm" type="button" onclick="clearLog()">Clear display</button>
+          <button class="btn btn-ghost text-sm" type="button" onclick="scrollToBottom()">Scroll to bottom</button>
         </div>
       </div>
     </div>
@@ -3207,6 +3351,7 @@ function renderFileTable(jobId, files) {
 
 // ── System Console (Worker Status) ──────────────────────────────────────────
 function startSystemConsolePolling() {
+  updateWorkerTelemetryBadge('unknown', 'Monitoring');
   appendSystemLog('[System] ClusterWeave initialization complete. Monitoring worker...');
   systemPollTimer = setInterval(() => {
     pollSystemStatus();
@@ -3234,6 +3379,7 @@ async function pollSystemStatus() {
     jobs = await jobsResp.json();
     system = systemPayload || {};
   } catch (err) {
+    updateWorkerTelemetryBadge('unknown', 'No signal');
     return;
   }
   
@@ -3242,27 +3388,56 @@ async function pollSystemStatus() {
   const worker = system.worker || {};
   const concurrency = worker.concurrency || 1;
   const activeCount = worker.active_count || runningCount;
+  const systemState = String(system.state || '').toLowerCase();
+
+  if (systemState === 'error') {
+    const newStatus = 'error';
+    updateWorkerTelemetryBadge(newStatus, 'Error');
+    if (newStatus !== workerStatus) {
+      workerStatus = newStatus;
+      appendSystemLog(`[Worker] ERROR: ${system.detail || 'Worker reported an error'}`);
+    }
+    return;
+  }
   
   // Determine worker status based on pending jobs
   if (runningCount > 0) {
     const newStatus = 'processing';
+    updateWorkerTelemetryBadge(newStatus, 'Processing');
     if (newStatus !== workerStatus) {
       workerStatus = newStatus;
       appendSystemLog(`[Worker] ⚡ Processing ${activeCount} job(s); ${pendingCount} queued`);
     }
   } else if (pendingCount > 0 && activeJobId === null) {
     const newStatus = 'ready';
+    updateWorkerTelemetryBadge(newStatus, 'Ready');
     if (newStatus !== workerStatus) {
       workerStatus = newStatus;
       appendSystemLog(`[Worker] ✅ Ready — ${pendingCount} queued, concurrency ${concurrency}`);
     }
   } else if (pendingCount === 0 && runningCount === 0) {
     const newStatus = 'idle';
+    updateWorkerTelemetryBadge(newStatus, 'Idle');
     if (newStatus !== workerStatus) {
       workerStatus = newStatus;
       appendSystemLog('[Worker] ⏸ Idle — waiting for uploads');
     }
   }
+}
+
+function updateWorkerTelemetryBadge(status, label) {
+  const badge = document.getElementById('worker-telemetry-badge');
+  if (!badge) return;
+  const map = {
+    unknown: ['badge-pending', 'Monitoring'],
+    idle: ['badge-pending', 'Idle'],
+    ready: ['badge-success', 'Ready'],
+    processing: ['badge-running', 'Processing'],
+    error: ['badge-failed', 'Error'],
+  };
+  const [cls, fallback] = map[status] || map.unknown;
+  badge.className = `badge ${cls} ml-auto`;
+  badge.innerHTML = `<span class="badge-dot"></span> ${escapeHtml(label || fallback)}`;
 }
 
 function appendSystemLog(text) {

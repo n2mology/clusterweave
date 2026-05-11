@@ -143,7 +143,8 @@ Progress:
 - Completed: Slice 2 - Workflow Map.
 - Completed: Slice 3 - Upload And Configuration Input Node.
 - Completed: Slice 4 - Runs / Job Queue.
-- Next: Slice 5 - Worker Telemetry / Lab Console.
+- Completed: Slice 5 - Worker Telemetry / Lab Console.
+- Next: Slice 6 - Results And Output Discovery.
 
 Complete these slices in order. Each slice should leave the app usable.
 
