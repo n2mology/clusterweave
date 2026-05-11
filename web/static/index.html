@@ -902,6 +902,100 @@
     .console-actions { justify-content: flex-start; }
   }
 
+  /* ── Results and output discovery ────────────────────────────────────── */
+  .results-intel {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: .65rem;
+    margin: 0 0 1rem;
+  }
+  .output-card {
+    position: relative;
+    overflow: hidden;
+    min-height: 122px;
+    border: 1px solid rgba(202,231,226,.16);
+    border-radius: 8px;
+    padding: .78rem;
+    background:
+      linear-gradient(180deg, rgba(255,252,244,.04), rgba(255,252,244,.012)),
+      rgba(11,11,18,.28);
+    display: flex;
+    flex-direction: column;
+    gap: .42rem;
+  }
+  .output-card::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto;
+    height: 3px;
+    background: linear-gradient(90deg, var(--cw-mint-400), var(--cw-violet-500), var(--cw-amber-2));
+    opacity: .45;
+  }
+  .output-card.available {
+    border-color: rgba(91,230,208,.34);
+    background:
+      linear-gradient(180deg, rgba(91,230,208,.09), rgba(255,252,244,.018)),
+      rgba(11,11,18,.3);
+  }
+  .output-card.empty { opacity: .86; }
+  .output-card.pending::before { opacity: .2; }
+  .output-card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: .55rem;
+  }
+  .output-card-title {
+    color: var(--text);
+    font-size: .86rem;
+    font-weight: 800;
+    line-height: 1.2;
+  }
+  .output-state {
+    flex: 0 0 auto;
+    border: 1px solid rgba(202,231,226,.16);
+    border-radius: 999px;
+    padding: .12rem .42rem;
+    color: var(--muted);
+    font-size: .64rem;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
+  .output-card.available .output-state {
+    border-color: rgba(91,230,208,.42);
+    color: var(--cw-mint-400);
+  }
+  .output-card.empty .output-state {
+    border-color: rgba(245,158,11,.32);
+    color: var(--cw-amber-2);
+  }
+  .output-card-copy {
+    color: var(--muted);
+    font-size: .75rem;
+    line-height: 1.4;
+  }
+  .output-link {
+    margin-top: auto;
+    color: var(--cw-mint-100);
+    font-family: var(--mono);
+    font-size: .7rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .output-link a { color: inherit; }
+  .results-note {
+    margin-bottom: .75rem;
+    color: var(--muted);
+    font-size: .78rem;
+  }
+  @media (max-width: 1120px) {
+    .results-intel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 620px) {
+    .results-intel { grid-template-columns: 1fr; }
+  }
+
   /* ── Results tabs ─────────────────────────────────────────────────────── */
   .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 1rem; }
   .tab {
@@ -923,20 +1017,59 @@
   .figure-grid { display: grid; gap: 1rem; }
   .figure-panel {
     border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--surface2);
+    border-radius: 8px;
+    background:
+      linear-gradient(180deg, rgba(255,252,244,.035), rgba(255,252,244,0) 40%),
+      var(--surface2);
     overflow: hidden;
   }
   .figure-panel-head {
     display: flex; align-items: center; justify-content: space-between; gap: .75rem;
-    padding: .65rem .8rem; border-bottom: 1px solid var(--border);
+    padding: .72rem .82rem; border-bottom: 1px solid var(--border);
   }
-  .figure-name { font-weight: 600; font-size: .85rem; word-break: break-word; }
-  .figure-preview { width: 100%; background: #fff; display: block; }
+  .figure-copy {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: .18rem;
+  }
+  .figure-name { font-weight: 800; font-size: .9rem; word-break: break-word; }
+  .figure-caption { color: var(--muted); font-size: .76rem; line-height: 1.35; }
+  .figure-actions {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .figure-preview-wrap {
+    padding: .8rem;
+    background:
+      linear-gradient(135deg, rgba(91,230,208,.07), rgba(255,252,244,.03) 38%, rgba(148,105,247,.06));
+  }
+  .figure-preview {
+    width: 100%;
+    max-height: 640px;
+    object-fit: contain;
+    background: #fff;
+    border: 1px solid rgba(11,11,18,.18);
+    border-radius: 6px;
+    display: block;
+  }
   .viz-placeholder {
-    text-align: center; padding: 4rem 2rem; color: var(--muted);
+    text-align: center;
+    padding: 3rem 2rem;
+    color: var(--muted);
+    border: 1px dashed rgba(202,231,226,.2);
+    border-radius: 8px;
+    background: rgba(255,252,244,.025);
   }
   .viz-placeholder .big-icon { font-size: 3rem; margin-bottom: 1rem; }
+  @media (max-width: 640px) {
+    .figure-panel-head { align-items: flex-start; flex-direction: column; }
+    .figure-actions { justify-content: flex-start; }
+  }
 
   /* ── File table ───────────────────────────────────────────────────────── */
   .file-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
@@ -1851,6 +1984,25 @@
       </div>
       <div class="card-body">
         <div id="rerun-panel"></div>
+        <div class="results-note">Output discovery is based on files produced by the selected job. Empty panels are placeholders for outputs that have not appeared yet.</div>
+        <div class="results-intel" id="output-discovery" aria-label="Output discovery overview">
+          <div class="output-card pending">
+            <div class="output-card-head"><div class="output-card-title">Priority shortlist</div><span class="output-state">Pending</span></div>
+            <div class="output-card-copy">Shortlist files will appear here after summary outputs are available.</div>
+          </div>
+          <div class="output-card pending">
+            <div class="output-card-head"><div class="output-card-title">Family context</div><span class="output-state">Pending</span></div>
+            <div class="output-card-copy">Family atlas and crosswalk outputs will be linked when produced.</div>
+          </div>
+          <div class="output-card pending">
+            <div class="output-card-head"><div class="output-card-title">Synteny panels</div><span class="output-state">Pending</span></div>
+            <div class="output-card-copy">clinker panel artifacts will be discoverable when present in result files.</div>
+          </div>
+          <div class="output-card pending">
+            <div class="output-card-head"><div class="output-card-title">Figure gallery</div><span class="output-state">Pending</span></div>
+            <div class="output-card-copy">Figure assets from Data/Results/&lt;project&gt;/figures will render below.</div>
+          </div>
+        </div>
         <div class="tabs">
           <div class="tab active" onclick="switchTab('viz')">Visualization</div>
           <div class="tab" onclick="switchTab('files')">Files</div>
@@ -3085,6 +3237,7 @@ async function loadResults(jobId, status, seq = jobLoadSeq, job = activeJobMeta)
   const { files } = await resp.json();
   if (seq !== jobLoadSeq || jobId !== activeJobId) return;
 
+  renderOutputDiscovery(jobId, files, status);
   if (status === 'success') renderViz(jobId, files);
   else {
     document.getElementById('viz-container').innerHTML = `
@@ -3186,6 +3339,67 @@ function fileNameFromPath(path) {
 
 function isFigureAsset(path) {
   return /^Data\/Results\/[^/]+\/figures\/[^/]+\.(svg|png|jpe?g|webp)$/i.test(normalizedResultPath(path));
+}
+
+const OUTPUT_CONCEPTS = [
+  {
+    key: 'priority',
+    title: 'Priority shortlist',
+    pending: 'Shortlist files will appear here after summary outputs are available.',
+    empty: 'No priority shortlist file was found for this job.',
+    available: 'A shortlist artifact is available in the result files.',
+    match: path => /(^|\/)(priority|family_atlas|shared_family).*shortlist.*\.(md|tsv|csv|txt)$/i.test(path),
+  },
+  {
+    key: 'family',
+    title: 'Family context',
+    pending: 'Family atlas and crosswalk outputs will be linked when produced.',
+    empty: 'No family atlas, crosswalk, or BiG-SCAPE context file was found.',
+    available: 'Family context output is available in the result files.',
+    match: path => /(family_atlas|crosswalk|bigscape|gcf|family).*?\.(tsv|csv|svg|png|graphml|md)$/i.test(path),
+  },
+  {
+    key: 'synteny',
+    title: 'Synteny panels',
+    pending: 'clinker panel artifacts will be discoverable when present in result files.',
+    empty: 'No clinker or synteny panel artifact was found for this job.',
+    available: 'A synteny panel artifact is available in the result files.',
+    match: path => /(clinker|synteny|panels_manifest|run_all_clinker).*?\.(html?|svg|png|tsv|sh)$/i.test(path),
+  },
+  {
+    key: 'figures',
+    title: 'Figure gallery',
+    pending: 'Figure assets from Data/Results/<project>/figures will render below.',
+    empty: 'No figure assets were found under Data/Results/<project>/figures.',
+    available: 'Figure assets are available and render in the gallery below.',
+    match: path => isFigureAsset(path),
+  },
+];
+
+function renderOutputDiscovery(jobId, files, status) {
+  const container = document.getElementById('output-discovery');
+  if (!container) return;
+  const normalizedFiles = files.map(normalizedResultPath).filter(Boolean);
+  container.innerHTML = OUTPUT_CONCEPTS.map(concept => {
+    const matches = normalizedFiles.filter(path => concept.match(path)).sort((a, b) => a.localeCompare(b));
+    const incomplete = status === 'pending' || status === 'running';
+    const state = matches.length ? 'available' : (incomplete ? 'pending' : 'empty');
+    const label = state === 'available' ? 'Available' : (state === 'empty' ? 'Empty' : 'Pending');
+    const copy = matches.length ? concept.available : (state === 'empty' ? concept.empty : concept.pending);
+    const firstPath = matches[0] || '';
+    const link = firstPath
+      ? `<div class="output-link"><a href="${escapeHtml(resultHref(jobId, firstPath))}" target="_blank" title="${escapeHtml(firstPath)}">${escapeHtml(fileNameFromPath(firstPath))}</a></div>`
+      : '<div class="output-link text-muted">No file linked yet</div>';
+    return `
+      <div class="output-card ${state}" data-output-kind="${escapeHtml(concept.key)}">
+        <div class="output-card-head">
+          <div class="output-card-title">${escapeHtml(concept.title)}</div>
+          <span class="output-state">${label}</span>
+        </div>
+        <div class="output-card-copy">${escapeHtml(copy)}</div>
+        ${link}
+      </div>`;
+  }).join('');
 }
 
 function fileTypeLabel(path) {
@@ -3305,6 +3519,17 @@ function figureSortKey(path) {
   return `${idx === -1 ? preferred.length : idx}:${name}`;
 }
 
+function figureCaption(path) {
+  const name = fileNameFromPath(path).toLowerCase();
+  if (name === 'bgc_calls_by_tool_category.svg') {
+    return 'Figure output summarizing BGC call categories across the selected run.';
+  }
+  if (name === 'bigscape_network.svg' || name === 'bigscape_network.png') {
+    return 'BiG-SCAPE network figure output generated from family context files.';
+  }
+  return 'Rendered figure output from Data/Results/<project>/figures.';
+}
+
 function renderViz(jobId, files) {
   const figureFiles = files.filter(isFigureAsset).sort((a, b) => figureSortKey(a).localeCompare(figureSortKey(b)));
   const container = document.getElementById('viz-container');
@@ -3321,13 +3546,23 @@ function renderViz(jobId, files) {
   const cards = figureFiles.map(f => {
     const name = fileNameFromPath(f);
     const href = resultHref(jobId, f);
+    const downloadHref = resultHref(jobId, f, { download: true });
     return `
       <div class="figure-panel">
         <div class="figure-panel-head">
-          <div class="figure-name">${escapeHtml(name)}</div>
-          <a class="btn btn-ghost text-sm" href="${href}" target="_blank">Open</a>
+          <div class="figure-copy">
+            <div class="figure-name">${escapeHtml(name)}</div>
+            <div class="figure-caption">${escapeHtml(figureCaption(f))}</div>
+          </div>
+          <div class="figure-actions">
+            <span class="ext-badge">${escapeHtml(fileTypeLabel(f))}</span>
+            <a class="btn btn-ghost text-sm" href="${escapeHtml(href)}" target="_blank">Open</a>
+            <a class="btn btn-ghost text-sm" href="${escapeHtml(downloadHref)}" download="${escapeHtml(name)}">Download</a>
+          </div>
         </div>
-        <img class="figure-preview" src="${href}" alt="${escapeHtml(name)}" />
+        <div class="figure-preview-wrap">
+          <img class="figure-preview" src="${escapeHtml(href)}" alt="${escapeHtml(name)}" />
+        </div>
       </div>`;
   }).join('');
   container.innerHTML = `<div class="figure-grid">${cards}</div>`;

@@ -144,7 +144,8 @@ Progress:
 - Completed: Slice 3 - Upload And Configuration Input Node.
 - Completed: Slice 4 - Runs / Job Queue.
 - Completed: Slice 5 - Worker Telemetry / Lab Console.
-- Next: Slice 6 - Results And Output Discovery.
+- Completed: Slice 6 - Results And Output Discovery.
+- Next: Slice 7 - Responsive And Accessibility Pass.
 
 Complete these slices in order. Each slice should leave the app usable.
 

@@ -180,9 +180,17 @@ class RepoLayoutTests(unittest.TestCase):
     def test_web_visualization_is_limited_to_figure_outputs(self) -> None:
         text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
         self.assertIn("function isFigureAsset(path)", text)
+        self.assertIn("function renderOutputDiscovery(jobId, files, status)", text)
+        self.assertIn('id="output-discovery"', text)
+        self.assertIn("Priority shortlist", text)
+        self.assertIn("Family context", text)
+        self.assertIn("Synteny panels", text)
+        self.assertIn("Figure gallery", text)
+        self.assertIn("function figureCaption(path)", text)
         self.assertIn('Data\\/Results\\/[^/]+\\/figures', text)
         self.assertIn("bgc_calls_by_tool_category.svg", text)
         self.assertIn("bigscape_network.svg", text)
+        self.assertIn("const downloadHref = resultHref(jobId, f, { download: true })", text)
         self.assertIn("<th>Result Path</th>", text)
         self.assertNotIn("const htmlFiles = files.filter", text)
 
