@@ -420,21 +420,180 @@
   .badge-success  { background: rgba(20,184,166,.15); color: var(--success); }
   .badge-failed   { background: rgba(229,96,96,.15); color: var(--danger); }
   .badge-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-  .badge-running .badge-dot { animation: pulse 1.2s ease-in-out infinite; }
+  .badge-running .badge-dot { opacity: .9; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
 
-  /* ── Progress bar ─────────────────────────────────────────────────────── */
-  .stage-bar { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: .75rem; }
-  .stage-step {
-    padding: .25rem .65rem; border-radius: 99px; font-size: .75rem;
-    background: var(--surface2); color: var(--muted); border: 1px solid var(--border);
-    transition: all .3s;
+  /* ── Workflow map ─────────────────────────────────────────────────────── */
+  .stage-bar {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(110px, 1fr));
+    gap: .62rem;
+    margin-bottom: .85rem;
+    position: relative;
   }
-  .stage-step.upcoming { background: rgba(91,230,208,.1); color: var(--accent); border-color: rgba(91,230,208,.38); }
-  .stage-step.active  { background: rgba(240,165,0,.18); color: var(--warn); border-color: var(--warn); }
-  .stage-step.done    { background: rgba(62,207,142,.15); color: var(--success); border-color: var(--success); }
-  .stage-step.failed  { background: rgba(229,96,96,.15); color: var(--danger); border-color: var(--danger); }
-  .stage-step.disabled { background: rgba(120,130,160,.08); color: var(--muted); border-color: var(--border); opacity: .5; }
+  .stage-step {
+    position: relative;
+    isolation: isolate;
+    min-height: 92px;
+    padding: .64rem .62rem .54rem;
+    border-radius: var(--radius);
+    font-size: .75rem;
+    background:
+      linear-gradient(180deg, rgba(255,252,244,.035), transparent 54%),
+      rgba(11,11,18,.42);
+    color: var(--muted);
+    border: 1px solid var(--border);
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    gap: .44rem;
+    overflow: visible;
+    transition: border-color .25s, background .25s, color .25s, opacity .25s, box-shadow .25s;
+  }
+  .stage-step::before,
+  .stage-step::after {
+    content: '';
+    position: absolute;
+    left: calc(100% - .1rem);
+    width: calc(.62rem + .22rem);
+    height: 2px;
+    border-radius: 999px;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .stage-step::before {
+    top: 34%;
+    background: linear-gradient(90deg, currentColor 0 46%, transparent 46% 56%, currentColor 56%);
+    opacity: .32;
+    transform: translateY(-2px) skewY(-9deg);
+  }
+  .stage-step::after {
+    top: 43%;
+    background: linear-gradient(90deg, currentColor 0 38%, transparent 38% 50%, currentColor 50%);
+    opacity: .22;
+    transform: translateY(3px) skewY(9deg);
+  }
+  .stage-step:last-child::before,
+  .stage-step:last-child::after { display: none; }
+  .stage-topline {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .5rem;
+  }
+  .stage-number {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.8rem;
+    height: 1.8rem;
+    border-radius: 50%;
+    border: 1px solid currentColor;
+    background: rgba(255,252,244,.045);
+    color: currentColor;
+    font-family: var(--mono);
+    font-size: .72rem;
+    font-weight: 800;
+  }
+  .stage-state {
+    color: currentColor;
+    font-size: .66rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    line-height: 1;
+  }
+  .stage-copy {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    gap: .16rem;
+  }
+  .stage-name {
+    color: var(--text);
+    font-size: .88rem;
+    line-height: 1.15;
+    font-weight: 800;
+  }
+  .stage-hint {
+    color: var(--muted);
+    font-size: .7rem;
+    line-height: 1.25;
+  }
+  .stage-progress {
+    position: relative;
+    height: 4px;
+    border-radius: 999px;
+    background: rgba(255,252,244,.09);
+    overflow: hidden;
+  }
+  .stage-progress::after {
+    content: '';
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 0;
+    border-radius: inherit;
+    background: currentColor;
+    transition: width .25s ease;
+  }
+  .stage-step.upcoming {
+    background: rgba(79,70,229,.1);
+    color: #A5B4FC;
+    border-color: rgba(79,70,229,.42);
+  }
+  .stage-step.upcoming .stage-progress::after { width: 16%; opacity: .75; }
+  .stage-step.active  {
+    background:
+      linear-gradient(180deg, rgba(245,158,11,.18), rgba(245,158,11,.055)),
+      rgba(11,11,18,.42);
+    color: var(--warn);
+    border-color: var(--warn);
+    box-shadow: 0 0 0 1px rgba(245,158,11,.16), 0 10px 30px rgba(245,158,11,.08);
+  }
+  .stage-step.active .stage-progress::after {
+    width: 62%;
+    animation: workflowPulse 1.25s ease-in-out infinite;
+  }
+  .stage-step.active::before,
+  .stage-step.active::after { animation: workflowPulse 1.25s ease-in-out infinite; }
+  .stage-step.done {
+    background:
+      linear-gradient(180deg, rgba(20,184,166,.17), rgba(20,184,166,.05)),
+      rgba(11,11,18,.42);
+    color: var(--success);
+    border-color: var(--success);
+  }
+  .stage-step.done .stage-progress::after { width: 100%; }
+  .stage-step.failed {
+    background:
+      linear-gradient(180deg, rgba(248,113,113,.18), rgba(248,113,113,.06)),
+      rgba(11,11,18,.42);
+    color: var(--danger);
+    border-color: var(--danger);
+  }
+  .stage-step.failed .stage-progress::after { width: 100%; }
+  .stage-step.disabled {
+    background: rgba(129,134,137,.08);
+    color: var(--muted);
+    border-color: var(--border);
+    opacity: .58;
+  }
+  .stage-step.disabled .stage-progress::after { width: 0; }
+  .stage-step.disabled::before,
+  .stage-step.disabled::after { opacity: .08; }
+  @keyframes workflowPulse {
+    0%, 100% { opacity: .95; }
+    50% { opacity: .42; }
+  }
+  @media (max-width: 1120px) {
+    .stage-bar { grid-template-columns: repeat(4, minmax(130px, 1fr)); }
+    .stage-step:nth-child(4n)::before,
+    .stage-step:nth-child(4n)::after { display: none; }
+  }
+  @media (max-width: 720px) {
+    .stage-bar { grid-template-columns: 1fr; }
+    .stage-step { min-height: auto; }
+    .stage-step::before,
+    .stage-step::after { display: none; }
+  }
 
   /* ── Log terminal ─────────────────────────────────────────────────────── */
   .log-terminal {
@@ -753,7 +912,9 @@
       scroll-behavior: auto !important;
       transition-duration: .01ms !important;
     }
-    .badge-running .badge-dot, .bootstrap-icon, .spinner {
+    .badge-running .badge-dot, .bootstrap-icon, .spinner,
+    .stage-step.active::before, .stage-step.active::after,
+    .stage-step.active .stage-progress::after {
       animation: none !important;
     }
   }
@@ -1165,14 +1326,42 @@
         <span id="progress-badge" class="badge badge-running ml-auto"><span class="badge-dot"></span> Running</span>
       </div>
       <div class="card-body">
-        <div class="stage-bar" id="stage-bar">
-          <span class="stage-step" data-stage="prep">Prep</span>
-          <span class="stage-step" data-stage="annotation">Annotation</span>
-          <span class="stage-step" data-stage="bigscape">BiG-SCAPE</span>
-          <span class="stage-step" data-stage="summary">Summary</span>
-          <span class="stage-step" data-stage="clinker">clinker</span>
-          <span class="stage-step" data-stage="figures">Figures</span>
-          <span class="stage-step" data-stage="nplinker">NPLinker</span>
+        <div class="stage-bar" id="stage-bar" role="list" aria-label="Canonical ClusterWeave workflow stages">
+          <span class="stage-step" data-stage="prep" role="listitem">
+            <span class="stage-topline"><span class="stage-number">01</span><span class="stage-state">Queued</span></span>
+            <span class="stage-copy"><span class="stage-name">Prep</span><span class="stage-hint">Accessions and project layout</span></span>
+            <span class="stage-progress" aria-hidden="true"></span>
+          </span>
+          <span class="stage-step" data-stage="annotation" role="listitem">
+            <span class="stage-topline"><span class="stage-number">02</span><span class="stage-state">Queued</span></span>
+            <span class="stage-copy"><span class="stage-name">Annotation</span><span class="stage-hint">antiSMASH / FunBGCeX detection</span></span>
+            <span class="stage-progress" aria-hidden="true"></span>
+          </span>
+          <span class="stage-step" data-stage="bigscape" role="listitem">
+            <span class="stage-topline"><span class="stage-number">03</span><span class="stage-state">Queued</span></span>
+            <span class="stage-copy"><span class="stage-name">BiG-SCAPE</span><span class="stage-hint">Family graph construction</span></span>
+            <span class="stage-progress" aria-hidden="true"></span>
+          </span>
+          <span class="stage-step" data-stage="summary" role="listitem">
+            <span class="stage-topline"><span class="stage-number">04</span><span class="stage-state">Queued</span></span>
+            <span class="stage-copy"><span class="stage-name">Summary</span><span class="stage-hint">Crosswalks and tables</span></span>
+            <span class="stage-progress" aria-hidden="true"></span>
+          </span>
+          <span class="stage-step" data-stage="clinker" role="listitem">
+            <span class="stage-topline"><span class="stage-number">05</span><span class="stage-state">Queued</span></span>
+            <span class="stage-copy"><span class="stage-name">clinker</span><span class="stage-hint">Synteny panel staging</span></span>
+            <span class="stage-progress" aria-hidden="true"></span>
+          </span>
+          <span class="stage-step" data-stage="figures" role="listitem">
+            <span class="stage-topline"><span class="stage-number">06</span><span class="stage-state">Queued</span></span>
+            <span class="stage-copy"><span class="stage-name">Figures</span><span class="stage-hint">SVG / image rendering</span></span>
+            <span class="stage-progress" aria-hidden="true"></span>
+          </span>
+          <span class="stage-step" data-stage="nplinker" role="listitem">
+            <span class="stage-topline"><span class="stage-number">07</span><span class="stage-state">Queued</span></span>
+            <span class="stage-copy"><span class="stage-name">NPLinker</span><span class="stage-hint">Optional omics follow-up</span></span>
+            <span class="stage-progress" aria-hidden="true"></span>
+          </span>
         </div>
         <div class="log-terminal" id="log-terminal"></div>
         <div class="flex-gap mt1">
@@ -2232,18 +2421,33 @@ function renderStageState() {
   if (!activeStageState) return;
   document.querySelectorAll('.stage-step').forEach(el => {
     const key = el.dataset.stage;
+    const stageLabel = (STAGES.find(s => s.key === key) || {}).label || key;
+    const stateEl = el.querySelector('.stage-state');
+    let stateLabel = 'Queued';
     el.classList.remove('active','done','upcoming','disabled','failed');
     if (!activeStageState.enabled.has(key)) {
       el.classList.add('disabled');
+      stateLabel = 'Skipped';
+      el.removeAttribute('aria-current');
     } else if (activeStageState.failed === key) {
       el.classList.add('failed');
+      stateLabel = 'Failed';
+      el.setAttribute('aria-current', 'step');
     } else if (activeStageState.completed.has(key)) {
       el.classList.add('done');
+      stateLabel = 'Complete';
+      el.removeAttribute('aria-current');
     } else if (activeStageState.current === key) {
       el.classList.add('active');
+      stateLabel = 'Current';
+      el.setAttribute('aria-current', 'step');
     } else {
       el.classList.add('upcoming');
+      stateLabel = 'Queued';
+      el.removeAttribute('aria-current');
     }
+    if (stateEl) stateEl.textContent = stateLabel;
+    el.setAttribute('aria-label', `${stageLabel}: ${stateLabel}`);
   });
 }
 

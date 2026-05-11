@@ -140,7 +140,8 @@ Progress:
 
 - Completed: Slice 0 - Baseline Safeguards.
 - Completed: Slice 1 - Design Tokens And Page Shell.
-- Next: Slice 2 - Workflow Map.
+- Completed: Slice 2 - Workflow Map.
+- Next: Slice 3 - Upload And Configuration Input Node.
 
 Complete these slices in order. Each slice should leave the app usable.
 
