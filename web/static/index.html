@@ -876,24 +876,163 @@
   .file-folder-body .file-folder { background: rgba(255,255,255,.01); }
   .file-tree-table { background: rgba(15,17,23,.28); border-radius: 6px; overflow: hidden; }
 
-  /* ── Job history sidebar strip ────────────────────────────────────────── */
-  .job-history { display: flex; flex-direction: column; gap: .5rem; }
+  /* ── Run queue cards ──────────────────────────────────────────────────── */
+  .job-history { display: flex; flex-direction: column; gap: .65rem; }
   .job-card {
-    background: linear-gradient(90deg, rgba(255,252,244,.035), rgba(91,230,208,.025));
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: .6rem .9rem;
-    display: flex; align-items: center; gap: .75rem;
+    position: relative;
+    isolation: isolate;
+    background:
+      linear-gradient(115deg, rgba(255,252,244,.05), rgba(91,230,208,.035) 48%, rgba(148,105,247,.035)),
+      rgba(11,11,18,.34);
+    border: 1px solid rgba(202,231,226,.18);
+    border-radius: 8px;
+    padding: .72rem .72rem .68rem .82rem;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: .62rem;
     cursor: pointer;
-    transition: border-color .2s;
+    overflow: hidden;
+    transition: border-color .18s, background .18s, box-shadow .18s, transform .18s;
   }
-  .job-card:hover { border-color: var(--accent); }
-  .job-card.active-job { border-color: var(--accent); background: rgba(91,230,208,.08); box-shadow: inset 3px 0 0 var(--accent); }
-  .job-card-name { font-weight: 600; font-size: .85rem; }
-  .job-card-id   { color: var(--muted); font-size: .75rem; font-family: var(--mono); }
-  .job-card-meta { flex: 1; }
-  .job-delete    { background: none; border: none; color: var(--muted); cursor: pointer; font-size: .9rem; padding: .1rem .3rem; }
-  .job-delete:hover { color: var(--danger); }
+  .job-card::before {
+    content: '';
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 3px;
+    background: linear-gradient(var(--cw-mint-400), var(--cw-violet-500), var(--cw-amber-2));
+    opacity: .36;
+    z-index: -1;
+  }
+  .job-card:hover {
+    border-color: rgba(91,230,208,.5);
+    transform: translateY(-1px);
+    box-shadow: 0 12px 28px rgba(0,0,0,.18);
+  }
+  .job-card:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring), 0 12px 28px rgba(0,0,0,.18);
+  }
+  .job-card.active-job {
+    border-color: var(--accent);
+    background:
+      linear-gradient(115deg, rgba(91,230,208,.12), rgba(255,252,244,.045) 42%, rgba(148,105,247,.09)),
+      rgba(11,11,18,.52);
+    box-shadow: inset 3px 0 0 var(--accent), 0 0 0 1px rgba(91,230,208,.14), 0 14px 34px rgba(20,184,166,.1);
+  }
+  .job-card.active-job::before { opacity: 1; }
+  .job-card-main { min-width: 0; }
+  .job-card-topline {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: .55rem;
+    min-width: 0;
+  }
+  .job-card-name {
+    min-width: 0;
+    color: var(--text);
+    font-weight: 800;
+    font-size: .9rem;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+  .job-card.active-job .job-card-name { color: var(--cw-mint-50); }
+  .job-card-status {
+    flex: 0 0 auto;
+    display: flex;
+    justify-content: flex-end;
+  }
+  .job-card-id-row {
+    display: flex;
+    align-items: center;
+    gap: .42rem;
+    flex-wrap: wrap;
+    margin-top: .18rem;
+  }
+  .job-card-label {
+    color: var(--cw-amber-2);
+    font-size: .66rem;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
+  .job-card-id {
+    color: var(--muted);
+    font-size: .74rem;
+    font-family: var(--mono);
+    overflow-wrap: anywhere;
+  }
+  .job-card-stage {
+    display: flex;
+    align-items: center;
+    gap: .42rem;
+    min-width: 0;
+    margin-top: .36rem;
+    color: var(--cw-mint-100);
+    font-size: .77rem;
+  }
+  .job-card-stage-label {
+    flex: 0 0 auto;
+    color: var(--muted);
+    font-size: .66rem;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
+  .job-card-stage-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .job-stage-pips {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: .22rem;
+    margin-top: .55rem;
+  }
+  .job-stage-pip {
+    height: 5px;
+    border-radius: 999px;
+    background: rgba(255,252,244,.09);
+    border: 1px solid rgba(255,252,244,.05);
+  }
+  .job-stage-pip.done {
+    background: var(--success);
+    border-color: rgba(20,184,166,.55);
+  }
+  .job-stage-pip.current {
+    background: var(--warn);
+    border-color: rgba(245,158,11,.7);
+    box-shadow: 0 0 10px rgba(245,158,11,.24);
+  }
+  .job-stage-pip.failed {
+    background: var(--danger);
+    border-color: rgba(248,113,113,.7);
+  }
+  .job-stage-pip.disabled {
+    background: rgba(129,134,137,.13);
+    border-color: rgba(129,134,137,.08);
+    opacity: .45;
+  }
+  .job-delete {
+    width: 1.72rem;
+    height: 1.72rem;
+    flex: 0 0 auto;
+    display: inline-grid;
+    place-items: center;
+    background: rgba(255,252,244,.035);
+    border: 1px solid rgba(202,231,226,.14);
+    border-radius: 6px;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 1.05rem;
+    line-height: 1;
+    transition: color .15s, border-color .15s, background .15s;
+  }
+  .job-delete:hover {
+    color: var(--danger);
+    border-color: rgba(248,113,113,.42);
+    background: rgba(248,113,113,.08);
+  }
   .rerun-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem .9rem; }
   @media (max-width: 720px) { .rerun-grid { grid-template-columns: 1fr; } }
   .rerun-panel-body { padding: 1rem; display: flex; flex-direction: column; gap: .75rem; }
@@ -1664,6 +1803,14 @@ function escapeHtml(value) {
   }[ch]));
 }
 
+function escapeJsString(value) {
+  return String(value ?? '')
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\r/g, '\\r')
+    .replace(/\n/g, '\\n');
+}
+
 function defaultApiBaseUrl() {
   const url = new URL(window.location.href);
   url.search = '';
@@ -2357,11 +2504,95 @@ function jobHistoryRenderKey(jobs) {
   return JSON.stringify(jobs.map(j => [
     j.id,
     j.name,
+    j.project_name,
     j.status,
     j.stage,
-    j.updated_at,
+    jobStageSignature(j),
     j.id === activeJobId,
   ]));
+}
+
+function jobStageSignature(job) {
+  return STAGES.map(stage => jobStageEnabled(job, stage.key) ? '1' : '0').join('');
+}
+
+function jobProjectName(job) {
+  return String((job && (job.project_name || job.name)) || 'Untitled run');
+}
+
+function jobStageDisplay(job) {
+  const raw = String((job && job.stage) || 'queued').trim();
+  if (!raw) return 'Queued';
+  const labels = {
+    queued: 'Queued',
+    complete: 'Complete',
+    'Preparing ClusterWeave project layout': 'Project layout',
+    'Installing NCBI CLI': 'NCBI CLI install',
+    'Preparing genomes from accessions': 'Genome prep',
+    'Running canonical ClusterWeave workflow': 'Canonical workflow',
+    'Rendering summary figures': 'Summary figures',
+    'Running optional NPLinker follow-up': 'NPLinker follow-up',
+  };
+  return labels[raw] || raw;
+}
+
+function jobCurrentStageKey(job) {
+  const status = String((job && job.status) || '').toLowerCase();
+  const stage = String((job && job.stage) || '').toLowerCase();
+  if (!stage || stage === 'queued' || stage === 'complete' || status === 'success') return null;
+  if (/nplinker/.test(stage)) return 'nplinker';
+  if (/figure|rendering summary/.test(stage)) return 'figures';
+  if (/clinker|synteny/.test(stage)) return 'clinker';
+  if (/summary|crosswalk|shortlist|atlas|summarize/.test(stage)) return 'summary';
+  if (/big[-\s]?scape|family graph/.test(stage)) return 'bigscape';
+  if (/annotation|antismash|funbgcex|canonical clusterweave workflow/.test(stage)) return 'annotation';
+  if (/prep|accession|layout|ncbi|installing/.test(stage)) return 'prep';
+  return null;
+}
+
+function jobStagePipState(job, key) {
+  if (!jobStageEnabled(job, key)) return 'disabled';
+  const status = String((job && job.status) || 'pending').toLowerCase();
+  const current = jobCurrentStageKey(job);
+  const currentIdx = current ? stageIndex(current) : -1;
+  const pipIdx = stageIndex(key);
+  if (status === 'success') return 'done';
+  if (status === 'failed') {
+    if (current && key === current) return 'failed';
+    if (currentIdx >= 0 && pipIdx >= 0 && pipIdx < currentIdx) return 'done';
+    return 'upcoming';
+  }
+  if (status === 'running') {
+    if (current && key === current) return 'current';
+    if (currentIdx >= 0 && pipIdx >= 0 && pipIdx < currentIdx) return 'done';
+  }
+  return 'upcoming';
+}
+
+function renderJobStagePips(job) {
+  const stateLabels = {
+    done: 'complete',
+    current: 'current',
+    failed: 'failed',
+    disabled: 'skipped',
+    upcoming: 'queued',
+  };
+  const pips = STAGES.map(stage => {
+    const state = jobStagePipState(job, stage.key);
+    const label = `${stage.label}: ${stateLabels[state] || state}`;
+    return `<span class="job-stage-pip ${state}" role="listitem" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}"></span>`;
+  }).join('');
+  return `<div class="job-stage-pips" role="list" aria-label="Run stage status">${pips}</div>`;
+}
+
+function statusLabel(status) {
+  const labels = {
+    pending: 'Pending',
+    running: 'Running',
+    success: 'Complete',
+    failed: 'Failed',
+  };
+  return labels[String(status || '').toLowerCase()] || String(status || 'Pending');
 }
 
 function renderJobHistory(jobs) {
@@ -2373,26 +2604,53 @@ function renderJobHistory(jobs) {
     el.innerHTML = '<div class="empty-state">No jobs yet. Upload files and run analysis above.</div>';
     return;
   }
-  el.innerHTML = jobs.map(j => `
-    <div class="job-card ${j.id === activeJobId ? 'active-job' : ''}" data-job-id="${escapeHtml(j.id)}" onclick="loadJob('${j.id}')">
-      <div class="job-card-meta">
-        <div class="job-card-name">${escapeHtml(j.name)}</div>
-        <div class="job-card-id">${escapeHtml(j.id)} · ${escapeHtml(j.stage)}</div>
+  el.innerHTML = jobs.map(j => {
+    const jobId = String(j.id || '');
+    const jsJobId = escapeJsString(jobId);
+    const projectName = jobProjectName(j);
+    const stageLabel = jobStageDisplay(j);
+    const statusText = statusLabel(j.status);
+    const cardLabel = `Load run ${projectName}. Status ${statusText}. Current stage ${stageLabel}.`;
+    const attrJobId = escapeHtml(jsJobId);
+    return `
+    <div class="job-card ${jobId === activeJobId ? 'active-job' : ''}" data-job-id="${escapeHtml(jobId)}" role="button" tabindex="0" aria-label="${escapeHtml(cardLabel)}" onclick="loadJob('${attrJobId}')" onkeydown="handleJobCardKeydown(event,'${attrJobId}')">
+      <div class="job-card-main">
+        <div class="job-card-topline">
+          <div class="job-card-name">${escapeHtml(projectName)}</div>
+          <div class="job-card-status">${statusBadge(j.status)}</div>
+        </div>
+        <div class="job-card-id-row">
+          <span class="job-card-label">Run</span>
+          <span class="job-card-id">${escapeHtml(jobId)}</span>
+        </div>
+        <div class="job-card-stage" title="${escapeHtml(String(j.stage || 'queued'))}">
+          <span class="job-card-stage-label">Stage</span>
+          <span class="job-card-stage-text">${escapeHtml(stageLabel)}</span>
+        </div>
+        ${renderJobStagePips(j)}
       </div>
-      ${statusBadge(j.status)}
-      <button class="job-delete" title="Delete" onclick="deleteJob(event,'${j.id}')">🗑</button>
-    </div>`).join('');
+      <button class="job-delete" type="button" title="Delete run" aria-label="Delete run ${escapeHtml(jobId)}" onclick="deleteJob(event,'${attrJobId}')">&times;</button>
+    </div>`;
+  }).join('');
 }
 
 function statusBadge(status) {
   const map = {
-    pending: ['pending','⏳'],
-    running: ['running','⚡'],
-    success: ['success','✅'],
-    failed:  ['failed', '❌'],
+    pending: 'pending',
+    running: 'running',
+    success: 'success',
+    failed:  'failed',
   };
-  const [cls, icon] = map[status] || ['pending','?'];
-  return `<span class="badge badge-${cls}"><span class="badge-dot"></span>${icon} ${escapeHtml(status)}</span>`;
+  const cls = map[String(status || '').toLowerCase()] || 'pending';
+  return `<span class="badge badge-${cls}"><span class="badge-dot"></span>${escapeHtml(statusLabel(status))}</span>`;
+}
+
+function handleJobCardKeydown(event, jobId) {
+  if (event.target.closest('button')) return;
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault();
+    loadJob(jobId);
+  }
 }
 
 function markActiveJobCard(jobId) {

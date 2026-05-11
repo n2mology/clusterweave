@@ -142,7 +142,8 @@ Progress:
 - Completed: Slice 1 - Design Tokens And Page Shell.
 - Completed: Slice 2 - Workflow Map.
 - Completed: Slice 3 - Upload And Configuration Input Node.
-- Next: Slice 4 - Runs / Job Queue.
+- Completed: Slice 4 - Runs / Job Queue.
+- Next: Slice 5 - Worker Telemetry / Lab Console.
 
 Complete these slices in order. Each slice should leave the app usable.
 
