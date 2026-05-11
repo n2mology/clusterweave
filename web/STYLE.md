@@ -212,8 +212,8 @@ Progress:
 - Completed: Slice 5 - Worker Telemetry / Lab Console.
 - Completed: Slice 6 - Results And Output Discovery.
 - Completed: Slice 7 - Responsive And Accessibility Pass.
-- Next: Slice 8 - Neumorphic Surface System.
-- Later: Slice 9 - Retrofuturist Signal And Workflow Polish.
+- Completed: Slice 8 - Neumorphic Surface System.
+- Next: Slice 9 - Retrofuturist Signal And Workflow Polish.
 - Final: Slice 10 - Final QA And Documentation.
 
 Complete these slices in order. Each slice should leave the app usable.
