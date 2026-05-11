@@ -355,7 +355,12 @@ class Handler(BaseHTTPRequestHandler):
             if not index.exists():
                 self._not_found("Frontend not found")
                 return
-            self._send_text(HTTPStatus.OK, "text/html; charset=utf-8", index.read_bytes())
+            self._send_text(
+                HTTPStatus.OK,
+                "text/html; charset=utf-8",
+                index.read_bytes(),
+                {"Cache-Control": "no-store"},
+            )
             return
 
         if route == "/api/jobs":

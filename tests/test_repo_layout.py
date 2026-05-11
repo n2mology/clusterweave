@@ -222,9 +222,21 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("loadResults(jobId, job.status, seq, job)", text)
         self.assertIn("seq !== jobLoadSeq || jobId !== activeJobId", text)
 
+    def test_web_api_calls_work_behind_path_prefixed_proxies(self) -> None:
+        text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("function apiUrl(path)", text)
+        self.assertIn("function defaultApiBaseUrl()", text)
+        self.assertIn("window.CLUSTERWEAVE_API_BASE", text)
+        self.assertIn("fetch(apiUrl('api/system/status'))", text)
+        self.assertIn("fetch(apiUrl('api/jobs'))", text)
+        self.assertIn("const base = apiUrl(`api/jobs/", text)
+        self.assertNotIn("fetch('/api/", text)
+        self.assertNotIn('fetch("/api/', text)
+
     def test_web_serves_result_assets_inline_unless_download_requested(self) -> None:
         text = (REPO_ROOT / "web" / "app.py").read_text(encoding="utf-8")
         self.assertIn('"image/svg+xml; charset=utf-8"', text)
+        self.assertIn('"Cache-Control": "no-store"', text)
         self.assertIn("def result_file_mime(path: Path) -> str:", text)
         self.assertIn("def content_disposition(disposition: str, filename: str) -> str:", text)
         self.assertIn('"attachment" if parse_bool(query.get("download", ["0"])[0], False) else "inline"', text)
