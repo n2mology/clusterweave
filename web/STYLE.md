@@ -88,6 +88,12 @@ Baseline screenshot reviewed after Slice 7:
   palette, denser run cards, and a polished telemetry console.
 - The UI reads as a credible lab instrument, but it still leans more "flat dark HUD" than
   "Neumorphism + Retrofuturism."
+- The first viewport is still panel-first: upload/configuration, job queue, and telemetry are
+  strong, but the user journey is not yet the dominant visual story.
+- The current `Intake / Pipeline / Outputs` pills are directionally useful but too passive and
+  small to serve as product navigation.
+- The hero strip introduces ClusterWeave, but it does not yet carry a memorable WeaveMap motif
+  or direct users through "add sources -> run stages -> inspect outputs."
 - The page has good operational density. Do not replace it with a landing page or oversized
   hero.
 - The two-column intake/queue layout works well. The next polish should connect these modules
@@ -106,6 +112,10 @@ Gaps to address before final QA:
   physical control surface.
 - Buttons and inputs need a stronger hierarchy: raised primary action, recessed text wells,
   pressed toggles, and unmistakable focus states.
+- Guided users need a clearer public-demo path: Load demo, Start run, View workflow map, then
+  inspect outputs.
+- Lab QA users still need fast access to worker state, logs, failures, job IDs, and artifacts,
+  but these should not dominate the default first impression.
 - Neumorphism must not reduce contrast. Text, controls, checkboxes, badges, and focus rings must
   remain readable and accessible.
 
@@ -144,6 +154,178 @@ Suggested additional depth tokens:
   --cw-retro-glow: 0 0 18px rgba(91,230,208,.22);
 }
 ```
+
+## Journey-First Product Requirements
+
+The current UI is operationally complete enough to become more productized. The next work should
+shift the page from panel-first to journey-first:
+
+1. Add fungal genomes or accessions.
+2. Weave them through canonical BGC workflow stages.
+3. Inspect prioritized BGC outputs, synteny, family context, logs, and artifacts.
+
+### Top-Level Navigation Shell
+
+Create a clearer product navigation system while keeping the app single-page:
+
+- Brand/logo on the left.
+- Primary navigation:
+  - Overview
+  - Intake
+  - WeaveMap
+  - Runs
+  - Outputs
+  - QA Console
+  - Docs
+- Right side actions/status:
+  - Load demo
+  - Start run
+  - Runtime/status chip
+  - Results
+
+Navigation behavior:
+
+- Anchor to sections or switch focus states; do not introduce routing unless needed.
+- Use active states that update when a section is selected.
+- Collapse into a clean menu on smaller screens.
+- Translate high-end product-site navigation to ClusterWeave:
+  - "Services" -> workflow stages/tools.
+  - "Solutions" -> user modes: Guided Demo, Lab QA, Advanced/HPC.
+  - "Resources" -> Docs, Artifacts, Logs, Methods.
+  - CTA -> Start run or Load demo accession.
+
+### Hero And Quick Start
+
+Replace the compact strip with a memorable but still operational hero:
+
+- Left side: strong headline and concise body copy.
+- Right side: static or lightweight animated WeaveMap motif showing genomes entering, braided
+  paths crossing, and priority outputs emerging.
+- Hero actions:
+  - Primary: Start from accessions
+  - Secondary: Load demo run
+  - Tertiary: View workflow map
+
+Suggested headline:
+
+> Upload genomes or accessions, run canonical discovery stages, and inspect every output from
+> annotation to gene cluster family context.
+
+The hero must lead directly into the app workflow. It should not become a detached marketing
+landing page.
+
+### User Modes
+
+Add a visible mode switch without changing backend behavior:
+
+- Guided Demo: minimizes noisy telemetry, emphasizes upload/start/stage progress/outputs.
+- Lab QA: expands worker telemetry, job IDs, runtime state, logs, failures, artifacts.
+- Advanced: exposes advanced knobs, NPLinker assets, annotation strategy, CPU threads, target
+  genome, and stage switches.
+
+Implementation guidance:
+
+- This can be CSS/JS section emphasis in the existing single-page app.
+- Do not remove controls. Modes may collapse, emphasize, or scroll to sections.
+- Default mode may be Guided Demo if no job is active, and Lab QA when a run is selected or
+  running.
+
+### WeaveMap
+
+Make the canonical workflow the central visual story:
+
+- Intake
+- Prep
+- Annotation / BGC detection
+- BiG-SCAPE family mapping
+- Summary / crosswalk
+- clinker synteny
+- Figures
+- NPLinker
+- Outputs
+
+Each stage module should show:
+
+- stage number
+- stage name
+- real tool chips
+- status: idle, ready, running, complete, failed, skipped
+- small progress line
+- hover/focus detail
+- artifact count only if real data exists
+
+Connect stages with braided orange/teal paths. Pulse only the active braid/stage when a run is
+active.
+
+### Section Hierarchy
+
+Suggested page structure after the next polish passes:
+
+1. Header/nav
+2. Cinematic workflow hero
+3. Three-step quick start:
+   - Add sources
+   - Configure workflow
+   - Start / monitor run
+4. WeaveMap pipeline
+5. Intake/configuration panel
+6. Runs / run history
+7. Outputs preview
+8. Collapsible QA console / telemetry
+9. Footer or compact docs/methods links
+
+### Outputs
+
+Add or refine a clear Outputs section, even when empty:
+
+- Prioritized BGC shortlist
+- Gene cluster family context
+- Synteny/clinker panel
+- Figures
+- Artifacts/files
+- NPLinker follow-up
+
+Use honest empty states:
+
+- "Run a workflow to populate this panel."
+- "No artifacts available yet."
+- "NPLinker optional follow-up not enabled."
+
+Do not invent fake scientific results.
+
+### Copy Direction
+
+Prefer approachable scientific labels:
+
+- Genome / accession intake
+- Canonical workflow stages
+- Worker telemetry
+- Run history
+- Priority outputs
+- Artifacts
+- Synteny panel
+- Family context
+- Load demo run
+- Start workflow
+
+Avoid childish game copy, excessive cyberpunk language, fake achievement metrics, and "quest"
+wording except in very subtle internal metaphors.
+
+## Practical Refinement Checklist
+
+Carry these deltas through the next visual passes:
+
+- Make navigation feel like a product shell, not decorative section pills.
+- Move the pipeline visualization up and make it the central visual story.
+- Reduce console and telemetry dominance in the default mode.
+- Add a `Guided Demo` / `Lab QA` / `Advanced` mode switch.
+- Convert upload/configuration into a cleaner intake node with advanced drawers.
+- Add a real `Outputs` section with honest empty states.
+- Strengthen the wordmark: spell out `ClusterWeave`, with an orange/teal double-helix crossing
+  between the `r` and `W`.
+- Use orange/teal braided connectors throughout the workflow.
+- Use fewer nested borders and more deliberate section hierarchy.
+- Add subtle signal/dither motion only where it explains state.
 
 ## Design Tokens
 
@@ -212,9 +394,11 @@ Progress:
 - Completed: Slice 5 - Worker Telemetry / Lab Console.
 - Completed: Slice 6 - Results And Output Discovery.
 - Completed: Slice 7 - Responsive And Accessibility Pass.
-- Completed: Slice 8 - Neumorphic Surface System.
-- Next: Slice 9 - Retrofuturist Signal And Workflow Polish.
-- Final: Slice 10 - Final QA And Documentation.
+- Next: Slice 8 - Journey-First Navigation And Hero.
+- Later: Slice 9 - User Modes And Section Hierarchy.
+- Later: Slice 10 - Neumorphic Surface System.
+- Later: Slice 11 - Retrofuturist WeaveMap And Outputs Polish.
+- Final: Slice 12 - Final QA And Documentation.
 
 Complete these slices in order. Each slice should leave the app usable.
 
@@ -364,62 +548,116 @@ Acceptance:
 - No incoherent overlap at common viewport widths.
 - Keyboard users can operate upload, settings, queue, tabs, and results.
 
-### Slice 8: Neumorphic Surface System
+### Slice 8: Journey-First Navigation And Hero
 
-Goal: add a coherent tactile depth language without breaking layout or contrast.
-
-Tasks:
-
-- Add reusable depth tokens for raised, inset, beveled, pressed, and glowing states.
-- Apply raised depth to main cards, identity band, workflow modules, run cards, and result
-  shells.
-- Apply inset depth to text inputs, textareas, select boxes, upload wells, log wells, and
-  file/result wells.
-- Restyle buttons:
-  - primary Run action as raised and high confidence
-  - secondary Add/Open/Download as smaller raised controls
-  - quiet Clear/Delete as low-emphasis but still readable
-  - pressed/active states as inset, not just darker
-- Restyle checkboxes/toggles so selected stages feel like pressed illuminated switches.
-- Keep borders, text color, and focus rings strong enough for accessibility.
-- Do not apply heavy shadows to every nested element. Use depth to clarify hierarchy.
-
-Acceptance:
-
-- The UI visibly feels more tactile and physical.
-- Text and controls remain high contrast.
-- Keyboard focus is at least as visible as before.
-- No workflow, upload, job, result, console, or rerun behavior changes.
-
-### Slice 9: Retrofuturist Signal And Workflow Polish
-
-Goal: make the page feel like a unified retrofuturist research console rather than separate
-dark panels.
+Goal: make the first viewport read as a guided ClusterWeave product shell and workflow journey,
+not a panel dashboard.
 
 Tasks:
 
-- Add a restrained retro signal language to connect intake -> workflow -> runs -> outputs:
-  thin rails, braided paths, status lamps, segmented labels, or inline SVG routing.
-- Tune the signal-field background so it supports the interface without making all panels noisy.
-- Make the workflow map the visual story anchor:
-  inputs enter, canonical stages execute, outputs emerge.
-- Give run cards and stage cards matching pips/rails so clicking a run feels like selecting a
-  mission through the same instrument.
-- Add subtle CRT/dither/scan treatment only to telemetry and signal surfaces, not all text.
-- Improve output/results empty states with truthful retro-console language:
-  "Awaiting completed run", "Figures will render here", "Files will appear after collection."
-- Keep gamification scientific: run complete, stages mapped, QA visible. Avoid XP/loot/arcade
-  copy.
-- Respect `prefers-reduced-motion`; animated signal pulses must stop or become static.
+- Replace the passive `Intake` / `Pipeline` / `Outputs` section pills with a product navigation
+  shell.
+- Use primary nav items: `Overview`, `Intake`, `WeaveMap`, `Runs`, `Outputs`, `QA Console`,
+  `Docs`.
+- Add right-side actions/status: `Load demo`, `Start run`, runtime/status chip, and `Results`.
+- Make nav items anchor to sections or switch focus states in the single-page app; add visible
+  active states.
+- Add a responsive collapsed navigation treatment for smaller screens.
+- Strengthen the wordmark: spell out `ClusterWeave`, with a small orange/teal double-helix
+  crossing between the `r` and `W`.
+- Replace the current hero strip with a cinematic but app-connected hero: left headline, right
+  WeaveMap motif.
+- Use hero copy close to:
+  `Upload genomes or accessions, run canonical discovery stages, and inspect every output from annotation to gene cluster family context.`
+- Add hero actions: `Start from accessions`, `Load demo run`, `View workflow map`.
+- Keep the first screen operational; do not turn it into a detached marketing landing page.
 
 Acceptance:
 
-- Upload, pipeline, queue, telemetry, and outputs feel visually connected.
-- The page reads as Neumorphic Retrofuturist ClusterWeave, not generic cyberpunk.
-- Console remains available but no longer dominates the visual hierarchy.
-- No fake metrics or unsupported product promises are introduced.
+- A new user understands `add sources -> weave stages -> inspect outputs` within a few seconds.
+- Navigation works as single-page anchors/focus states and does not break existing controls.
+- Header and hero feel uniquely ClusterWeave without fake metrics or heavy animation.
 
-### Slice 10: Final QA And Documentation
+### Slice 9: User Modes And Section Hierarchy
+
+Goal: let the same page serve public demo, lab QA, and advanced/HPC users without overwhelming
+the default experience.
+
+Tasks:
+
+- Add a visible mode switch: `Guided Demo`, `Lab QA`, `Advanced`.
+- Implement modes as CSS/JS emphasis and disclosure only; preserve all controls and backend
+  hooks.
+- In `Guided Demo`, collapse or minimize telemetry/logs and emphasize upload, start, stage
+  progress, and outputs.
+- In `Lab QA`, expand worker telemetry, logs, job IDs, runtime state, errors, and artifacts.
+- In `Advanced`, expose advanced knobs, optional NPLinker assets, annotation strategy, CPU
+  threads, target genome, and stage switches.
+- Convert upload/configuration into a cleaner `Intake node`: dropzone first, manual accessions
+  beside or below, run basics below, advanced drawers after.
+- Group stage switches under `Workflow controls`.
+- Rename the visual label `Job Queue` to `Runs` or `Run History` while preserving existing job
+  selection/loading behavior.
+- Reduce console/telemetry dominance in the default mode.
+
+Acceptance:
+
+- Default mode feels cleaner without removing lab QA capability.
+- Lab QA users can still inspect status, logs, worker state, failures, and artifacts quickly.
+- Advanced controls remain available but no longer compete with first-run essentials.
+
+### Slice 10: Neumorphic Surface System
+
+Goal: bring in the Neumorphism part of the target style without making controls low-contrast or
+toy-like.
+
+Tasks:
+
+- Add depth tokens for raised, inset, beveled, pressed, and glowing states.
+- Limit the UI to a small set of surface types: dark page background, elevated dark panels,
+  light scientific workflow/output cards, and terminal surface for logs.
+- Apply tactile depth to primary panels, stage cards, run cards, upload zone, and controls.
+- Use pressed/inset states for selected jobs, active nav items, selected modes, toggles, and
+  checked stage switches.
+- Reduce nested borders where shadows, spacing, and section bands can provide hierarchy.
+- Keep borders for true structure, error states, and keyboard focus.
+- Verify contrast for text, badges, focus rings, disabled controls, and inset controls.
+
+Acceptance:
+
+- Controls still look clickable and readable.
+- Neumorphic treatment improves hierarchy rather than becoming generic glassmorphism.
+- The page feels tactile and premium while remaining a serious research instrument.
+
+### Slice 11: Retrofuturist WeaveMap And Outputs Polish
+
+Goal: make the pipeline visualization and outputs area carry the ClusterWeave identity.
+
+Tasks:
+
+- Move the pipeline visualization up and make it the central visual story.
+- Build or refine a prominent `WeaveMap` section with stages: `Intake`, `Prep`,
+  `Annotation / BGC detection`, `BiG-SCAPE`, `Summary`, `clinker`, `Figures`, `NPLinker`,
+  `Outputs`.
+- Use orange/teal braided connectors throughout the workflow.
+- Pulse only the active/running braid or stage.
+- Add subtle dither/signal motion only where it explains state.
+- Keep `prefers-reduced-motion` support.
+- Add or strengthen the real `Outputs` section with cards for `Prioritized BGC shortlist`,
+  `Gene cluster family context`, `Synteny / clinker panel`, `Figures`, `Artifacts / files`, and
+  `NPLinker follow-up`.
+- Use honest empty states: `Run a workflow to populate this panel.`, `No artifacts available yet.`,
+  `NPLinker optional follow-up not enabled.`
+- Keep the Visualization tab figure-only and the Files tab direct/open.
+- Make console/telemetry quieter visually while keeping polling and output behavior intact.
+
+Acceptance:
+
+- Upload, pipeline, runs, outputs, and QA console feel connected by one visual system.
+- The woven/double-helix concept is visible in the wordmark, hero, and pipeline connectors.
+- Outputs are discoverable without inventing scientific results.
+
+### Slice 12: Final QA And Documentation
 
 Goal: prove the visual refactor did not break lab QA workflows.
 
@@ -441,7 +679,11 @@ Tasks:
   - result figure rendering
   - file open/download
   - rerun panel
-- Compare before/after screenshots.
+- Verify nav anchors/focus states, mode switching, intake drawers, output empty states, and
+  console collapse/expand behavior.
+- Compare before/after screenshots if browser tooling is available.
+- If browser tooling is unavailable, record that clearly and use live HTML/API checks plus the
+  provided screenshot as context.
 
 Acceptance:
 
@@ -467,51 +709,81 @@ PROJECT STAMP
 
 ROLE
 You are an expert frontend/UI Codex and visual designer joining ClusterWeave for one
-operational vertical build slice. Work like a senior engineer: inspect the repository first,
-preserve working behavior, then make a scoped implementation.
+operational vertical build slice. Work like a senior engineer and product-minded UI designer:
+inspect the repository first, preserve working behavior, then make one scoped implementation.
 
 FIRST, INSPECT
 1. Run `git status --short` and note unrelated changes.
 2. Read `web/STYLE.md`.
-3. Inspect the current `web/static/index.html` structure and the hooks used by the slice:
+3. Read the `Current UI Evaluation`, `Journey-First Product Requirements`, `Practical
+   Refinement Checklist`, and `Ordered Vertical Slices` sections closely.
+4. Inspect the current `web/static/index.html` structure and the hooks used by the slice:
    IDs, event handlers, JS functions, API paths, tabs, buttons, and data attributes.
-4. Check nearby tests, especially `tests/test_repo_layout.py`.
-5. Identify the next incomplete slice in `web/STYLE.md`. If the user names a slice, do that
+5. Inspect the current header/nav, hero, workflow map/stage bar, intake panel, job history,
+   results, telemetry, console, and mode/disclosure affordances before editing.
+6. Check nearby tests, especially `tests/test_repo_layout.py`.
+7. Identify the next incomplete slice in `web/STYLE.md`. If the user names a slice, do that
    slice only. If no slice is named, start with the earliest incomplete slice.
+8. If browser tooling is available, capture or inspect the current UI before editing. If not,
+   state that browser screenshot tooling is unavailable and continue using live HTML/API checks.
 
 MISSION
 Implement exactly one vertical slice from `web/STYLE.md`:
 Slice <N>: <slice name>
 
-ClusterWeave should feel like a woven fungal discovery command center: scientific,
-bioinformatic, premium, readable, and credible. The redesign should move away from a generic
-dark admin dashboard, but it must remain an operational research instrument.
+The current direction is journey-first:
+add fungal genomes or accessions -> weave through canonical BGC stages -> inspect outputs,
+synteny, family context, logs, and artifacts.
+
+ClusterWeave should feel like a woven fungal discovery instrument: scientific, bioinformatic,
+premium, readable, lightly gamified, and credible. The UI should blend Neumorphism and
+Retrofuturism only in service of clarity:
+- Neumorphism = tactile, pressed/raised scientific controls with strong contrast.
+- Retrofuturism = restrained signal lines, status lamps, dither texture, and orange/teal
+  braided workflow paths.
+
+Do not jump straight to surface effects before the product structure is clear. The intended
+sequence is:
+- Slice 8: journey-first product navigation and hero.
+- Slice 9: Guided Demo / Lab QA / Advanced modes and section hierarchy.
+- Slice 10: Neumorphic surface system.
+- Slice 11: Retrofuturist WeaveMap and Outputs polish.
+- Slice 12: final QA and documentation.
 
 NON-NEGOTIABLES
-- Keep the app static; edit mainly `web/static/index.html`.
+- Keep the app single-page and lightweight; edit mainly `web/static/index.html`.
 - Do not add a build system, framework, package manager, or external CDN dependency.
 - Preserve backend integration, uploads, manual accessions, job queue behavior, worker status,
   logs, results, file Open/Download links, figure rendering, reruns, and all API endpoints.
+- Preserve all functional IDs, names, event hooks, existing form behavior, polling behavior, and
+  JS integration unless a slice explicitly requires a local helper.
 - Preserve `apiUrl(...)` for proxied/path-prefixed hosting.
 - Preserve `resultHref(...)`: Open/preview is inline, Download requests `?download=1`.
 - Preserve Visualization as figure-only:
   `Data/Results/<project>/figures/*.{svg,png,jpg,jpeg,webp}`.
 - Do not invent fake scientific results, counts, scores, candidates, or QA outcomes.
 - Keep accessibility and responsive behavior in scope for every visual change.
+- Keep console/telemetry available for Lab QA even when the default Guided Demo view minimizes it.
+- Do not turn the first screen into a detached marketing landing page; it must remain an
+  operational workflow surface.
 
 PROCESS
 1. Briefly state the slice, the hooks you will touch, and the hooks you will preserve.
 2. Make the smallest coherent set of edits for that slice.
-3. Use existing CSS/JS patterns unless the slice clearly requires a new local helper.
-4. Add focused tests only for functional contracts or regression-prone selectors.
-5. Run relevant checks. Prefer:
+3. Use the new direction as the north star:
+   product shell nav, central WeaveMap, mode switch, cleaner intake node, honest outputs, quieter
+   QA console, orange/teal braid motif, fewer nested borders, and stateful signal motion.
+4. Use existing CSS/JS patterns unless the slice clearly requires a new local helper.
+5. Add focused tests only for functional contracts or regression-prone selectors.
+6. Run relevant checks. Prefer:
    - `python3 -m py_compile web/app.py web/worker.py web/canonical_pipeline.py`
    - `python3 -m unittest discover -s tests`
    - `docker compose -f docker-compose.yml config`
    - `docker compose -f clusterweave.yml config`
    - `git diff --check`
-6. If a dev server/container rebuild is needed to inspect the UI, say exactly what you ran and
+7. If a dev server/container rebuild is needed to inspect the UI, say exactly what you ran and
    what URL/port is active.
+8. If screenshot tooling is unavailable, say so explicitly instead of blocking the slice.
 
 FINAL RESPONSE
 Summarize:
@@ -530,17 +802,22 @@ context loaded:
 You are an expert frontend/UI Codex working on ClusterWeave.
 
 Read `web/STYLE.md` and implement only Slice <N>: <slice name>.
-Keep the app static: edit mainly `web/static/index.html`.
+Use the new direction: journey-first product shell, central WeaveMap, Guided Demo / Lab QA /
+Advanced modes, cleaner intake node, honest outputs, quieter QA console, orange/teal braided
+connectors, and a restrained Neumorphism + Retrofuturism blend.
+
+Keep the app single-page and lightweight: edit mainly `web/static/index.html`.
 Preserve every existing functional ID, JS hook, endpoint, upload behavior, job behavior,
 result rendering behavior, and rerun behavior.
 
-ClusterWeave should feel like a woven fungal discovery command center:
-scientific, bioinformatic, premium, readable, and credible. Avoid a marketing landing page,
-generic dark admin dashboard, fake metrics, heavy dependencies, and childish game language.
+ClusterWeave should feel like a woven fungal discovery instrument:
+scientific, bioinformatic, premium, readable, lightly gamified, and credible. Avoid a marketing
+landing page, generic dark admin dashboard, fake metrics, heavy dependencies, and childish game
+language.
 
-Before editing, inspect the current file and list the hooks this slice touches.
-After editing, run the relevant checks, summarize exactly what changed, and name the next
-slice to hand off.
+Before editing, inspect the current file, `Current UI Evaluation`, `Practical Refinement
+Checklist`, and list the hooks this slice touches. After editing, run the relevant checks,
+summarize exactly what changed, and name the next slice to hand off.
 ```
 
 ## Final Visual Review Questions
