@@ -79,6 +79,72 @@ Avoid:
 - Fake metrics.
 - Full landing-page hero that hides the actual tool.
 
+## Current UI Evaluation
+
+Baseline screenshot reviewed after Slice 7:
+
+- The app is functional and visually much stronger than the original dashboard. It now has a
+  compact identity band, signal-field background, manuscript-inspired teal/violet/amber
+  palette, denser run cards, and a polished telemetry console.
+- The UI reads as a credible lab instrument, but it still leans more "flat dark HUD" than
+  "Neumorphism + Retrofuturism."
+- The page has good operational density. Do not replace it with a landing page or oversized
+  hero.
+- The two-column intake/queue layout works well. The next polish should connect these modules
+  visually rather than rearranging the workflow again.
+- The console is visually improved but still competes strongly with the rest of the UI because
+  its contrast and terminal texture are very strong.
+
+Gaps to address before final QA:
+
+- Surfaces are mostly flat dark cards with borders. They need a tactile depth system:
+  raised panels, recessed wells, bevel highlights, inset selected states, and pressed controls.
+- The current retrofuturist language is mostly background texture and neon accents. It needs
+  clearer instrument-console cues: segmented labels, signal rails, subtle CRT/dither texture,
+  status lamps, and deliberate teal/amber/violet routing.
+- Upload, workflow, queue, telemetry, and outputs still feel like adjacent panels more than one
+  physical control surface.
+- Buttons and inputs need a stronger hierarchy: raised primary action, recessed text wells,
+  pressed toggles, and unmistakable focus states.
+- Neumorphism must not reduce contrast. Text, controls, checkboxes, badges, and focus rings must
+  remain readable and accessible.
+
+## Neumorphism + Retrofuturism Target
+
+ClusterWeave's version of Neumorphism is not pale consumer-app skeuomorphism. It should feel
+like tactile scientific hardware in a dark lab: soft raised modules, inset data wells, beveled
+edges, and pressable controls. Use it sparingly and structurally.
+
+ClusterWeave's version of Retrofuturism is not arcade cyberpunk. It should feel like a
+high-end research console: orbital/signal rails, amber command labels, teal status lamps,
+violet routing lines, faint scan/dither textures, and compact technical typography.
+
+Blend rules:
+
+- Use neumorphism for physical hierarchy: app shell, cards, upload node, form wells, buttons,
+  toggles, run cards, and selected states.
+- Use retrofuturism for information flow: workflow paths, status pips, telemetry headers,
+  stage labels, background signal texture, and figure/file output framing.
+- Prefer 2-3 reusable shadow/depth tokens over one-off card effects.
+- Keep light text on dark surfaces high contrast. Avoid low-contrast "embossed" text.
+- Raised components should have both a dark cast shadow and a subtle light edge.
+- Inset components should look like data wells, not disabled fields.
+- Active/running states may glow; idle states should be quieter.
+- Preserve the scientific color semantics: green/teal success, amber running/warning, red
+  failure, blue/violet upcoming/context.
+
+Suggested additional depth tokens:
+
+```css
+:root {
+  --cw-raise-1: 8px 8px 18px rgba(0,0,0,.34), -4px -4px 14px rgba(255,252,244,.035);
+  --cw-raise-2: 14px 18px 36px rgba(0,0,0,.42), -5px -5px 18px rgba(236,254,251,.045);
+  --cw-inset-1: inset 5px 5px 12px rgba(0,0,0,.36), inset -3px -3px 10px rgba(255,252,244,.035);
+  --cw-edge: inset 0 1px 0 rgba(255,252,244,.08), inset 1px 0 0 rgba(91,230,208,.05);
+  --cw-retro-glow: 0 0 18px rgba(91,230,208,.22);
+}
+```
+
 ## Design Tokens
 
 Use CSS custom properties in `:root`. Prefer a balanced palette, not a one-note purple or dark
@@ -146,7 +212,9 @@ Progress:
 - Completed: Slice 5 - Worker Telemetry / Lab Console.
 - Completed: Slice 6 - Results And Output Discovery.
 - Completed: Slice 7 - Responsive And Accessibility Pass.
-- Next: Slice 8 - Final QA And Documentation.
+- Next: Slice 8 - Neumorphic Surface System.
+- Later: Slice 9 - Retrofuturist Signal And Workflow Polish.
+- Final: Slice 10 - Final QA And Documentation.
 
 Complete these slices in order. Each slice should leave the app usable.
 
@@ -296,7 +364,62 @@ Acceptance:
 - No incoherent overlap at common viewport widths.
 - Keyboard users can operate upload, settings, queue, tabs, and results.
 
-### Slice 8: Final QA And Documentation
+### Slice 8: Neumorphic Surface System
+
+Goal: add a coherent tactile depth language without breaking layout or contrast.
+
+Tasks:
+
+- Add reusable depth tokens for raised, inset, beveled, pressed, and glowing states.
+- Apply raised depth to main cards, identity band, workflow modules, run cards, and result
+  shells.
+- Apply inset depth to text inputs, textareas, select boxes, upload wells, log wells, and
+  file/result wells.
+- Restyle buttons:
+  - primary Run action as raised and high confidence
+  - secondary Add/Open/Download as smaller raised controls
+  - quiet Clear/Delete as low-emphasis but still readable
+  - pressed/active states as inset, not just darker
+- Restyle checkboxes/toggles so selected stages feel like pressed illuminated switches.
+- Keep borders, text color, and focus rings strong enough for accessibility.
+- Do not apply heavy shadows to every nested element. Use depth to clarify hierarchy.
+
+Acceptance:
+
+- The UI visibly feels more tactile and physical.
+- Text and controls remain high contrast.
+- Keyboard focus is at least as visible as before.
+- No workflow, upload, job, result, console, or rerun behavior changes.
+
+### Slice 9: Retrofuturist Signal And Workflow Polish
+
+Goal: make the page feel like a unified retrofuturist research console rather than separate
+dark panels.
+
+Tasks:
+
+- Add a restrained retro signal language to connect intake -> workflow -> runs -> outputs:
+  thin rails, braided paths, status lamps, segmented labels, or inline SVG routing.
+- Tune the signal-field background so it supports the interface without making all panels noisy.
+- Make the workflow map the visual story anchor:
+  inputs enter, canonical stages execute, outputs emerge.
+- Give run cards and stage cards matching pips/rails so clicking a run feels like selecting a
+  mission through the same instrument.
+- Add subtle CRT/dither/scan treatment only to telemetry and signal surfaces, not all text.
+- Improve output/results empty states with truthful retro-console language:
+  "Awaiting completed run", "Figures will render here", "Files will appear after collection."
+- Keep gamification scientific: run complete, stages mapped, QA visible. Avoid XP/loot/arcade
+  copy.
+- Respect `prefers-reduced-motion`; animated signal pulses must stop or become static.
+
+Acceptance:
+
+- Upload, pipeline, queue, telemetry, and outputs feel visually connected.
+- The page reads as Neumorphic Retrofuturist ClusterWeave, not generic cyberpunk.
+- Console remains available but no longer dominates the visual hierarchy.
+- No fake metrics or unsupported product promises are introduced.
+
+### Slice 10: Final QA And Documentation
 
 Goal: prove the visual refactor did not break lab QA workflows.
 
@@ -427,6 +550,8 @@ Ask these after every major slice:
 - Does the page explain the workflow without reading documentation?
 - Are upload, pipeline, queue, console, and outputs visually connected?
 - Does the palette resemble the manuscript workflow more than the old dark dashboard?
+- Do neumorphic surfaces clarify hierarchy without lowering contrast?
+- Do retrofuturist signal lines/status lamps connect the modules into one instrument?
 - Is the interface fun and alive without sacrificing scientific trust?
 - Is the console still available but no longer the dominant visual object?
 - Did any fake scientific result or unsupported promise sneak in?
