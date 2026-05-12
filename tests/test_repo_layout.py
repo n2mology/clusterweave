@@ -249,6 +249,47 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("const demoAccessions = ['GCA_000011425.1', 'GCA_030770425.1'];", text)
         self.assertIn("Upload genomes or accessions, run canonical discovery stages", text)
 
+    def test_web_has_user_modes_and_section_hierarchy(self) -> None:
+        text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('data-ui-mode="guided"', text)
+        self.assertIn('id="mode-panel"', text)
+        self.assertIn('data-mode-option="guided"', text)
+        self.assertIn('data-mode-option="lab"', text)
+        self.assertIn('data-mode-option="advanced"', text)
+        self.assertIn("Guided Demo", text)
+        self.assertIn("Lab QA", text)
+        self.assertIn("function setUIMode(mode", text)
+        self.assertIn("body[data-ui-mode=\"guided\"] #console-card", text)
+        self.assertIn('id="workflow-controls"', text)
+        self.assertIn("Workflow controls", text)
+        self.assertIn('id="advanced-panel"', text)
+        self.assertIn("Runs / Run History", text)
+        self.assertIn("if (currentUIMode === 'guided') setUIMode('lab'", text)
+
+    def test_web_has_neumorphic_surface_system_tokens(self) -> None:
+        text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        for token in [
+            "--cw-surface-panel",
+            "--cw-surface-well",
+            "--cw-surface-control",
+            "--cw-surface-output",
+            "--cw-raise-panel",
+            "--cw-raise-panel-strong",
+            "--cw-inset-well",
+            "--cw-inset-control",
+            "--cw-bevel",
+            "--cw-glow-soft",
+            "--cw-terminal-shadow",
+        ]:
+            self.assertIn(token, text)
+        self.assertIn(".card {", text)
+        self.assertIn(".upload-zone {", text)
+        self.assertIn(".stage-step {", text)
+        self.assertIn(".job-card {", text)
+        self.assertIn(".output-card {", text)
+        self.assertIn("box-shadow: var(--cw-terminal-shadow), var(--cw-bevel);", text)
+        self.assertIn("box-shadow: var(--cw-pressed), inset 3px 0 0 var(--accent)", text)
+
     def test_web_job_queue_clicks_guard_against_stale_result_loads(self) -> None:
         text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
         self.assertIn("let jobLoadSeq = 0", text)
