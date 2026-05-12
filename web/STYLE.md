@@ -523,7 +523,8 @@ Progress:
 - Completed: Slice 15 - Public UI Restructure.
 - Completed: Slice 16 - Ecology Label Table.
 - Completed: Slice 17 - Email Notifications And Retention Sweeper.
-- Current: Slice 18 - Public Deployment QA.
+- Completed: Slice 18 - Public Deployment QA.
+- Current: No remaining numbered slice. Continue with hosting-specific deployment follow-up.
 
 Complete these slices in order. Each slice should leave the app usable.
 

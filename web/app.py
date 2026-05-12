@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import mimetypes
 import os
+import re
 import secrets
 import shutil
 from datetime import datetime
@@ -100,6 +101,8 @@ QUEUED_JOB_STATUSES = {"pending", "running"}
 PUBLIC_GENOME_EXTENSIONS = {".fasta", ".fa", ".fna", ".fsa", ".gb", ".gbk", ".gbff"}
 PUBLIC_ACCESSION_EXTENSIONS = {".txt"}
 PUBLIC_ECOLOGY_METADATA_FILENAME = "ecofun_metadata_normalized.tsv"
+MANUAL_ACCESSIONS_FILENAME = "manual_accessions.txt"
+NCBI_ASSEMBLY_ACCESSION_RE = re.compile(r"^(?:GCA|GCF)_\d{9}\.\d+$", re.IGNORECASE)
 BYTES_PER_MB = 1024 * 1024
 WORKER_STATUS_PATH = Path(os.environ.get("DATA_DIR", "/data")) / "worker" / "status.json"
 INLINE_MIME_OVERRIDES = {
@@ -432,8 +435,25 @@ def parse_accession_text(filename: str, content: bytes) -> tuple[str | None, int
             return f"Accession list '{filename}' must contain one accession per line; line {line_number} has multiple values", 0
         if tokens[0].lower() == "accession":
             return f"Accession list '{filename}' must not include a header row", 0
+        if not NCBI_ASSEMBLY_ACCESSION_RE.match(tokens[0]):
+            return (
+                f"Accession list '{filename}' line {line_number} has invalid accession '{tokens[0]}'. "
+                "Use NCBI assembly accessions like GCA_000011425.1 or GCF_000001405.40",
+                0,
+            )
         count += 1
     return None, count
+
+
+def validate_manual_accession_uploads(uploads: list[dict[str, object]]) -> str | None:
+    for item in uploads:
+        filename = Path(str(item.get("filename") or "unknown")).name
+        if filename != MANUAL_ACCESSIONS_FILENAME:
+            continue
+        error, _ = parse_accession_text(filename, bytes(item.get("content") or b""))
+        if error:
+            return error
+    return None
 
 
 def validate_public_uploads(
@@ -939,6 +959,11 @@ class Handler(BaseHTTPRequestHandler):
         uploads = [item for item in files if item["field"] == "files"]
         if not uploads:
             self._bad_request("At least one file is required")
+            return
+
+        manual_accession_error = validate_manual_accession_uploads(uploads)
+        if manual_accession_error:
+            self._bad_request(manual_accession_error)
             return
 
         public_policy_error, input_summary = apply_public_submission_policy(self, settings, uploads)

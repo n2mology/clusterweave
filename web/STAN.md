@@ -471,9 +471,31 @@ Slice 17 added optional email recovery and retention cleanup:
 - `CLUSTERWEAVE_JOB_RETENTION_DAYS=0` or `never` now requires explicit
   `CLUSTERWEAVE_ALLOW_NEVER_EXPIRE_JOBS=1` documentation.
 
+Slice 18 added public deployment QA coverage:
+
+- Added a consolidated public deployment smoke test covering anonymous, submit-token, read-token,
+  and admin API behavior in one role-matrix flow.
+- Confirmed anonymous status is redacted and anonymous users cannot list, read, log, file, rerun,
+  or delete jobs.
+- Confirmed submit tokens can create jobs within public quotas but cannot list jobs.
+- Confirmed read tokens can read only their job and can open/download result files through the
+  token-aware result file API.
+- Confirmed admin tokens can list jobs, see full status/logs, rerun, and delete.
+- Captured Playwright screenshots for anonymous, submit-token, job-token, and admin views at
+  desktop and mobile sizes using a temporary public-mode server.
+- Browser QA confirmed SMTP field visibility, submit lock/collapse after submission,
+  figure-only Visualization rendering, `resultHref(...)`-shaped Open/Download links, and no
+  horizontal overflow on mobile.
+
 Remaining public-release risks:
 
-- Final anonymous/submit-token/job-token/admin QA screenshots and smoke tests still need to run.
+- The live host still needs final DNS/TLS/reverse-proxy confirmation.
+- Live deployment secrets still need to be injected through the host secret store, not committed
+  into Compose or handoff docs.
+- Reverse-proxy body-size and rate-limit settings still need to be aligned with ClusterWeave
+  quotas.
+- SMTP needs one live-provider end-to-end test after provider, sender policy, and public URL are
+  confirmed.
 
 Keep server-side security ahead of UI hiding in the remaining public-release slices.
 
@@ -486,7 +508,8 @@ See `web/STYLE.md` for full task lists and acceptance criteria.
 - Completed: Slice 15 - Public UI Restructure.
 - Completed: Slice 16 - Ecology Label Table.
 - Completed: Slice 17 - Email Notifications And Retention Sweeper.
-- Current: Slice 18 - Public Deployment QA.
+- Completed: Slice 18 - Public Deployment QA.
+- Current: No remaining numbered slice. Continue with hosting-specific deployment follow-up.
 
 ## SMTP Deployment Wire
 

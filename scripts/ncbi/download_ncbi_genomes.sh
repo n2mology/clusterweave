@@ -143,6 +143,13 @@ clean_partial() {
          "${acc_dir}/md5sum.txt" 2>/dev/null || true
 }
 
+is_nonretryable_datasets_error() {
+  local output_path="$1"
+  grep -Eiq \
+    "no genome assemblies that match your query|invalid.+accession|not a valid accession|unable to resolve accession" \
+    "${output_path}"
+}
+
 download_and_extract_with_includes() {
   local datasets_cmd="$1"
   local acc="$2"
@@ -150,16 +157,25 @@ download_and_extract_with_includes() {
   local include_set="$4"
 
   local zip_path="${acc_dir}/${acc}.zip"
+  local output_path="${acc_dir}/${acc}.datasets.log"
   local zip_arg
   zip_arg="$(to_maybe_win_mixed "${datasets_cmd}" "${zip_path}")"
 
   if ! "${datasets_cmd}" download genome accession "${acc}" \
         --include "${include_set}" \
         --filename "${zip_arg}" \
-        --no-progressbar; then
+        --no-progressbar >"${output_path}" 2>&1; then
+    cat "${output_path}" >&2
     rm -f "${zip_path}" 2>/dev/null || true
+    if is_nonretryable_datasets_error "${output_path}"; then
+      rm -f "${output_path}" 2>/dev/null || true
+      return 10
+    fi
+    rm -f "${output_path}" 2>/dev/null || true
     return 1
   fi
+  cat "${output_path}" >&2
+  rm -f "${output_path}" 2>/dev/null || true
 
   if ! extract_zip "${zip_path}" "${acc_dir}"; then
     rm -f "${zip_path}" 2>/dev/null || true
@@ -197,9 +213,17 @@ while IFS= read -r acc || [[ -n "${acc}" ]]; do
   while [[ "${attempt}" -le "${RETRIES}" ]]; do
     attempt=$((attempt + 1))
     used_set=""
+    nonretryable=0
     for include_set in "${INCLUDE_SETS[@]}"; do
-      if download_and_extract_with_includes "${datasets_cmd}" "${acc}" "${acc_dir}" "${include_set}"; then
+      rc=0
+      download_and_extract_with_includes "${datasets_cmd}" "${acc}" "${acc_dir}" "${include_set}" || rc=$?
+      if [[ "${rc}" -eq 0 ]]; then
         used_set="${include_set}"
+        break
+      fi
+      if [[ "${rc}" -eq 10 ]]; then
+        nonretryable=1
+        echo "       nonretryable=accession_not_found via --include ${include_set}"
         break
       fi
     done
@@ -212,6 +236,9 @@ while IFS= read -r acc || [[ -n "${acc}" ]]; do
     fi
 
     clean_partial "${acc_dir}"
+    if [[ "${nonretryable}" -eq 1 ]]; then
+      break
+    fi
     sleep "${SLEEP_BETWEEN}"
   done
 

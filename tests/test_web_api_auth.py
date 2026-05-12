@@ -360,6 +360,95 @@ class WebApiAuthTests(unittest.TestCase):
         self.assertEqual(status, 204)
         self.assertIsNone(self.job_store.read_job("jobone"))
 
+    def test_public_deployment_smoke_role_matrix_and_result_file_access(self) -> None:
+        self.write_job("smokeone", "read-one")
+
+        status, payload, _ = self.request("GET", "/api/system/status")
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            set(payload),
+            {"online", "service", "submissions_open", "submissions", "jobs_processed", "smtp_enabled"},
+        )
+        self.assertNotIn("worker", payload)
+        self.assertNotIn("runtime", payload)
+        self.assertNotIn("capabilities", payload)
+
+        for method, path in [
+            ("GET", "/api/jobs"),
+            ("GET", "/api/jobs/smokeone"),
+            ("GET", "/api/jobs/smokeone/logs"),
+            ("GET", "/api/jobs/smokeone/files"),
+            ("GET", "/api/jobs/smokeone/files/results/figure.svg?download=1"),
+        ]:
+            with self.subTest(role="anonymous", path=path):
+                status, _, _ = self.request(method, path)
+                self.assertEqual(status, 401)
+
+        status, submitted, _ = self.submit(
+            fields={"project_name": "smoke-submit", "cpus": "1"},
+            files=[("files", "accessions.txt", b"GCF_000001405.40\n")],
+        )
+        self.assertEqual(status, 201)
+        submitted_job_id = submitted["job_id"]
+        submitted_read_token = submitted["read_token"]
+        self.assertTrue(submitted_read_token)
+        stored = self.job_store.read_job(submitted_job_id)
+        self.assertIsNotNone(stored)
+        assert stored is not None
+        self.assertEqual(stored["status"], "pending")
+        self.assertNotIn("read_token", stored)
+        self.assertIn("read_token_hash", stored)
+
+        status, _, _ = self.request("GET", "/api/jobs", headers=self.auth("submit-secret"))
+        self.assertEqual(status, 403)
+
+        status, own_job, _ = self.request("GET", f"/api/jobs/{submitted_job_id}", headers=self.auth(submitted_read_token))
+        self.assertEqual(status, 200)
+        self.assertEqual(own_job["id"], submitted_job_id)
+
+        status, _, _ = self.request("GET", "/api/jobs/smokeone", headers=self.auth(submitted_read_token))
+        self.assertEqual(status, 403)
+
+        status, file_list, _ = self.request("GET", "/api/jobs/smokeone/files", headers=self.auth("read-one"))
+        self.assertEqual(status, 200)
+        self.assertEqual(file_list["files"], ["results/figure.svg"])
+
+        status, body, headers = self.request("GET", "/api/jobs/smokeone/files/results/figure.svg", headers=self.auth("read-one"))
+        self.assertEqual(status, 200)
+        self.assertEqual(body, b"<svg></svg>\n")
+        self.assertIn("inline", headers.get("Content-Disposition", ""))
+
+        status, _, headers = self.request(
+            "GET",
+            "/api/jobs/smokeone/files/results/figure.svg?download=1",
+            headers=self.auth("read-one"),
+        )
+        self.assertEqual(status, 200)
+        self.assertIn("attachment", headers.get("Content-Disposition", ""))
+
+        status, admin_status, _ = self.request("GET", "/api/system/status", headers=self.auth("admin-secret"))
+        self.assertEqual(status, 200)
+        self.assertIn("runtime", admin_status)
+        self.assertIn("worker", admin_status)
+
+        status, jobs, _ = self.request("GET", "/api/jobs", headers=self.auth("admin-secret"))
+        self.assertEqual(status, 200)
+        self.assertGreaterEqual({job["id"] for job in jobs}, {"smokeone", submitted_job_id})
+
+        status, logs, _ = self.request("GET", "/api/jobs/smokeone/logs", headers=self.auth("admin-secret"))
+        self.assertEqual(status, 200)
+        self.assertEqual(logs["total"], 1)
+
+        rerun_body = json.dumps({"run_summary": True, "cpus": 1}).encode("utf-8")
+        headers = {"Content-Type": "application/json", **self.auth("admin-secret")}
+        status, rerun_payload, _ = self.request("POST", "/api/jobs/smokeone/rerun", body=rerun_body, headers=headers)
+        self.assertEqual(status, 202)
+        self.assertEqual(rerun_payload["status"], "pending")
+
+        status, _, _ = self.request("DELETE", "/api/jobs/smokeone", headers=self.auth("admin-secret"))
+        self.assertEqual(status, 204)
+        self.assertIsNone(self.job_store.read_job("smokeone"))
+
     def test_local_mode_keeps_existing_lab_api_behavior_without_tokens(self) -> None:
         self.app.PUBLIC_MODE = False
         self.write_job("localjob", "read-local")
@@ -393,6 +482,29 @@ class WebApiAuthTests(unittest.TestCase):
                 self.assertEqual(status, 400)
                 self.assertIn("detail", payload)
                 self.assertEqual(list((Path(self.tmp.name) / "jobs").glob("*")), [])
+
+    def test_accession_lists_reject_malformed_assembly_accessions_before_job_creation(self) -> None:
+        rejected_files = [
+            ("accessions.txt", b"totally_random\n"),
+            ("accessions.txt", b"GCF_123\n"),
+            ("accessions.txt", b"ABC_000001405.1\n"),
+            ("accessions.txt", b"GCF_000001405\n"),
+            ("manual_accessions.txt", b"not_an_assembly\n"),
+        ]
+        for filename, content in rejected_files:
+            with self.subTest(filename=filename, content=content):
+                status, payload, _ = self.submit(files=[("files", filename, content)])
+                self.assertEqual(status, 400)
+                self.assertIn("invalid accession", payload["detail"])
+                self.assertIn("GCA_000011425.1", payload["detail"])
+                self.assertEqual(list((Path(self.tmp.name) / "jobs").glob("*")), [])
+
+    def test_manual_accessions_are_validated_even_in_local_mode(self) -> None:
+        self.app.PUBLIC_MODE = False
+        status, payload, _ = self.submit(files=[("files", "manual_accessions.txt", b"random_accession\n")])
+        self.assertEqual(status, 400)
+        self.assertIn("invalid accession", payload["detail"])
+        self.assertEqual(list((Path(self.tmp.name) / "jobs").glob("*")), [])
 
     def test_public_ecology_metadata_requires_ecology_mode(self) -> None:
         files = [

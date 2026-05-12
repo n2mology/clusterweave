@@ -4127,6 +4127,8 @@ const dropZone  = document.getElementById('drop-zone');
 const fileInput = document.getElementById('file-input');
 const manualAccessionsInput = document.getElementById('manual-accessions');
 const MANUAL_ACCESSIONS_FILENAME = 'manual_accessions.txt';
+const NCBI_ASSEMBLY_ACCESSION_RE = /^(?:GCA|GCF)_\d{9}\.\d+$/i;
+const NCBI_ASSEMBLY_ACCESSION_HELP = 'Use NCBI assembly accessions like GCA_000011425.1 or GCF_000001405.40.';
 const PUBLIC_FILE_EXTENSIONS = new Set(['gbk','gb','gbff','fasta','fa','fna','fsa','txt']);
 const ADMIN_FILE_EXTENSIONS = new Set(['gbk','gb','gbff','fasta','fa','fna','fsa','txt','tsv','csv','json','gff','gff3','faa','mgf','zip']);
 const ECOLOGY_LABELS = [
@@ -4160,33 +4162,61 @@ dropZone.addEventListener('drop', e => {
   addFiles([...e.dataTransfer.files]);
 });
 
-function manualAccessionLines() {
+function parseManualAccessions() {
   const raw = manualAccessionsInput ? manualAccessionsInput.value : '';
   const seen = new Set();
   const accessions = [];
-  raw.split(/\r?\n/).forEach(line => {
+  const invalid = [];
+  raw.split(/\r?\n/).forEach((line, lineIndex) => {
     const cleanLine = line.replace(/#.*/, '').trim();
     if (!cleanLine) return;
     cleanLine.split(/[\s,;]+/).forEach(token => {
-      const accession = token.trim();
+      const rawToken = token.trim();
+      const accession = rawToken.toUpperCase();
       if (!accession || /^accession$/i.test(accession) || seen.has(accession)) return;
+      if (!NCBI_ASSEMBLY_ACCESSION_RE.test(accession)) {
+        invalid.push({ token: rawToken, line: lineIndex + 1 });
+        return;
+      }
       seen.add(accession);
       accessions.push(accession);
     });
   });
-  return accessions;
+  return { accessions, invalid };
+}
+
+function manualAccessionLines() {
+  return parseManualAccessions().accessions;
+}
+
+function manualAccessionErrorMessage(parsed = parseManualAccessions()) {
+  if (!parsed.invalid.length) return '';
+  const first = parsed.invalid[0];
+  const more = parsed.invalid.length > 1 ? ` and ${parsed.invalid.length - 1} more` : '';
+  return `Invalid accession "${first.token}" on line ${first.line}${more}. ${NCBI_ASSEMBLY_ACCESSION_HELP}`;
 }
 
 function updateManualAccessionsStatus() {
   const status = document.getElementById('manual-accessions-status');
   if (!status) return;
-  const count = manualAccessionLines().length;
+  const parsed = parseManualAccessions();
+  const error = manualAccessionErrorMessage(parsed);
+  if (error) {
+    status.textContent = error;
+    return;
+  }
+  const count = parsed.accessions.length;
   status.textContent = count ? `${count} accession${count === 1 ? '' : 's'} ready` : '';
 }
 
 function normalizeManualAccessions() {
-  const lines = manualAccessionLines();
-  if (manualAccessionsInput) manualAccessionsInput.value = lines.join('\n');
+  const parsed = parseManualAccessions();
+  if (parsed.invalid.length) {
+    updateManualAccessionsStatus();
+    renderFileList();
+    return;
+  }
+  if (manualAccessionsInput) manualAccessionsInput.value = parsed.accessions.join('\n');
   updateManualAccessionsStatus();
   renderFileList();
 }
@@ -4236,7 +4266,9 @@ function renderFileList() {
   const list = document.getElementById('file-list');
   const btn  = document.getElementById('run-btn');
   const stat = document.getElementById('upload-status');
-  const manualLines = manualAccessionLines();
+  const manualParsed = parseManualAccessions();
+  const manualLines = manualParsed.accessions;
+  const manualError = manualAccessionErrorMessage(manualParsed);
   const manualItem = manualLines.length ? `
     <div class="file-item">
       <span class="file-icon">📄</span>
@@ -4252,8 +4284,8 @@ function renderFileList() {
       <button class="file-remove" onclick="removeFile(${idx})" title="Remove">✕</button>
     </div>`).join('') + manualItem;
   const inputSourceCount = selectedFiles.length + (manualLines.length ? 1 : 0);
-  btn.disabled = inputSourceCount === 0;
-  stat.textContent = inputSourceCount ? `${inputSourceCount} input source(s) ready` : '';
+  btn.disabled = inputSourceCount === 0 || !!manualError;
+  stat.textContent = manualError || (inputSourceCount ? `${inputSourceCount} input source(s) ready` : '');
   updateManualAccessionsStatus();
   syncEcologyMetadataPanel();
   updateRunSummary();
@@ -4423,6 +4455,13 @@ function metadataProfileText() {
 // ── Start Analysis ─────────────────────────────────────────────────────────
 async function startAnalysis() {
   const manualLines = manualAccessionLines();
+  const manualError = manualAccessionErrorMessage();
+  if (manualError) {
+    document.getElementById('upload-status').textContent = manualError;
+    updateManualAccessionsStatus();
+    renderFileList();
+    return;
+  }
   if (selectedFiles.length === 0 && manualLines.length === 0) return;
 
   const name = document.getElementById('project-name').value.trim() || 'my_project';
