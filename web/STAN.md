@@ -447,10 +447,20 @@ Slice 15 added the public UI shell:
 - The live stage timeline moves into Results and public result file/figure links use saved read
   tokens through request headers.
 
+Slice 16 added controlled ecology labels:
+
+- Public users can enable ecology-aware analysis without seeing the TSV schema.
+- Ecology rows are generated from pasted NCBI accessions and uploaded genome filename stems.
+- Primary and secondary labels use the controlled vocabulary, with short custom text only when
+  `other` is selected.
+- Blank labels are allowed, but the UI warns that unlabeled inputs may reduce ranking usefulness.
+- The browser emits canonical `ecofun_metadata_normalized.tsv` only when ecology-aware analysis
+  is enabled; raw metadata TSV paths remain admin/local-only.
+
 Remaining public-release risks:
 
 - Job data persists until explicit deletion; no retention sweeper exists yet.
-- Public ecology metadata still needs a controlled table instead of raw TSV exposure.
+- Email result recovery is not implemented yet.
 
 Keep server-side security ahead of UI hiding in the remaining public-release slices.
 
@@ -461,9 +471,9 @@ See `web/STYLE.md` for full task lists and acceptance criteria.
 - Completed: Slice 13 - Public API Security Foundation.
 - Completed: Slice 14 - Public Input Policy, Quotas, And Retention Metadata.
 - Completed: Slice 15 - Public UI Restructure.
-- Current: Slice 16 - Ecology Label Table.
-- Next: Slice 17 - Email Notifications And Retention Sweeper.
-- Slice 18: Public Deployment QA.
+- Completed: Slice 16 - Ecology Label Table.
+- Current: Slice 17 - Email Notifications And Retention Sweeper.
+- Next: Slice 18 - Public Deployment QA.
 
 ## Questions For The Hosting Collaborator
 

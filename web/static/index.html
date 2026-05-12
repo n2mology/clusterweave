@@ -1010,6 +1010,61 @@
     box-shadow: var(--cw-inset-control);
   }
   .summary-chip.off { opacity: .55; text-decoration: line-through; }
+  .ecology-label-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+    flex-wrap: wrap;
+  }
+  .ecology-toggle {
+    margin: 0;
+    color: var(--cw-mint-50);
+    text-transform: none;
+  }
+  .ecology-table select {
+    min-width: 180px;
+  }
+  .ecology-label-cell {
+    display: grid;
+    gap: .35rem;
+    min-width: 0;
+  }
+  .ecology-other-input {
+    max-width: 220px;
+  }
+  .ecology-input-key {
+    color: var(--cw-mint-50);
+    font-family: var(--mono);
+    font-size: .78rem;
+    overflow-wrap: anywhere;
+  }
+  .ecology-input-kind {
+    display: block;
+    color: var(--muted);
+    font-size: .7rem;
+    font-family: var(--font);
+  }
+  @media (max-width: 720px) {
+    .ecology-table,
+    .ecology-table thead,
+    .ecology-table tbody,
+    .ecology-table tr,
+    .ecology-table th,
+    .ecology-table td {
+      display: block;
+      width: 100%;
+    }
+    .ecology-table thead { display: none; }
+    .ecology-table tr {
+      padding: .65rem 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .ecology-table td {
+      border-bottom: 0;
+      padding: .35rem .75rem;
+    }
+  }
   label { font-size: .8rem; font-weight: 500; color: var(--muted); }
   input[type=text], input[type=number], select, textarea {
     background:
@@ -2724,6 +2779,23 @@
           <div class="summary-grid" id="run-summary-content"></div>
         </div>
 
+        <div class="summary-panel ecology-label-panel" id="ecology-label-panel">
+          <div class="summary-head ecology-label-head">
+            <label class="form-group-inline ecology-toggle">
+              <input type="checkbox" id="run-ecology" />
+              Enable ecology-aware analysis
+            </label>
+            <span id="ecology-label-status" class="text-muted text-sm"></span>
+          </div>
+          <div class="card-body hidden" id="ecology-label-body">
+            <div class="help-note">Optional labels are submitted behind the scenes as project-local ecology metadata. Rows are generated from pasted NCBI accessions and uploaded genome filename stems.</div>
+            <table class="file-table ecology-table mt1" id="metadata-table">
+              <thead><tr><th>Input</th><th>Primary ecology</th><th>Secondary ecology</th></tr></thead>
+              <tbody id="metadata-table-body"></tbody>
+            </table>
+          </div>
+        </div>
+
         <div class="run-row">
           <button class="btn btn-primary" id="run-btn" onclick="startAnalysis()" disabled>
             ▶ Run Analysis
@@ -2747,7 +2819,6 @@
               <label class="form-group-inline"><input type="checkbox" id="run-summary" checked /> Build summary and crosswalk tables</label>
               <label class="form-group-inline"><input type="checkbox" id="run-clinker" checked /> Generate clinker panels</label>
               <label class="form-group-inline"><input type="checkbox" id="run-figures" checked /> Render summary figures</label>
-              <label class="form-group-inline"><input type="checkbox" id="run-ecology" /> Enable ecology-aware analysis</label>
               <label class="form-group-inline"><input type="checkbox" id="run-nplinker" /> NPLinker follow-up job</label>
             </div>
           </div>
@@ -2907,20 +2978,6 @@
                 <div class="form-group">
                   <label for="max-other-ecology">Max other-ecology comparators</label>
                   <input type="number" id="max-other-ecology" value="20" min="0" max="1000" />
-                </div>
-              </div>
-              <div class="summary-panel mt1">
-                <div class="summary-head">Editable Ecology Metadata</div>
-                <div class="card-body">
-                  <div class="help-note">Rows entered here are submitted as a project-local `ecofun_metadata_normalized.tsv` scaffold.</div>
-                  <table class="file-table mt1" id="metadata-table">
-                    <thead><tr><th>Genome ID</th><th>Primary Ecology</th><th>Secondary Ecology</th><th></th></tr></thead>
-                    <tbody id="metadata-table-body"></tbody>
-                  </table>
-                  <div class="flex-gap mt1">
-                    <button class="btn btn-ghost text-sm" type="button" onclick="addMetadataRow()">Add metadata row</button>
-                    <button class="btn btn-ghost text-sm" type="button" onclick="seedMetadataFromFiles()">Seed from selected genomes</button>
-                  </div>
                 </div>
               </div>
             </div>
@@ -3808,7 +3865,7 @@ function renderStageChips() {
     checkedLabel('run-figures', 'Figures'),
     checkedLabel('run-ecology', 'Ecology'),
     checkedLabel('run-nplinker', 'NPLinker'),
-  ].filter(c => canUseAdminSurfaces() || !['Ecology', 'NPLinker'].includes(c.label));
+  ].filter(c => canUseAdminSurfaces() || c.label !== 'NPLinker');
   return `<div class="summary-chips">${chips.map(c => `<span class="summary-chip ${c.enabled ? '' : 'off'}">${c.label}</span>`).join('')}</div>`;
 }
 
@@ -3828,8 +3885,10 @@ function updateRunSummary() {
   const cpus = document.getElementById('cpus').value || '4';
   const annotationStrategy = document.getElementById('genefinding-mode').value;
   const clinkerMode = document.getElementById('clinker-use-docker-image').checked ? 'Docker image' : 'Local/runtime';
+  const ecologyRows = currentEcologyMetadataRows();
+  const ecologyLabeled = ecologyRows.filter(row => row.primary || row.secondary).length;
   const ecology = document.getElementById('run-ecology').checked
-    ? `${document.getElementById('ecology-field').value.trim() || 'ecofun_primary'}${document.getElementById('focus-ecology-label').value.trim() ? ` / ${document.getElementById('focus-ecology-label').value.trim()}` : ''}`
+    ? `${ecologyRows.length} input row${ecologyRows.length === 1 ? '' : 's'}, ${ecologyLabeled} labeled`
     : 'Disabled';
   const clinkerLimit = document.getElementById('run-clinker').checked
     ? (document.getElementById('clinker-max-regions').value || '0')
@@ -3968,6 +4027,7 @@ function syncControlState() {
     const el = document.getElementById(id);
     if (el) el.disabled = !runEcology.checked;
   }
+  syncEcologyMetadataPanel();
 
   const nplinkerFields = [
     'nplinker-run-mode',
@@ -4049,6 +4109,23 @@ const manualAccessionsInput = document.getElementById('manual-accessions');
 const MANUAL_ACCESSIONS_FILENAME = 'manual_accessions.txt';
 const PUBLIC_FILE_EXTENSIONS = new Set(['gbk','gb','gbff','fasta','fa','fna','fsa','txt']);
 const ADMIN_FILE_EXTENSIONS = new Set(['gbk','gb','gbff','fasta','fa','fna','fsa','txt','tsv','csv','json','gff','gff3','faa','mgf','zip']);
+const ECOLOGY_LABELS = [
+  'soil',
+  'plant_associated',
+  'endophyte',
+  'mycorrhiza',
+  'plant_pathogen',
+  'saprotroph',
+  'marine',
+  'freshwater',
+  'lichen_associated',
+  'insect_associated',
+  'animal_associated',
+  'human_associated',
+  'food_fermentation',
+  'unknown',
+  'other',
+];
 
 fileInput.addEventListener('change', () => addFiles([...fileInput.files]));
 manualAccessionsInput.addEventListener('input', () => {
@@ -4158,6 +4235,7 @@ function renderFileList() {
   btn.disabled = inputSourceCount === 0;
   stat.textContent = inputSourceCount ? `${inputSourceCount} input source(s) ready` : '';
   updateManualAccessionsStatus();
+  syncEcologyMetadataPanel();
   updateRunSummary();
 }
 
@@ -4165,47 +4243,159 @@ function genomeStemFromName(name) {
   return name.replace(/\.(gbk|gb|gbff|fasta|fa|fna|fsa)$/i, '');
 }
 
-function addMetadataRow(values = {}) {
-  const body = document.getElementById('metadata-table-body');
-  const row = document.createElement('tr');
-  row.innerHTML = `
-    <td><input type="text" class="metadata-genome" value="${escapeHtml(values.genome || '')}" placeholder="Genome ID" /></td>
-    <td><input type="text" class="metadata-primary" value="${escapeHtml(values.primary || '')}" placeholder="ecofun_primary" /></td>
-    <td><input type="text" class="metadata-secondary" value="${escapeHtml(values.secondary || '')}" placeholder="ecofun_secondary" /></td>
-    <td><button class="btn btn-ghost text-sm" type="button" onclick="this.closest('tr').remove(); updateRunSummary()">Remove</button></td>
-  `;
-  body.appendChild(row);
-  row.querySelectorAll('input').forEach(el => {
-    el.addEventListener('input', updateRunSummary);
-    el.addEventListener('change', updateRunSummary);
+function isGenomeUploadName(name) {
+  return /\.(gbk|gb|gbff|fasta|fa|fna|fsa)$/i.test(name);
+}
+
+function ecologyInputRows() {
+  const seen = new Set();
+  const rows = [];
+  const addRow = (input, kind, accession = '') => {
+    const key = String(input || '').trim();
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    rows.push({ key, kind, accession });
+  };
+  manualAccessionLines().forEach(accession => addRow(accession, 'NCBI accession', accession));
+  selectedFiles.forEach((file) => {
+    if (!isGenomeUploadName(file.name)) return;
+    addRow(genomeStemFromName(file.name), 'Genome file', '');
   });
+  return rows;
+}
+
+function collectEcologyRowValues() {
+  const values = new Map();
+  document.querySelectorAll('#metadata-table-body tr[data-ecology-key]').forEach((row) => {
+    const key = row.dataset.ecologyKey || '';
+    if (!key) return;
+    values.set(key, {
+      primary: row.querySelector('.metadata-primary')?.value || '',
+      primaryOther: row.querySelector('.metadata-primary-other')?.value.trim() || '',
+      secondary: row.querySelector('.metadata-secondary')?.value || '',
+      secondaryOther: row.querySelector('.metadata-secondary-other')?.value.trim() || '',
+    });
+  });
+  return values;
+}
+
+function ecologySelectOptions(selected) {
+  const all = [''].concat(ECOLOGY_LABELS);
+  return all.map((value) => {
+    const label = value || 'blank';
+    return `<option value="${escapeHtml(value)}" ${value === selected ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+  }).join('');
+}
+
+function ecologyLabelCellHtml(key, field, saved = {}) {
+  const selected = saved[field] || '';
+  const otherValue = saved[`${field}Other`] || '';
+  const selectClass = field === 'primary' ? 'metadata-primary' : 'metadata-secondary';
+  const otherClass = field === 'primary' ? 'metadata-primary-other' : 'metadata-secondary-other';
+  const otherHidden = selected === 'other' ? '' : ' hidden';
+  return `
+    <div class="ecology-label-cell">
+      <select class="${selectClass}" data-field="${field}" onchange="handleEcologyLabelChange(this)">
+        ${ecologySelectOptions(selected)}
+      </select>
+      <input type="text" class="ecology-other-input ${otherClass}${otherHidden}" maxlength="40" value="${escapeHtml(otherValue)}" placeholder="Custom label" oninput="updateEcologyLabelStatus(); updateRunSummary()" />
+    </div>`;
+}
+
+function renderEcologyMetadataRows(inputRows, savedValues) {
+  const body = document.getElementById('metadata-table-body');
+  if (!body) return;
+  if (!inputRows.length) {
+    body.innerHTML = '<tr><td colspan="3" class="text-muted">Add NCBI accessions or genome files to label ecology.</td></tr>';
+    return;
+  }
+  body.innerHTML = inputRows.map((row) => {
+    const saved = savedValues.get(row.key) || {};
+    return `
+      <tr data-ecology-key="${escapeHtml(row.key)}" data-accession="${escapeHtml(row.accession)}">
+        <td>
+          <span class="ecology-input-key">${escapeHtml(row.key)}</span>
+          <span class="ecology-input-kind">${escapeHtml(row.kind)}</span>
+        </td>
+        <td>${ecologyLabelCellHtml(row.key, 'primary', saved)}</td>
+        <td>${ecologyLabelCellHtml(row.key, 'secondary', saved)}</td>
+      </tr>`;
+  }).join('');
+}
+
+function handleEcologyLabelChange(el) {
+  const row = el.closest('tr');
+  if (!row) return;
+  const field = el.dataset.field || '';
+  const other = row.querySelector(field === 'primary' ? '.metadata-primary-other' : '.metadata-secondary-other');
+  if (other) other.classList.toggle('hidden', el.value !== 'other');
+  updateEcologyLabelStatus();
   updateRunSummary();
 }
 
-function seedMetadataFromFiles() {
-  const existing = new Set([...document.querySelectorAll('.metadata-genome')].map(el => el.value.trim()).filter(Boolean));
-  for (const file of selectedFiles) {
-    if (!/\.(gbk|gb|gbff|fasta|fa|fna|fsa)$/i.test(file.name)) continue;
-    const genome = genomeStemFromName(file.name);
-    if (!genome || existing.has(genome)) continue;
-    existing.add(genome);
-    addMetadataRow({ genome });
+function ecologyLabelValue(row, field) {
+  const select = row.querySelector(field === 'primary' ? '.metadata-primary' : '.metadata-secondary');
+  const selected = select ? select.value : '';
+  if (selected !== 'other') return selected;
+  const other = row.querySelector(field === 'primary' ? '.metadata-primary-other' : '.metadata-secondary-other');
+  return (other && other.value.trim()) || 'other';
+}
+
+function currentEcologyMetadataRows() {
+  return [...document.querySelectorAll('#metadata-table-body tr[data-ecology-key]')].map((row) => ({
+    input: row.dataset.ecologyKey || '',
+    accession: row.dataset.accession || '',
+    primary: ecologyLabelValue(row, 'primary'),
+    secondary: ecologyLabelValue(row, 'secondary'),
+  })).filter(row => row.input);
+}
+
+function updateEcologyLabelStatus() {
+  const status = document.getElementById('ecology-label-status');
+  if (!status) return;
+  const enabled = !!document.getElementById('run-ecology')?.checked;
+  if (!enabled) {
+    status.textContent = 'Optional';
+    return;
   }
+  const rows = currentEcologyMetadataRows();
+  if (!rows.length) {
+    status.textContent = 'Add accessions or genome files to create label rows.';
+    return;
+  }
+  const unlabeled = rows.filter(row => !row.primary && !row.secondary).length;
+  if (unlabeled) {
+    status.textContent = `${unlabeled} unlabeled input${unlabeled === 1 ? '' : 's'}; unlabeled inputs may reduce ranking usefulness.`;
+    return;
+  }
+  status.textContent = `${rows.length} ecology label row${rows.length === 1 ? '' : 's'} ready.`;
+}
+
+function syncEcologyMetadataPanel() {
+  const enabled = !!document.getElementById('run-ecology')?.checked;
+  const body = document.getElementById('ecology-label-body');
+  if (body) body.classList.toggle('hidden', !enabled);
+  const savedValues = collectEcologyRowValues();
+  renderEcologyMetadataRows(ecologyInputRows(), savedValues);
+  updateEcologyLabelStatus();
 }
 
 function metadataProfileText() {
-  const rows = [...document.querySelectorAll('#metadata-table-body tr')].map((row) => {
-    return {
-      genome: row.querySelector('.metadata-genome')?.value.trim() || '',
-      primary: row.querySelector('.metadata-primary')?.value.trim() || '',
-      secondary: row.querySelector('.metadata-secondary')?.value.trim() || '',
-    };
-  }).filter(row => row.genome || row.primary || row.secondary);
+  if (!document.getElementById('run-ecology')?.checked) return '';
+  const rows = currentEcologyMetadataRows();
   if (!rows.length) return '';
+  const tsvCell = value => String(value || '').replace(/[\t\r\n]+/g, ' ').trim();
   const lines = ['accession\tgenome_id_current\ttaxonomy_id\tgenome_size_mb\tgenome_id_original_if_different\tecofun_primary\tecofun_secondary'];
   for (const row of rows) {
-    if (!row.genome) continue;
-    lines.push(`\t${row.genome}\t\t\t\t${row.primary}\t${row.secondary}`);
+    lines.push([
+      tsvCell(row.accession),
+      tsvCell(row.input),
+      '',
+      '',
+      '',
+      tsvCell(row.primary),
+      tsvCell(row.secondary),
+    ].join('\t'));
   }
   return lines.join('\n') + '\n';
 }
@@ -4229,6 +4419,7 @@ async function startAnalysis() {
     const manualAccessionText = manualLines.join('\n') + '\n';
     fd.append('files', new File([manualAccessionText], MANUAL_ACCESSIONS_FILENAME, { type: 'text/plain' }));
   }
+  syncEcologyMetadataPanel();
   const metadataText = metadataProfileText();
   if (metadataText) {
     fd.append('files', new File([metadataText], 'ecofun_metadata_normalized.tsv', { type: 'text/tab-separated-values' }));

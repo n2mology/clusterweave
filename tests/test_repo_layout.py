@@ -395,6 +395,42 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertNotIn("submit_token=", text)
         self.assertNotIn("admin_token=", text)
 
+    def test_web_ecology_label_table_uses_controlled_public_inputs(self) -> None:
+        text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="ecology-label-panel"', text)
+        self.assertIn('id="run-ecology"', text)
+        self.assertIn('<th>Input</th><th>Primary ecology</th><th>Secondary ecology</th>', text)
+        self.assertIn("const ECOLOGY_LABELS = [", text)
+        for label in [
+            "soil",
+            "plant_associated",
+            "endophyte",
+            "mycorrhiza",
+            "plant_pathogen",
+            "saprotroph",
+            "marine",
+            "freshwater",
+            "lichen_associated",
+            "insect_associated",
+            "animal_associated",
+            "human_associated",
+            "food_fermentation",
+            "unknown",
+            "other",
+        ]:
+            self.assertIn(f"'{label}'", text)
+        self.assertIn("function ecologyInputRows()", text)
+        self.assertIn("manualAccessionLines().forEach(accession => addRow(accession, 'NCBI accession', accession));", text)
+        self.assertIn("addRow(genomeStemFromName(file.name), 'Genome file', '')", text)
+        self.assertIn("function syncEcologyMetadataPanel()", text)
+        self.assertIn("function metadataProfileText()", text)
+        self.assertIn("accession\\tgenome_id_current\\ttaxonomy_id\\tgenome_size_mb\\tgenome_id_original_if_different\\tecofun_primary\\tecofun_secondary", text)
+        self.assertIn("unlabeled inputs may reduce ranking usefulness", text)
+        self.assertIn('id="metadata-tsv"', text)
+        self.assertIn('advanced-wrap admin-only', text)
+        self.assertNotIn("Editable Ecology Metadata", text)
+        self.assertNotIn("addMetadataRow()", text)
+
     def test_web_serves_result_assets_inline_unless_download_requested(self) -> None:
         text = (REPO_ROOT / "web" / "app.py").read_text(encoding="utf-8")
         self.assertIn('"image/svg+xml; charset=utf-8"', text)
