@@ -9,6 +9,11 @@ __pycache__/
 .venv/
 venv/
 
+# Local-only browser screenshot tooling for agent visual review.
+node_modules/
+package.json
+package-lock.json
+
 Data/Results/**
 !Data/Results/.gitkeep
 

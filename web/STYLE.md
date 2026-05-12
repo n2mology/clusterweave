@@ -119,6 +119,117 @@ Gaps to address before final QA:
 - Neumorphism must not reduce contrast. Text, controls, checkboxes, badges, and focus rings must
   remain readable and accessible.
 
+## Public Release Pivot After Slice 11
+
+After browser visual review of the Slice 11 UI, the project direction changed from a lab-QA-first
+controller to a public hosted web service with admin-only QA capabilities. This does not discard
+the visual work; it changes which parts are public by default.
+
+Key visual review conclusions:
+
+- The hero became redundant after the live workflow graphic was added. It should be simplified
+  to two actions: `Start from NCBI accessions` and `Load demo run`.
+- The static hero weave and the top-level `WeaveMap` section repeat the same concept. Remove
+  the static hero weave, remove top-level `WeaveMap` nav, and move the live run timeline into
+  Results as `Workflow progress`.
+- The public Results surface should be the run surface. Before a job is loaded it should say:
+  `Submit or load an existing run to see stage progress.`
+- Once a job is submitted, the Upload & Configure panel should visually lock, grey, collapse,
+  and hand the user to Results.
+- `Run History`, full logs, reruns, worker telemetry, raw env overrides, stage toggles, and
+  advanced runtime knobs are admin/local features, not public defaults.
+- The output discovery cards introduced in Slice 11 are now redundant with Results tabs and
+  should be removed from public UI.
+- File paths in the Files tab should be displayed relative to the selected job/project; internal
+  prefixes such as `Data/Results/<project>` are implementation details.
+
+Public release product/security decisions now live in `web/STAN.md`. Future agents must read it
+alongside this style guide before editing.
+
+## Public Release Product Requirements
+
+The first public release should be a single-page scientific service, not an exposed ops console.
+
+Public access model:
+
+- Anonymous users may load the static UI, view redacted service status, load demo accessions
+  locally, and unlock an existing run by pasting a result link or `job_id + read token`.
+- Anonymous users must not list jobs, see job IDs, read logs, read files, submit jobs, rerun jobs,
+  or delete jobs.
+- Job creation requires a submit token or admin token.
+- Every job gets a random per-job read token. Job details, progress, sanitized failure summaries,
+  figures, files, and downloads require that read token or an admin token.
+- Admin token unlocks Lab QA, job list, full logs, worker telemetry, rerun controls, delete, and
+  diagnostics.
+- Keep one static SPA. Role-gate the UI by token, but enforce every permission server-side.
+
+Public workflow:
+
+- Public pipeline is fixed and canonical. No public stage toggles.
+- Public intake supports:
+  - manual NCBI accessions
+  - one-accession-per-line `.txt` accession lists
+  - genome uploads with `.fasta`, `.fa`, `.fna`, `.fsa`, `.gb`, `.gbk`, `.gbff`
+  - UI-generated ecology metadata table only when ecology-aware analysis is enabled
+- Do not expose NPLinker in the public WebUI for now.
+- Do not expose raw env overrides in the public WebUI. Expert users who need those controls
+  should run ClusterWeave locally.
+- Public failure messages should be sanitized summaries with suggested fixes, not raw logs.
+- Public users cannot delete jobs early. Admins can delete jobs.
+- Public users cannot rerun jobs. Rerun controls are admin-only.
+
+Public quota defaults, all env-configurable:
+
+- Max accessions per job: `25`
+- Max genome files per job: `25`
+- Max individual upload file: `250 MB`
+- Max total upload per job: `1 GB`
+- Max queued jobs: `50`
+- Max CPU per job: `8`
+- Worker concurrency default: `1`
+- Completed/failed job retention: `30 days`
+
+Public status:
+
+- Anonymous status shows only service online/offline, submissions open/paused, and aggregate jobs
+  processed.
+- Queue depth, worker phases, capabilities, logs, internal paths, and job IDs are admin-only.
+
+Optional email:
+
+- Add optional completion/failure email only when SMTP is configured.
+- Store email in job metadata only, never logs.
+- Email the result link and expiration date.
+- Delete email metadata when the job expires.
+
+Sensitive data notice:
+
+- Public submission must require a data-use acknowledgment:
+  users understand the public service is for public or releasable data only and results are
+  accessible to anyone with the private result link until expiration.
+- Encourage users with sensitive data or expert runtime needs to pull the Dockerized release and
+  run locally.
+
+Ecology label UI:
+
+- When ecology-aware analysis is enabled, generate editable rows from pasted accessions and
+  uploaded genome filename stems.
+- Columns: `Input`, `Primary ecology`, `Secondary ecology`.
+- Use dropdowns with controlled vocabulary plus `Other`.
+- Allow blanks, but warn that unlabeled inputs reduce ranking usefulness.
+- Emit canonical `ecofun_metadata_normalized.tsv` behind the scenes.
+- Controlled vocabulary:
+  `soil`, `plant_associated`, `endophyte`, `mycorrhiza`, `plant_pathogen`, `saprotroph`,
+  `marine`, `freshwater`, `lichen_associated`, `insect_associated`, `animal_associated`,
+  `human_associated`, `food_fermentation`, `unknown`, `other`.
+
+Input filename guidance:
+
+- Public genome filenames should use letters, numbers, `.`, `_`, and `-`.
+- Avoid spaces, slashes, parentheses, duplicate filenames, and very long names.
+- Each genome file stem should identify one genome; that stem becomes the ecology-table key for
+  direct uploads.
+
 ## Neumorphism + Retrofuturism Target
 
 ClusterWeave's version of Neumorphism is not pale consumer-app skeuomorphism. It should feel
@@ -313,19 +424,26 @@ wording except in very subtle internal metaphors.
 
 ## Practical Refinement Checklist
 
-Carry these deltas through the next visual passes:
+Carry these deltas through the next implementation passes:
 
-- Make navigation feel like a product shell, not decorative section pills.
-- Move the pipeline visualization up and make it the central visual story.
-- Reduce console and telemetry dominance in the default mode.
-- Add a `Guided Demo` / `Lab QA` / `Advanced` mode switch.
-- Convert upload/configuration into a cleaner intake node with advanced drawers.
-- Add a real `Outputs` section with honest empty states.
-- Strengthen the wordmark: spell out `ClusterWeave`, with an orange/teal double-helix crossing
-  between the `r` and `W`.
-- Use orange/teal braided connectors throughout the workflow.
-- Use fewer nested borders and more deliberate section hierarchy.
-- Add subtle signal/dither motion only where it explains state.
+- Security/API first, then UI. Do not hide an unsafe endpoint behind CSS.
+- Add submit-token, per-job read-token, and admin-token enforcement server-side.
+- Redact anonymous `/api/system/status`.
+- Add quotas and retention metadata before widening public access.
+- Keep one static SPA, but role-gate public, job-token, submit-token, and admin surfaces.
+- Remove public `WeaveMap` naming; use `Workflow progress`.
+- Remove hero static weave and top-level `WeaveMap` nav.
+- Collapse/lock Upload & Configure after submit, then route users to Results.
+- Put the live stage timeline inside Results, above Visualization/Files.
+- Remove public Run History; keep it admin/local only.
+- Remove output discovery cards from public Results.
+- Trim displayed result paths while preserving `resultHref(...)` direct Open/Download behavior.
+- Remove public NPLinker controls, raw env overrides, public reruns, public delete, public stage
+  toggles, and public Lab QA.
+- Add Existing Run loader and browser-session list of unlocked runs.
+- Add ecology label table only when ecology-aware analysis is enabled.
+- Keep public copy explicit about acceptable input types, filename hygiene, retention, result-link
+  privacy, and local Docker for sensitive work.
 
 ## Design Tokens
 
@@ -394,11 +512,18 @@ Progress:
 - Completed: Slice 5 - Worker Telemetry / Lab Console.
 - Completed: Slice 6 - Results And Output Discovery.
 - Completed: Slice 7 - Responsive And Accessibility Pass.
-- Next: Slice 8 - Journey-First Navigation And Hero.
-- Later: Slice 9 - User Modes And Section Hierarchy.
-- Later: Slice 10 - Neumorphic Surface System.
-- Later: Slice 11 - Retrofuturist WeaveMap And Outputs Polish.
-- Final: Slice 12 - Final QA And Documentation.
+- Completed: Slice 8 - Journey-First Navigation And Hero.
+- Completed: Slice 9 - User Modes And Section Hierarchy.
+- Completed: Slice 10 - Neumorphic Surface System.
+- Completed: Slice 11 - Retrofuturist WeaveMap And Outputs Polish.
+- Superseded/deferred: Slice 12 - Final QA And Documentation. A browser screenshot check was
+  run after Slice 11, but public-release QA now belongs to Slice 18.
+- Current: Slice 13 - Public API Security Foundation.
+- Next: Slice 14 - Public Input Policy, Quotas, And Retention Metadata.
+- Later: Slice 15 - Public UI Restructure.
+- Later: Slice 16 - Ecology Label Table.
+- Later: Slice 17 - Email Notifications And Retention Sweeper.
+- Final: Slice 18 - Public Deployment QA.
 
 Complete these slices in order. Each slice should leave the app usable.
 
@@ -692,6 +817,179 @@ Acceptance:
 - Lab QA story remains clear:
   worker status -> job status -> logs/errors -> files/results.
 - The page no longer reads as a generic dashboard.
+
+### Slice 13: Public API Security Foundation
+
+Goal: make the web/API safe enough to expose behind a public web server before changing public
+UI affordances.
+
+Tasks:
+
+- Add environment-driven public mode and auth configuration:
+  `CLUSTERWEAVE_PUBLIC_MODE=1`, submit token, admin token, job read-token secret handling.
+- Generate a random per-job read token at job creation and store only what the server needs to
+  validate it.
+- Require authorization server-side:
+  - job list: admin only
+  - job details/logs/files/downloads: job read token or admin
+  - submit/create job: submit token or admin
+  - rerun/delete: admin only
+- Add anonymous redacted `/api/system/status` with only service online/offline,
+  submissions open/paused, and aggregate jobs processed.
+- Keep full worker telemetry/capabilities behind admin auth.
+- Remove wildcard public data access. CORS and auth headers should be explicit for the hosted
+  model.
+- Add focused tests for unauthorized, submit-token, job-token, and admin-token behavior.
+- Update docs and `web/STAN.md` if any API names differ from the plan.
+
+Acceptance:
+
+- Anonymous users cannot list, read, rerun, delete, log, or download any job.
+- A valid per-job read token unlocks only that job.
+- Admin token unlocks existing Lab QA/data-management surfaces.
+- Existing local/lab behavior can still be enabled with `CLUSTERWEAVE_PUBLIC_MODE=0`.
+
+### Slice 14: Public Input Policy, Quotas, And Retention Metadata
+
+Goal: make public submissions constrained, honest, and operationally bounded.
+
+Tasks:
+
+- Enforce public accepted inputs server-side:
+  - manual accessions or one-accession-per-line `.txt`
+  - genome files `.fasta`, `.fa`, `.fna`, `.fsa`, `.gb`, `.gbk`, `.gbff`
+  - UI-generated ecology metadata only when ecology-aware mode is enabled
+- Reject public `.tsv/.csv` accession tables until the parser truly supports tabular layouts.
+- Reject public `.gff`, `.gff3`, `.faa`, `.json`, `.mgf`, generic `.zip`, and unclassified
+  auxiliary uploads.
+- Remove or disable public NPLinker submission handling.
+- Remove raw env overrides from public requests unless an admin token is used and
+  `CLUSTERWEAVE_ALLOW_ENV_OVERRIDES=1`.
+- Enforce env-configurable quotas:
+  max accessions `25`, max genome files `25`, max individual file `250 MB`, max total upload
+  `1 GB`, max queued jobs `50`, max CPU per job `8`.
+- Add retention metadata on jobs: created, completed/failed, expires_at, retention days.
+- Keep completed/failed retention default at 30 days via `CLUSTERWEAVE_JOB_RETENTION_DAYS=30`.
+- Add tests for input rejection, quota failures, CPU clamping, and retention metadata.
+
+Acceptance:
+
+- Public upload policy matches the canonical workflow instead of permissive staging plumbing.
+- Bad inputs fail before reaching worker execution.
+- Every public job exposes an expiration date to authorized readers.
+
+### Slice 15: Public UI Restructure
+
+Goal: reshape the SPA around public submission and existing-run retrieval.
+
+Tasks:
+
+- Remove hero static weave and top-level `WeaveMap` nav.
+- Simplify hero/identity band to two actions:
+  `Start from NCBI accessions` and `Load demo run`.
+- Rename public workflow copy from `WeaveMap` to `Workflow progress`.
+- Add access key handling using `sessionStorage`; never put submit/admin tokens in URLs.
+- Add Existing Run loader accepting a full result link or `job_id + read token`.
+- Store unlocked runs in browser-session state and provide an `Opened runs` switcher.
+- Remove public Run History. Keep Run History admin/local only.
+- Remove public Lab QA mode. Show Lab QA only when admin token is present or local public mode
+  is disabled.
+- Remove public Advanced knobs, public stage toggles, public NPLinker, public raw env overrides,
+  public rerun controls, public delete controls, and public output discovery cards.
+- Move the live stage timeline inside Results above Visualization/Files.
+- Before a job is loaded, Results shows:
+  `Submit or load an existing run to see stage progress.`
+- After submit, grey/lock Upload & Configure, collapse it, and route to Results.
+- Keep `apiUrl(...)`, `resultHref(...)`, Visualization figure-only behavior, and Files
+  Open/Download behavior.
+
+Acceptance:
+
+- Anonymous users see a public shell, submit access entry, accepted input policy, and Existing Run
+  loader without job leaks.
+- A loaded job-token run shows progress/results but not admin logs.
+- Admin token restores operational diagnostics without a second page.
+
+### Slice 16: Ecology Label Table
+
+Goal: make ecology-aware analysis usable without exposing raw TSV layout.
+
+Tasks:
+
+- Show the ecology table only when `Enable ecology-aware analysis` is checked.
+- Generate rows from pasted NCBI accessions and uploaded genome filename stems.
+- Columns: `Input`, `Primary ecology`, `Secondary ecology`.
+- Use dropdowns with controlled vocabulary:
+  `soil`, `plant_associated`, `endophyte`, `mycorrhiza`, `plant_pathogen`, `saprotroph`,
+  `marine`, `freshwater`, `lichen_associated`, `insect_associated`, `animal_associated`,
+  `human_associated`, `food_fermentation`, `unknown`, `other`.
+- Show a short custom text field when `other` is selected.
+- Allow blanks but warn that unlabeled inputs may reduce ranking usefulness.
+- Emit `ecofun_metadata_normalized.tsv` behind the scenes using canonical columns.
+- Keep advanced raw metadata path/upload admin-only.
+
+Acceptance:
+
+- Public users never need to understand TSV schema.
+- Submitted metadata keys match accession-derived genome IDs or uploaded genome filename stems.
+- Ecology metadata remains optional and truthful.
+
+### Slice 17: Email Notifications And Retention Sweeper
+
+Goal: add antiSMASH-like result recovery while keeping storage bounded.
+
+Tasks:
+
+- Add optional email field only when `CLUSTERWEAVE_SMTP_ENABLED=1`.
+- Store email in job metadata only; do not write email into logs.
+- On completion/failure, send result link, sanitized status summary, and expiration date.
+- For failures, send friendly common fixes and avoid raw logs, filesystem paths, commands, env
+  vars, stack traces, and worker internals.
+- Implement a retention sweeper or maintenance command that removes expired uploads, logs,
+  work dirs, result files, emails, and read tokens.
+- Keep only aggregate counters after deletion.
+- Make retention configurable; `30` days is default. Setting retention to `0` or `never` should
+  require deliberate admin documentation.
+- Add tests for email gating, sanitized failure payloads, expiration, and cleanup boundaries.
+
+Acceptance:
+
+- Users can recover results after a browser crash if email is configured or they kept the link.
+- Jobs do not live forever by default.
+- Sensitive metadata is deleted with the job.
+
+### Slice 18: Public Deployment QA
+
+Goal: prove the public hosted mode is secure, comprehensible, and operationally bounded.
+
+Tasks:
+
+- Run the standard checks:
+  - `python3 -m py_compile web/app.py web/worker.py web/canonical_pipeline.py`
+  - `python3 -m unittest discover -s tests`
+  - `docker compose -f docker-compose.yml config`
+  - `docker compose -f clusterweave.yml config`
+  - `git diff --check`
+- Add API smoke tests for anonymous, submit token, job token, and admin token flows.
+- Start the local web server and capture Playwright screenshots for anonymous, submit-token,
+  job-token, and admin views at desktop and mobile sizes.
+- Verify:
+  - anonymous cannot list/read/download jobs
+  - submit token can create a job within quotas
+  - read token can view only its job
+  - admin can list jobs, see logs, rerun, and delete
+  - public status is redacted
+  - result file Open/Download still uses `resultHref(...)`
+  - Visualization remains figure-only
+  - upload/config locks/collapses after submit
+  - no horizontal overflow on mobile
+- Update `web/STAN.md` with remaining deployment questions for the hosting collaborator.
+
+Acceptance:
+
+- The public UI can be safely shown without exposing job data or worker internals.
+- The admin path remains usable for troubleshooting.
+- The collaborator handoff is complete enough for another agent to continue.
 
 ## Prompt Template For A UI Agent
 
