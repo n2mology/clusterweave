@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +17,44 @@ QUEUE_DIR.mkdir(parents=True, exist_ok=True)
 
 def now_iso() -> str:
     return datetime.now().isoformat()
+
+
+def env_int(name: str, default: int, minimum: int = 0) -> int:
+    try:
+        value = int(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, value)
+
+
+def plus_days_iso(value: object, days: int) -> str:
+    try:
+        base = datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        base = datetime.now()
+    return (base + timedelta(days=days)).isoformat()
+
+
+def apply_retention_metadata(job: dict[str, Any]) -> None:
+    days = env_int("CLUSTERWEAVE_JOB_RETENTION_DAYS", 30, minimum=1)
+    job["retention_days"] = days
+
+    status = str(job.get("status", "")).lower()
+    if status == "success":
+        job.setdefault("completed_at", job.get("updated_at") or now_iso())
+        job.pop("failed_at", None)
+        job["expires_at"] = plus_days_iso(job["completed_at"], days)
+        return
+
+    if status == "failed":
+        job.setdefault("failed_at", job.get("updated_at") or now_iso())
+        job.pop("completed_at", None)
+        job["expires_at"] = plus_days_iso(job["failed_at"], days)
+        return
+
+    job.pop("completed_at", None)
+    job.pop("failed_at", None)
+    job["expires_at"] = plus_days_iso(job.get("created_at") or now_iso(), days)
 
 
 def ts_line(message: str) -> str:
@@ -44,6 +82,7 @@ def read_job(job_id: str) -> dict[str, Any] | None:
 
 
 def write_job(job: dict[str, Any]) -> None:
+    apply_retention_metadata(job)
     path = job_meta_path(job["id"])
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".json.tmp")

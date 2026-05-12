@@ -292,6 +292,70 @@ Rules:
 - Failure email uses sanitized summary, not raw logs.
 - Delete email metadata when job expires.
 
+The official fungiSMASH completion email is a good precedent: it states the job ID, submitted
+timestamp, filename/input context, final status, result link, one-month retention, and citation
+pointer. ClusterWeave should use that structure but tailor it to a multi-stage workflow.
+
+Recommended completion subject:
+
+```text
+ClusterWeave job <job_id> finished: <status>
+```
+
+Recommended completion body:
+
+```text
+Dear ClusterWeave user,
+
+The ClusterWeave job <job_id> submitted on <submitted_at> for project <project_name> has finished
+with status <status>.
+
+Input summary:
+- Accessions: <n_accessions>
+- Genome files: <n_genome_files>
+- Ecology-aware analysis: <enabled_or_disabled>
+
+Workflow summary:
+- Prep / NCBI retrieval: <status>
+- Annotation / BGC detection: <status>
+- BiG-SCAPE: <status>
+- Summary: <status>
+- clinker: <status>
+- Figures: <status>
+
+You can find the results here:
+<result_link>
+
+Results will be kept for one month and then deleted automatically on <expires_at>.
+
+If you found ClusterWeave useful, please cite the project using the citation instructions here:
+<citation_or_docs_link>
+```
+
+Recommended failure body uses the same header and result link, but replaces the workflow summary
+with a sanitized failure summary:
+
+```text
+The job did not complete successfully.
+
+Failed stage: <public_stage_name>
+Likely issue: <sanitized_reason>
+Suggested fixes:
+- Check that NCBI accessions are valid and one per line.
+- Check that uploaded genomes use supported extensions: .fasta, .fa, .fna, .fsa, .gb, .gbk, .gbff.
+- Submit only public or releasable data; for sensitive or advanced troubleshooting, run
+  ClusterWeave locally with Docker.
+
+The private result link below may include partial outputs and the public failure summary:
+<result_link>
+
+Results will be kept for one month and then deleted automatically on <expires_at>.
+```
+
+Email must not include raw logs, command lines, filesystem paths, environment variables, container
+details, stack traces, admin tokens, submit tokens, or read tokens except as part of the private
+fragment result link.
+
 ### Ecology-Aware Analysis
 
 Ecology UI should be table-driven and controlled.
@@ -341,28 +405,52 @@ Remove public output discovery cards. Visualization remains figure-only. Files t
 Download behavior but should display paths relative to the selected job/project, not full internal
 `Data/Results/<project>` prefixes.
 
-## Security/Implementation Risks Found In Current Code
+## Security/Implementation Risks After Slice 14
 
-The current code was acceptable for lab QA, but it is not public-safe yet:
+Slice 13 added an opt-in public API security boundary:
 
-- Wildcard CORS is currently sent by the API.
-- Job list, job reads, logs, files, reruns, and deletes are not token-gated.
-- Uploads have extension checks but no public quota enforcement.
-- Public/raw `env_overrides` can affect runtime behavior.
+- `CLUSTERWEAVE_PUBLIC_MODE=1` switches the API from local/lab permissive mode to token-gated
+  public mode.
+- Job creation requires `CLUSTERWEAVE_SUBMIT_TOKEN` or `CLUSTERWEAVE_ADMIN_TOKEN`.
+- Job list, rerun, delete, and full worker telemetry require `CLUSTERWEAVE_ADMIN_TOKEN`.
+- Job details, logs, files, and downloads require that job's read token or the admin token.
+- Job read tokens are returned once at submission and only a digest is stored in job metadata.
+- Anonymous `/api/system/status` is redacted to online/offline, submissions open/paused, and
+  aggregate jobs processed.
+- Public-mode CORS no longer emits wildcard access unless an allowed origin is explicitly
+  configured.
+
+Slice 14 added public submission policy, quotas, and retention metadata:
+
+- Public submissions accept only `.txt` one-accession-per-line lists, genome files
+  `.fasta`, `.fa`, `.fna`, `.fsa`, `.gb`, `.gbk`, `.gbff`, and generated
+  `ecofun_metadata_normalized.tsv` when ecology-aware analysis is enabled.
+- Public `.tsv/.csv` accession tables, auxiliary formats, generic archives, raw metadata paths,
+  NPLinker submission settings, and non-admin raw environment overrides are rejected before a job
+  workspace is created.
+- Public quotas are enforced with env-configurable defaults for accessions, genome files,
+  per-file upload size, total upload size, queued jobs, and CPU count.
+- Public CPU requests are clamped to `CLUSTERWEAVE_MAX_CPUS_PER_JOB`; related thread/worker
+  settings are clamped to the accepted CPU count.
+- Jobs now carry `retention_days` and `expires_at`; terminal jobs also get `completed_at` or
+  `failed_at` and refresh expiration from that terminal timestamp.
+
+Remaining public-release risks:
+
 - Job data persists until explicit deletion; no retention sweeper exists yet.
-- Public users can currently see worker telemetry if they load the UI.
-- The staging bridge accepts some auxiliary files that should not be public inputs.
+- The static UI does not yet provide public-mode token entry, result-link unlock, or admin-only
+  disclosure controls.
 
-Implement server-side security before UI hiding.
+Keep server-side security ahead of UI hiding in the remaining public-release slices.
 
 ## Ordered Next Slices
 
 See `web/STYLE.md` for full task lists and acceptance criteria.
 
-- Slice 13: Public API Security Foundation.
-- Slice 14: Public Input Policy, Quotas, And Retention Metadata.
-- Slice 15: Public UI Restructure.
-- Slice 16: Ecology Label Table.
+- Completed: Slice 13 - Public API Security Foundation.
+- Completed: Slice 14 - Public Input Policy, Quotas, And Retention Metadata.
+- Current: Slice 15 - Public UI Restructure.
+- Next: Slice 16 - Ecology Label Table.
 - Slice 17: Email Notifications And Retention Sweeper.
 - Slice 18: Public Deployment QA.
 

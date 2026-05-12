@@ -518,10 +518,10 @@ Progress:
 - Completed: Slice 11 - Retrofuturist WeaveMap And Outputs Polish.
 - Superseded/deferred: Slice 12 - Final QA And Documentation. A browser screenshot check was
   run after Slice 11, but public-release QA now belongs to Slice 18.
-- Current: Slice 13 - Public API Security Foundation.
-- Next: Slice 14 - Public Input Policy, Quotas, And Retention Metadata.
-- Later: Slice 15 - Public UI Restructure.
-- Later: Slice 16 - Ecology Label Table.
+- Completed: Slice 13 - Public API Security Foundation.
+- Completed: Slice 14 - Public Input Policy, Quotas, And Retention Metadata.
+- Current: Slice 15 - Public UI Restructure.
+- Next: Slice 16 - Ecology Label Table.
 - Later: Slice 17 - Email Notifications And Retention Sweeper.
 - Final: Slice 18 - Public Deployment QA.
 
@@ -943,6 +943,9 @@ Tasks:
 - Add optional email field only when `CLUSTERWEAVE_SMTP_ENABLED=1`.
 - Store email in job metadata only; do not write email into logs.
 - On completion/failure, send result link, sanitized status summary, and expiration date.
+- Use the ClusterWeave email templates recorded in `web/STAN.md`, based on the fungiSMASH
+  precedent but tailored to project name, input summary, workflow stages, retention, and
+  citation/docs link.
 - For failures, send friendly common fixes and avoid raw logs, filesystem paths, commands, env
   vars, stack traces, and worker internals.
 - Implement a retention sweeper or maintenance command that removes expired uploads, logs,

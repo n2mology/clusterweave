@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import hmac
 import mimetypes
 import os
+import secrets
 import shutil
 from datetime import datetime
 import urllib.parse
@@ -29,6 +32,40 @@ from runtime_capabilities import unavailable_stage_reason
 HOST = "0.0.0.0"
 PORT = int(os.environ.get("PORT", "8080"))
 
+
+def env_bool(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def env_int(name: str, default: int, minimum: int = 0) -> int:
+    try:
+        value = int(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, value)
+
+
+PUBLIC_MODE = env_bool("CLUSTERWEAVE_PUBLIC_MODE", False)
+SUBMISSIONS_OPEN = env_bool("CLUSTERWEAVE_SUBMISSIONS_OPEN", True)
+SUBMIT_TOKEN = os.environ.get("CLUSTERWEAVE_SUBMIT_TOKEN", "")
+ADMIN_TOKEN = os.environ.get("CLUSTERWEAVE_ADMIN_TOKEN", "")
+JOB_TOKEN_SECRET = os.environ.get("CLUSTERWEAVE_JOB_TOKEN_SECRET", "")
+ALLOW_ENV_OVERRIDES = env_bool("CLUSTERWEAVE_ALLOW_ENV_OVERRIDES", False)
+MAX_ACCESSIONS = env_int("CLUSTERWEAVE_MAX_ACCESSIONS", 25, minimum=1)
+MAX_GENOME_FILES = env_int("CLUSTERWEAVE_MAX_GENOME_FILES", 25, minimum=1)
+MAX_UPLOAD_FILE_MB = env_int("CLUSTERWEAVE_MAX_UPLOAD_FILE_MB", 250, minimum=1)
+MAX_UPLOAD_TOTAL_MB = env_int("CLUSTERWEAVE_MAX_UPLOAD_TOTAL_MB", 1024, minimum=1)
+MAX_QUEUED_JOBS = env_int("CLUSTERWEAVE_MAX_QUEUED_JOBS", 50, minimum=0)
+MAX_CPUS_PER_JOB = env_int("CLUSTERWEAVE_MAX_CPUS_PER_JOB", 8, minimum=1)
+ALLOWED_CORS_ORIGINS = {
+    origin.strip()
+    for origin in os.environ.get("CLUSTERWEAVE_ALLOWED_ORIGINS", "").split(",")
+    if origin.strip()
+}
+
 ALLOWED_EXTENSIONS = {
     ".gbk",
     ".gb",
@@ -47,6 +84,18 @@ ALLOWED_EXTENSIONS = {
     ".mgf",
     ".zip",
 }
+
+SENSITIVE_JOB_FIELDS = {
+    "read_token",
+    "read_token_hash",
+    "read_token_created_at",
+}
+PROCESSED_JOB_STATUSES = {"success", "failed"}
+QUEUED_JOB_STATUSES = {"pending", "running"}
+PUBLIC_GENOME_EXTENSIONS = {".fasta", ".fa", ".fna", ".fsa", ".gb", ".gbk", ".gbff"}
+PUBLIC_ACCESSION_EXTENSIONS = {".txt"}
+PUBLIC_ECOLOGY_METADATA_FILENAME = "ecofun_metadata_normalized.tsv"
+BYTES_PER_MB = 1024 * 1024
 WORKER_STATUS_PATH = Path(os.environ.get("DATA_DIR", "/data")) / "worker" / "status.json"
 INLINE_MIME_OVERRIDES = {
     ".svg": "image/svg+xml; charset=utf-8",
@@ -201,6 +250,247 @@ def content_disposition(disposition: str, filename: str) -> str:
     return f'{disposition}; filename="{ascii_name}"; filename*=UTF-8\'\'{encoded_name}'
 
 
+def request_tokens(handler: BaseHTTPRequestHandler) -> list[str]:
+    tokens: list[str] = []
+    auth_header = handler.headers.get("Authorization", "")
+    if auth_header.lower().startswith("bearer "):
+        token = auth_header[7:].strip()
+        if token:
+            tokens.append(token)
+
+    for header in [
+        "X-ClusterWeave-Token",
+        "X-ClusterWeave-Admin-Token",
+        "X-ClusterWeave-Submit-Token",
+        "X-ClusterWeave-Read-Token",
+    ]:
+        token = handler.headers.get(header, "").strip()
+        if token:
+            tokens.append(token)
+
+    return tokens
+
+
+def secure_token_match(candidate: str, expected: str) -> bool:
+    return bool(candidate and expected) and hmac.compare_digest(candidate, expected)
+
+
+def request_has_token(handler: BaseHTTPRequestHandler, expected: str) -> bool:
+    return any(secure_token_match(token, expected) for token in request_tokens(handler))
+
+
+def request_has_any_token(handler: BaseHTTPRequestHandler) -> bool:
+    return bool(request_tokens(handler))
+
+
+def request_is_admin(handler: BaseHTTPRequestHandler) -> bool:
+    if not PUBLIC_MODE:
+        return True
+    return request_has_token(handler, ADMIN_TOKEN)
+
+
+def request_can_submit(handler: BaseHTTPRequestHandler) -> bool:
+    if not PUBLIC_MODE:
+        return True
+    return request_is_admin(handler) or request_has_token(handler, SUBMIT_TOKEN)
+
+
+def job_token_hash(token: str) -> str:
+    secret = JOB_TOKEN_SECRET.encode("utf-8") if JOB_TOKEN_SECRET else b"clusterweave-job-read-token-v1"
+    return hmac.new(secret, token.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def generate_job_read_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def attach_job_read_token(job: dict[str, object]) -> str:
+    token = generate_job_read_token()
+    job["read_token_hash"] = job_token_hash(token)
+    job["read_token_created_at"] = now_iso()
+    return token
+
+
+def request_can_read_job(handler: BaseHTTPRequestHandler, job: dict[str, object]) -> bool:
+    if not PUBLIC_MODE:
+        return True
+    if request_is_admin(handler):
+        return True
+    expected = job.get("read_token_hash")
+    if not isinstance(expected, str) or not expected:
+        return False
+    return any(hmac.compare_digest(job_token_hash(token), expected) for token in request_tokens(handler))
+
+
+def redact_env_overrides(settings: object) -> object:
+    if not isinstance(settings, dict):
+        return settings
+    redacted = dict(settings)
+    if redacted.get("env_overrides"):
+        redacted["env_overrides"] = "[redacted]"
+    return redacted
+
+
+def job_payload(job: dict[str, object], *, admin: bool) -> dict[str, object]:
+    payload = dict(job)
+    for key in SENSITIVE_JOB_FIELDS:
+        payload.pop(key, None)
+    if PUBLIC_MODE and not admin:
+        for key in ["settings", "submission_settings", "last_rerun_settings"]:
+            if key in payload:
+                payload[key] = redact_env_overrides(payload[key])
+    return payload
+
+
+def jobs_processed_count() -> int:
+    return sum(1 for job in list_jobs() if str(job.get("status", "")).lower() in PROCESSED_JOB_STATUSES)
+
+
+def queued_job_count() -> int:
+    return sum(1 for job in list_jobs() if str(job.get("status", "")).lower() in QUEUED_JOB_STATUSES)
+
+
+def redacted_system_status() -> dict[str, object]:
+    submissions_open = SUBMISSIONS_OPEN
+    return {
+        "online": True,
+        "service": "online",
+        "submissions_open": submissions_open,
+        "submissions": "open" if submissions_open else "paused",
+        "jobs_processed": jobs_processed_count(),
+    }
+
+
+def allowed_cors_origin(origin: str | None) -> str | None:
+    if not PUBLIC_MODE:
+        return "*"
+    if not origin:
+        return None
+    if "*" in ALLOWED_CORS_ORIGINS:
+        return origin
+    if origin in ALLOWED_CORS_ORIGINS:
+        return origin
+    return None
+
+
+def public_cpu_limit() -> int:
+    return min(MAX_CPUS_PER_JOB, os.cpu_count() or MAX_CPUS_PER_JOB)
+
+
+def clamp_public_cpus(value: int) -> int:
+    if not PUBLIC_MODE:
+        return max(1, min(value, os.cpu_count() or value))
+    return max(1, min(value, public_cpu_limit()))
+
+
+def parse_accession_text(filename: str, content: bytes) -> tuple[str | None, int]:
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError:
+        return f"Accession list '{filename}' must be UTF-8 text", 0
+
+    count = 0
+    for line_number, raw_line in enumerate(text.splitlines(), start=1):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        tokens = [token for token in line.replace(",", " ").replace(";", " ").split() if token]
+        if len(tokens) != 1:
+            return f"Accession list '{filename}' must contain one accession per line; line {line_number} has multiple values", 0
+        if tokens[0].lower() == "accession":
+            return f"Accession list '{filename}' must not include a header row", 0
+        count += 1
+    return None, count
+
+
+def validate_public_uploads(
+    uploads: list[dict[str, object]],
+    settings: dict[str, object],
+) -> tuple[str | None, dict[str, int]]:
+    summary = {
+        "accession_count": 0,
+        "genome_file_count": 0,
+        "metadata_file_count": 0,
+        "upload_bytes": 0,
+    }
+    max_file_bytes = MAX_UPLOAD_FILE_MB * BYTES_PER_MB
+    max_total_bytes = MAX_UPLOAD_TOTAL_MB * BYTES_PER_MB
+    ecology_enabled = settings_bool(settings, "run_ecology_analysis")
+
+    for item in uploads:
+        filename = Path(str(item.get("filename") or "unknown")).name
+        ext = Path(filename).suffix.lower()
+        content = bytes(item.get("content") or b"")
+        size = len(content)
+
+        if size > max_file_bytes:
+            return f"File '{filename}' exceeds the {MAX_UPLOAD_FILE_MB} MB public upload limit", summary
+
+        summary["upload_bytes"] += size
+        if summary["upload_bytes"] > max_total_bytes:
+            return f"Total upload size exceeds the {MAX_UPLOAD_TOTAL_MB} MB public job limit", summary
+
+        if ext in PUBLIC_GENOME_EXTENSIONS:
+            summary["genome_file_count"] += 1
+            if summary["genome_file_count"] > MAX_GENOME_FILES:
+                return f"Public jobs may include at most {MAX_GENOME_FILES} genome files", summary
+            continue
+
+        if ext in PUBLIC_ACCESSION_EXTENSIONS:
+            error, accession_count = parse_accession_text(filename, content)
+            if error:
+                return error, summary
+            summary["accession_count"] += accession_count
+            if summary["accession_count"] > MAX_ACCESSIONS:
+                return f"Public jobs may include at most {MAX_ACCESSIONS} accessions", summary
+            continue
+
+        if filename == PUBLIC_ECOLOGY_METADATA_FILENAME:
+            if not ecology_enabled:
+                return "Ecology metadata is only accepted when ecology-aware analysis is enabled", summary
+            summary["metadata_file_count"] += 1
+            if summary["metadata_file_count"] > 1:
+                return "Only one ecology metadata table may be submitted", summary
+            continue
+
+        if ext in {".tsv", ".csv"}:
+            return "Public accession tables in TSV/CSV format are not supported yet; upload one accession per line as .txt", summary
+
+        return (
+            f"Unsupported public file type '{ext}'. Allowed: .txt accession lists, "
+            ".fasta/.fa/.fna/.fsa/.gb/.gbk/.gbff genomes, and generated ecology metadata",
+            summary,
+        )
+
+    if summary["accession_count"] + summary["genome_file_count"] <= 0:
+        return "Submit at least one accession list or genome file", summary
+
+    return None, summary
+
+
+def apply_public_submission_policy(
+    handler: BaseHTTPRequestHandler,
+    settings: dict[str, object],
+    uploads: list[dict[str, object]],
+) -> tuple[str | None, dict[str, int]]:
+    if not PUBLIC_MODE:
+        return None, {}
+
+    if settings_bool(settings, "run_nplinker"):
+        return "NPLinker is not available in the public WebUI yet", {}
+
+    if str(settings.get("metadata_tsv", "")).strip():
+        return "Raw metadata paths are not accepted in public submissions", {}
+
+    env_overrides = str(settings.get("env_overrides", "")).strip()
+    if env_overrides and not (request_is_admin(handler) and ALLOW_ENV_OVERRIDES):
+        return "Raw environment overrides are admin-only and disabled for public submissions", {}
+    if not (request_is_admin(handler) and ALLOW_ENV_OVERRIDES):
+        settings["env_overrides"] = ""
+
+    return validate_public_uploads(uploads, settings)
+
+
 def validate_runtime_request(settings: dict[str, object], status: dict[str, object]) -> str | None:
     if not status.get("ready"):
         return "Worker is not ready yet. Wait for bootstrap to finish before submitting a job."
@@ -309,12 +599,20 @@ def parse_multipart_form_data(content_type: str, body: bytes) -> tuple[dict[str,
 class Handler(BaseHTTPRequestHandler):
     server_version = "ClusterWeaveHTTP/2.0"
 
+    def _send_cors_headers(self) -> None:
+        origin = allowed_cors_origin(self.headers.get("Origin"))
+        if not origin:
+            return
+        self.send_header("Access-Control-Allow-Origin", origin)
+        if origin != "*":
+            self.send_header("Vary", "Origin")
+
     def _send_json(self, status: int, payload: object) -> None:
         data = json_bytes(payload)
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self._send_cors_headers()
         self.end_headers()
         self.wfile.write(data)
 
@@ -328,7 +626,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self._send_cors_headers()
         for key, value in (extra_headers or {}).items():
             self.send_header(key, value)
         self.end_headers()
@@ -340,11 +638,19 @@ class Handler(BaseHTTPRequestHandler):
     def _bad_request(self, message: str) -> None:
         self._send_json(HTTPStatus.BAD_REQUEST, {"detail": message})
 
+    def _auth_failed(self, message: str) -> None:
+        status = HTTPStatus.FORBIDDEN if request_has_any_token(self) else HTTPStatus.UNAUTHORIZED
+        self._send_json(status, {"detail": message})
+
     def do_OPTIONS(self) -> None:  # noqa: N802
         self.send_response(HTTPStatus.NO_CONTENT)
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self._send_cors_headers()
         self.send_header("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header(
+            "Access-Control-Allow-Headers",
+            "Content-Type, Authorization, X-ClusterWeave-Token, X-ClusterWeave-Admin-Token, "
+            "X-ClusterWeave-Submit-Token, X-ClusterWeave-Read-Token",
+        )
         self.end_headers()
 
     def do_GET(self) -> None:  # noqa: N802
@@ -364,10 +670,16 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if route == "/api/jobs":
-            self._send_json(HTTPStatus.OK, list_jobs())
+            if not request_is_admin(self):
+                self._auth_failed("Admin token required")
+                return
+            self._send_json(HTTPStatus.OK, [job_payload(job, admin=True) for job in list_jobs()])
             return
 
         if route == "/api/system/status":
+            if PUBLIC_MODE and not request_is_admin(self):
+                self._send_json(HTTPStatus.OK, redacted_system_status())
+                return
             self._send_json(HTTPStatus.OK, worker_status())
             return
 
@@ -381,9 +693,13 @@ class Handler(BaseHTTPRequestHandler):
             if job is None:
                 self._not_found(f"Job '{job_id}' not found")
                 return
+            if not request_can_read_job(self, job):
+                self._auth_failed("Job read token or admin token required")
+                return
+            is_admin = request_is_admin(self)
 
             if len(parts) == 4:
-                self._send_json(HTTPStatus.OK, job)
+                self._send_json(HTTPStatus.OK, job_payload(job, admin=is_admin))
                 return
 
             if len(parts) >= 5 and parts[4] == "logs":
@@ -422,6 +738,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         route, _ = parse_path(self.path)
         if route.startswith("/api/jobs/") and route.endswith("/rerun"):
+            if not request_is_admin(self):
+                self._auth_failed("Admin token required")
+                return
             parts = route.split("/")
             if len(parts) != 5:
                 self._not_found()
@@ -453,7 +772,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(HTTPStatus.CONFLICT, {"detail": runtime_error})
                 return
 
-            cpus = max(1, min(parse_int(str(payload.get("cpus", job.get("cpus", 4))), 4), os.cpu_count() or 4))
+            cpus = clamp_public_cpus(parse_int(str(payload.get("cpus", job.get("cpus", 4))), 4))
             append_log(job_id, "Re-queued existing job with selected stage rerun settings.")
             lines = read_logs(job_id)
             job["status"] = "pending"
@@ -475,6 +794,16 @@ class Handler(BaseHTTPRequestHandler):
             self._not_found()
             return
 
+        if not request_can_submit(self):
+            self._auth_failed("Submit token or admin token required")
+            return
+        if PUBLIC_MODE and not SUBMISSIONS_OPEN and not request_is_admin(self):
+            self._send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"detail": "Submissions are paused"})
+            return
+        if PUBLIC_MODE and queued_job_count() >= MAX_QUEUED_JOBS:
+            self._send_json(HTTPStatus.TOO_MANY_REQUESTS, {"detail": "Public queue is full; try again later"})
+            return
+
         content_type = self.headers.get("Content-Type", "")
         if "multipart/form-data" not in content_type:
             self._bad_request("Expected multipart/form-data")
@@ -489,7 +818,7 @@ class Handler(BaseHTTPRequestHandler):
         fields, files = parse_multipart_form_data(content_type, body)
 
         project_name = str(fields.get("project_name", ["my_project"])[0])
-        cpus = max(1, min(parse_int(fields.get("cpus", ["4"])[0], 4), os.cpu_count() or 4))
+        cpus = clamp_public_cpus(parse_int(fields.get("cpus", ["4"])[0], 4))
 
         settings = {
             "project_name": project_name,
@@ -562,14 +891,24 @@ class Handler(BaseHTTPRequestHandler):
             if "braker3" in settings["genefinding_mode"]:
                 settings["braker3_enabled"] = True
 
-        runtime_error = validate_runtime_request(settings, worker_status())
-        if runtime_error:
-            self._send_json(HTTPStatus.CONFLICT, {"detail": runtime_error})
-            return
+        if PUBLIC_MODE:
+            settings["workers"] = min(max(1, int(settings["workers"])), cpus)
+            settings["threads"] = min(max(1, int(settings["threads"])), cpus)
+            settings["anno_cpus"] = min(max(1, int(settings["anno_cpus"])), cpus)
 
         uploads = [item for item in files if item["field"] == "files"]
         if not uploads:
             self._bad_request("At least one file is required")
+            return
+
+        public_policy_error, input_summary = apply_public_submission_policy(self, settings, uploads)
+        if public_policy_error:
+            self._bad_request(public_policy_error)
+            return
+
+        runtime_error = validate_runtime_request(settings, worker_status())
+        if runtime_error:
+            self._send_json(HTTPStatus.CONFLICT, {"detail": runtime_error})
             return
 
         job_id = uuid.uuid4().hex[:8]
@@ -588,6 +927,9 @@ class Handler(BaseHTTPRequestHandler):
             "settings": settings,
             "submission_settings": dict(settings),
         }
+        if input_summary:
+            job["input_summary"] = input_summary
+        read_token = attach_job_read_token(job)
 
         out_dir = job_dir(job_id)
         in_dir = out_dir / "inputs"
@@ -614,12 +956,24 @@ class Handler(BaseHTTPRequestHandler):
 
         enqueue_job(job_id, cpus, settings)
 
-        self._send_json(HTTPStatus.CREATED, {"job_id": job_id, "status": job["status"], "message": "Pipeline queued"})
+        self._send_json(
+            HTTPStatus.CREATED,
+            {
+                "job_id": job_id,
+                "status": job["status"],
+                "message": "Pipeline queued",
+                "read_token": read_token,
+                "expires_at": job.get("expires_at"),
+            },
+        )
 
     def do_DELETE(self) -> None:  # noqa: N802
         route, _ = parse_path(self.path)
         if not route.startswith("/api/jobs/"):
             self._not_found()
+            return
+        if not request_is_admin(self):
+            self._auth_failed("Admin token required")
             return
         parts = route.split("/")
         if len(parts) != 4:
@@ -642,7 +996,7 @@ class Handler(BaseHTTPRequestHandler):
             q.unlink(missing_ok=True)
 
         self.send_response(HTTPStatus.NO_CONTENT)
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self._send_cors_headers()
         self.end_headers()
 
 
