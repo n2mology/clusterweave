@@ -488,6 +488,26 @@ See `web/STYLE.md` for full task lists and acceptance criteria.
 - Completed: Slice 17 - Email Notifications And Retention Sweeper.
 - Current: Slice 18 - Public Deployment QA.
 
+## SMTP Deployment Wire
+
+`docker-compose.yml` now declares the optional SMTP/public-link contract on both `web` and
+`worker`. The values are host-environment pass-throughs so credentials do not live in source.
+
+For local dry runs, set `CLUSTERWEAVE_SMTP_ENABLED=1` and
+`CLUSTERWEAVE_SMTP_OUTBOX_DIR=/data/smtp-outbox`; notifications will be written as `.eml` files
+inside the shared job-data volume instead of being sent to a mail provider.
+
+Once the public URL and SMTP service are confirmed, the web-hosting collaborator should update the
+deployment environment or secret store, not this file:
+
+- Set `CLUSTERWEAVE_PUBLIC_BASE_URL` to the final HTTPS origin with a trailing slash.
+- Set a long stable `CLUSTERWEAVE_JOB_TOKEN_SECRET` shared by `web` and `worker`.
+- Set `CLUSTERWEAVE_SMTP_ENABLED=1`.
+- Set `CLUSTERWEAVE_SMTP_HOST`, `CLUSTERWEAVE_SMTP_PORT`, provider credentials, and
+  `CLUSTERWEAVE_SMTP_FROM`.
+- Keep `CLUSTERWEAVE_SMTP_OUTBOX_DIR` empty for live SMTP delivery.
+- Recreate both services so the UI advertises SMTP and the worker sends terminal notifications.
+
 ## Questions For The Hosting Collaborator
 
 Ask these before final public deployment:
@@ -527,12 +547,15 @@ CLUSTERWEAVE_MAX_UPLOAD_TOTAL_MB=1024
 CLUSTERWEAVE_MAX_QUEUED_JOBS=50
 CLUSTERWEAVE_MAX_CPUS_PER_JOB=8
 CLUSTERWEAVE_ALLOW_ENV_OVERRIDES=0
+CLUSTERWEAVE_PUBLIC_BASE_URL=https://clusterweave.example.org/
 CLUSTERWEAVE_SMTP_ENABLED=0
 CLUSTERWEAVE_SMTP_HOST=...
 CLUSTERWEAVE_SMTP_PORT=587
 CLUSTERWEAVE_SMTP_USERNAME=...
 CLUSTERWEAVE_SMTP_PASSWORD=...
-CLUSTERWEAVE_EMAIL_FROM=...
+CLUSTERWEAVE_SMTP_FROM=ClusterWeave <no-reply@example.org>
+CLUSTERWEAVE_SMTP_TLS=1
+CLUSTERWEAVE_SMTP_OUTBOX_DIR=
 ```
 
 ## Agent Rules For Future Work
