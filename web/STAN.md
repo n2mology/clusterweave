@@ -457,10 +457,23 @@ Slice 16 added controlled ecology labels:
 - The browser emits canonical `ecofun_metadata_normalized.tsv` only when ecology-aware analysis
   is enabled; raw metadata TSV paths remain admin/local-only.
 
+Slice 17 added optional email recovery and retention cleanup:
+
+- SMTP-enabled deployments expose an optional completion email field through redacted system
+  status; disabled deployments reject submitted emails.
+- Notification emails are sent only on terminal job status, contain a private fragment result link
+  and expiration date, and avoid raw logs, paths, commands, env vars, stack traces, and worker
+  internals.
+- Email addresses stay in job metadata and are redacted from job API payloads.
+- Email result links use one-time read tokens whose digests are stored with the job.
+- `python3 web/maintenance.py sweep-expired-jobs` deletes expired job uploads, logs, work dirs,
+  result files, email metadata, and read-token hashes while retaining only aggregate counters.
+- `CLUSTERWEAVE_JOB_RETENTION_DAYS=0` or `never` now requires explicit
+  `CLUSTERWEAVE_ALLOW_NEVER_EXPIRE_JOBS=1` documentation.
+
 Remaining public-release risks:
 
-- Job data persists until explicit deletion; no retention sweeper exists yet.
-- Email result recovery is not implemented yet.
+- Final anonymous/submit-token/job-token/admin QA screenshots and smoke tests still need to run.
 
 Keep server-side security ahead of UI hiding in the remaining public-release slices.
 
@@ -472,8 +485,8 @@ See `web/STYLE.md` for full task lists and acceptance criteria.
 - Completed: Slice 14 - Public Input Policy, Quotas, And Retention Metadata.
 - Completed: Slice 15 - Public UI Restructure.
 - Completed: Slice 16 - Ecology Label Table.
-- Current: Slice 17 - Email Notifications And Retention Sweeper.
-- Next: Slice 18 - Public Deployment QA.
+- Completed: Slice 17 - Email Notifications And Retention Sweeper.
+- Current: Slice 18 - Public Deployment QA.
 
 ## Questions For The Hosting Collaborator
 

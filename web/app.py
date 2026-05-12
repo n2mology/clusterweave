@@ -27,6 +27,7 @@ from job_store import (
     read_logs,
     write_job,
 )
+from notifications import validate_email
 from runtime_capabilities import unavailable_stage_reason
 
 HOST = "0.0.0.0"
@@ -60,6 +61,7 @@ MAX_UPLOAD_FILE_MB = env_int("CLUSTERWEAVE_MAX_UPLOAD_FILE_MB", 250, minimum=1)
 MAX_UPLOAD_TOTAL_MB = env_int("CLUSTERWEAVE_MAX_UPLOAD_TOTAL_MB", 1024, minimum=1)
 MAX_QUEUED_JOBS = env_int("CLUSTERWEAVE_MAX_QUEUED_JOBS", 50, minimum=0)
 MAX_CPUS_PER_JOB = env_int("CLUSTERWEAVE_MAX_CPUS_PER_JOB", 8, minimum=1)
+SMTP_ENABLED = env_bool("CLUSTERWEAVE_SMTP_ENABLED", False)
 ALLOWED_CORS_ORIGINS = {
     origin.strip()
     for origin in os.environ.get("CLUSTERWEAVE_ALLOWED_ORIGINS", "").split(",")
@@ -86,6 +88,9 @@ ALLOWED_EXTENSIONS = {
 }
 
 SENSITIVE_JOB_FIELDS = {
+    "notify_email",
+    "email_read_token_created_at",
+    "read_token_hashes",
     "read_token",
     "read_token_hash",
     "read_token_created_at",
@@ -316,10 +321,20 @@ def request_can_read_job(handler: BaseHTTPRequestHandler, job: dict[str, object]
         return True
     if request_is_admin(handler):
         return True
+    expected_hashes = []
     expected = job.get("read_token_hash")
-    if not isinstance(expected, str) or not expected:
+    if isinstance(expected, str) and expected:
+        expected_hashes.append(expected)
+    extra_hashes = job.get("read_token_hashes")
+    if isinstance(extra_hashes, list):
+        expected_hashes.extend([item for item in extra_hashes if isinstance(item, str) and item])
+    if not expected_hashes:
         return False
-    return any(hmac.compare_digest(job_token_hash(token), expected) for token in request_tokens(handler))
+    return any(
+        hmac.compare_digest(job_token_hash(token), expected)
+        for token in request_tokens(handler)
+        for expected in expected_hashes
+    )
 
 
 def redact_env_overrides(settings: object) -> object:
@@ -358,7 +373,14 @@ def redacted_system_status() -> dict[str, object]:
         "submissions_open": submissions_open,
         "submissions": "open" if submissions_open else "paused",
         "jobs_processed": jobs_processed_count(),
+        "smtp_enabled": SMTP_ENABLED,
     }
+
+
+def full_system_status() -> dict[str, object]:
+    payload = worker_status()
+    payload["smtp_enabled"] = SMTP_ENABLED
+    return payload
 
 
 def allowed_cors_origin(origin: str | None) -> str | None:
@@ -371,6 +393,17 @@ def allowed_cors_origin(origin: str | None) -> str | None:
     if origin in ALLOWED_CORS_ORIGINS:
         return origin
     return None
+
+
+def request_public_base_url(handler: BaseHTTPRequestHandler) -> str:
+    configured = os.environ.get("CLUSTERWEAVE_PUBLIC_BASE_URL", "").strip()
+    if configured:
+        return configured.rstrip("/") + "/"
+    proto = handler.headers.get("X-Forwarded-Proto", "").split(",", 1)[0].strip() or "http"
+    host = handler.headers.get("X-Forwarded-Host", "").split(",", 1)[0].strip() or handler.headers.get("Host", "").strip()
+    if not host:
+        host = f"localhost:{PORT}"
+    return f"{proto}://{host}/"
 
 
 def public_cpu_limit() -> int:
@@ -680,7 +713,7 @@ class Handler(BaseHTTPRequestHandler):
             if PUBLIC_MODE and not request_is_admin(self):
                 self._send_json(HTTPStatus.OK, redacted_system_status())
                 return
-            self._send_json(HTTPStatus.OK, worker_status())
+            self._send_json(HTTPStatus.OK, full_system_status())
             return
 
         if route.startswith("/api/jobs/"):
@@ -819,6 +852,13 @@ class Handler(BaseHTTPRequestHandler):
 
         project_name = str(fields.get("project_name", ["my_project"])[0])
         cpus = clamp_public_cpus(parse_int(fields.get("cpus", ["4"])[0], 4))
+        notify_email = str(fields.get("notify_email", [""])[0]).strip()
+        if notify_email and not SMTP_ENABLED:
+            self._bad_request("Email notifications are not enabled on this ClusterWeave server")
+            return
+        if notify_email and not validate_email(notify_email):
+            self._bad_request("Notification email address is not valid")
+            return
 
         settings = {
             "project_name": project_name,
@@ -926,7 +966,10 @@ class Handler(BaseHTTPRequestHandler):
             "cpus": cpus,
             "settings": settings,
             "submission_settings": dict(settings),
+            "public_base_url": request_public_base_url(self),
         }
+        if notify_email:
+            job["notify_email"] = notify_email
         if input_summary:
             job["input_summary"] = input_summary
         read_token = attach_job_read_token(job)

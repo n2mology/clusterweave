@@ -10,10 +10,12 @@ from typing import Any
 try:
     from job_store import DATA_DIR, QUEUE_DIR, now_iso, read_job, read_logs, write_job, write_logs
     from canonical_pipeline import Job, JobStatus, run_pipeline
+    from notifications import maybe_send_terminal_notification
     from runtime_capabilities import runtime_health
 except ImportError:  # pragma: no cover - package-style imports in local tests
     from .job_store import DATA_DIR, QUEUE_DIR, now_iso, read_job, read_logs, write_job, write_logs
     from .canonical_pipeline import Job, JobStatus, run_pipeline
+    from .notifications import maybe_send_terminal_notification
     from .runtime_capabilities import runtime_health
 
 POLL_SECONDS = float(os.environ.get("WORKER_POLL_SECONDS", "1.0"))
@@ -149,6 +151,7 @@ async def process_one(job_id: str, cpus: int, queued_settings: dict[str, Any]) -
         on_update=on_change,
     )
     persist_job(job, cpus, settings)
+    maybe_send_terminal_notification(job_id)
 
 
 async def process_claim(job_id: str, cpus: int, settings: dict[str, Any]) -> None:
@@ -162,6 +165,7 @@ async def process_claim(job_id: str, cpus: int, settings: dict[str, Any]) -> Non
             job.error = str(exc)
             job.add_log(f"FATAL: {exc}")
             persist_job(job, cpus, settings)
+            maybe_send_terminal_notification(job_id)
         raise
 
 

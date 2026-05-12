@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,8 @@ from typing import Any
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 JOBS_DIR = DATA_DIR / "jobs"
 QUEUE_DIR = DATA_DIR / "queue"
+RETENTION_DIR = DATA_DIR / "retention"
+RETENTION_TOTALS_PATH = RETENTION_DIR / "sweep_totals.json"
 
 JOBS_DIR.mkdir(parents=True, exist_ok=True)
 QUEUE_DIR.mkdir(parents=True, exist_ok=True)
@@ -27,6 +30,29 @@ def env_int(name: str, default: int, minimum: int = 0) -> int:
     return max(minimum, value)
 
 
+def env_bool(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def configured_retention_days() -> int | None:
+    raw = os.environ.get("CLUSTERWEAVE_JOB_RETENTION_DAYS", "30").strip().lower()
+    if raw in {"0", "never", "none"}:
+        if env_bool("CLUSTERWEAVE_ALLOW_NEVER_EXPIRE_JOBS", False):
+            return None
+        raise ValueError(
+            "CLUSTERWEAVE_JOB_RETENTION_DAYS=0/never requires "
+            "CLUSTERWEAVE_ALLOW_NEVER_EXPIRE_JOBS=1 and public admin documentation"
+        )
+    try:
+        days = int(raw)
+    except (TypeError, ValueError):
+        days = 30
+    return max(1, days)
+
+
 def plus_days_iso(value: object, days: int) -> str:
     try:
         base = datetime.fromisoformat(str(value))
@@ -36,25 +62,32 @@ def plus_days_iso(value: object, days: int) -> str:
 
 
 def apply_retention_metadata(job: dict[str, Any]) -> None:
-    days = env_int("CLUSTERWEAVE_JOB_RETENTION_DAYS", 30, minimum=1)
-    job["retention_days"] = days
+    days = configured_retention_days()
+    if days is None:
+        job["retention_days"] = "never"
+        job["expires_at"] = None
+    else:
+        job["retention_days"] = days
 
     status = str(job.get("status", "")).lower()
     if status == "success":
         job.setdefault("completed_at", job.get("updated_at") or now_iso())
         job.pop("failed_at", None)
-        job["expires_at"] = plus_days_iso(job["completed_at"], days)
+        if days is not None:
+            job["expires_at"] = plus_days_iso(job["completed_at"], days)
         return
 
     if status == "failed":
         job.setdefault("failed_at", job.get("updated_at") or now_iso())
         job.pop("completed_at", None)
-        job["expires_at"] = plus_days_iso(job["failed_at"], days)
+        if days is not None:
+            job["expires_at"] = plus_days_iso(job["failed_at"], days)
         return
 
     job.pop("completed_at", None)
     job.pop("failed_at", None)
-    job["expires_at"] = plus_days_iso(job.get("created_at") or now_iso(), days)
+    if days is not None:
+        job["expires_at"] = plus_days_iso(job.get("created_at") or now_iso(), days)
 
 
 def ts_line(message: str) -> str:
@@ -124,3 +157,92 @@ def append_log(job_id: str, message: str) -> str:
     with path.open("a", encoding="utf-8") as handle:
         handle.write(line + "\n")
     return line
+
+
+def path_size_and_file_count(path: Path) -> tuple[int, int]:
+    total = 0
+    files = 0
+    if not path.exists():
+        return total, files
+    for child in path.rglob("*"):
+        if not child.is_file():
+            continue
+        files += 1
+        try:
+            total += child.stat().st_size
+        except OSError:
+            continue
+    return total, files
+
+
+def read_retention_totals() -> dict[str, Any]:
+    if not RETENTION_TOTALS_PATH.exists():
+        return {
+            "expired_jobs_deleted": 0,
+            "expired_files_deleted": 0,
+            "expired_bytes_deleted": 0,
+            "last_sweep_at": None,
+        }
+    try:
+        payload = json.loads(RETENTION_TOTALS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        payload = {}
+    return {
+        "expired_jobs_deleted": int(payload.get("expired_jobs_deleted") or 0),
+        "expired_files_deleted": int(payload.get("expired_files_deleted") or 0),
+        "expired_bytes_deleted": int(payload.get("expired_bytes_deleted") or 0),
+        "last_sweep_at": payload.get("last_sweep_at"),
+    }
+
+
+def write_retention_totals(totals: dict[str, Any]) -> None:
+    RETENTION_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = RETENTION_TOTALS_PATH.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(totals, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(RETENTION_TOTALS_PATH)
+
+
+def job_is_expired(job: dict[str, Any], now: datetime | None = None) -> bool:
+    expires_at = job.get("expires_at")
+    if not expires_at:
+        return False
+    now_dt = now or datetime.now()
+    try:
+        expires_dt = datetime.fromisoformat(str(expires_at))
+    except ValueError:
+        return False
+    return expires_dt <= now_dt
+
+
+def sweep_expired_jobs(now: datetime | None = None) -> dict[str, Any]:
+    totals = read_retention_totals()
+    deleted_jobs = 0
+    deleted_files = 0
+    deleted_bytes = 0
+
+    for job in list_jobs():
+        job_id = str(job.get("id") or "")
+        if not job_id or not job_is_expired(job, now):
+            continue
+        target = job_dir(job_id)
+        size, files = path_size_and_file_count(target)
+        shutil.rmtree(target, ignore_errors=True)
+        for q in QUEUE_DIR.glob(f"{job_id}*.json"):
+            q.unlink(missing_ok=True)
+        for q in QUEUE_DIR.glob(f"{job_id}*.working"):
+            q.unlink(missing_ok=True)
+        deleted_jobs += 1
+        deleted_files += files
+        deleted_bytes += size
+
+    totals["expired_jobs_deleted"] = int(totals.get("expired_jobs_deleted") or 0) + deleted_jobs
+    totals["expired_files_deleted"] = int(totals.get("expired_files_deleted") or 0) + deleted_files
+    totals["expired_bytes_deleted"] = int(totals.get("expired_bytes_deleted") or 0) + deleted_bytes
+    totals["last_sweep_at"] = now_iso()
+    write_retention_totals(totals)
+    return {
+        "deleted_jobs": deleted_jobs,
+        "deleted_files": deleted_files,
+        "deleted_bytes": deleted_bytes,
+        "totals": totals,
+    }

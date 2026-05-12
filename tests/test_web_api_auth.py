@@ -4,6 +4,7 @@ import http.client
 import importlib
 import json
 import os
+from datetime import datetime
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 import sys
@@ -29,6 +30,15 @@ class WebApiAuthTests(unittest.TestCase):
             "CLUSTERWEAVE_ALLOWED_ORIGINS",
             "CLUSTERWEAVE_ALLOW_ENV_OVERRIDES",
             "CLUSTERWEAVE_JOB_RETENTION_DAYS",
+            "CLUSTERWEAVE_ALLOW_NEVER_EXPIRE_JOBS",
+            "CLUSTERWEAVE_SMTP_ENABLED",
+            "CLUSTERWEAVE_SMTP_HOST",
+            "CLUSTERWEAVE_SMTP_PORT",
+            "CLUSTERWEAVE_SMTP_USERNAME",
+            "CLUSTERWEAVE_SMTP_PASSWORD",
+            "CLUSTERWEAVE_SMTP_FROM",
+            "CLUSTERWEAVE_SMTP_OUTBOX_DIR",
+            "CLUSTERWEAVE_PUBLIC_BASE_URL",
             "CLUSTERWEAVE_MAX_ACCESSIONS",
             "CLUSTERWEAVE_MAX_GENOME_FILES",
             "CLUSTERWEAVE_MAX_UPLOAD_FILE_MB",
@@ -47,6 +57,7 @@ class WebApiAuthTests(unittest.TestCase):
                 "CLUSTERWEAVE_SUBMISSIONS_OPEN": "1",
                 "CLUSTERWEAVE_ALLOW_ENV_OVERRIDES": "0",
                 "CLUSTERWEAVE_JOB_RETENTION_DAYS": "30",
+                "CLUSTERWEAVE_SMTP_ENABLED": "0",
             }
         )
         os.environ.pop("CLUSTERWEAVE_ALLOWED_ORIGINS", None)
@@ -55,9 +66,10 @@ class WebApiAuthTests(unittest.TestCase):
         if str(WEB_DIR) not in sys.path:
             sys.path.insert(0, str(WEB_DIR))
             self.inserted_web_path = True
-        for name in ["app", "job_store"]:
+        for name in ["app", "job_store", "notifications"]:
             sys.modules.pop(name, None)
         self.job_store = importlib.import_module("job_store")
+        self.notifications = importlib.import_module("notifications")
         self.app = importlib.import_module("app")
         self.write_ready_worker_status()
 
@@ -70,7 +82,7 @@ class WebApiAuthTests(unittest.TestCase):
         self.server.shutdown()
         self.thread.join(timeout=5)
         self.server.server_close()
-        for name in ["app", "job_store"]:
+        for name in ["app", "job_store", "notifications"]:
             sys.modules.pop(name, None)
         if self.inserted_web_path:
             try:
@@ -194,9 +206,10 @@ class WebApiAuthTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(
             set(payload),
-            {"online", "service", "submissions_open", "submissions", "jobs_processed"},
+            {"online", "service", "submissions_open", "submissions", "jobs_processed", "smtp_enabled"},
         )
         self.assertEqual(payload["jobs_processed"], 1)
+        self.assertFalse(payload["smtp_enabled"])
         self.assertNotEqual(headers.get("Access-Control-Allow-Origin"), "*")
 
         protected_requests = [
@@ -240,6 +253,26 @@ class WebApiAuthTests(unittest.TestCase):
         self.assertNotIn("read_token_hash", job_payload)
         self.assertNotIn("read_token_created_at", job_payload)
 
+    def test_notification_email_is_stored_only_when_smtp_enabled(self) -> None:
+        fields = {"project_name": "email-case", "notify_email": "user@example.org"}
+        status, payload, _ = self.submit(fields=fields)
+        self.assertEqual(status, 400)
+        self.assertIn("Email notifications", payload["detail"])
+
+        self.app.SMTP_ENABLED = True
+        status, payload, _ = self.submit(fields=fields)
+        self.assertEqual(status, 201)
+        job = self.job_store.read_job(payload["job_id"])
+        self.assertIsNotNone(job)
+        assert job is not None
+        self.assertEqual(job["notify_email"], "user@example.org")
+        logs = "\n".join(self.job_store.read_logs(payload["job_id"]))
+        self.assertNotIn("user@example.org", logs)
+
+        status, job_payload, _ = self.request("GET", f"/api/jobs/{payload['job_id']}", headers=self.auth(payload["read_token"]))
+        self.assertEqual(status, 200)
+        self.assertNotIn("notify_email", job_payload)
+
     def test_read_token_unlocks_only_its_job_logs_and_files(self) -> None:
         self.write_job("jobone", "read-one")
         self.write_job("jobtwo", "read-two")
@@ -263,6 +296,46 @@ class WebApiAuthTests(unittest.TestCase):
         status, body, _ = self.request("GET", "/api/jobs/jobone/files/results/figure.svg", headers=self.auth("read-one"))
         self.assertEqual(status, 200)
         self.assertEqual(body, b"<svg></svg>\n")
+
+    def test_terminal_notification_email_is_sanitized_and_adds_read_token_hash(self) -> None:
+        outbox = Path(self.tmp.name) / "outbox"
+        os.environ["CLUSTERWEAVE_SMTP_ENABLED"] = "1"
+        os.environ["CLUSTERWEAVE_SMTP_OUTBOX_DIR"] = str(outbox)
+        os.environ["CLUSTERWEAVE_PUBLIC_BASE_URL"] = "https://clusterweave.example.org/app/"
+        self.write_job("failjob", "read-one", status="failed")
+        job = self.job_store.read_job("failjob")
+        self.assertIsNotNone(job)
+        assert job is not None
+        job["notify_email"] = "user@example.org"
+        job["stage"] = "Running canonical ClusterWeave workflow"
+        job["error"] = "/data/jobs/failjob failed with SECRET_TOKEN=abc\nTraceback command --bad"
+        self.job_store.write_job(job)
+
+        outcome = self.notifications.maybe_send_terminal_notification("failjob")
+        self.assertIsNotNone(outcome)
+        assert outcome is not None
+        self.assertEqual(outcome["delivery"], "sent")
+        updated = self.job_store.read_job("failjob")
+        self.assertIsNotNone(updated)
+        assert updated is not None
+        self.assertIn("read_token_hashes", updated)
+        self.assertTrue(updated["read_token_hashes"])
+        self.assertEqual(updated["notification"]["delivery"], "sent")
+
+        messages = list(outbox.glob("*.eml"))
+        self.assertEqual(len(messages), 1)
+        body = messages[0].read_text(encoding="utf-8")
+        self.assertIn("https://clusterweave.example.org/app/#/job/failjob/", body)
+        self.assertIn("Suggested fixes:", body)
+        self.assertNotIn("/data/jobs", body)
+        self.assertNotIn("SECRET_TOKEN", body)
+        self.assertNotIn("Traceback", body)
+        self.assertNotIn("command --bad", body)
+        link = next(line for line in body.splitlines() if "#/job/failjob/" in line)
+        email_token = link.rsplit("/", 1)[-1]
+        status, payload, _ = self.request("GET", "/api/jobs/failjob", headers=self.auth(email_token))
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["id"], "failjob")
 
     def test_admin_token_unlocks_job_list_status_rerun_and_delete(self) -> None:
         self.write_job("jobone", "read-one")
@@ -404,6 +477,56 @@ class WebApiAuthTests(unittest.TestCase):
         assert completed is not None
         self.assertEqual(completed["completed_at"], "2026-01-01T00:00:00")
         self.assertEqual(completed["expires_at"], "2026-01-31T00:00:00")
+
+    def test_retention_never_requires_explicit_admin_opt_in(self) -> None:
+        os.environ["CLUSTERWEAVE_JOB_RETENTION_DAYS"] = "0"
+        os.environ.pop("CLUSTERWEAVE_ALLOW_NEVER_EXPIRE_JOBS", None)
+        with self.assertRaises(ValueError):
+            self.job_store.configured_retention_days()
+
+        os.environ["CLUSTERWEAVE_ALLOW_NEVER_EXPIRE_JOBS"] = "1"
+        self.assertIsNone(self.job_store.configured_retention_days())
+
+    def test_retention_sweeper_deletes_expired_jobs_and_keeps_only_aggregate_counters(self) -> None:
+        created = "2026-01-01T00:00:00"
+        job = {
+            "id": "oldjob",
+            "name": "old-project",
+            "status": "success",
+            "stage": "complete",
+            "created_at": created,
+            "updated_at": created,
+            "completed_at": created,
+            "log_count": 1,
+            "result_files": ["results/figure.svg"],
+            "error": None,
+            "cpus": 2,
+            "settings": {},
+            "submission_settings": {},
+            "notify_email": "user@example.org",
+            "read_token_hash": "secret-hash",
+            "read_token_hashes": ["email-secret-hash"],
+            "email_read_token_created_at": created,
+        }
+        result_dir = self.job_store.job_dir("oldjob") / "results"
+        result_dir.mkdir(parents=True, exist_ok=True)
+        (result_dir / "figure.svg").write_text("<svg></svg>\n", encoding="utf-8")
+        self.job_store.write_job(job)
+        self.job_store.append_log("oldjob", "log line")
+        queue_path = Path(self.tmp.name) / "queue" / "oldjob.json"
+        queue_path.write_text("{}", encoding="utf-8")
+
+        result = self.job_store.sweep_expired_jobs(now=datetime.fromisoformat("2026-02-01T00:00:00"))
+        self.assertEqual(result["deleted_jobs"], 1)
+        self.assertFalse(self.job_store.job_dir("oldjob").exists())
+        self.assertFalse(queue_path.exists())
+
+        totals_path = Path(self.tmp.name) / "retention" / "sweep_totals.json"
+        self.assertTrue(totals_path.exists())
+        totals_text = totals_path.read_text(encoding="utf-8")
+        self.assertIn("expired_jobs_deleted", totals_text)
+        self.assertNotIn("user@example.org", totals_text)
+        self.assertNotIn("secret-hash", totals_text)
 
     def test_public_raw_controls_are_blocked_unless_admin_env_overrides_are_enabled(self) -> None:
         status, payload, _ = self.submit(fields={"project_name": "nplinker-case", "run_nplinker": "1"})

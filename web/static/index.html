@@ -1066,7 +1066,7 @@
     }
   }
   label { font-size: .8rem; font-weight: 500; color: var(--muted); }
-  input[type=text], input[type=number], select, textarea {
+  input[type=text], input[type=email], input[type=number], select, textarea {
     background:
       linear-gradient(180deg, rgba(255,252,244,.018), rgba(255,252,244,0)),
       rgba(8,10,16,.72);
@@ -2796,6 +2796,17 @@
           </div>
         </div>
 
+        <div class="summary-panel email-notification-panel hidden" id="email-notification-panel">
+          <div class="summary-head">Result recovery email</div>
+          <div class="card-body">
+            <div class="form-group">
+              <label for="notify-email">Completion email (optional)</label>
+              <input type="email" id="notify-email" autocomplete="email" placeholder="you@example.org" />
+            </div>
+            <div class="help-note">ClusterWeave sends the private result link and expiration date when this run completes or fails.</div>
+          </div>
+        </div>
+
         <div class="run-row">
           <button class="btn btn-primary" id="run-btn" onclick="startAnalysis()" disabled>
             ▶ Run Analysis
@@ -3204,6 +3215,7 @@ let currentUIMode = 'guided';
 let accessMode = 'public'; // public, admin, local
 let authChecked = false;
 let resultObjectUrls = [];
+let smtpEnabled = false;
 
 const STORAGE_KEYS = {
   submitToken: 'clusterweave.submitToken',
@@ -3485,6 +3497,14 @@ function clearAccessTokens() {
   sessionSet(STORAGE_KEYS.adminToken, '');
   setAccessMode('public');
   updateAccessTokenStatus('Access tokens cleared.');
+}
+
+function updateEmailNotificationPanel() {
+  const panel = document.getElementById('email-notification-panel');
+  const input = document.getElementById('notify-email');
+  if (!panel) return;
+  panel.classList.toggle('hidden', !smtpEnabled);
+  if (!smtpEnabled && input) input.value = '';
 }
 
 function parseExistingRunInput() {
@@ -4482,6 +4502,10 @@ async function startAnalysis() {
   fd.append('auto_pull_nplinker_sif', boolToFlag(document.getElementById('auto-pull-nplinker-sif').checked));
   fd.append('nplinker_bootstrap_env', boolToFlag(document.getElementById('nplinker-bootstrap-env').checked));
   fd.append('env_overrides', document.getElementById('env-overrides').value);
+  if (smtpEnabled) {
+    const notifyEmail = document.getElementById('notify-email')?.value.trim() || '';
+    if (notifyEmail) fd.append('notify_email', notifyEmail);
+  }
 
   document.getElementById('run-btn').disabled = true;
   document.getElementById('upload-status').textContent = 'Uploading…';
@@ -5623,6 +5647,8 @@ async function fetchSystemStatus() {
     if (!resp.ok) return null;
     const payload = await resp.json();
     authChecked = true;
+    smtpEnabled = !!payload.smtp_enabled;
+    updateEmailNotificationPanel();
     if (isFullSystemStatus(payload)) {
       setAccessMode(adminToken() ? 'admin' : 'local');
       runtimeCapabilities = payload.capabilities || {};
@@ -5737,6 +5763,7 @@ async function initializeApp() {
   window.addEventListener('hashchange', syncNavFromHash);
   moveWorkflowProgressIntoResults();
   updateAccessTokenStatus();
+  updateEmailNotificationPanel();
   renderOpenedRuns();
   showEmptyResults();
   syncNavFromHash();

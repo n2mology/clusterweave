@@ -395,6 +395,29 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertNotIn("submit_token=", text)
         self.assertNotIn("admin_token=", text)
 
+    def test_web_email_and_retention_slice_has_public_recovery_hooks(self) -> None:
+        ui_text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        app_text = (REPO_ROOT / "web" / "app.py").read_text(encoding="utf-8")
+        worker_text = (REPO_ROOT / "web" / "worker.py").read_text(encoding="utf-8")
+        notifications_text = (REPO_ROOT / "web" / "notifications.py").read_text(encoding="utf-8")
+        job_store_text = (REPO_ROOT / "web" / "job_store.py").read_text(encoding="utf-8")
+        maintenance_text = (REPO_ROOT / "web" / "maintenance.py").read_text(encoding="utf-8")
+
+        self.assertIn('id="email-notification-panel"', ui_text)
+        self.assertIn('id="notify-email"', ui_text)
+        self.assertIn("let smtpEnabled = false", ui_text)
+        self.assertIn("smtpEnabled = !!payload.smtp_enabled", ui_text)
+        self.assertIn("fd.append('notify_email', notifyEmail)", ui_text)
+        self.assertIn('SMTP_ENABLED = env_bool("CLUSTERWEAVE_SMTP_ENABLED"', app_text)
+        self.assertIn('"smtp_enabled": SMTP_ENABLED', app_text)
+        self.assertIn('"notify_email"', app_text)
+        self.assertIn("maybe_send_terminal_notification(job_id)", worker_text)
+        self.assertIn("def build_job_email", notifications_text)
+        self.assertIn("Suggested fixes:", notifications_text)
+        self.assertIn("def sweep_expired_jobs", job_store_text)
+        self.assertIn("CLUSTERWEAVE_ALLOW_NEVER_EXPIRE_JOBS", job_store_text)
+        self.assertIn("sweep_expired_jobs()", maintenance_text)
+
     def test_web_ecology_label_table_uses_controlled_public_inputs(self) -> None:
         text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
         self.assertIn('id="ecology-label-panel"', text)
