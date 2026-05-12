@@ -520,9 +520,9 @@ Progress:
   run after Slice 11, but public-release QA now belongs to Slice 18.
 - Completed: Slice 13 - Public API Security Foundation.
 - Completed: Slice 14 - Public Input Policy, Quotas, And Retention Metadata.
-- Current: Slice 15 - Public UI Restructure.
-- Next: Slice 16 - Ecology Label Table.
-- Later: Slice 17 - Email Notifications And Retention Sweeper.
+- Completed: Slice 15 - Public UI Restructure.
+- Current: Slice 16 - Ecology Label Table.
+- Next: Slice 17 - Email Notifications And Retention Sweeper.
 - Final: Slice 18 - Public Deployment QA.
 
 Complete these slices in order. Each slice should leave the app usable.

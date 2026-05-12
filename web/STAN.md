@@ -435,11 +435,22 @@ Slice 14 added public submission policy, quotas, and retention metadata:
 - Jobs now carry `retention_days` and `expires_at`; terminal jobs also get `completed_at` or
   `failed_at` and refresh expiration from that terminal timestamp.
 
+Slice 15 added the public UI shell:
+
+- The hero now offers only public accession start and demo-load actions; the static hero weave and
+  top-level WeaveMap nav are gone.
+- Access keys live in `sessionStorage`; submit/admin tokens stay out of URLs.
+- Existing runs can be opened from a full result fragment link or a job ID plus read token, and
+  unlocked runs are tracked in the browser session.
+- Run history, Lab QA, advanced knobs, stage toggles, rerun/delete controls, raw env overrides,
+  output discovery, and NPLinker controls are admin/local-only.
+- The live stage timeline moves into Results and public result file/figure links use saved read
+  tokens through request headers.
+
 Remaining public-release risks:
 
 - Job data persists until explicit deletion; no retention sweeper exists yet.
-- The static UI does not yet provide public-mode token entry, result-link unlock, or admin-only
-  disclosure controls.
+- Public ecology metadata still needs a controlled table instead of raw TSV exposure.
 
 Keep server-side security ahead of UI hiding in the remaining public-release slices.
 
@@ -449,9 +460,9 @@ See `web/STYLE.md` for full task lists and acceptance criteria.
 
 - Completed: Slice 13 - Public API Security Foundation.
 - Completed: Slice 14 - Public Input Policy, Quotas, And Retention Metadata.
-- Current: Slice 15 - Public UI Restructure.
-- Next: Slice 16 - Ecology Label Table.
-- Slice 17: Email Notifications And Retention Sweeper.
+- Completed: Slice 15 - Public UI Restructure.
+- Current: Slice 16 - Ecology Label Table.
+- Next: Slice 17 - Email Notifications And Retention Sweeper.
 - Slice 18: Public Deployment QA.
 
 ## Questions For The Hosting Collaborator

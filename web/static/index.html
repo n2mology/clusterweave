@@ -328,7 +328,7 @@
       linear-gradient(110deg, rgba(255,252,244,.08), rgba(17,24,39,.62) 43%, rgba(67,29,91,.42));
     box-shadow: var(--cw-raise-panel-strong), var(--cw-bevel), var(--panel-glow);
     display: grid;
-    grid-template-columns: minmax(0, 1.05fr) minmax(340px, .95fr);
+    grid-template-columns: minmax(0, 1fr);
     align-items: center;
     gap: 1.25rem;
   }
@@ -342,7 +342,7 @@
     background-size: auto, 16px 16px;
     opacity: .38;
   }
-  .identity-copy, .hero-weavemap { position: relative; z-index: 1; }
+  .identity-copy { position: relative; z-index: 1; }
   .identity-copy { max-width: 820px; }
   .identity-kicker {
     color: var(--cw-amber-2);
@@ -397,103 +397,6 @@
     border-radius: 999px;
     background: linear-gradient(var(--cw-mint-400), var(--cw-amber-2));
   }
-  .hero-weavemap {
-    min-height: 214px;
-    border: 1px solid rgba(202,231,226,.2);
-    border-radius: 8px;
-    padding: .95rem;
-    background:
-      linear-gradient(180deg, rgba(255,252,244,.04), rgba(11,11,18,.2)),
-      var(--cw-surface-well);
-    box-shadow: var(--cw-inset-well), var(--cw-bevel);
-  }
-  .hero-map-title {
-    display: grid;
-    align-items: center;
-    grid-template-columns: auto 1fr auto;
-    gap: .6rem;
-    color: var(--cw-amber-2);
-    font-size: .72rem;
-    font-weight: 900;
-    text-transform: uppercase;
-  }
-  .hero-map-title::before,
-  .hero-map-title::after {
-    content: '';
-    height: 1px;
-    background: linear-gradient(90deg, rgba(91,230,208,.1), rgba(91,230,208,.6), rgba(245,158,11,.35));
-  }
-  .hero-map-title::before { display: none; }
-  .hero-braid {
-    position: relative;
-    width: 100%;
-    height: 74px;
-    margin: .35rem 0 .2rem;
-  }
-  .hero-braid svg {
-    width: 100%;
-    height: 100%;
-    display: block;
-    overflow: visible;
-  }
-  .braid-teal,
-  .braid-amber {
-    fill: none;
-    stroke-width: 3;
-    stroke-linecap: round;
-    stroke-dasharray: 6 8;
-  }
-  .braid-teal {
-    stroke: var(--cw-mint-400);
-    filter: drop-shadow(0 0 7px rgba(91,230,208,.2));
-  }
-  .braid-amber {
-    stroke: var(--cw-amber-2);
-    filter: drop-shadow(0 0 7px rgba(245,158,11,.18));
-  }
-  .hero-stage-grid {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: .5rem;
-  }
-  .hero-stage {
-    position: relative;
-    min-height: 54px;
-    padding: .52rem .58rem .48rem;
-    border: 1px solid rgba(202,231,226,.16);
-    border-radius: 7px;
-    background:
-      linear-gradient(180deg, rgba(255,252,244,.055), rgba(255,252,244,.012)),
-      var(--cw-surface-control);
-    color: var(--cw-mint-100);
-    box-shadow: var(--cw-raise-control), var(--cw-bevel);
-  }
-  .hero-stage-num {
-    color: var(--cw-amber-2);
-    font-family: var(--mono);
-    font-size: .64rem;
-    font-weight: 900;
-  }
-  .hero-stage-name {
-    display: block;
-    color: var(--text);
-    font-size: .78rem;
-    font-weight: 700;
-    line-height: 1.2;
-    margin-top: .08rem;
-    overflow-wrap: anywhere;
-  }
-  .hero-stage-lamp {
-    position: absolute;
-    right: .5rem;
-    top: .5rem;
-    width: .45rem;
-    height: .45rem;
-    border-radius: 50%;
-    background: rgba(91,230,208,.72);
-    box-shadow: 0 0 11px rgba(91,230,208,.26);
-  }
-  .hero-stage:nth-child(3n) .hero-stage-lamp { background: rgba(245,158,11,.82); box-shadow: 0 0 11px rgba(245,158,11,.24); }
   .docs-strip {
     display: flex;
     align-items: center;
@@ -657,7 +560,6 @@
   body[data-ui-mode="advanced"] .workflow-controls > summary {
     color: var(--cw-mint-50);
   }
-  .hero-weavemap.section-focus,
   .weavemap-section.section-focus {
     animation: mapFocus 1.2s ease-out 1;
   }
@@ -672,17 +574,6 @@
   #results-card.section-focus {
     animation: sectionFocus 1.2s ease-out 1;
   }
-  .hero-stage:not(:last-child)::after {
-    content: '';
-    position: absolute;
-    left: calc(100% - .08rem);
-    top: 50%;
-    width: .58rem;
-    height: 2px;
-    background: linear-gradient(90deg, var(--cw-mint-400), var(--cw-amber-2));
-    opacity: .5;
-  }
-  .hero-stage:nth-child(3n)::after { display: none; }
   .upload-section { margin-bottom: 2rem; }
   .main-container { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; flex: 1; }
   @media (max-width: 1200px) { .main-container { grid-template-columns: 1fr; } }
@@ -720,7 +611,6 @@
     main { padding-inline: 1rem; }
     .identity-band { grid-template-columns: 1fr; align-items: flex-start; }
     .identity-title { max-width: 16ch; }
-    .hero-weavemap { width: 100%; }
     .docs-strip { align-items: flex-start; flex-direction: column; }
     .docs-links { justify-content: flex-start; }
     .mode-panel { grid-template-columns: 1fr; }
@@ -733,9 +623,7 @@
     }
     .status-chip { flex: 1 1 auto; }
     .journey-cues,
-    .hero-stage-grid,
     .mode-switch { grid-template-columns: 1fr; }
-    .hero-stage:not(:last-child)::after { display: none; }
   }
   @media (max-width: 520px) {
     .identity-band { padding: 1rem; }
@@ -1237,7 +1125,7 @@
   .badge-running .badge-dot { opacity: .9; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
 
-  /* ── Central WeaveMap ─────────────────────────────────────────────────── */
+  /* ── Workflow Progress ────────────────────────────────────────────────── */
   .weavemap-section {
     position: relative;
     isolation: isolate;
@@ -2276,6 +2164,91 @@
 
   /* ── Utility ──────────────────────────────────────────────────────────── */
   .hidden { display: none !important; }
+  body[data-access="public"] .admin-only { display: none !important; }
+  body[data-access="admin"] .admin-only,
+  body[data-access="local"] .admin-only { display: revert; }
+  body[data-access="admin"] section.admin-only,
+  body[data-access="local"] section.admin-only,
+  body[data-access="admin"] div.admin-only,
+  body[data-access="local"] div.admin-only { display: block; }
+  body[data-access="admin"] a.admin-only,
+  body[data-access="local"] a.admin-only,
+  body[data-access="admin"] button.admin-only,
+  body[data-access="local"] button.admin-only { display: inline-flex; }
+  body[data-access="admin"] .mode-panel.admin-only,
+  body[data-access="local"] .mode-panel.admin-only,
+  body[data-access="admin"] .form-grid.admin-only,
+  body[data-access="local"] .form-grid.admin-only,
+  body[data-access="admin"] .results-intel.admin-only,
+  body[data-access="local"] .results-intel.admin-only { display: grid; }
+  body[data-access="admin"] .profile-bar.admin-only,
+  body[data-access="local"] .profile-bar.admin-only { display: flex; }
+  .access-panel {
+    display: grid;
+    grid-template-columns: minmax(0, .9fr) minmax(0, 1.45fr);
+    gap: 1rem;
+    margin: 1.2rem 0 1.5rem;
+    padding: 1rem;
+    border: 1px solid rgba(202,231,226,.16);
+    border-radius: 8px;
+    background:
+      linear-gradient(135deg, rgba(91,230,208,.06), rgba(148,105,247,.05) 55%, rgba(245,158,11,.045)),
+      var(--cw-surface-panel);
+    box-shadow: var(--cw-raise-panel), var(--cw-bevel);
+  }
+  .access-copy p {
+    margin: .4rem 0 0;
+    color: var(--muted);
+    font-size: .86rem;
+    line-height: 1.5;
+  }
+  .access-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .75rem;
+  }
+  .access-card {
+    border: 1px solid rgba(202,231,226,.14);
+    border-radius: 8px;
+    padding: .85rem;
+    background: rgba(11,11,18,.34);
+    box-shadow: var(--cw-inset-control), var(--cw-bevel);
+  }
+  .opened-runs select {
+    min-width: min(100%, 220px);
+  }
+  .workflow-progress-panel {
+    margin-bottom: 1rem;
+    padding: .85rem;
+    border: 1px solid rgba(202,231,226,.16);
+    border-radius: 8px;
+    background:
+      radial-gradient(circle at 12% 0%, rgba(91,230,208,.08), transparent 16rem),
+      rgba(255,252,244,.025);
+    box-shadow: var(--cw-inset-control), var(--cw-bevel);
+  }
+  .workflow-progress-panel .weavemap-stage-wrap {
+    margin-top: .75rem;
+  }
+  body[data-access="public"] .stage-step[data-stage="nplinker"] {
+    display: none;
+  }
+  .upload-card-locked {
+    opacity: .58;
+    filter: grayscale(.2);
+  }
+  .upload-card-locked .card-header {
+    cursor: pointer;
+  }
+  .result-auth-note {
+    margin-top: .5rem;
+    color: var(--muted);
+    font-size: .78rem;
+  }
+  @media (max-width: 980px) {
+    .access-panel,
+    .access-grid { grid-template-columns: 1fr; }
+  }
   .flex-gap { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; }
   .ml-auto { margin-left: auto; }
   .mt1 { margin-top: .5rem; }
@@ -2445,7 +2418,7 @@
   }
 </style>
 </head>
-<body data-ui-mode="guided">
+<body data-ui-mode="guided" data-access="public">
 
 <!-- ── Bootstrap Splash Screen ──────────────────────────────────────────────── -->
 <div class="bootstrap-splash" id="bootstrap-splash">
@@ -2482,10 +2455,9 @@
   <nav class="primary-nav" id="primary-nav" aria-label="Primary navigation">
     <a class="nav-link active" href="#overview" data-nav-target="overview" onclick="navigateToSection(event, 'overview')">Overview</a>
     <a class="nav-link" href="#intake" data-nav-target="intake" onclick="navigateToSection(event, 'intake', 'manual-accessions')">Intake</a>
-    <a class="nav-link" href="#weavemap" data-nav-target="weavemap" onclick="navigateToSection(event, 'weavemap')">WeaveMap</a>
-    <a class="nav-link" href="#jobs-card" data-nav-target="runs" onclick="navigateToSection(event, 'runs')">Runs</a>
+    <a class="nav-link admin-only" href="#jobs-card" data-nav-target="runs" onclick="navigateToSection(event, 'runs')">Runs</a>
     <a class="nav-link" href="#results-card" data-nav-target="outputs" onclick="navigateToSection(event, 'outputs')">Outputs</a>
-    <a class="nav-link" href="#console-card" data-nav-target="qa" onclick="navigateToSection(event, 'qa')">QA Console</a>
+    <a class="nav-link admin-only" href="#console-card" data-nav-target="qa" onclick="navigateToSection(event, 'qa')">QA Console</a>
     <a class="nav-link" href="#docs" data-nav-target="docs" onclick="navigateToSection(event, 'docs')">Docs</a>
   </nav>
   <div class="header-actions" aria-label="Workflow actions">
@@ -2504,9 +2476,8 @@
       <h1 class="identity-title">Upload genomes or accessions, run canonical discovery stages, and inspect every output from annotation to gene cluster family context.</h1>
       <p class="identity-subtitle">ClusterWeave keeps the shell-first workflow visible: source intake, stage progress, run history, worker telemetry, figures, files, and reruns stay connected on one research-control surface.</p>
       <div class="hero-actions" aria-label="Quick start actions">
-        <button class="btn btn-primary" type="button" onclick="navigateToSection(event, 'intake', 'manual-accessions')">Start from accessions</button>
+        <button class="btn btn-primary" type="button" onclick="navigateToSection(event, 'intake', 'manual-accessions')">Start from NCBI accessions</button>
         <button class="btn btn-ghost" type="button" onclick="loadDemoAccessions(event)">Load demo run</button>
-        <button class="btn btn-ghost" type="button" onclick="navigateToSection(event, 'weavemap')">View workflow map</button>
       </div>
       <div class="journey-cues" aria-label="ClusterWeave journey">
         <div class="journey-cue">Add fungal genomes, accession lists, and metadata.</div>
@@ -2514,28 +2485,57 @@
         <div class="journey-cue">Inspect outputs, synteny, family context, logs, and artifacts.</div>
       </div>
     </div>
-    <div class="hero-weavemap" id="hero-weavemap" aria-label="Static WeaveMap motif">
-      <div class="hero-map-title"><span>WeaveMap</span><span>sources to outputs</span></div>
-      <div class="hero-braid" aria-hidden="true">
-        <svg viewBox="0 0 520 76" focusable="false">
-          <path class="braid-teal" d="M10 38 C72 4 118 4 180 38 S290 72 350 38 450 4 510 38" />
-          <path class="braid-amber" d="M10 38 C72 72 118 72 180 38 S290 4 350 38 450 72 510 38" />
-          <circle cx="10" cy="38" r="5" fill="currentColor" opacity=".65" />
-          <circle cx="510" cy="38" r="5" fill="currentColor" opacity=".65" />
-        </svg>
+  </section>
+
+  <section class="access-panel section-anchor" id="access-panel" aria-label="Access keys and existing run loader">
+    <div class="access-copy">
+      <div class="node-kicker">Public access</div>
+      <div class="node-title">Submit with a token or open an existing result link</div>
+      <p>Accepted public inputs are NCBI accessions, one-accession-per-line .txt lists, and FASTA/GenBank genome files. Use public or releasable data only; anyone with a private result link can view that run until it expires.</p>
+    </div>
+    <div class="access-grid">
+      <div class="access-card">
+        <div class="group-title">Submission access</div>
+        <div class="form-group">
+          <label for="submit-token">Submit token</label>
+          <input type="password" id="submit-token" autocomplete="off" placeholder="Paste submit token" />
+        </div>
+        <div class="form-group admin-token-row">
+          <label for="admin-token">Admin token</label>
+          <input type="password" id="admin-token" autocomplete="off" placeholder="Admin diagnostics token" />
+        </div>
+        <div class="flex-gap mt1">
+          <button class="btn btn-ghost text-sm" type="button" onclick="saveAccessTokens()">Save for this tab</button>
+          <button class="btn btn-ghost text-sm" type="button" onclick="clearAccessTokens()">Clear</button>
+          <span id="access-token-status" class="text-muted text-sm"></span>
+        </div>
       </div>
-      <div class="hero-stage-grid" aria-hidden="true">
-        <div class="hero-stage"><span class="hero-stage-num">01</span><span class="hero-stage-name">Intake</span><span class="hero-stage-lamp"></span></div>
-        <div class="hero-stage"><span class="hero-stage-num">02</span><span class="hero-stage-name">Prep</span><span class="hero-stage-lamp"></span></div>
-        <div class="hero-stage"><span class="hero-stage-num">03</span><span class="hero-stage-name">Annotation / BGC</span><span class="hero-stage-lamp"></span></div>
-        <div class="hero-stage"><span class="hero-stage-num">04</span><span class="hero-stage-name">BiG-SCAPE</span><span class="hero-stage-lamp"></span></div>
-        <div class="hero-stage"><span class="hero-stage-num">05</span><span class="hero-stage-name">clinker / Figures</span><span class="hero-stage-lamp"></span></div>
-        <div class="hero-stage"><span class="hero-stage-num">06</span><span class="hero-stage-name">Outputs</span><span class="hero-stage-lamp"></span></div>
+      <div class="access-card">
+        <div class="group-title">Existing run</div>
+        <div class="form-group">
+          <label for="existing-run-link">Result link or job ID</label>
+          <input type="text" id="existing-run-link" autocomplete="off" placeholder="https://.../#/job/job_id/read_token or job_id" />
+        </div>
+        <div class="form-group">
+          <label for="existing-run-token">Read token</label>
+          <input type="password" id="existing-run-token" autocomplete="off" placeholder="Read token when not using a full link" />
+        </div>
+        <div class="flex-gap mt1">
+          <button class="btn btn-primary text-sm" type="button" onclick="unlockExistingRun()">Open run</button>
+          <span id="existing-run-status" class="text-muted text-sm"></span>
+        </div>
+        <div class="opened-runs mt1" id="opened-runs-panel">
+          <label for="opened-runs-select" class="text-sm text-muted">Opened runs</label>
+          <div class="flex-gap">
+            <select id="opened-runs-select" onchange="loadSelectedOpenedRun()"></select>
+            <button class="btn btn-ghost text-sm" type="button" onclick="forgetOpenedRuns()">Forget</button>
+          </div>
+        </div>
       </div>
     </div>
   </section>
 
-  <section class="mode-panel section-anchor" id="mode-panel" aria-label="Interface mode">
+  <section class="mode-panel section-anchor admin-only" id="mode-panel" aria-label="Interface mode">
     <div>
       <div class="mode-kicker">View mode</div>
       <div class="mode-title">Choose the surface for this run</div>
@@ -2556,15 +2556,15 @@
     </div>
   </section>
 
-  <section class="weavemap-section section-anchor" id="weavemap" tabindex="-1" aria-label="Live ClusterWeave WeaveMap">
+  <section class="weavemap-section section-anchor hidden" id="weavemap" tabindex="-1" aria-label="Live ClusterWeave workflow progress">
     <div class="weavemap-head">
       <div>
         <div class="weavemap-title-row">
           <span class="node-kicker">Canonical route</span>
           <span class="badge badge-pending"><span class="badge-dot"></span> Live stage state</span>
         </div>
-        <h2 class="weavemap-title">WeaveMap: intake to outputs</h2>
-        <p class="weavemap-copy">Follow the selected job from source preparation through BGC detection, family context, synteny panels, figures, optional NPLinker follow-up, and downloadable artifacts.</p>
+        <h2 class="weavemap-title">Workflow progress</h2>
+        <p class="weavemap-copy">Follow the selected job from source preparation through BGC detection, family context, synteny panels, figures, and downloadable artifacts.</p>
       </div>
       <div class="weavemap-status-rail">shell-first controller</div>
     </div>
@@ -2617,7 +2617,7 @@
       <div class="weavemap-endcap weavemap-endcap-output">
         <span class="weavemap-endcap-kicker">Output node</span>
         <span class="weavemap-endcap-title">Figures, files, context</span>
-        <span class="weavemap-endcap-copy">Review generated figures, direct file links, synteny panels, and optional follow-up artifacts.</span>
+        <span class="weavemap-endcap-copy">Review generated figures, direct file links, synteny panels, and downloadable artifacts.</span>
       </div>
     </div>
   </section>
@@ -2651,11 +2651,11 @@
 
         <div class="intake-grid">
           <div class="upload-zone" id="drop-zone">
-            <input type="file" id="file-input" multiple accept=".gbk,.gb,.gbff,.fasta,.fa,.fna,.fsa,.txt,.tsv,.csv,.json,.gff,.gff3,.faa,.mgf,.zip" />
+            <input type="file" id="file-input" multiple accept=".gbk,.gb,.gbff,.fasta,.fa,.fna,.fsa,.txt" />
             <div class="upload-zone-content">
               <div class="upload-icon">📄</div>
-              <div class="upload-title">Drop genomes, accession lists, or metadata</div>
-              <div class="upload-hint">GenBank, FASTA, TSV/CSV/JSON, GFF, FAA, MGF, and ZIP inputs</div>
+              <div class="upload-title">Drop genomes or accession lists</div>
+              <div class="upload-hint">Public mode accepts FASTA/GenBank genomes and .txt accession lists, one accession per line</div>
             </div>
           </div>
 
@@ -2707,7 +2707,7 @@
           </div>
         </div>
 
-        <div class="form-grid mt2">
+        <div class="form-grid mt2 admin-only">
           <div class="form-group">
             <label for="run-preset">Preset</label>
             <select id="run-preset" onchange="applyPreset(this.value)">
@@ -2731,7 +2731,7 @@
           <span id="upload-status" class="text-muted text-sm"></span>
         </div>
 
-        <details class="stage-toggle-panel workflow-controls" id="workflow-controls">
+        <details class="stage-toggle-panel workflow-controls admin-only" id="workflow-controls">
           <summary class="workflow-summary">
             <span class="workflow-summary-main">
               <span class="node-kicker">Workflow controls</span>
@@ -2753,7 +2753,7 @@
           </div>
         </details>
 
-        <details class="advanced-wrap" id="advanced-panel">
+        <details class="advanced-wrap admin-only" id="advanced-panel">
           <summary>Advanced knobs</summary>
           <div class="advanced-content">
             <div>
@@ -2965,7 +2965,7 @@
           </div>
         </details>
 
-        <div class="profile-bar">
+        <div class="profile-bar admin-only">
           <button class="btn btn-ghost text-sm" type="button" onclick="document.getElementById('profile-file-input').click()">Load .env Profile</button>
           <button class="btn btn-ghost text-sm" type="button" onclick="exportEnvProfile()">Export Current Settings</button>
           <input type="file" id="profile-file-input" accept=".env,.txt" class="hidden" />
@@ -2983,7 +2983,7 @@
   <div class="right-column">
 
     <!-- ── Run History (Top) ───────────────────────────────────────────── -->
-    <div class="card section-anchor" id="jobs-card" tabindex="-1">
+    <div class="card section-anchor admin-only" id="jobs-card" tabindex="-1">
       <div class="card-header" onclick="toggleCard('jobs-card')">
         <span>🗂</span> Runs / Run History
         <span class="toggle-icon">▾</span>
@@ -2996,7 +2996,7 @@
     </div>
 
     <!-- ── Worker Telemetry ───────────────────────────────────────────── -->
-    <div class="card telemetry-card section-anchor" id="console-card" tabindex="-1">
+    <div class="card telemetry-card section-anchor admin-only" id="console-card" tabindex="-1">
       <div class="card-header">
         <span>⚙️</span> Worker Telemetry
         <span id="worker-telemetry-badge" class="badge badge-pending ml-auto"><span class="badge-dot"></span> Monitoring</span>
@@ -3015,7 +3015,7 @@
     </div>
 
     <!-- ── Progress / Logs ────────────────────────────────────────────── -->
-    <div class="card hidden lab-console-card section-anchor" id="progress-card" tabindex="-1">
+    <div class="card hidden lab-console-card section-anchor admin-only" id="progress-card" tabindex="-1">
       <div class="card-header">
         <span>⚡</span> Lab Console
         <span id="progress-badge" class="badge badge-running ml-auto"><span class="badge-dot"></span> Running</span>
@@ -3037,15 +3037,23 @@
     </div>
 
     <!-- ── Results ────────────────────────────────────────────────────── -->
-    <div class="card hidden section-anchor" id="results-card" tabindex="-1">
+    <div class="card section-anchor" id="results-card" tabindex="-1">
       <div class="card-header">
         <span>📊</span> Results
-        <span id="results-status" class="badge badge-success ml-auto"><span class="badge-dot"></span> Complete</span>
+        <span id="results-status" class="badge badge-pending ml-auto"><span class="badge-dot"></span> No run loaded</span>
       </div>
       <div class="card-body">
-        <div id="rerun-panel"></div>
-        <div class="results-note">Output discovery is based on files produced by the selected job. Empty panels are placeholders for outputs that have not appeared yet.</div>
-        <div class="results-intel" id="output-discovery" aria-label="Output discovery overview">
+        <div id="results-empty-state" class="empty-state">Submit or load an existing run to see stage progress.</div>
+        <div class="workflow-progress-panel hidden" id="workflow-progress-panel">
+          <div class="weavemap-title-row">
+            <span class="node-kicker">Workflow progress</span>
+            <span class="badge badge-pending"><span class="badge-dot"></span> Live stage state</span>
+          </div>
+          <div id="results-workflow-host"></div>
+        </div>
+        <div id="rerun-panel" class="admin-only"></div>
+        <div class="results-note admin-only">Output discovery is based on files produced by the selected job. Empty panels are placeholders for outputs that have not appeared yet.</div>
+        <div class="results-intel admin-only" id="output-discovery" aria-label="Output discovery overview">
           <div class="output-card pending">
             <div class="output-card-head"><div class="output-card-title">Prioritized BGC shortlist</div><span class="output-state">Pending</span></div>
             <div class="output-card-copy">Run a workflow to populate this panel.</div>
@@ -3071,13 +3079,13 @@
             <div class="output-card-copy">NPLinker optional follow-up not enabled.</div>
           </div>
         </div>
-        <div class="tabs" role="tablist" aria-label="Result views">
+        <div class="tabs results-loaded-only hidden" role="tablist" aria-label="Result views">
           <button class="tab active" id="tab-control-viz" type="button" role="tab" aria-controls="tab-viz" aria-selected="true" onclick="switchTab('viz')" onkeydown="handleResultTabKeydown(event)">Visualization</button>
           <button class="tab" id="tab-control-files" type="button" role="tab" aria-controls="tab-files" aria-selected="false" tabindex="-1" onclick="switchTab('files')" onkeydown="handleResultTabKeydown(event)">Files</button>
         </div>
 
         <!-- Visualization tab -->
-        <div class="tab-panel active" id="tab-viz" role="tabpanel" aria-labelledby="tab-control-viz">
+        <div class="tab-panel active results-loaded-only hidden" id="tab-viz" role="tabpanel" aria-labelledby="tab-control-viz">
           <div id="viz-container">
             <div class="viz-placeholder">
               <div class="big-icon">🔬</div>
@@ -3087,7 +3095,7 @@
         </div>
 
         <!-- Files tab -->
-        <div class="tab-panel" id="tab-files" role="tabpanel" aria-labelledby="tab-control-files" hidden>
+        <div class="tab-panel results-loaded-only hidden" id="tab-files" role="tabpanel" aria-labelledby="tab-control-files" hidden>
           <div id="files-container">
             <div class="empty-state">No result files yet.</div>
           </div>
@@ -3107,10 +3115,10 @@
       <span class="docs-title">Methods, artifacts, logs, and runtime notes</span>
     </div>
     <div class="docs-links">
-      <a href="#weavemap" onclick="navigateToSection(event, 'weavemap')">Workflow stages</a>
+      <a href="#results-card" onclick="navigateToSection(event, 'outputs')">Workflow progress</a>
       <a href="#results-card" onclick="navigateToSection(event, 'outputs')">Artifacts</a>
-      <a href="#console-card" onclick="navigateToSection(event, 'qa')">Logs</a>
-      <a href="#intake" onclick="setUIMode('advanced'); navigateToSection(event, 'intake', 'advanced-panel')">Advanced knobs</a>
+      <a class="admin-only" href="#console-card" onclick="navigateToSection(event, 'qa')">Logs</a>
+      <a class="admin-only" href="#intake" onclick="setUIMode('advanced'); navigateToSection(event, 'intake', 'advanced-panel')">Advanced knobs</a>
     </div>
   </section>
 
@@ -3136,6 +3144,15 @@ let activeFileTreeJobId = null;
 let jobHistoryInFlight = false;
 let lastJobHistoryRenderKey = '';
 let currentUIMode = 'guided';
+let accessMode = 'public'; // public, admin, local
+let authChecked = false;
+let resultObjectUrls = [];
+
+const STORAGE_KEYS = {
+  submitToken: 'clusterweave.submitToken',
+  adminToken: 'clusterweave.adminToken',
+  openedRuns: 'clusterweave.openedRuns',
+};
 
 // Pipeline stages for the progress bar
 const STAGES = [
@@ -3167,6 +3184,7 @@ function setCardCollapsed(id, collapsed) {
 }
 
 function setUIMode(mode, options = {}) {
+  if (accessMode === 'public' && mode !== 'guided') mode = 'guided';
   const normalized = ['guided', 'lab', 'advanced'].includes(mode) ? mode : 'guided';
   currentUIMode = normalized;
   document.body.dataset.uiMode = normalized;
@@ -3189,6 +3207,26 @@ function setUIMode(mode, options = {}) {
     if (workflowControls) workflowControls.open = false;
     if (advancedPanel) advancedPanel.open = false;
   }
+}
+
+function setAccessMode(mode) {
+  accessMode = ['public', 'admin', 'local'].includes(mode) ? mode : 'public';
+  document.body.dataset.access = accessMode;
+  if (accessMode === 'public') {
+    setUIMode('guided', { preserveDisclosure: true });
+    document.getElementById('rerun-panel').innerHTML = '';
+    document.getElementById('output-discovery').innerHTML = '';
+    if (!activeJobId && !document.getElementById('upload-card')?.classList.contains('upload-card-locked')) {
+      setCardCollapsed('upload-card', false);
+    }
+  }
+  document.getElementById('progress-card')?.classList.toggle('hidden', !canUseAdminSurfaces() || !activeJobId);
+  updateAccessTokenStatus();
+  renderOpenedRuns();
+}
+
+function canUseAdminSurfaces() {
+  return accessMode === 'admin' || accessMode === 'local';
 }
 
 function setActiveNav(target) {
@@ -3249,8 +3287,19 @@ function navigateToSection(event, target, focusId = null) {
 
 function syncNavFromHash() {
   const hash = window.location.hash.replace(/^#/, '');
+  if (/^\/?job\//i.test(hash)) {
+    setActiveNav('outputs');
+    return;
+  }
   const match = Object.entries(NAV_TARGETS).find(([, cfg]) => cfg.anchor === hash);
   if (match) setActiveNav(match[0]);
+}
+
+function parseResultHash() {
+  const hash = window.location.hash || '';
+  const match = hash.match(/^#\/?job\/([^/\s#?]+)\/([^/\s#?]+)/i);
+  if (!match) return null;
+  return { jobId: decodeURIComponent(match[1]), token: decodeURIComponent(match[2]) };
 }
 
 function focusRunAction(event) {
@@ -3338,6 +3387,110 @@ function escapeJsString(value) {
     .replace(/\n/g, '\\n');
 }
 
+function updateAccessTokenStatus(message = '') {
+  const submitInput = document.getElementById('submit-token');
+  const adminInput = document.getElementById('admin-token');
+  if (submitInput && document.activeElement !== submitInput) submitInput.value = submitToken() ? '••••••••' : '';
+  if (adminInput && document.activeElement !== adminInput) adminInput.value = adminToken() ? '••••••••' : '';
+  const status = document.getElementById('access-token-status');
+  if (!status) return;
+  if (message) {
+    status.textContent = message;
+    return;
+  }
+  const bits = [];
+  if (submitToken()) bits.push('submit token saved');
+  if (adminToken()) bits.push('admin token saved');
+  status.textContent = bits.length ? bits.join(', ') : 'No access token saved.';
+}
+
+function saveAccessTokens() {
+  const submitInput = document.getElementById('submit-token');
+  const adminInput = document.getElementById('admin-token');
+  const submitValue = submitInput && !/^•+$/.test(submitInput.value) ? submitInput.value.trim() : submitToken();
+  const adminValue = adminInput && !/^•+$/.test(adminInput.value) ? adminInput.value.trim() : adminToken();
+  sessionSet(STORAGE_KEYS.submitToken, submitValue);
+  sessionSet(STORAGE_KEYS.adminToken, adminValue);
+  updateAccessTokenStatus('Access saved for this browser tab.');
+  fetchSystemStatus().then(system => {
+    if (isFullSystemStatus(system)) {
+      refreshJobHistory();
+      startSystemConsolePolling();
+    } else if (adminValue) {
+      stopSystemConsolePolling();
+      updateAccessTokenStatus('Admin token was not accepted; public shell is active.');
+    }
+  });
+}
+
+function clearAccessTokens() {
+  sessionSet(STORAGE_KEYS.submitToken, '');
+  sessionSet(STORAGE_KEYS.adminToken, '');
+  setAccessMode('public');
+  updateAccessTokenStatus('Access tokens cleared.');
+}
+
+function parseExistingRunInput() {
+  const raw = (document.getElementById('existing-run-link')?.value || '').trim();
+  const explicitToken = (document.getElementById('existing-run-token')?.value || '').trim();
+  if (!raw) return null;
+
+  let text = raw;
+  try {
+    const url = new URL(raw, window.location.href);
+    text = url.hash || url.pathname || raw;
+  } catch (e) {}
+  const fragmentMatch = text.match(/#?\/?job\/([^/\s#?]+)\/([^/\s#?]+)/i);
+  if (fragmentMatch) return { jobId: decodeURIComponent(fragmentMatch[1]), token: decodeURIComponent(fragmentMatch[2]) };
+
+  const parts = raw.split(/[\s,]+/).filter(Boolean);
+  if (parts.length >= 2) return { jobId: parts[0], token: parts[1] };
+  if (parts.length === 1 && explicitToken) return { jobId: parts[0], token: explicitToken };
+  return null;
+}
+
+async function unlockExistingRun() {
+  const status = document.getElementById('existing-run-status');
+  const parsed = parseExistingRunInput();
+  if (!parsed) {
+    if (status) status.textContent = 'Paste a result link or job ID plus read token.';
+    return;
+  }
+  if (status) status.textContent = 'Opening run...';
+  rememberOpenedRun(parsed.jobId, parsed.token);
+  const job = await loadJob(parsed.jobId, true, { readToken: parsed.token, source: 'existing-run' });
+  if (status) status.textContent = job ? 'Run opened for this tab.' : 'Could not open run with that read token.';
+}
+
+function renderOpenedRuns() {
+  const panel = document.getElementById('opened-runs-panel');
+  const select = document.getElementById('opened-runs-select');
+  if (!panel || !select) return;
+  const runs = loadOpenedRuns();
+  panel.classList.toggle('hidden', runs.length === 0);
+  select.innerHTML = runs.length
+    ? `<option value="">Select opened run</option>${runs.map(run => `<option value="${escapeHtml(run.id)}">${escapeHtml(run.name || run.id)} (${escapeHtml(run.id)})</option>`).join('')}`
+    : '<option value="">No opened runs</option>';
+  if (activeJobId) select.value = activeJobId;
+}
+
+function loadSelectedOpenedRun() {
+  const select = document.getElementById('opened-runs-select');
+  const jobId = select ? select.value : '';
+  if (jobId) loadJob(jobId, true);
+}
+
+function forgetOpenedRuns() {
+  saveOpenedRuns([]);
+  renderOpenedRuns();
+  if (activeJobId && !canUseAdminSurfaces()) {
+    activeJobId = null;
+    activeJobMeta = null;
+    stopPolling();
+    showEmptyResults();
+  }
+}
+
 function defaultApiBaseUrl() {
   const url = new URL(window.location.href);
   url.search = '';
@@ -3361,6 +3514,120 @@ function apiUrl(path) {
 function resultHref(jobId, relPath, options = {}) {
   const base = apiUrl(`api/jobs/${encodeURIComponent(jobId)}/files/${normalizedResultPath(relPath).split('/').map(encodeURIComponent).join('/')}`);
   return options.download ? `${base}?download=1` : base;
+}
+
+function sessionGet(key) {
+  try { return sessionStorage.getItem(key) || ''; }
+  catch (e) { return ''; }
+}
+
+function sessionSet(key, value) {
+  try {
+    if (value) sessionStorage.setItem(key, value);
+    else sessionStorage.removeItem(key);
+  } catch (e) {}
+}
+
+function submitToken() { return sessionGet(STORAGE_KEYS.submitToken); }
+function adminToken() { return sessionGet(STORAGE_KEYS.adminToken); }
+
+function loadOpenedRuns() {
+  try {
+    const parsed = JSON.parse(sessionGet(STORAGE_KEYS.openedRuns) || '[]');
+    return Array.isArray(parsed) ? parsed.filter(r => r && r.id && r.token) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveOpenedRuns(runs) {
+  sessionSet(STORAGE_KEYS.openedRuns, JSON.stringify(runs.slice(0, 20)));
+}
+
+function readTokenForJob(jobId) {
+  const run = loadOpenedRuns().find(r => r.id === jobId);
+  return run ? run.token : '';
+}
+
+function rememberOpenedRun(jobId, token, meta = {}) {
+  if (!jobId || !token) return;
+  const runs = loadOpenedRuns().filter(r => r.id !== jobId);
+  runs.unshift({
+    id: jobId,
+    token,
+    name: meta.name || meta.project_name || meta.projectName || jobId,
+    status: meta.status || '',
+    updatedAt: new Date().toISOString(),
+  });
+  saveOpenedRuns(runs);
+  renderOpenedRuns();
+}
+
+function authHeadersFor(kind, jobId = null) {
+  const headers = {};
+  const admin = adminToken();
+  if (admin) {
+    headers.Authorization = `Bearer ${admin}`;
+    return headers;
+  }
+  if (kind === 'submit') {
+    const token = submitToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+    return headers;
+  }
+  if (kind === 'job' && jobId) {
+    const token = readTokenForJob(jobId);
+    if (token) headers.Authorization = `Bearer ${token}`;
+  }
+  return headers;
+}
+
+function mergeAuthHeaders(options = {}, auth = {}) {
+  const headers = new Headers(options.headers || {});
+  const tokenHeaders = authHeadersFor(auth.kind || 'none', auth.jobId || null);
+  Object.entries(tokenHeaders).forEach(([key, value]) => {
+    if (value && !headers.has(key)) headers.set(key, value);
+  });
+  return { ...options, headers };
+}
+
+function apiFetch(path, options = {}, auth = {}) {
+  return fetch(apiUrl(path), mergeAuthHeaders(options, auth));
+}
+
+function resultNeedsAuth(jobId) {
+  return accessMode === 'public' && !adminToken() && !!readTokenForJob(jobId);
+}
+
+function resultFetch(jobId, relPath, options = {}) {
+  const { download = false, ...fetchOptions } = options;
+  const path = `api/jobs/${encodeURIComponent(jobId)}/files/${normalizedResultPath(relPath).split('/').map(encodeURIComponent).join('/')}${download ? '?download=1' : ''}`;
+  return apiFetch(path, fetchOptions, { kind: 'job', jobId });
+}
+
+async function handleResultLinkClick(event, jobId, relPath, download = false) {
+  if (!resultNeedsAuth(jobId)) return true;
+  event.preventDefault();
+  try {
+    const resp = await resultFetch(jobId, relPath, { download });
+    if (!resp.ok) throw new Error('Result file could not be opened with the saved read token.');
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    resultObjectUrls.push(url);
+    if (download) {
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileNameFromPath(relPath);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } else {
+      window.open(url, '_blank', 'noopener');
+    }
+  } catch (err) {
+    alert(err.message || String(err));
+  }
+  return false;
 }
 
 function envToBool(value, defaultValue = false) {
@@ -3541,7 +3808,7 @@ function renderStageChips() {
     checkedLabel('run-figures', 'Figures'),
     checkedLabel('run-ecology', 'Ecology'),
     checkedLabel('run-nplinker', 'NPLinker'),
-  ];
+  ].filter(c => canUseAdminSurfaces() || !['Ecology', 'NPLinker'].includes(c.label));
   return `<div class="summary-chips">${chips.map(c => `<span class="summary-chip ${c.enabled ? '' : 'off'}">${c.label}</span>`).join('')}</div>`;
 }
 
@@ -3780,6 +4047,8 @@ const dropZone  = document.getElementById('drop-zone');
 const fileInput = document.getElementById('file-input');
 const manualAccessionsInput = document.getElementById('manual-accessions');
 const MANUAL_ACCESSIONS_FILENAME = 'manual_accessions.txt';
+const PUBLIC_FILE_EXTENSIONS = new Set(['gbk','gb','gbff','fasta','fa','fna','fsa','txt']);
+const ADMIN_FILE_EXTENSIONS = new Set(['gbk','gb','gbff','fasta','fa','fna','fsa','txt','tsv','csv','json','gff','gff3','faa','mgf','zip']);
 
 fileInput.addEventListener('change', () => addFiles([...fileInput.files]));
 manualAccessionsInput.addEventListener('input', () => {
@@ -3847,10 +4116,13 @@ function loadDemoAccessions(event) {
 }
 
 function addFiles(files) {
-  const allowed = new Set(['gbk','gb','gbff','fasta','fa','fna','fsa','txt','tsv','csv','json','gff','gff3','faa','mgf','zip']);
+  const allowed = canUseAdminSurfaces() ? ADMIN_FILE_EXTENSIONS : PUBLIC_FILE_EXTENSIONS;
+  const allowedCopy = canUseAdminSurfaces()
+    ? '.gbk, .gb, .gbff, .fasta, .fa, .fna, .fsa, .txt, .tsv, .csv, .json, .gff, .gff3, .faa, .mgf, .zip'
+    : '.gbk, .gb, .gbff, .fasta, .fa, .fna, .fsa, .txt';
   for (const f of files) {
     if (!allowed.has(ext(f.name))) {
-      alert(`Unsupported file type: ${f.name}\nAllowed: .gbk, .gb, .gbff, .fasta, .fa, .fna, .fsa, .txt, .tsv, .csv, .json, .mgf, .zip`);
+      alert(`Unsupported file type: ${f.name}\nAllowed: ${allowedCopy}`);
       continue;
     }
     if (!selectedFiles.find(x => x.name === f.name)) selectedFiles.push(f);
@@ -4024,18 +4296,20 @@ async function startAnalysis() {
   document.getElementById('upload-status').textContent = 'Uploading…';
 
   try {
-    const resp = await fetch(apiUrl('api/jobs'), { method: 'POST', body: fd });
+    const resp = await apiFetch('api/jobs', { method: 'POST', body: fd }, { kind: 'submit' });
     if (!resp.ok) {
       const err = await resp.json();
       throw new Error(err.detail || 'Upload failed');
     }
-    const { job_id } = await resp.json();
+    const { job_id, read_token, expires_at } = await resp.json();
+    if (read_token) rememberOpenedRun(job_id, read_token, { name, status: 'pending' });
     selectedFiles = [];
     if (manualAccessionsInput) manualAccessionsInput.value = '';
     renderFileList();
-    document.getElementById('upload-status').textContent = '';
-    loadJob(job_id, true);
-    refreshJobHistory();
+    document.getElementById('upload-status').textContent = expires_at ? `Run submitted. Results expire ${new Date(expires_at).toLocaleDateString()}.` : 'Run submitted.';
+    lockSubmittedIntake();
+    await loadJob(job_id, true, { readToken: read_token || '' });
+    if (canUseAdminSurfaces()) refreshJobHistory();
   } catch (err) {
     document.getElementById('upload-status').textContent = '⚠ ' + err.message;
     document.getElementById('run-btn').disabled = false;
@@ -4044,10 +4318,14 @@ async function startAnalysis() {
 
 // ── Job history ────────────────────────────────────────────────────────────
 async function refreshJobHistory() {
+  if (!canUseAdminSurfaces()) {
+    renderOpenedRuns();
+    return;
+  }
   if (jobHistoryInFlight) return;
   jobHistoryInFlight = true;
   try {
-    const resp = await fetch(apiUrl('api/jobs'));
+    const resp = await apiFetch('api/jobs', {}, { kind: 'admin' });
     if (!resp.ok) return;
     const jobs = await resp.json();
     renderJobHistory(jobs);
@@ -4217,77 +4495,140 @@ function markActiveJobCard(jobId) {
   });
 }
 
+function moveWorkflowProgressIntoResults() {
+  const host = document.getElementById('results-workflow-host');
+  const live = document.querySelector('#weavemap .weavemap-live');
+  if (host && live && live.parentElement !== host) host.appendChild(live);
+}
+
+function setResultsLoaded(loaded) {
+  document.getElementById('results-empty-state')?.classList.toggle('hidden', loaded);
+  document.getElementById('workflow-progress-panel')?.classList.toggle('hidden', !loaded);
+  document.querySelectorAll('.results-loaded-only').forEach(el => el.classList.toggle('hidden', !loaded));
+}
+
+function showEmptyResults() {
+  activeStageState = null;
+  resetStages(currentStageControlJob());
+  setResultsLoaded(false);
+  const badge = document.getElementById('results-status');
+  if (badge) {
+    badge.className = 'badge badge-pending ml-auto';
+    badge.innerHTML = '<span class="badge-dot"></span> No run loaded';
+  }
+  document.getElementById('viz-container').innerHTML = `
+    <div class="viz-placeholder">
+      <div class="big-icon">🔬</div>
+      <div>Summary figures will appear here once a run is loaded.</div>
+    </div>`;
+  document.getElementById('files-container').innerHTML = '<div class="empty-state">No result files yet.</div>';
+}
+
+function showResultsShell() {
+  document.getElementById('results-card')?.classList.remove('hidden');
+  setResultsLoaded(true);
+  navigateToSection(null, 'outputs', 'results-card');
+}
+
+function lockSubmittedIntake() {
+  const card = document.getElementById('upload-card');
+  if (card) card.classList.add('upload-card-locked');
+  setCardCollapsed('upload-card', true);
+}
+
+function applyJobStageSnapshot(job) {
+  if (!activeStageState) initializeStageState(job);
+  const key = jobCurrentStageKey(job);
+  if (key) advanceToStage(key);
+  const status = String((job && job.status) || '').toLowerCase();
+  if (status === 'success' || status === 'failed') finalizeStageState(status);
+}
+
 async function deleteJob(e, jobId) {
   e.stopPropagation();
+  if (!canUseAdminSurfaces()) return;
   if (!confirm('Delete this job and all its data?')) return;
-  await fetch(apiUrl(`api/jobs/${encodeURIComponent(jobId)}`), { method: 'DELETE' });
+  await apiFetch(`api/jobs/${encodeURIComponent(jobId)}`, { method: 'DELETE' }, { kind: 'admin' });
   if (activeJobId === jobId) {
     activeJobId = null;
     stopPolling();
     document.getElementById('progress-card').classList.add('hidden');
-    document.getElementById('results-card').classList.add('hidden');
     activeStageState = null;
-    initializeStageState(currentStageControlJob());
+    showEmptyResults();
   }
   refreshJobHistory();
 }
 
 // ── Load / watch a job ─────────────────────────────────────────────────────
-async function loadJob(jobId, autoScroll = false) {
+async function loadJob(jobId, autoScroll = false, options = {}) {
+  if (options.readToken) rememberOpenedRun(jobId, options.readToken);
   const seq = ++jobLoadSeq;
   activeJobId = jobId;
   logCursor   = 0;
   stopPolling();
   markActiveJobCard(jobId);
 
-  // Show cards
-  document.getElementById('progress-card').classList.remove('hidden');
-  document.getElementById('results-card').classList.add('hidden');
+  document.getElementById('progress-card').classList.toggle('hidden', !canUseAdminSurfaces());
+  showResultsShell();
   document.getElementById('rerun-panel').innerHTML = '';
   document.getElementById('log-terminal').innerHTML = '';
   activeJobMeta = null;
   activeStageState = null;
   resetStages();
-  if (currentUIMode === 'guided') setUIMode('lab', { preserveDisclosure: true });
+  if (canUseAdminSurfaces() && currentUIMode === 'guided') setUIMode('lab', { preserveDisclosure: true });
 
   const job = await pollJobFinal(jobId, autoScroll, seq);
-  if (!job || seq !== jobLoadSeq || jobId !== activeJobId) return;
+  if (!job || seq !== jobLoadSeq || jobId !== activeJobId) {
+    if (seq === jobLoadSeq) {
+      activeJobId = null;
+      activeJobMeta = null;
+      activeStageState = null;
+      showEmptyResults();
+    }
+    return null;
+  }
   if (job.status === 'running' || job.status === 'pending') {
     pollTimerId = setInterval(() => {
       pollJobFinal(jobId, autoScroll, seq);
     }, 1500);
   }
+  return job;
 }
 
 async function pollJobFinal(jobId, autoScroll = false, seq = jobLoadSeq) {
-  const resp = await fetch(apiUrl(`api/jobs/${encodeURIComponent(jobId)}`));
+  const resp = await apiFetch(`api/jobs/${encodeURIComponent(jobId)}`, {}, { kind: 'job', jobId });
   if (!resp.ok || seq !== jobLoadSeq || jobId !== activeJobId) return null;
   const job = await resp.json();
   if (seq !== jobLoadSeq || jobId !== activeJobId) return null;
   const previousJob = activeJobMeta;
   activeJobMeta = job;
+  rememberOpenedRun(jobId, readTokenForJob(jobId), job);
   if (!activeStageState || activeStageState.jobId !== jobId) initializeStageState(job);
-  // Catch up on any missed log lines
-  const logResp = await fetch(apiUrl(`api/jobs/${encodeURIComponent(jobId)}/logs?since=${encodeURIComponent(logCursor)}`));
-  if (seq !== jobLoadSeq || jobId !== activeJobId) return null;
-  if (logResp.ok) {
-    const { lines } = await logResp.json();
+  applyJobStageSnapshot(job);
+  if (canUseAdminSurfaces()) {
+    const logResp = await apiFetch(`api/jobs/${encodeURIComponent(jobId)}/logs?since=${encodeURIComponent(logCursor)}`, {}, { kind: 'job', jobId });
     if (seq !== jobLoadSeq || jobId !== activeJobId) return null;
-    for (const line of lines) {
-      appendLogLine(line);
-      updateStageBar(line);
-      logCursor++;
-      if (autoScroll) scrollToBottom();
+    if (logResp.ok) {
+      const { lines } = await logResp.json();
+      if (seq !== jobLoadSeq || jobId !== activeJobId) return null;
+      for (const line of lines) {
+        appendLogLine(line);
+        updateStageBar(line);
+        logCursor++;
+        if (autoScroll) scrollToBottom();
+      }
+      document.getElementById('log-count').textContent = `${logCursor} lines`;
     }
-    document.getElementById('log-count').textContent = `${logCursor} lines`;
   }
   updateProgressBadge(job.status);
   if (job.status !== 'running' && job.status !== 'pending') {
     stopPolling();
     await loadResults(jobId, job.status, seq, job);
+  } else {
+    await loadResults(jobId, job.status, seq, job);
   }
   if (previousJob && (previousJob.status !== job.status || previousJob.stage !== job.stage)) {
-    refreshJobHistory();
+    if (canUseAdminSurfaces()) refreshJobHistory();
   }
   return job;
 }
@@ -4477,8 +4818,9 @@ async function loadResults(jobId, status, seq = jobLoadSeq, job = activeJobMeta)
   if (seq !== jobLoadSeq || jobId !== activeJobId) return;
   const card = document.getElementById('results-card');
   card.classList.remove('hidden');
+  setResultsLoaded(true);
   if (!job) {
-    const jobResp = await fetch(apiUrl(`api/jobs/${encodeURIComponent(jobId)}`));
+    const jobResp = await apiFetch(`api/jobs/${encodeURIComponent(jobId)}`, {}, { kind: 'job', jobId });
     if (seq !== jobLoadSeq || jobId !== activeJobId) return;
     job = jobResp.ok ? await jobResp.json() : activeJobMeta;
   }
@@ -4489,27 +4831,41 @@ async function loadResults(jobId, status, seq = jobLoadSeq, job = activeJobMeta)
   if (status === 'success') {
     rBadge.className = 'badge badge-success';
     rBadge.innerHTML = '<span class="badge-dot"></span> ✅ Complete';
-  } else {
+  } else if (status === 'failed') {
     rBadge.className = 'badge badge-failed';
     rBadge.innerHTML = '<span class="badge-dot"></span> ❌ Failed';
+  } else if (status === 'running') {
+    rBadge.className = 'badge badge-running';
+    rBadge.innerHTML = '<span class="badge-dot"></span> Running';
+  } else {
+    rBadge.className = 'badge badge-pending';
+    rBadge.innerHTML = '<span class="badge-dot"></span> Pending';
   }
 
-  renderRerunPanel(jobId, activeJobMeta);
+  if (canUseAdminSurfaces()) renderRerunPanel(jobId, activeJobMeta);
+  else document.getElementById('rerun-panel').innerHTML = '';
 
-  const resp = await fetch(apiUrl(`api/jobs/${encodeURIComponent(jobId)}/files`));
+  const resp = await apiFetch(`api/jobs/${encodeURIComponent(jobId)}/files`, {}, { kind: 'job', jobId });
   if (seq !== jobLoadSeq || jobId !== activeJobId) return;
   if (!resp.ok) return;
   const { files } = await resp.json();
   if (seq !== jobLoadSeq || jobId !== activeJobId) return;
 
-  renderOutputDiscovery(jobId, files, status);
+  if (canUseAdminSurfaces()) renderOutputDiscovery(jobId, files, status);
   if (status === 'success') renderViz(jobId, files);
+  else if (status === 'pending' || status === 'running') {
+    document.getElementById('viz-container').innerHTML = `
+      <div class="viz-placeholder">
+        <div class="big-icon">⏳</div>
+        <div>Workflow is ${escapeHtml(status)}. Figures will appear when the run produces output.</div>
+      </div>`;
+  }
   else {
     document.getElementById('viz-container').innerHTML = `
       <div class="viz-placeholder">
         <div class="big-icon">⚠️</div>
         <div>This job did not finish, but partial outputs and logs remain available.</div>
-        <div class="mt1 text-sm text-muted">Use the rerun controls above to resume selected stages in the same job workspace.</div>
+        <div class="mt1 text-sm text-muted">${canUseAdminSurfaces() ? 'Use the rerun controls above to resume selected stages in the same job workspace.' : 'Check the Files tab for any partial outputs, or submit a new run after fixing the input.'}</div>
       </div>`;
   }
   renderFileTable(jobId, files);
@@ -4555,6 +4911,7 @@ function renderRerunPanel(jobId, job) {
 
 async function rerunActiveJob() {
   if (!activeJobId) return;
+  if (!canUseAdminSurfaces()) return;
   const statusEl = document.getElementById('rerun-status');
   const selected = new Set([...document.querySelectorAll('.rerun-stage:checked')].map(el => el.dataset.stage));
   if (!selected.size) {
@@ -4575,11 +4932,11 @@ async function rerunActiveJob() {
   };
   if (statusEl) statusEl.textContent = 'Queueing rerun...';
   try {
-    const resp = await fetch(apiUrl(`api/jobs/${encodeURIComponent(activeJobId)}/rerun`), {
+    const resp = await apiFetch(`api/jobs/${encodeURIComponent(activeJobId)}/rerun`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
-    });
+    }, { kind: 'admin' });
     if (!resp.ok) {
       const err = await resp.json();
       throw new Error(err.detail || 'Rerun failed');
@@ -4673,8 +5030,10 @@ function renderOutputDiscovery(jobId, files, status) {
     const label = state === 'available' ? 'Available' : (optionalDisabled ? 'Optional' : (state === 'empty' ? 'Empty' : 'Pending'));
     const copy = matches.length ? concept.available : (optionalDisabled ? concept.disabled : (state === 'empty' ? concept.empty : concept.pending));
     const firstPath = matches[0] || '';
+    const jsJobId = escapeJsString(jobId);
+    const jsPath = escapeJsString(firstPath);
     const link = firstPath
-      ? `<div class="output-link"><a href="${escapeHtml(resultHref(jobId, firstPath))}" target="_blank" title="${escapeHtml(firstPath)}">${escapeHtml(fileNameFromPath(firstPath))}</a></div>`
+      ? `<div class="output-link"><a href="${escapeHtml(resultHref(jobId, firstPath))}" target="_blank" title="${escapeHtml(firstPath)}" onclick="return handleResultLinkClick(event,'${escapeHtml(jsJobId)}','${escapeHtml(jsPath)}',false)">${escapeHtml(fileNameFromPath(firstPath))}</a></div>`
       : '<div class="output-link text-muted">No file linked yet</div>';
     return `
       <div class="output-card ${state}" data-output-kind="${escapeHtml(concept.key)}">
@@ -4741,13 +5100,15 @@ function renderFileRow(jobId, f) {
   const name = fileNameFromPath(f);
   const href = resultHref(jobId, f);
   const downloadHref = resultHref(jobId, f, { download: true });
+  const jsJobId = escapeJsString(jobId);
+  const jsPath = escapeJsString(f);
   return `<tr>
     <td><span class="ext-badge">${escapeHtml(fileTypeLabel(f))}</span></td>
-    <td><a class="file-path-link" href="${href}" target="_blank">${escapeHtml(normalizedResultPath(f))}</a></td>
+    <td><a class="file-path-link" href="${escapeHtml(href)}" target="_blank" onclick="return handleResultLinkClick(event,'${escapeHtml(jsJobId)}','${escapeHtml(jsPath)}',false)">${escapeHtml(normalizedResultPath(f))}</a></td>
     <td class="file-actions">
       <div class="file-actions-inner">
-        <a class="btn btn-ghost text-sm" href="${href}" target="_blank">Open</a>
-        <a class="btn btn-ghost text-sm" href="${downloadHref}" download="${escapeHtml(name)}">Download</a>
+        <a class="btn btn-ghost text-sm" href="${escapeHtml(href)}" target="_blank" onclick="return handleResultLinkClick(event,'${escapeHtml(jsJobId)}','${escapeHtml(jsPath)}',false)">Open</a>
+        <a class="btn btn-ghost text-sm" href="${escapeHtml(downloadHref)}" download="${escapeHtml(name)}" onclick="return handleResultLinkClick(event,'${escapeHtml(jsJobId)}','${escapeHtml(jsPath)}',true)">Download</a>
       </div>
     </td>
   </tr>`;
@@ -4820,19 +5181,27 @@ function renderViz(jobId, files) {
   const figureFiles = files.filter(isFigureAsset).sort((a, b) => figureSortKey(a).localeCompare(figureSortKey(b)));
   const container = document.getElementById('viz-container');
   if (!figureFiles.length) {
+    const detail = canUseAdminSurfaces()
+      ? 'Check the figure-stage logs or rerun the Figures stage after Rscript is available.'
+      : 'No figure outputs were found for this run yet.';
     container.innerHTML = `
       <div class="viz-placeholder">
         <div class="big-icon">⚠️</div>
         <div>No figure SVG/PNG outputs were found under Data/Results/&lt;project&gt;/figures.</div>
-        <div class="mt1 text-sm text-muted">Check the figure-stage logs or rerun the Figures stage after Rscript is available.</div>
+        <div class="mt1 text-sm text-muted">${escapeHtml(detail)}</div>
       </div>`;
     return;
   }
 
+  resultObjectUrls.forEach(url => URL.revokeObjectURL(url));
+  resultObjectUrls = [];
   const cards = figureFiles.map(f => {
     const name = fileNameFromPath(f);
     const href = resultHref(jobId, f);
     const downloadHref = resultHref(jobId, f, { download: true });
+    const jsJobId = escapeJsString(jobId);
+    const jsPath = escapeJsString(f);
+    const imgSrc = resultNeedsAuth(jobId) ? '' : escapeHtml(href);
     return `
       <div class="figure-panel">
         <div class="figure-panel-head">
@@ -4842,16 +5211,40 @@ function renderViz(jobId, files) {
           </div>
           <div class="figure-actions">
             <span class="ext-badge">${escapeHtml(fileTypeLabel(f))}</span>
-            <a class="btn btn-ghost text-sm" href="${escapeHtml(href)}" target="_blank">Open</a>
-            <a class="btn btn-ghost text-sm" href="${escapeHtml(downloadHref)}" download="${escapeHtml(name)}">Download</a>
+            <a class="btn btn-ghost text-sm" href="${escapeHtml(href)}" target="_blank" onclick="return handleResultLinkClick(event,'${escapeHtml(jsJobId)}','${escapeHtml(jsPath)}',false)">Open</a>
+            <a class="btn btn-ghost text-sm" href="${escapeHtml(downloadHref)}" download="${escapeHtml(name)}" onclick="return handleResultLinkClick(event,'${escapeHtml(jsJobId)}','${escapeHtml(jsPath)}',true)">Download</a>
           </div>
         </div>
         <div class="figure-preview-wrap">
-          <img class="figure-preview" src="${escapeHtml(href)}" alt="${escapeHtml(name)}" />
+          <img class="figure-preview" src="${imgSrc}" data-result-path="${escapeHtml(f)}" data-result-job="${escapeHtml(jobId)}" alt="${escapeHtml(name)}" />
         </div>
       </div>`;
   }).join('');
   container.innerHTML = `<div class="figure-grid">${cards}</div>`;
+  hydrateAuthenticatedFigures(jobId);
+}
+
+async function hydrateAuthenticatedFigures(jobId) {
+  if (!resultNeedsAuth(jobId)) return;
+  const images = Array.from(document.querySelectorAll('img.figure-preview'))
+    .filter(img => img.dataset.resultJob === jobId);
+  for (const img of images) {
+    const path = img.dataset.resultPath || '';
+    if (!path) continue;
+    try {
+      const resp = await resultFetch(jobId, path);
+      if (!resp.ok) throw new Error('Figure unavailable');
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      resultObjectUrls.push(url);
+      img.src = url;
+    } catch (err) {
+      img.replaceWith(Object.assign(document.createElement('div'), {
+        className: 'viz-placeholder',
+        textContent: 'Figure preview requires a valid read token.',
+      }));
+    }
+  }
 }
 
 function renderFileTable(jobId, files) {
@@ -4872,6 +5265,11 @@ function renderFileTable(jobId, files) {
 
 // ── System Console (Worker Status) ──────────────────────────────────────────
 function startSystemConsolePolling() {
+  if (!canUseAdminSurfaces()) {
+    stopSystemConsolePolling();
+    return;
+  }
+  if (systemPollTimer) return;
   updateWorkerTelemetryBadge('unknown', 'Monitoring');
   appendSystemLog('[System] ClusterWeave initialization complete. Monitoring worker...');
   systemPollTimer = setInterval(() => {
@@ -4889,11 +5287,12 @@ function stopSystemConsolePolling() {
 }
 
 async function pollSystemStatus() {
+  if (!canUseAdminSurfaces()) return;
   let jobs;
   let system;
   try {
     const [jobsResp, systemPayload] = await Promise.all([
-      fetch(apiUrl('api/jobs')),
+      apiFetch('api/jobs', {}, { kind: 'admin' }),
       fetchSystemStatus(),
     ]);
     if (!jobsResp.ok) return;
@@ -5018,13 +5417,28 @@ function updateBootstrapProgress(progress, phaseLabel) {
   if (track) track.setAttribute('aria-valuenow', String(Math.round(pct)));
 }
 
+function isFullSystemStatus(system) {
+  return !!(system && (
+    Object.prototype.hasOwnProperty.call(system, 'ready') ||
+    Object.prototype.hasOwnProperty.call(system, 'worker') ||
+    Object.prototype.hasOwnProperty.call(system, 'runtime') ||
+    Object.prototype.hasOwnProperty.call(system, 'capabilities')
+  ));
+}
+
 async function fetchSystemStatus() {
   try {
-    const resp = await fetch(apiUrl('api/system/status'));
+    const resp = await apiFetch('api/system/status', {}, { kind: 'admin' });
     if (!resp.ok) return null;
     const payload = await resp.json();
-    if (payload && payload.capabilities) {
-      runtimeCapabilities = payload.capabilities;
+    authChecked = true;
+    if (isFullSystemStatus(payload)) {
+      setAccessMode(adminToken() ? 'admin' : 'local');
+      runtimeCapabilities = payload.capabilities || {};
+      renderRuntimeBanner();
+    } else {
+      setAccessMode('public');
+      runtimeCapabilities = null;
       renderRuntimeBanner();
     }
     return payload;
@@ -5070,6 +5484,18 @@ async function waitForWorkerReady() {
       updateBootstrapSteps({ phase: 'prepare', ready: false });
       await new Promise(r => setTimeout(r, 1000));
       continue;
+    }
+
+    if (!isFullSystemStatus(system) && system.online) {
+      const submissionsLabel = system.submissions || (system.submissions_open ? 'open' : 'paused');
+      updateBootstrapProgress(100, 'Public shell ready');
+      statusEl.textContent = 'Public interface ready.';
+      if (substepEl) substepEl.textContent = `Submissions ${submissionsLabel}`;
+      updateRuntimeStatusChip(system.submissions_open ? 'ready' : 'unknown', `Public ${submissionsLabel}`);
+      bootstrapComplete = true;
+      await new Promise(r => setTimeout(r, 250));
+      splash.classList.add('hidden');
+      return true;
     }
 
     const state = String(system.state || 'bootstrapping');
@@ -5118,6 +5544,10 @@ async function waitForWorkerReady() {
 // ── Init ───────────────────────────────────────────────────────────────────
 async function initializeApp() {
   window.addEventListener('hashchange', syncNavFromHash);
+  moveWorkflowProgressIntoResults();
+  updateAccessTokenStatus();
+  renderOpenedRuns();
+  showEmptyResults();
   syncNavFromHash();
   setUIMode('guided', { preserveDisclosure: true });
 
@@ -5130,7 +5560,7 @@ async function initializeApp() {
   applyPreset('balanced');
 
   // Start system console polling (worker status)
-  startSystemConsolePolling();
+  if (canUseAdminSurfaces()) startSystemConsolePolling();
 
   document.getElementById('run-bigscape').addEventListener('change', syncControlState);
   document.getElementById('run-clinker').addEventListener('change', syncControlState);
@@ -5211,6 +5641,11 @@ async function initializeApp() {
     }
   });
   updateRunSummary();
+  const hashRun = parseResultHash();
+  if (hashRun) {
+    rememberOpenedRun(hashRun.jobId, hashRun.token);
+    await loadJob(hashRun.jobId, true, { readToken: hashRun.token, source: 'result-link' });
+  }
 }
 
 // Start the app initialization
