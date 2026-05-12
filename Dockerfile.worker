@@ -16,6 +16,7 @@ WORKDIR /app
 COPY web/worker.py /app/worker.py
 COPY web/canonical_pipeline.py /app/canonical_pipeline.py
 COPY web/job_store.py /app/job_store.py
+COPY web/notifications.py /app/notifications.py
 COPY web/runtime_capabilities.py /app/runtime_capabilities.py
 COPY web/entrypoint-worker.sh /app/entrypoint.sh
 

@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY web/app.py /app/app.py
 COPY web/job_store.py /app/job_store.py
+COPY web/notifications.py /app/notifications.py
 COPY web/runtime_capabilities.py /app/runtime_capabilities.py
 COPY web/static/ /app/static/
 COPY web/entrypoint-web.sh /app/entrypoint.sh
