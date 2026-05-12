@@ -182,10 +182,11 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("function isFigureAsset(path)", text)
         self.assertIn("function renderOutputDiscovery(jobId, files, status)", text)
         self.assertIn('id="output-discovery"', text)
-        self.assertIn("Priority shortlist", text)
-        self.assertIn("Family context", text)
-        self.assertIn("Synteny panels", text)
-        self.assertIn("Figure gallery", text)
+        self.assertIn("Prioritized BGC shortlist", text)
+        self.assertIn("Gene cluster family context", text)
+        self.assertIn("Synteny / clinker panel", text)
+        self.assertIn("Artifacts / files", text)
+        self.assertIn("NPLinker follow-up", text)
         self.assertIn("function figureCaption(path)", text)
         self.assertIn('Data\\/Results\\/[^/]+\\/figures', text)
         self.assertIn("bgc_calls_by_tool_category.svg", text)
@@ -289,6 +290,52 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn(".output-card {", text)
         self.assertIn("box-shadow: var(--cw-terminal-shadow), var(--cw-bevel);", text)
         self.assertIn("box-shadow: var(--cw-pressed), inset 3px 0 0 var(--accent)", text)
+
+    def test_web_has_retrofuturist_weavemap_and_outputs_polish(self) -> None:
+        text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('class="weavemap-section section-anchor" id="weavemap"', text)
+        self.assertIn('id="hero-weavemap"', text)
+        self.assertIn('id="stage-bar"', text)
+        self.assertIn("weavemap-signal", text)
+        self.assertIn("weaveBraidPulse", text)
+        self.assertIn("shell-first controller", text)
+        for stage in [
+            'data-stage="prep"',
+            'data-stage="annotation"',
+            'data-stage="bigscape"',
+            'data-stage="summary"',
+            'data-stage="clinker"',
+            'data-stage="figures"',
+            'data-stage="nplinker"',
+        ]:
+            self.assertIn(stage, text)
+        for label in [
+            "Intake",
+            "Prep",
+            "Annotation / BGC detection",
+            "BiG-SCAPE",
+            "Summary",
+            "clinker",
+            "Figures",
+            "NPLinker",
+            "Outputs",
+        ]:
+            self.assertIn(label, text)
+        for output in [
+            "Prioritized BGC shortlist",
+            "Gene cluster family context",
+            "Synteny / clinker panel",
+            "Figures",
+            "Artifacts / files",
+            "NPLinker follow-up",
+        ]:
+            self.assertIn(output, text)
+        self.assertIn("Run a workflow to populate this panel.", text)
+        self.assertIn("No artifacts available yet.", text)
+        self.assertIn("NPLinker optional follow-up not enabled.", text)
+        self.assertIn('body[data-ui-mode="guided"] #console-card .terminal-shell::before', text)
+        self.assertIn(".weavemap-signal,", text)
+        self.assertNotIn('class="hero-weavemap section-anchor" id="weavemap"', text)
 
     def test_web_job_queue_clicks_guard_against_stale_result_loads(self) -> None:
         text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")

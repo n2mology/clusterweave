@@ -612,13 +612,21 @@
     line-height: 1.25;
   }
   body[data-ui-mode="guided"] #console-card {
-    opacity: .82;
+    opacity: .74;
   }
   body[data-ui-mode="guided"] #console-card .telemetry-strip {
     display: none;
   }
   body[data-ui-mode="guided"] #console-card .terminal-compact .log-terminal {
-    height: 96px;
+    height: 92px;
+    color: #A9B9B6;
+  }
+  body[data-ui-mode="guided"] #console-card .terminal-shell {
+    border-color: rgba(202,231,226,.11);
+    box-shadow: inset 0 8px 18px rgba(0,0,0,.32), var(--cw-bevel);
+  }
+  body[data-ui-mode="guided"] #console-card .terminal-shell::before {
+    opacity: .18;
   }
   body[data-ui-mode="guided"] #progress-card .terminal-run .log-terminal {
     height: 160px;
@@ -630,6 +638,11 @@
   }
   body[data-ui-mode="lab"] #console-card .terminal-compact .log-terminal {
     height: 260px;
+    color: #D5E2E0;
+  }
+  body[data-ui-mode="lab"] #console-card .terminal-shell::before,
+  body[data-ui-mode="advanced"] #console-card .terminal-shell::before {
+    opacity: .42;
   }
   body[data-ui-mode="lab"] #progress-card .terminal-run .log-terminal {
     height: 340px;
@@ -644,7 +657,8 @@
   body[data-ui-mode="advanced"] .workflow-controls > summary {
     color: var(--cw-mint-50);
   }
-  .hero-weavemap.section-focus {
+  .hero-weavemap.section-focus,
+  .weavemap-section.section-focus {
     animation: mapFocus 1.2s ease-out 1;
   }
   @keyframes mapFocus {
@@ -1223,12 +1237,226 @@
   .badge-running .badge-dot { opacity: .9; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
 
+  /* ── Central WeaveMap ─────────────────────────────────────────────────── */
+  .weavemap-section {
+    position: relative;
+    isolation: isolate;
+    margin: -1rem auto 2.25rem;
+    padding: 1.08rem;
+    border: 1px solid rgba(202,231,226,.18);
+    border-radius: 8px;
+    background:
+      radial-gradient(circle at 10% 0%, rgba(91,230,208,.12), transparent 18rem),
+      radial-gradient(circle at 92% 4%, rgba(245,158,11,.11), transparent 17rem),
+      linear-gradient(180deg, rgba(255,252,244,.07), rgba(255,252,244,.022)),
+      var(--cw-surface-panel);
+    box-shadow: var(--cw-raise-panel), var(--cw-bevel), 0 22px 64px rgba(0,0,0,.2);
+    overflow: hidden;
+  }
+  .weavemap-section::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background:
+      repeating-linear-gradient(0deg, rgba(255,252,244,.032) 0 1px, transparent 1px 5px),
+      radial-gradient(rgba(91,230,208,.14) .75px, transparent 1px);
+    background-size: auto, 18px 18px;
+    opacity: .36;
+    mix-blend-mode: screen;
+  }
+  .weavemap-section::after {
+    content: '';
+    position: absolute;
+    left: 1.4rem;
+    right: 1.4rem;
+    top: 50%;
+    height: 12px;
+    transform: translateY(-50%);
+    z-index: 0;
+    pointer-events: none;
+    border-radius: 999px;
+    background:
+      linear-gradient(90deg, transparent, rgba(91,230,208,.34), rgba(245,158,11,.28), rgba(91,230,208,.34), transparent);
+    filter: blur(10px);
+    opacity: .78;
+  }
+  .weavemap-head {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: .75rem 1.25rem;
+    align-items: start;
+    margin-bottom: .95rem;
+  }
+  .weavemap-title-row {
+    display: flex;
+    align-items: center;
+    gap: .62rem;
+    flex-wrap: wrap;
+  }
+  .weavemap-title {
+    margin: 0;
+    color: var(--text);
+    font-size: clamp(1.05rem, 1.6vw, 1.38rem);
+    line-height: 1.1;
+    letter-spacing: 0;
+  }
+  .weavemap-copy {
+    margin: .35rem 0 0;
+    max-width: 70ch;
+    color: var(--muted);
+    font-size: .86rem;
+    line-height: 1.55;
+  }
+  .weavemap-status-rail {
+    display: inline-flex;
+    align-items: center;
+    gap: .45rem;
+    justify-self: end;
+    padding: .36rem .65rem;
+    border: 1px solid rgba(202,231,226,.16);
+    border-radius: 999px;
+    background: rgba(8,10,16,.38);
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: .7rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    white-space: nowrap;
+    box-shadow: var(--cw-inset-control);
+  }
+  .weavemap-status-rail::before {
+    content: '';
+    width: .48rem;
+    height: .48rem;
+    border-radius: 50%;
+    background: var(--cw-mint-400);
+    box-shadow: 0 0 14px rgba(91,230,208,.38);
+  }
+  .weavemap-live {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: minmax(112px, .72fr) minmax(0, 4fr) minmax(112px, .72fr);
+    gap: .72rem;
+    align-items: stretch;
+  }
+  .weavemap-stage-wrap {
+    position: relative;
+    min-width: 0;
+    padding: .72rem;
+    border: 1px solid rgba(202,231,226,.13);
+    border-radius: 8px;
+    background: rgba(8,10,16,.24);
+    box-shadow: var(--cw-inset-well), var(--cw-bevel);
+  }
+  .weavemap-signal {
+    position: absolute;
+    inset: .84rem;
+    pointer-events: none;
+    border-radius: 8px;
+    background:
+      linear-gradient(90deg, transparent, rgba(91,230,208,.09), transparent 34%, rgba(245,158,11,.08), transparent 68%, rgba(91,230,208,.09), transparent);
+    background-size: 220% 100%;
+    opacity: .68;
+    animation: weaveSignal 8s linear infinite;
+  }
+  .weavemap-endcap {
+    position: relative;
+    min-width: 0;
+    min-height: 122px;
+    padding: .82rem;
+    border: 1px solid rgba(202,231,226,.16);
+    border-radius: 8px;
+    background:
+      linear-gradient(180deg, rgba(255,252,244,.08), rgba(255,252,244,.02)),
+      var(--cw-surface-output);
+    display: grid;
+    align-content: center;
+    gap: .42rem;
+    overflow: hidden;
+    box-shadow: var(--cw-raise-control), var(--cw-bevel);
+  }
+  .weavemap-endcap::before,
+  .weavemap-endcap::after {
+    content: '';
+    position: absolute;
+    top: 46%;
+    width: .95rem;
+    height: 2px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--cw-mint-400), var(--cw-amber-2));
+    opacity: .54;
+  }
+  .weavemap-endcap::before { right: -.48rem; transform: translateY(-4px) rotate(-10deg); }
+  .weavemap-endcap::after { right: -.48rem; transform: translateY(4px) rotate(10deg); background: linear-gradient(90deg, var(--cw-amber-2), var(--cw-mint-400)); }
+  .weavemap-endcap-output::before,
+  .weavemap-endcap-output::after {
+    right: auto;
+    left: -.48rem;
+  }
+  .weavemap-endcap-kicker {
+    color: var(--cw-mint-400);
+    font-family: var(--mono);
+    font-size: .66rem;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
+  .weavemap-endcap-title {
+    color: var(--text);
+    font-size: .92rem;
+    font-weight: 800;
+    line-height: 1.15;
+  }
+  .weavemap-endcap-copy {
+    color: var(--muted);
+    font-size: .72rem;
+    line-height: 1.38;
+  }
+  @keyframes weaveSignal {
+    0% { background-position: 0% 0; opacity: .42; }
+    50% { opacity: .82; }
+    100% { background-position: 220% 0; opacity: .42; }
+  }
+  @media (max-width: 1180px) {
+    .weavemap-live {
+      grid-template-columns: 1fr;
+    }
+    .weavemap-endcap {
+      min-height: auto;
+      align-content: start;
+    }
+    .weavemap-endcap::before,
+    .weavemap-endcap::after {
+      display: none;
+    }
+  }
+  @media (max-width: 720px) {
+    .weavemap-section {
+      margin-top: -.25rem;
+      padding: .82rem;
+    }
+    .weavemap-head {
+      grid-template-columns: 1fr;
+    }
+    .weavemap-status-rail {
+      justify-self: start;
+      white-space: normal;
+    }
+    .weavemap-stage-wrap {
+      padding: .58rem;
+    }
+  }
+
   /* ── Workflow map ─────────────────────────────────────────────────────── */
   .stage-bar {
     display: grid;
     grid-template-columns: repeat(7, minmax(110px, 1fr));
     gap: .62rem;
-    margin-bottom: .85rem;
+    margin: 0;
     position: relative;
   }
   .stage-step {
@@ -1263,16 +1491,20 @@
     z-index: 0;
   }
   .stage-step::before {
+    --braid-y: -2px;
+    --braid-skew: -9deg;
     top: 34%;
-    background: linear-gradient(90deg, currentColor 0 46%, transparent 46% 56%, currentColor 56%);
-    opacity: .32;
-    transform: translateY(-2px) skewY(-9deg);
+    background: linear-gradient(90deg, var(--cw-mint-400), var(--cw-amber-2), var(--cw-mint-400));
+    opacity: .34;
+    transform: translateY(var(--braid-y)) skewY(var(--braid-skew));
   }
   .stage-step::after {
+    --braid-y: 3px;
+    --braid-skew: 9deg;
     top: 43%;
-    background: linear-gradient(90deg, currentColor 0 38%, transparent 38% 50%, currentColor 50%);
-    opacity: .22;
-    transform: translateY(3px) skewY(9deg);
+    background: linear-gradient(90deg, var(--cw-amber-2), var(--cw-mint-400), var(--cw-amber-2));
+    opacity: .26;
+    transform: translateY(var(--braid-y)) skewY(var(--braid-skew));
   }
   .stage-step:last-child::before,
   .stage-step:last-child::after { display: none; }
@@ -1363,7 +1595,10 @@
     animation: workflowPulse 1.25s ease-in-out infinite;
   }
   .stage-step.active::before,
-  .stage-step.active::after { animation: workflowPulse 1.25s ease-in-out infinite; }
+  .stage-step.active::after {
+    opacity: .82;
+    animation: weaveBraidPulse 1.3s ease-in-out infinite;
+  }
   .stage-step.done {
     background:
       linear-gradient(180deg, rgba(20,184,166,.17), rgba(20,184,166,.05)),
@@ -1395,6 +1630,10 @@
   @keyframes workflowPulse {
     0%, 100% { opacity: .95; }
     50% { opacity: .42; }
+  }
+  @keyframes weaveBraidPulse {
+    0%, 100% { filter: brightness(1); transform: translateY(var(--braid-y)) skewY(var(--braid-skew)) scaleX(1); }
+    50% { filter: brightness(1.38); transform: translateY(var(--braid-y)) skewY(var(--braid-skew)) scaleX(1.04); }
   }
   @media (max-width: 1120px) {
     .stage-bar { grid-template-columns: repeat(4, minmax(130px, 1fr)); }
@@ -1576,7 +1815,7 @@
   /* ── Results and output discovery ────────────────────────────────────── */
   .results-intel {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: .65rem;
     margin: 0 0 1rem;
   }
@@ -2198,7 +2437,7 @@
       scroll-behavior: auto !important;
       transition-duration: .01ms !important;
     }
-    .badge-running .badge-dot, .bootstrap-icon, .spinner,
+    .badge-running .badge-dot, .bootstrap-icon, .spinner, .weavemap-signal,
     .stage-step.active::before, .stage-step.active::after,
     .stage-step.active .stage-progress::after {
       animation: none !important;
@@ -2275,7 +2514,7 @@
         <div class="journey-cue">Inspect outputs, synteny, family context, logs, and artifacts.</div>
       </div>
     </div>
-    <div class="hero-weavemap section-anchor" id="weavemap" tabindex="-1" aria-label="Static WeaveMap motif">
+    <div class="hero-weavemap" id="hero-weavemap" aria-label="Static WeaveMap motif">
       <div class="hero-map-title"><span>WeaveMap</span><span>sources to outputs</span></div>
       <div class="hero-braid" aria-hidden="true">
         <svg viewBox="0 0 520 76" focusable="false">
@@ -2314,6 +2553,72 @@
         <span class="mode-option-title">Advanced</span>
         <span class="mode-option-copy">HPC knobs, NPLinker, stages</span>
       </button>
+    </div>
+  </section>
+
+  <section class="weavemap-section section-anchor" id="weavemap" tabindex="-1" aria-label="Live ClusterWeave WeaveMap">
+    <div class="weavemap-head">
+      <div>
+        <div class="weavemap-title-row">
+          <span class="node-kicker">Canonical route</span>
+          <span class="badge badge-pending"><span class="badge-dot"></span> Live stage state</span>
+        </div>
+        <h2 class="weavemap-title">WeaveMap: intake to outputs</h2>
+        <p class="weavemap-copy">Follow the selected job from source preparation through BGC detection, family context, synteny panels, figures, optional NPLinker follow-up, and downloadable artifacts.</p>
+      </div>
+      <div class="weavemap-status-rail">shell-first controller</div>
+    </div>
+    <div class="weavemap-live">
+      <div class="weavemap-endcap weavemap-endcap-intake">
+        <span class="weavemap-endcap-kicker">Input node</span>
+        <span class="weavemap-endcap-title">Genomes, accessions, metadata</span>
+        <span class="weavemap-endcap-copy">Upload files or paste accession IDs before starting a canonical workflow.</span>
+      </div>
+      <div class="weavemap-stage-wrap">
+        <div class="weavemap-signal" aria-hidden="true"></div>
+        <div class="stage-bar" id="stage-bar" role="list" aria-label="Canonical ClusterWeave workflow stages">
+          <span class="stage-step" data-stage="prep" role="listitem">
+            <span class="stage-topline"><span class="stage-number">01</span><span class="stage-state">Queued</span></span>
+            <span class="stage-copy"><span class="stage-name">Prep</span><span class="stage-hint">Accessions and project layout</span></span>
+            <span class="stage-progress" aria-hidden="true"></span>
+          </span>
+          <span class="stage-step" data-stage="annotation" role="listitem">
+            <span class="stage-topline"><span class="stage-number">02</span><span class="stage-state">Queued</span></span>
+            <span class="stage-copy"><span class="stage-name">Annotation / BGC detection</span><span class="stage-hint">antiSMASH / FunBGCeX detection</span></span>
+            <span class="stage-progress" aria-hidden="true"></span>
+          </span>
+          <span class="stage-step" data-stage="bigscape" role="listitem">
+            <span class="stage-topline"><span class="stage-number">03</span><span class="stage-state">Queued</span></span>
+            <span class="stage-copy"><span class="stage-name">BiG-SCAPE</span><span class="stage-hint">Family graph construction</span></span>
+            <span class="stage-progress" aria-hidden="true"></span>
+          </span>
+          <span class="stage-step" data-stage="summary" role="listitem">
+            <span class="stage-topline"><span class="stage-number">04</span><span class="stage-state">Queued</span></span>
+            <span class="stage-copy"><span class="stage-name">Summary</span><span class="stage-hint">Crosswalks and tables</span></span>
+            <span class="stage-progress" aria-hidden="true"></span>
+          </span>
+          <span class="stage-step" data-stage="clinker" role="listitem">
+            <span class="stage-topline"><span class="stage-number">05</span><span class="stage-state">Queued</span></span>
+            <span class="stage-copy"><span class="stage-name">clinker</span><span class="stage-hint">Synteny panel staging</span></span>
+            <span class="stage-progress" aria-hidden="true"></span>
+          </span>
+          <span class="stage-step" data-stage="figures" role="listitem">
+            <span class="stage-topline"><span class="stage-number">06</span><span class="stage-state">Queued</span></span>
+            <span class="stage-copy"><span class="stage-name">Figures</span><span class="stage-hint">SVG / image rendering</span></span>
+            <span class="stage-progress" aria-hidden="true"></span>
+          </span>
+          <span class="stage-step" data-stage="nplinker" role="listitem">
+            <span class="stage-topline"><span class="stage-number">07</span><span class="stage-state">Queued</span></span>
+            <span class="stage-copy"><span class="stage-name">NPLinker</span><span class="stage-hint">Optional omics follow-up</span></span>
+            <span class="stage-progress" aria-hidden="true"></span>
+          </span>
+        </div>
+      </div>
+      <div class="weavemap-endcap weavemap-endcap-output">
+        <span class="weavemap-endcap-kicker">Output node</span>
+        <span class="weavemap-endcap-title">Figures, files, context</span>
+        <span class="weavemap-endcap-copy">Review generated figures, direct file links, synteny panels, and optional follow-up artifacts.</span>
+      </div>
     </div>
   </section>
 
@@ -2716,43 +3021,6 @@
         <span id="progress-badge" class="badge badge-running ml-auto"><span class="badge-dot"></span> Running</span>
       </div>
       <div class="card-body lab-console-body">
-        <div class="stage-bar" id="stage-bar" role="list" aria-label="Canonical ClusterWeave workflow stages">
-          <span class="stage-step" data-stage="prep" role="listitem">
-            <span class="stage-topline"><span class="stage-number">01</span><span class="stage-state">Queued</span></span>
-            <span class="stage-copy"><span class="stage-name">Prep</span><span class="stage-hint">Accessions and project layout</span></span>
-            <span class="stage-progress" aria-hidden="true"></span>
-          </span>
-          <span class="stage-step" data-stage="annotation" role="listitem">
-            <span class="stage-topline"><span class="stage-number">02</span><span class="stage-state">Queued</span></span>
-            <span class="stage-copy"><span class="stage-name">Annotation</span><span class="stage-hint">antiSMASH / FunBGCeX detection</span></span>
-            <span class="stage-progress" aria-hidden="true"></span>
-          </span>
-          <span class="stage-step" data-stage="bigscape" role="listitem">
-            <span class="stage-topline"><span class="stage-number">03</span><span class="stage-state">Queued</span></span>
-            <span class="stage-copy"><span class="stage-name">BiG-SCAPE</span><span class="stage-hint">Family graph construction</span></span>
-            <span class="stage-progress" aria-hidden="true"></span>
-          </span>
-          <span class="stage-step" data-stage="summary" role="listitem">
-            <span class="stage-topline"><span class="stage-number">04</span><span class="stage-state">Queued</span></span>
-            <span class="stage-copy"><span class="stage-name">Summary</span><span class="stage-hint">Crosswalks and tables</span></span>
-            <span class="stage-progress" aria-hidden="true"></span>
-          </span>
-          <span class="stage-step" data-stage="clinker" role="listitem">
-            <span class="stage-topline"><span class="stage-number">05</span><span class="stage-state">Queued</span></span>
-            <span class="stage-copy"><span class="stage-name">clinker</span><span class="stage-hint">Synteny panel staging</span></span>
-            <span class="stage-progress" aria-hidden="true"></span>
-          </span>
-          <span class="stage-step" data-stage="figures" role="listitem">
-            <span class="stage-topline"><span class="stage-number">06</span><span class="stage-state">Queued</span></span>
-            <span class="stage-copy"><span class="stage-name">Figures</span><span class="stage-hint">SVG / image rendering</span></span>
-            <span class="stage-progress" aria-hidden="true"></span>
-          </span>
-          <span class="stage-step" data-stage="nplinker" role="listitem">
-            <span class="stage-topline"><span class="stage-number">07</span><span class="stage-state">Queued</span></span>
-            <span class="stage-copy"><span class="stage-name">NPLinker</span><span class="stage-hint">Optional omics follow-up</span></span>
-            <span class="stage-progress" aria-hidden="true"></span>
-          </span>
-        </div>
         <div class="terminal-shell terminal-run">
           <div class="terminal-titlebar">
             <span class="terminal-lights" aria-hidden="true"><span></span><span></span><span></span></span>
@@ -2779,20 +3047,28 @@
         <div class="results-note">Output discovery is based on files produced by the selected job. Empty panels are placeholders for outputs that have not appeared yet.</div>
         <div class="results-intel" id="output-discovery" aria-label="Output discovery overview">
           <div class="output-card pending">
-            <div class="output-card-head"><div class="output-card-title">Priority shortlist</div><span class="output-state">Pending</span></div>
-            <div class="output-card-copy">Shortlist files will appear here after summary outputs are available.</div>
+            <div class="output-card-head"><div class="output-card-title">Prioritized BGC shortlist</div><span class="output-state">Pending</span></div>
+            <div class="output-card-copy">Run a workflow to populate this panel.</div>
           </div>
           <div class="output-card pending">
-            <div class="output-card-head"><div class="output-card-title">Family context</div><span class="output-state">Pending</span></div>
-            <div class="output-card-copy">Family atlas and crosswalk outputs will be linked when produced.</div>
+            <div class="output-card-head"><div class="output-card-title">Gene cluster family context</div><span class="output-state">Pending</span></div>
+            <div class="output-card-copy">Run a workflow to populate this panel.</div>
           </div>
           <div class="output-card pending">
-            <div class="output-card-head"><div class="output-card-title">Synteny panels</div><span class="output-state">Pending</span></div>
-            <div class="output-card-copy">clinker panel artifacts will be discoverable when present in result files.</div>
+            <div class="output-card-head"><div class="output-card-title">Synteny / clinker panel</div><span class="output-state">Pending</span></div>
+            <div class="output-card-copy">Run a workflow to populate this panel.</div>
           </div>
           <div class="output-card pending">
-            <div class="output-card-head"><div class="output-card-title">Figure gallery</div><span class="output-state">Pending</span></div>
-            <div class="output-card-copy">Figure assets from Data/Results/&lt;project&gt;/figures will render below.</div>
+            <div class="output-card-head"><div class="output-card-title">Figures</div><span class="output-state">Pending</span></div>
+            <div class="output-card-copy">Run a workflow to populate this panel.</div>
+          </div>
+          <div class="output-card pending">
+            <div class="output-card-head"><div class="output-card-title">Artifacts / files</div><span class="output-state">Pending</span></div>
+            <div class="output-card-copy">No artifacts available yet.</div>
+          </div>
+          <div class="output-card empty">
+            <div class="output-card-head"><div class="output-card-title">NPLinker follow-up</div><span class="output-state">Optional</span></div>
+            <div class="output-card-copy">NPLinker optional follow-up not enabled.</div>
           </div>
         </div>
         <div class="tabs" role="tablist" aria-label="Result views">
@@ -3365,6 +3641,21 @@ function renderRuntimeBanner() {
   banner.textContent = `Runtime mode ${mode} using ${engine}: ${unavailable.join(', ')} unavailable. ${unavailable.map(stageUnavailableReason).join(' ')}`;
 }
 
+function currentStageControlJob() {
+  const checked = id => !!document.getElementById(id)?.checked;
+  return {
+    settings: {
+      run_annotation: checked('run-annotation'),
+      run_bigscape: checked('run-bigscape'),
+      run_summary: checked('run-summary'),
+      run_crosswalk: checked('run-summary'),
+      run_clinker: checked('run-clinker'),
+      run_figures: checked('run-figures'),
+      run_nplinker: checked('run-nplinker'),
+    },
+  };
+}
+
 function syncControlState() {
   const runBigscape = document.getElementById('run-bigscape');
   const runSummary = document.getElementById('run-summary');
@@ -3427,6 +3718,7 @@ function syncControlState() {
 
   updateRunSummary();
   renderRuntimeBanner();
+  if (!activeJobId) initializeStageState(currentStageControlJob());
 }
 
 function applyPreset(name) {
@@ -3934,6 +4226,8 @@ async function deleteJob(e, jobId) {
     stopPolling();
     document.getElementById('progress-card').classList.add('hidden');
     document.getElementById('results-card').classList.add('hidden');
+    activeStageState = null;
+    initializeStageState(currentStageControlJob());
   }
   refreshJobHistory();
 }
@@ -4315,35 +4609,54 @@ function isFigureAsset(path) {
 const OUTPUT_CONCEPTS = [
   {
     key: 'priority',
-    title: 'Priority shortlist',
-    pending: 'Shortlist files will appear here after summary outputs are available.',
+    title: 'Prioritized BGC shortlist',
+    pending: 'Run a workflow to populate this panel.',
     empty: 'No priority shortlist file was found for this job.',
     available: 'A shortlist artifact is available in the result files.',
     match: path => /(^|\/)(priority|family_atlas|shared_family).*shortlist.*\.(md|tsv|csv|txt)$/i.test(path),
   },
   {
     key: 'family',
-    title: 'Family context',
-    pending: 'Family atlas and crosswalk outputs will be linked when produced.',
+    title: 'Gene cluster family context',
+    pending: 'Run a workflow to populate this panel.',
     empty: 'No family atlas, crosswalk, or BiG-SCAPE context file was found.',
     available: 'Family context output is available in the result files.',
     match: path => /(family_atlas|crosswalk|bigscape|gcf|family).*?\.(tsv|csv|svg|png|graphml|md)$/i.test(path),
   },
   {
     key: 'synteny',
-    title: 'Synteny panels',
-    pending: 'clinker panel artifacts will be discoverable when present in result files.',
+    title: 'Synteny / clinker panel',
+    pending: 'Run a workflow to populate this panel.',
     empty: 'No clinker or synteny panel artifact was found for this job.',
     available: 'A synteny panel artifact is available in the result files.',
     match: path => /(clinker|synteny|panels_manifest|run_all_clinker).*?\.(html?|svg|png|tsv|sh)$/i.test(path),
   },
   {
     key: 'figures',
-    title: 'Figure gallery',
-    pending: 'Figure assets from Data/Results/<project>/figures will render below.',
+    title: 'Figures',
+    pending: 'Run a workflow to populate this panel.',
     empty: 'No figure assets were found under Data/Results/<project>/figures.',
     available: 'Figure assets are available and render in the gallery below.',
     match: path => isFigureAsset(path),
+  },
+  {
+    key: 'artifacts',
+    title: 'Artifacts / files',
+    pending: 'No artifacts available yet.',
+    empty: 'No artifacts available yet.',
+    available: 'Result files are available in the Files tab.',
+    match: path => !!path,
+  },
+  {
+    key: 'nplinker',
+    title: 'NPLinker follow-up',
+    pending: 'Run a workflow to populate this panel.',
+    disabled: 'NPLinker optional follow-up not enabled.',
+    empty: 'NPLinker follow-up did not produce a linked artifact.',
+    available: 'NPLinker follow-up artifacts are available in the result files.',
+    optional: true,
+    enabled: () => jobStageEnabled(activeJobMeta || {}, 'nplinker'),
+    match: path => /(nplinker|gnps|podp|paired_omics|massive|metabolomics).*?\.(html?|tsv|csv|json|txt|md|mgf)$/i.test(path),
   },
 ];
 
@@ -4353,10 +4666,12 @@ function renderOutputDiscovery(jobId, files, status) {
   const normalizedFiles = files.map(normalizedResultPath).filter(Boolean);
   container.innerHTML = OUTPUT_CONCEPTS.map(concept => {
     const matches = normalizedFiles.filter(path => concept.match(path)).sort((a, b) => a.localeCompare(b));
+    const enabled = typeof concept.enabled === 'function' ? concept.enabled() : true;
     const incomplete = status === 'pending' || status === 'running';
-    const state = matches.length ? 'available' : (incomplete ? 'pending' : 'empty');
-    const label = state === 'available' ? 'Available' : (state === 'empty' ? 'Empty' : 'Pending');
-    const copy = matches.length ? concept.available : (state === 'empty' ? concept.empty : concept.pending);
+    const optionalDisabled = concept.optional && !enabled;
+    const state = matches.length ? 'available' : (optionalDisabled ? 'empty' : (incomplete ? 'pending' : 'empty'));
+    const label = state === 'available' ? 'Available' : (optionalDisabled ? 'Optional' : (state === 'empty' ? 'Empty' : 'Pending'));
+    const copy = matches.length ? concept.available : (optionalDisabled ? concept.disabled : (state === 'empty' ? concept.empty : concept.pending));
     const firstPath = matches[0] || '';
     const link = firstPath
       ? `<div class="output-link"><a href="${escapeHtml(resultHref(jobId, firstPath))}" target="_blank" title="${escapeHtml(firstPath)}">${escapeHtml(fileNameFromPath(firstPath))}</a></div>`
