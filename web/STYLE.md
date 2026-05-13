@@ -91,7 +91,10 @@ Public/default mode:
 
 - Header/nav keeps the app single-page and operational.
 - Identity band has two primary actions: `Start from NCBI accessions` and `Load demo run`.
-- Public access and data-use copy explain accepted inputs, retention, and result-link privacy.
+- The entry panel has two public-facing tabs: `NEW RUN` and `RESULTS FROM EXISTING RUN`.
+- `NEW RUN` is the default full-page workflow; `RESULTS FROM EXISTING RUN` opens a private
+  result link or a `ClusterWeave job ID + result access code`.
+- Data-use acknowledgment is required before a standard hosted submission.
 - Upload & Configure locks, greys, and collapses after submission.
 - Results is the main run surface.
 - `Workflow progress` lives inside Results above Visualization/Files.
@@ -105,6 +108,8 @@ Admin/local mode:
 
 - Run History, full logs, Lab QA console, worker telemetry, advanced knobs, stage toggles,
   rerun controls, delete, and diagnostics remain available.
+- Reviewer-only access codes live behind a low-profile `Reviewer access` disclosure; public copy
+  must not show `public`, `admin`, `submit token`, or `read token` labels.
 - Rerun Selected Stages is collapsed by default and visually separated from Results tabs.
 - Admin views may show raw logs and worker state; public views must not.
 
@@ -143,10 +148,13 @@ The first public release should be a single-page scientific service, not an expo
 Public access model:
 
 - Anonymous users may load the static UI, view redacted service status, load demo accessions
-  locally, and unlock an existing run by pasting a result link or `job_id + read token`.
-- Anonymous users must not list jobs, see job IDs, read logs, read files, submit jobs, rerun jobs,
-  or delete jobs.
-- Job creation requires a submit token or admin token.
+  locally, submit a new run when the server is configured for open submissions, and unlock an
+  existing run by pasting a result link or `job_id + result access code`.
+- Anonymous users must not list jobs, see unrelated job IDs, read logs, read files without a job
+  access code, rerun jobs, or delete jobs.
+- Job creation is open when `CLUSTERWEAVE_SUBMIT_TOKEN` is unset and submissions are open. If a
+  submit token is configured, job creation requires that submission access code or reviewer
+  diagnostics access.
 - Every job gets a random per-job read token. Job details, progress, sanitized failure summaries,
   figures, files, and downloads require that read token or an admin token.
 - Admin token unlocks Lab QA, job list, full logs, worker telemetry, rerun controls, delete, and
@@ -156,6 +164,7 @@ Public access model:
 Public workflow:
 
 - Public pipeline is fixed and canonical. No public stage toggles.
+- Standard hosted submissions require the data-use acknowledgment in the UI and server request.
 - Public intake supports:
   - manual NCBI accessions
   - one-accession-per-line `.txt` accession lists
@@ -339,7 +348,8 @@ wording except in very subtle internal metaphors.
 Carry these constraints through future implementation passes:
 
 - Security/API first, then UI. Do not hide an unsafe endpoint behind CSS.
-- Keep server-side token enforcement for anonymous, submit-token, read-token, and admin roles.
+- Keep server-side permission enforcement for anonymous/open-submit, invite-only submit-token,
+  read-token, and admin roles.
 - Keep anonymous `/api/system/status` redacted.
 - Keep quotas and retention metadata aligned with public copy.
 - Keep one static SPA.
@@ -759,13 +769,14 @@ UI affordances.
 Tasks:
 
 - Add environment-driven public mode and auth configuration:
-  `CLUSTERWEAVE_PUBLIC_MODE=1`, submit token, admin token, job read-token secret handling.
+  `CLUSTERWEAVE_PUBLIC_MODE=1`, optional submit token, admin token, job read-token secret
+  handling.
 - Generate a random per-job read token at job creation and store only what the server needs to
   validate it.
 - Require authorization server-side:
   - job list: admin only
   - job details/logs/files/downloads: job read token or admin
-  - submit/create job: submit token or admin
+  - submit/create job: open when no submit token is configured; otherwise submit token or admin
   - rerun/delete: admin only
 - Add anonymous redacted `/api/system/status` with only service online/offline,
   submissions open/paused, and aggregate jobs processed.
@@ -822,8 +833,11 @@ Tasks:
   `Start from NCBI accessions` and `Load demo run`.
 - Rename public workflow copy from `WeaveMap` to `Workflow progress`.
 - Add access key handling using `sessionStorage`; never put submit/admin tokens in URLs.
-- Add Existing Run loader accepting a full result link or `job_id + read token`.
-- Store unlocked runs in browser-session state and provide an `Opened runs` switcher.
+- Replace the old visible access-key panel with `NEW RUN` and `RESULTS FROM EXISTING RUN` tabs.
+- Add Existing Run loader accepting a full result link or `job_id + result access code`.
+- Store unlocked runs in browser-session state and provide a `Recent results in this tab`
+  switcher.
+- Keep submission and diagnostics codes behind a `Reviewer access` disclosure for hosted QA.
 - Remove public Run History. Keep Run History admin/local only.
 - Remove public Lab QA mode. Show Lab QA only when admin token is present or local public mode
   is disabled.
@@ -838,8 +852,8 @@ Tasks:
 
 Acceptance:
 
-- Anonymous users see a public shell, submit access entry, accepted input policy, and Existing Run
-  loader without job leaks.
+- Anonymous users see accepted input policy, data-use acknowledgment, `NEW RUN`, and
+  `RESULTS FROM EXISTING RUN` without job leaks or role/token labels.
 - A loaded job-token run shows progress/results but not admin logs.
 - Admin token restores operational diagnostics without a second page.
 
@@ -906,12 +920,14 @@ Tasks:
   - `docker compose -f docker-compose.yml config`
   - `docker compose -f clusterweave.yml config`
   - `git diff --check`
-- Add API smoke tests for anonymous, submit token, job token, and admin token flows.
-- Start the local web server and capture Playwright screenshots for anonymous, submit-token,
-  job-token, and admin views at desktop and mobile sizes.
+- Add API smoke tests for anonymous/open-submit, invite-only submit-token, job token, and admin
+  token flows.
+- Start the local web server and capture Playwright screenshots for standard new-run,
+  existing-run, job-token, and reviewer/admin views at desktop and mobile sizes.
 - Verify:
   - anonymous cannot list/read/download jobs
-  - submit token can create a job within quotas
+  - open submission can create a job within quotas when no submit token is configured
+  - invite-only submit token can create a job within quotas when configured
   - read token can view only its job
   - admin can list jobs, see logs, rerun, and delete
   - public status is redacted
@@ -989,7 +1005,8 @@ NON-NEGOTIABLES
 - Do not add a build system, framework, package manager, or external CDN dependency.
 - Preserve `apiUrl(...)`, `apiFetch(...)`, auth headers, `resultHref(...)`, and `resultFetch(...)`.
 - Preserve token handling in `sessionStorage`; do not put submit/admin tokens in URLs.
-- Preserve public/server-side auth boundaries for anonymous, submit-token, read-token, and admin.
+- Preserve public/server-side auth boundaries for anonymous/open-submit, invite-only
+  submit-token, read-token, and admin.
 - Preserve manual accessions as `manual_accessions.txt` and validate NCBI assembly format.
 - Preserve public input policy, quotas, retention, email redaction, and sanitized failures.
 - Preserve admin/local job history, logs, telemetry, reruns, delete, and advanced knobs.

@@ -29,7 +29,7 @@ The current `web/static/index.html` is no longer a plain dashboard. Current beha
 - A product-style header and single-page navigation.
 - Manual NCBI accession entry as a first-class input path.
 - A cleaner genome/accession intake panel.
-- Public/admin access controls and Existing Run loader.
+- `NEW RUN` / `RESULTS FROM EXISTING RUN` entry tabs with reviewer access tucked away.
 - Neumorphic depth tokens and tactile controls.
 - A Results-first `Workflow progress` map rendered as a DNA-style double helix.
 - Sanitized public activity popovers derived from known workflow markers.
@@ -58,12 +58,16 @@ the screenshot commands used for public/admin views.
 
 ### Access Model
 
-ClusterWeave should use a two-token, no-account model for first public release:
+ClusterWeave should use a no-account model for first public release:
 
-- Submit token: allows job creation.
+- Open submission: when `CLUSTERWEAVE_SUBMIT_TOKEN` is unset and submissions are open, visitors
+  can create jobs within quota after acknowledging the data-use notice.
+- Invite-only submission: when `CLUSTERWEAVE_SUBMIT_TOKEN` is set, job creation requires that
+  submission access code or the diagnostics access code.
 - Per-job read token: allows reading one job's status, sanitized summary, figures, and files.
 - Admin token: unlocks job list, full logs, worker telemetry, reruns, delete, diagnostics, and
-  admin-only controls.
+  admin-only controls. In the UI this is presented as a reviewer/diagnostics access code, not as
+  public-facing admin language.
 
 No user accounts or passwords in the first public release.
 
@@ -76,18 +80,18 @@ Anonymous users may:
 - See whether submissions are open or paused.
 - See aggregate jobs processed.
 - Load demo accessions locally into the form.
-- Paste an existing result link or `job_id + read token` to unlock one job.
+- Submit a new run when open submissions are enabled.
+- Paste an existing result link or `job_id + result access code` to unlock one job.
 - Read public docs/help/citation copy.
 
 Anonymous users must not:
 
 - List jobs.
-- Submit jobs.
-- Upload files.
-- Poll job logs or results.
-- Download artifacts.
+- Submit jobs when submissions are paused or an invite-only submission code is required.
+- Poll job logs or results without a valid job result access code.
+- Download artifacts without a valid job result access code.
 - Rerun or delete jobs.
-- See worker telemetry, queue depth, capabilities, internal paths, or job IDs.
+- See worker telemetry, queue depth, capabilities, internal paths, or unrelated job IDs.
 
 ### Token-Gated Reads
 
@@ -114,13 +118,13 @@ https://clusterweave.example.org/#/job/<job_id>/<read_token>
 
 The SPA reads the fragment and sends the token as an `Authorization: Bearer ...` header.
 
-The Existing Run loader should accept either:
+The `RESULTS FROM EXISTING RUN` loader should accept either:
 
 - a full result link
-- `job_id + read token`
+- `job_id + result access code`
 
-The browser may keep a session-only "Opened runs" list in `sessionStorage`. This is not a server
-job list; it only contains jobs the user explicitly unlocked.
+The browser may keep a session-only `Recent results in this tab` list in `sessionStorage`. This is
+not a server job list; it only contains jobs the user explicitly unlocked.
 
 ### Public Retention
 
@@ -229,6 +233,13 @@ Public workflow should be fixed and canonical:
 Accessions/genomes -> optional ecology labels -> submit -> workflow progress -> results
 ```
 
+The top entry panel should expose two public-facing tabs:
+
+- `NEW RUN`: the default full-page workflow for submission, with accepted input copy and the
+  required data-use acknowledgment.
+- `RESULTS FROM EXISTING RUN`: a compact lookup for a private result link or
+  `ClusterWeave job ID + result access code`.
+
 Do not expose public stage toggles, public Advanced knobs, public raw env overrides, public
 NPLinker, public rerun controls, or public delete controls.
 
@@ -242,7 +253,9 @@ Admin/local deployments may still expose those controls.
 - `worker` executes queued jobs and should not be internet-exposed.
 - Lab QA is an admin/debug surface inside the web UI that displays worker/backend state.
 
-Public default UI should hide Lab QA. Admin token unlocks it.
+Public default UI should hide Lab QA. Diagnostics access unlocks it through the low-profile
+`Reviewer access` disclosure; avoid showing `public`, `admin`, `submit token`, or `read token`
+labels in the standard public surface.
 
 ### Reruns
 
@@ -405,7 +418,9 @@ Slice 13 added an opt-in public API security boundary:
 
 - `CLUSTERWEAVE_PUBLIC_MODE=1` switches the API from local/lab permissive mode to token-gated
   public mode.
-- Job creation requires `CLUSTERWEAVE_SUBMIT_TOKEN` or `CLUSTERWEAVE_ADMIN_TOKEN`.
+- Job creation is open when `CLUSTERWEAVE_SUBMIT_TOKEN` is unset and submissions are open; if a
+  submit token is configured, job creation requires `CLUSTERWEAVE_SUBMIT_TOKEN` or
+  `CLUSTERWEAVE_ADMIN_TOKEN`.
 - Job list, rerun, delete, and full worker telemetry require `CLUSTERWEAVE_ADMIN_TOKEN`.
 - Job details, logs, files, and downloads require that job's read token or the admin token.
 - Job read tokens are returned once at submission and only a digest is stored in job metadata.
@@ -419,6 +434,8 @@ Slice 14 added public submission policy, quotas, and retention metadata:
 - Public submissions accept only `.txt` one-accession-per-line lists, genome files
   `.fasta`, `.fa`, `.fna`, `.fsa`, `.gb`, `.gbk`, `.gbff`, and generated
   `ecofun_metadata_normalized.tsv` when ecology-aware analysis is enabled.
+- Non-admin public submissions require the data-use acknowledgment server-side, not just in the
+  browser UI.
 - Public `.tsv/.csv` accession tables, auxiliary formats, generic archives, raw metadata paths,
   NPLinker submission settings, and non-admin raw environment overrides are rejected before a job
   workspace is created.
@@ -433,9 +450,12 @@ Slice 15 added the public UI shell:
 
 - The hero now offers only public accession start and demo-load actions; the static hero weave and
   top-level WeaveMap nav are gone.
-- Access keys live in `sessionStorage`; submit/admin tokens stay out of URLs.
-- Existing runs can be opened from a full result fragment link or a job ID plus read token, and
-  unlocked runs are tracked in the browser session.
+- The visible entry panel uses `NEW RUN` and `RESULTS FROM EXISTING RUN`; no public-facing
+  submit/admin/read-token labels are shown.
+- Access codes live in `sessionStorage`; submit/admin tokens stay out of URLs and are tucked
+  behind `Reviewer access`.
+- Existing runs can be opened from a full result fragment link or a job ID plus result access
+  code, and unlocked runs are tracked in the browser session as recent results.
 - Run history, Lab QA, advanced knobs, stage toggles, rerun/delete controls, raw env overrides,
   output discovery, and NPLinker controls are admin/local-only.
 - The live stage timeline moves into Results. Public result file/figure fetches use saved read
@@ -467,16 +487,19 @@ Slice 17 added optional email recovery and retention cleanup:
 
 Slice 18 added public deployment QA coverage:
 
-- Added a consolidated public deployment smoke test covering anonymous, submit-token, read-token,
-  and admin API behavior in one role-matrix flow.
+- Added a consolidated public deployment smoke test covering anonymous, open-submit,
+  invite-only submit-token, read-token, and admin API behavior in one role-matrix flow.
 - Confirmed anonymous status is redacted and anonymous users cannot list, read, log, file, rerun,
   or delete jobs.
-- Confirmed submit tokens can create jobs within public quotas but cannot list jobs.
+- Confirmed open submissions can create jobs within public quotas when no submit token is
+  configured.
+- Confirmed submit tokens can create jobs within public quotas on invite-only servers but cannot
+  list jobs.
 - Confirmed read tokens can read only their job and can download result files through the
   token-aware result file API.
 - Confirmed admin tokens can list jobs, see full status/logs, rerun, and delete.
-- Captured Playwright screenshots for anonymous, submit-token, job-token, and admin views at
-  desktop and mobile sizes using a temporary public-mode server.
+- Captured Playwright screenshots for standard new-run, existing-run, job-token, and
+  reviewer/admin views at desktop and mobile sizes using a temporary public-mode server.
 - Browser QA confirmed SMTP field visibility, submit lock/collapse after submission,
   figure-only Visualization rendering, `resultHref(...)`-shaped figure Open/download links, and
   no horizontal overflow on mobile.
@@ -537,7 +560,8 @@ Recommended next work:
 - Fresh public-mode demo run that exercises accession prep, WeaveMap public events, figures,
   Files downloads, email, retention metadata, and clinker panel regeneration.
 - Replace the future citation placeholder with the final DOI or citation URL.
-- Capture desktop/mobile screenshots for anonymous, submit-token, read-token, and admin views.
+- Capture desktop/mobile screenshots for standard new-run, existing-run, read-token, and
+  reviewer/admin views.
 
 ## SMTP Deployment Wire
 
@@ -601,8 +625,8 @@ Ask these before final public deployment:
 - Can the reverse proxy enforce body-size limits matching ClusterWeave quotas?
 - Can the reverse proxy add rate limiting?
 - Is SMTP available? If yes, provider, from-address policy, and credential injection method?
-- Should submissions be invite-only via submit token at first, or open after rate limits are in
-  place?
+- Are rate limits ready for open submissions, or should the deployment temporarily set
+  `CLUSTERWEAVE_SUBMIT_TOKEN` for invite-only testing?
 - Who holds the admin token and how is it rotated?
 - Where should aggregate `jobs_processed` counters live after job deletion?
 - Are there institutional data-use or privacy notices that must be linked from the UI?
@@ -613,7 +637,7 @@ These are the current deployment contract names:
 
 ```text
 CLUSTERWEAVE_PUBLIC_MODE=1
-CLUSTERWEAVE_SUBMIT_TOKEN=...
+CLUSTERWEAVE_SUBMIT_TOKEN=        # leave unset/empty for open submissions; set for invite-only
 CLUSTERWEAVE_ADMIN_TOKEN=...
 CLUSTERWEAVE_JOB_TOKEN_SECRET=...
 CLUSTERWEAVE_SUBMISSIONS_OPEN=1
@@ -643,7 +667,8 @@ CLUSTERWEAVE_SMTP_OUTBOX_DIR=
 - Security/API hardening comes before UI hiding.
 - Preserve `apiUrl(...)`, `resultHref(...)`, token-aware result fetches, figure Open/Download,
   Files Download-only behavior, and Visualization figure-only behavior.
-- Preserve server-side auth boundaries for anonymous, submit-token, read-token, and admin flows.
+- Preserve server-side auth boundaries for anonymous/open-submit, invite-only submit-token,
+  read-token, and admin flows.
 - Preserve manual accession validation and non-retryable NCBI missing-accession behavior.
 - Preserve generated clinker Docker `--workdir "${SCRIPT_DIR}"`.
 - Do not invent scientific results, counts, scores, candidates, or QA outcomes.

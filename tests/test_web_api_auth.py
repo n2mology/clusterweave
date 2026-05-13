@@ -137,13 +137,18 @@ class WebApiAuthTests(unittest.TestCase):
         self,
         fields: dict[str, str] | None = None,
         files: list[tuple[str, str, bytes]] | None = None,
-        token: str = "submit-secret",
+        token: str | None = "submit-secret",
     ) -> tuple[int, object, dict[str, str]]:
+        merged_fields = {"project_name": "auth-case", "cpus": "2", "data_use_ack": "1"}
+        if fields:
+            merged_fields.update(fields)
         body, content_type = self.multipart_body(
-            fields or {"project_name": "auth-case", "cpus": "2"},
+            merged_fields,
             files or [("files", "accessions.txt", b"GCF_000001405.40\n")],
         )
-        headers = {"Content-Type": content_type, **self.auth(token)}
+        headers = {"Content-Type": content_type}
+        if token:
+            headers.update(self.auth(token))
         return self.request("POST", "/api/jobs", body=body, headers=headers)
 
     def multipart_body(
@@ -252,6 +257,23 @@ class WebApiAuthTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertNotIn("read_token_hash", job_payload)
         self.assertNotIn("read_token_created_at", job_payload)
+
+    def test_invite_only_public_submission_rejects_missing_submission_code(self) -> None:
+        status, payload, _ = self.submit(token=None)
+        self.assertEqual(status, 401)
+        self.assertIn("Submission access code", payload["detail"])
+
+    def test_open_public_submission_accepts_missing_submission_code_when_no_submit_token_is_configured(self) -> None:
+        self.app.SUBMIT_TOKEN = ""
+        status, payload, _ = self.submit(token=None)
+        self.assertEqual(status, 201)
+        self.assertEqual(payload["status"], "pending")
+        self.assertTrue(payload["read_token"])
+
+    def test_public_submission_requires_data_use_acknowledgment(self) -> None:
+        status, payload, _ = self.submit(fields={"data_use_ack": "0"})
+        self.assertEqual(status, 400)
+        self.assertIn("Data-use acknowledgment", payload["detail"])
 
     def test_notification_email_is_stored_only_when_smtp_enabled(self) -> None:
         fields = {"project_name": "email-case", "notify_email": "user@example.org"}

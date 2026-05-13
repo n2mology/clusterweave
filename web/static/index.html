@@ -2293,6 +2293,8 @@
   body[data-access="local"] .form-grid.admin-only { display: grid; }
   body[data-access="admin"] .profile-bar.admin-only,
   body[data-access="local"] .profile-bar.admin-only { display: flex; }
+  body[data-access="admin"] #data-use-ack-panel,
+  body[data-access="local"] #data-use-ack-panel { display: none; }
   .access-panel {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
@@ -2306,11 +2308,56 @@
       var(--cw-surface-panel);
     box-shadow: var(--cw-raise-panel), var(--cw-bevel);
   }
+  .entry-tabs {
+    display: inline-flex;
+    width: fit-content;
+    max-width: 100%;
+    gap: .2rem;
+    padding: .24rem;
+    border: 1px solid rgba(202,231,226,.14);
+    border-radius: 8px;
+    background: rgba(8,10,16,.46);
+    box-shadow: var(--cw-inset-control);
+  }
+  .entry-tab {
+    border: 0;
+    border-radius: 6px;
+    padding: .56rem .78rem;
+    color: var(--muted);
+    background: transparent;
+    font-size: .72rem;
+    font-weight: 800;
+    letter-spacing: 0;
+    cursor: pointer;
+    transition: color .18s, background .18s, box-shadow .18s;
+  }
+  .entry-tab:hover {
+    color: var(--text);
+    background: rgba(255,252,244,.035);
+  }
+  .entry-tab.active {
+    color: var(--accent);
+    background: rgba(91,230,208,.08);
+    box-shadow: var(--cw-pressed), var(--cw-glow-soft);
+  }
+  .entry-panel {
+    display: none;
+    gap: .85rem;
+  }
+  .entry-panel.active {
+    display: grid;
+  }
   .access-copy p {
     margin: .4rem 0 0;
     color: var(--muted);
     font-size: .86rem;
     line-height: 1.5;
+  }
+  .access-actions {
+    display: flex;
+    gap: .75rem;
+    align-items: center;
+    flex-wrap: wrap;
   }
   .access-grid {
     display: grid;
@@ -2323,6 +2370,45 @@
     padding: .85rem;
     background: rgba(11,11,18,.34);
     box-shadow: var(--cw-inset-control), var(--cw-bevel);
+  }
+  .reviewer-access {
+    border-top: 1px solid rgba(202,231,226,.12);
+    padding-top: .65rem;
+  }
+  .reviewer-access > summary {
+    width: fit-content;
+    color: var(--muted);
+    font-size: .76rem;
+    cursor: pointer;
+    list-style: none;
+  }
+  .reviewer-access > summary::-webkit-details-marker {
+    display: none;
+  }
+  .reviewer-access > summary::before {
+    content: "▸";
+    display: inline-block;
+    margin-right: .35rem;
+    transition: transform .18s;
+  }
+  .reviewer-access[open] > summary::before {
+    transform: rotate(90deg);
+  }
+  .reviewer-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: .75rem;
+    margin-top: .75rem;
+  }
+  .data-use-ack {
+    margin-top: 1rem;
+    padding: .75rem;
+    border: 1px solid rgba(245,158,11,.18);
+    border-radius: 8px;
+    background: rgba(245,158,11,.055);
+  }
+  .data-use-ack .form-group-inline {
+    align-items: flex-start;
   }
   .opened-runs select {
     min-width: min(100%, 220px);
@@ -2582,9 +2668,8 @@
     <a class="nav-link active" href="#overview" data-nav-target="overview" onclick="navigateToSection(event, 'overview')">Overview</a>
     <a class="nav-link" href="#intake" data-nav-target="intake" onclick="navigateToSection(event, 'intake', 'manual-accessions')">Intake</a>
     <a class="nav-link admin-only" href="#jobs-card" data-nav-target="runs" onclick="navigateToSection(event, 'runs')">Runs</a>
-    <a class="nav-link" href="#results-card" data-nav-target="outputs" onclick="navigateToSection(event, 'outputs')">Outputs</a>
     <a class="nav-link admin-only" href="#console-card" data-nav-target="qa" onclick="navigateToSection(event, 'qa')">QA Console</a>
-    <a class="nav-link" href="#docs" data-nav-target="docs" onclick="navigateToSection(event, 'docs')">Docs</a>
+    <a class="nav-link" href="#results-card" data-nav-target="outputs" onclick="navigateToSection(event, 'outputs')">Outputs</a>
   </nav>
   <div class="header-actions" aria-label="Workflow actions">
     <button class="btn btn-ghost nav-action" type="button" onclick="loadDemoAccessions(event)">Load demo</button>
@@ -2607,52 +2692,74 @@
     </div>
   </section>
 
-  <section class="access-panel section-anchor" id="access-panel" aria-label="Access keys and existing run loader">
-    <div class="access-copy">
-      <div class="node-kicker">Public access</div>
-      <div class="node-title">Submit with a token or open an existing result link</div>
-      <p>Accepted public inputs are NCBI accessions, one-accession-per-line .txt lists, and FASTA/GenBank genome files. Use public or releasable data only; anyone with a private result link can view that run until it expires.</p>
+  <section class="access-panel section-anchor" id="access-panel" aria-label="Run entry options">
+    <div class="entry-tabs" role="tablist" aria-label="Run entry options">
+      <button class="entry-tab active" id="entry-tab-new" type="button" role="tab" aria-controls="entry-panel-new" aria-selected="true" onclick="switchEntryTab('new')" onkeydown="handleEntryTabKeydown(event)">NEW RUN</button>
+      <button class="entry-tab" id="entry-tab-existing" type="button" role="tab" aria-controls="entry-panel-existing" aria-selected="false" tabindex="-1" onclick="switchEntryTab('existing')" onkeydown="handleEntryTabKeydown(event)">RESULTS FROM EXISTING RUN</button>
     </div>
-    <div class="access-grid">
-      <div class="access-card">
-        <div class="group-title">Submission access</div>
-        <div class="form-group">
-          <label for="submit-token">Submit token</label>
-          <input type="password" id="submit-token" autocomplete="off" placeholder="Paste submit token" />
-        </div>
-        <div class="form-group admin-token-row">
-          <label for="admin-token">Admin token</label>
-          <input type="password" id="admin-token" autocomplete="off" placeholder="Admin diagnostics token" />
-        </div>
-        <div class="flex-gap mt1">
-          <button class="btn btn-ghost text-sm" type="button" onclick="saveAccessTokens()">Save for this tab</button>
-          <button class="btn btn-ghost text-sm" type="button" onclick="clearAccessTokens()">Clear</button>
-          <span id="access-token-status" class="text-muted text-sm"></span>
-        </div>
+
+    <div class="entry-panel active" id="entry-panel-new" role="tabpanel" aria-labelledby="entry-tab-new">
+      <div class="access-copy">
+        <div class="node-kicker">New analysis</div>
+        <div class="node-title">Start a ClusterWeave run</div>
+        <p>Accepted inputs are NCBI accessions, one-accession-per-line .txt lists, and FASTA/GenBank genome files. Use public or releasable data only; anyone with the private result link can view that run until it expires.</p>
       </div>
-      <div class="access-card">
-        <div class="group-title">Existing run</div>
-        <div class="form-group">
-          <label for="existing-run-link">Result link or job ID</label>
-          <input type="text" id="existing-run-link" autocomplete="off" placeholder="https://.../#/job/job_id/read_token or job_id" />
-        </div>
-        <div class="form-group">
-          <label for="existing-run-token">Read token</label>
-          <input type="password" id="existing-run-token" autocomplete="off" placeholder="Read token when not using a full link" />
-        </div>
-        <div class="flex-gap mt1">
-          <button class="btn btn-primary text-sm" type="button" onclick="unlockExistingRun()">Open run</button>
-          <span id="existing-run-status" class="text-muted text-sm"></span>
-        </div>
-        <div class="opened-runs mt1" id="opened-runs-panel">
-          <label for="opened-runs-select" class="text-sm text-muted">Opened runs</label>
-          <div class="flex-gap">
-            <select id="opened-runs-select" onchange="loadSelectedOpenedRun()"></select>
-            <button class="btn btn-ghost text-sm" type="button" onclick="forgetOpenedRuns()">Forget</button>
+      <div class="access-actions">
+        <button class="btn btn-primary text-sm" type="button" onclick="navigateToSection(event, 'intake', 'manual-accessions')">Start from NCBI accessions</button>
+        <button class="btn btn-ghost text-sm" type="button" onclick="loadDemoAccessions(event)">Load demo run</button>
+      </div>
+    </div>
+
+    <div class="entry-panel" id="entry-panel-existing" role="tabpanel" aria-labelledby="entry-tab-existing" hidden>
+      <div class="access-copy">
+        <div class="node-kicker">Results lookup</div>
+        <div class="node-title">Open results from an existing run</div>
+        <p>Use the private result link, or enter the ClusterWeave job ID with its result access code. Recent results are remembered only in this browser tab.</p>
+      </div>
+      <div class="access-grid">
+        <div class="access-card">
+          <div class="group-title">Results from existing run</div>
+          <div class="form-group">
+            <label for="existing-run-link">ClusterWeave job ID or private result link</label>
+            <input type="text" id="existing-run-link" autocomplete="off" placeholder="job_id or https://.../#/job/job_id/result_access_code" />
+          </div>
+          <div class="form-group">
+            <label for="existing-run-token">Result access code</label>
+            <input type="password" id="existing-run-token" autocomplete="off" placeholder="Required when entering a job ID" />
+          </div>
+          <div class="flex-gap mt1">
+            <button class="btn btn-primary text-sm" type="button" onclick="unlockExistingRun()">Open results</button>
+            <span id="existing-run-status" class="text-muted text-sm"></span>
+          </div>
+          <div class="opened-runs mt1" id="opened-runs-panel">
+            <label for="opened-runs-select" class="text-sm text-muted">Recent results in this tab</label>
+            <div class="flex-gap">
+              <select id="opened-runs-select" onchange="loadSelectedOpenedRun()"></select>
+              <button class="btn btn-ghost text-sm" type="button" onclick="forgetOpenedRuns()">Forget</button>
+            </div>
           </div>
         </div>
       </div>
     </div>
+
+    <details class="reviewer-access" id="reviewer-access">
+      <summary>Reviewer access</summary>
+      <div class="reviewer-grid">
+        <div class="form-group">
+          <label for="submit-token">Submission access code</label>
+          <input type="password" id="submit-token" autocomplete="off" placeholder="Only needed on invite-only test servers" />
+        </div>
+        <div class="form-group admin-token-row">
+          <label for="admin-token">Diagnostics access code</label>
+          <input type="password" id="admin-token" autocomplete="off" placeholder="Unlock review tools" />
+        </div>
+      </div>
+      <div class="flex-gap mt1">
+        <button class="btn btn-ghost text-sm" type="button" onclick="saveAccessTokens()">Save for this tab</button>
+        <button class="btn btn-ghost text-sm" type="button" onclick="clearAccessTokens()">Clear</button>
+        <span id="access-token-status" class="text-muted text-sm"></span>
+      </div>
+    </details>
   </section>
 
   <section class="weavemap-section section-anchor hidden" id="weavemap" tabindex="-1" aria-label="Live ClusterWeave workflow progress">
@@ -2712,7 +2819,7 @@
             <span class="stage-progress" aria-hidden="true"></span>
           </span>
         </div>
-        <div class="weavemap-helix" id="weavemap-helix" aria-label="Public workflow activity"></div>
+        <div class="weavemap-helix" id="weavemap-helix" aria-label="Workflow activity"></div>
       </div>
       <div class="weavemap-endcap weavemap-endcap-output">
         <span class="weavemap-endcap-kicker">Output node</span>
@@ -2755,7 +2862,7 @@
             <div class="upload-zone-content">
               <div class="upload-icon">📄</div>
               <div class="upload-title">Drop genomes or accession lists</div>
-              <div class="upload-hint">Public mode accepts FASTA/GenBank genomes and .txt accession lists, one accession per line</div>
+              <div class="upload-hint">Accepted: FASTA/GenBank genomes and .txt accession lists, one accession per line</div>
             </div>
           </div>
 
@@ -2850,6 +2957,13 @@
             </div>
             <div class="help-note">ClusterWeave sends the private result link and expiration date when this run completes or fails.</div>
           </div>
+        </div>
+
+        <div class="data-use-ack" id="data-use-ack-panel">
+          <label class="form-group-inline">
+            <input type="checkbox" id="data-use-ack" onchange="renderFileList()" />
+            <span>I understand this service is for public or releasable data only. Results are accessible to anyone with the private result link until expiration.</span>
+          </label>
         </div>
 
         <div class="run-row">
@@ -3358,6 +3472,7 @@ function setAccessMode(mode) {
   document.getElementById('progress-card')?.classList.toggle('hidden', !canUseAdminSurfaces() || !activeJobId);
   updateAccessTokenStatus();
   renderOpenedRuns();
+  if (document.getElementById('run-btn')) renderFileList();
 }
 
 function canUseAdminSurfaces() {
@@ -3468,6 +3583,41 @@ function toggleCard(id) {
   body.classList.toggle('hidden');
   hdr.classList.toggle('collapsed');
 }
+
+function switchEntryTab(name) {
+  const tabs = Array.from(document.querySelectorAll('.entry-tab'));
+  const panels = Array.from(document.querySelectorAll('.entry-panel'));
+  const names = ['new', 'existing'];
+  const idx = Math.max(0, names.indexOf(name));
+  tabs.forEach((tab, tabIdx) => {
+    const active = tabIdx === idx;
+    tab.classList.toggle('active', active);
+    tab.setAttribute('aria-selected', active ? 'true' : 'false');
+    tab.tabIndex = active ? 0 : -1;
+  });
+  panels.forEach(panel => {
+    const active = panel.id === 'entry-panel-' + names[idx];
+    panel.classList.toggle('active', active);
+    panel.hidden = !active;
+  });
+}
+
+function handleEntryTabKeydown(event) {
+  const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End'];
+  if (!keys.includes(event.key)) return;
+  event.preventDefault();
+  const names = ['new', 'existing'];
+  const tabs = Array.from(document.querySelectorAll('.entry-tab'));
+  const currentIdx = tabs.indexOf(event.currentTarget);
+  let nextIdx = currentIdx;
+  if (event.key === 'ArrowLeft') nextIdx = (currentIdx + tabs.length - 1) % tabs.length;
+  if (event.key === 'ArrowRight') nextIdx = (currentIdx + 1) % tabs.length;
+  if (event.key === 'Home') nextIdx = 0;
+  if (event.key === 'End') nextIdx = tabs.length - 1;
+  switchEntryTab(names[nextIdx]);
+  tabs[nextIdx].focus();
+}
+
 function switchTab(name) {
   const tabs = Array.from(document.querySelectorAll('.tab'));
   const panels = Array.from(document.querySelectorAll('.tab-panel'));
@@ -3534,9 +3684,9 @@ function updateAccessTokenStatus(message = '') {
     return;
   }
   const bits = [];
-  if (submitToken()) bits.push('submit token saved');
-  if (adminToken()) bits.push('admin token saved');
-  status.textContent = bits.length ? bits.join(', ') : 'No access token saved.';
+  if (submitToken()) bits.push('submission code saved');
+  if (adminToken()) bits.push('diagnostics code saved');
+  status.textContent = bits.length ? bits.join(', ') : 'No access code saved.';
 }
 
 function saveAccessTokens() {
@@ -3553,7 +3703,7 @@ function saveAccessTokens() {
       startSystemConsolePolling();
     } else if (adminValue) {
       stopSystemConsolePolling();
-      updateAccessTokenStatus('Admin token was not accepted; public shell is active.');
+      updateAccessTokenStatus('Diagnostics code was not accepted; standard view is active.');
     }
   });
 }
@@ -3562,7 +3712,7 @@ function clearAccessTokens() {
   sessionSet(STORAGE_KEYS.submitToken, '');
   sessionSet(STORAGE_KEYS.adminToken, '');
   setAccessMode('public');
-  updateAccessTokenStatus('Access tokens cleared.');
+  updateAccessTokenStatus('Access codes cleared.');
 }
 
 function updateEmailNotificationPanel() {
@@ -3596,13 +3746,14 @@ async function unlockExistingRun() {
   const status = document.getElementById('existing-run-status');
   const parsed = parseExistingRunInput();
   if (!parsed) {
-    if (status) status.textContent = 'Paste a result link or job ID plus read token.';
+    if (status) status.textContent = 'Enter a private result link, or a job ID plus result access code.';
     return;
   }
-  if (status) status.textContent = 'Opening run...';
+  if (status) status.textContent = 'Opening results...';
   rememberOpenedRun(parsed.jobId, parsed.token);
   const job = await loadJob(parsed.jobId, true, { readToken: parsed.token, source: 'existing-run' });
-  if (status) status.textContent = job ? 'Run opened for this tab.' : 'Could not open run with that read token.';
+  if (status) status.textContent = job ? 'Results opened for this tab.' : 'Could not open results with that access code.';
+  if (job) navigateToSection(null, 'outputs');
 }
 
 function renderOpenedRuns() {
@@ -3612,8 +3763,8 @@ function renderOpenedRuns() {
   const runs = loadOpenedRuns();
   panel.classList.toggle('hidden', runs.length === 0);
   select.innerHTML = runs.length
-    ? `<option value="">Select opened run</option>${runs.map(run => `<option value="${escapeHtml(run.id)}">${escapeHtml(run.name || run.id)} (${escapeHtml(run.id)})</option>`).join('')}`
-    : '<option value="">No opened runs</option>';
+    ? `<option value="">Select recent result</option>${runs.map(run => `<option value="${escapeHtml(run.id)}">${escapeHtml(run.name || run.id)} (${escapeHtml(run.id)})</option>`).join('')}`
+    : '<option value="">No recent results</option>';
   if (activeJobId) select.value = activeJobId;
 }
 
@@ -3799,7 +3950,7 @@ async function handleResultLinkClick(event, jobId, relPath, download = false) {
   }
   try {
     const resp = await resultFetch(jobId, relPath, { download: shouldDownloadViaClient });
-    if (!resp.ok) throw new Error('Result file could not be opened with the saved read token.');
+    if (!resp.ok) throw new Error('Result file could not be opened with the saved result access code.');
     const sourceBlob = await resp.blob();
     const blob = shouldOpenInline
       ? new Blob([sourceBlob], { type: inlineResultMime(relPath, sourceBlob.type) })
@@ -4402,8 +4553,16 @@ function renderFileList() {
       <button class="file-remove" onclick="removeFile(${idx})" title="Remove">✕</button>
     </div>`).join('') + manualItem;
   const inputSourceCount = selectedFiles.length + (manualLines.length ? 1 : 0);
-  btn.disabled = inputSourceCount === 0 || !!manualError;
-  stat.textContent = manualError || (inputSourceCount ? `${inputSourceCount} input source(s) ready` : '');
+  const dataUseAck = document.getElementById('data-use-ack');
+  const ackMissing = !canUseAdminSurfaces() && dataUseAck && !dataUseAck.checked;
+  btn.disabled = inputSourceCount === 0 || !!manualError || ackMissing;
+  if (manualError) {
+    stat.textContent = manualError;
+  } else if (inputSourceCount && ackMissing) {
+    stat.textContent = 'Confirm the data-use statement before starting.';
+  } else {
+    stat.textContent = inputSourceCount ? `${inputSourceCount} input source(s) ready` : '';
+  }
   updateManualAccessionsStatus();
   syncEcologyMetadataPanel();
   updateRunSummary();
@@ -4580,6 +4739,12 @@ async function startAnalysis() {
     renderFileList();
     return;
   }
+  const dataUseAck = document.getElementById('data-use-ack');
+  if (!canUseAdminSurfaces() && dataUseAck && !dataUseAck.checked) {
+    document.getElementById('upload-status').textContent = 'Confirm the data-use statement before starting.';
+    renderFileList();
+    return;
+  }
   if (selectedFiles.length === 0 && manualLines.length === 0) return;
 
   const name = document.getElementById('project-name').value.trim() || 'my_project';
@@ -4602,6 +4767,7 @@ async function startAnalysis() {
     fd.append('files', new File([metadataText], 'ecofun_metadata_normalized.tsv', { type: 'text/tab-separated-values' }));
   }
   fd.append('project_name', name);
+  fd.append('data_use_ack', boolToFlag(canUseAdminSurfaces() || !!document.getElementById('data-use-ack')?.checked));
   fd.append('cpus', cpus);
   fd.append('target_genome', document.getElementById('target-genome').value.trim());
   fd.append('run_ncbi_install', boolToFlag(document.getElementById('run-ncbi-install').checked));
@@ -5205,7 +5371,7 @@ function publicStageNodes(stage, visual, job) {
   if (visual.cls === 'failed') {
     nodes.push({
       title: 'Stopped at this stage',
-      meta: job && job.error ? 'Review the public result files or adjust inputs.' : 'Review available outputs below.',
+      meta: job && job.error ? 'Review the result files or adjust inputs.' : 'Review available outputs below.',
     });
   } else if (visual.cls === 'done' && status === 'success') {
     nodes.push({
@@ -6086,7 +6252,7 @@ async function hydrateAuthenticatedFigures(jobId) {
     } catch (err) {
       img.replaceWith(Object.assign(document.createElement('div'), {
         className: 'viz-placeholder',
-        textContent: 'Figure preview requires a valid read token.',
+        textContent: 'Figure preview requires a valid result access code.',
       }));
     }
   }
@@ -6335,10 +6501,10 @@ async function waitForWorkerReady() {
 
     if (!isFullSystemStatus(system) && system.online) {
       const submissionsLabel = system.submissions || (system.submissions_open ? 'open' : 'paused');
-      updateBootstrapProgress(100, 'Public shell ready');
-      statusEl.textContent = 'Public interface ready.';
+      updateBootstrapProgress(100, 'Interface ready');
+      statusEl.textContent = 'Interface ready.';
       if (substepEl) substepEl.textContent = `Submissions ${submissionsLabel}`;
-      updateRuntimeStatusChip(system.submissions_open ? 'ready' : 'unknown', `Public ${submissionsLabel}`);
+      updateRuntimeStatusChip(system.submissions_open ? 'ready' : 'unknown', `Submissions ${submissionsLabel}`);
       bootstrapComplete = true;
       await new Promise(r => setTimeout(r, 250));
       splash.classList.add('hidden');
@@ -6395,6 +6561,7 @@ async function initializeApp() {
   updateAccessTokenStatus();
   updateEmailNotificationPanel();
   renderOpenedRuns();
+  switchEntryTab('new');
   showEmptyResults();
   syncNavFromHash();
   setUIMode('guided', { preserveDisclosure: true });
@@ -6491,6 +6658,7 @@ async function initializeApp() {
   updateRunSummary();
   const hashRun = parseResultHash();
   if (hashRun) {
+    switchEntryTab('existing');
     rememberOpenedRun(hashRun.jobId, hashRun.token);
     await loadJob(hashRun.jobId, true, { readToken: hashRun.token, source: 'result-link' });
   }

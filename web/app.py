@@ -302,7 +302,11 @@ def request_is_admin(handler: BaseHTTPRequestHandler) -> bool:
 def request_can_submit(handler: BaseHTTPRequestHandler) -> bool:
     if not PUBLIC_MODE:
         return True
-    return request_is_admin(handler) or request_has_token(handler, SUBMIT_TOKEN)
+    if request_is_admin(handler):
+        return True
+    if not SUBMIT_TOKEN:
+        return True
+    return request_has_token(handler, SUBMIT_TOKEN)
 
 
 def job_token_hash(token: str) -> str:
@@ -1051,7 +1055,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if not request_can_submit(self):
-            self._auth_failed("Submit token or admin token required")
+            self._auth_failed("Submission access code required")
             return
         if PUBLIC_MODE and not SUBMISSIONS_OPEN and not request_is_admin(self):
             self._send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"detail": "Submissions are paused"})
@@ -1072,6 +1076,12 @@ class Handler(BaseHTTPRequestHandler):
 
         body = self.rfile.read(content_length)
         fields, files = parse_multipart_form_data(content_type, body)
+
+        if PUBLIC_MODE and not request_is_admin(self):
+            data_use_ack = parse_bool(fields.get("data_use_ack", ["0"])[0], False)
+            if not data_use_ack:
+                self._bad_request("Data-use acknowledgment is required")
+                return
 
         project_name = str(fields.get("project_name", ["my_project"])[0])
         cpus = clamp_public_cpus(parse_int(fields.get("cpus", ["4"])[0], 4))
