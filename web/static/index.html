@@ -342,8 +342,12 @@
     background-size: auto, 16px 16px;
     opacity: .38;
   }
-  .identity-copy { position: relative; z-index: 1; }
-  .identity-copy { max-width: 820px; }
+  .identity-copy {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: none;
+  }
   .identity-kicker {
     color: var(--cw-amber-2);
     font-size: .74rem;
@@ -351,16 +355,16 @@
     text-transform: uppercase;
   }
   .identity-title {
-    font-size: clamp(1.45rem, 2.45vw, 2.45rem);
+    font-size: clamp(1.65rem, 2.65vw, 3rem);
     line-height: 1.02;
     margin-top: .26rem;
-    max-width: 28ch;
+    max-width: none;
   }
   .identity-subtitle {
     color: var(--cw-mint-100);
     font-size: .94rem;
     margin-top: .72rem;
-    max-width: 70ch;
+    max-width: min(100%, 86ch);
   }
   .hero-actions {
     display: flex;
@@ -420,100 +424,14 @@
     color: var(--text);
     font-weight: 800;
   }
-  .docs-links {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: .5rem;
-    flex-wrap: wrap;
-  }
-  .docs-links a {
-    display: inline-flex;
-    align-items: center;
-    min-height: 32px;
-    padding: .34rem .62rem;
-    border: 1px solid rgba(202,231,226,.16);
-    border-radius: 999px;
-    color: var(--cw-mint-100);
-    text-decoration: none;
-    font-size: .76rem;
-    font-weight: 800;
-    background: var(--cw-surface-control);
-    box-shadow: var(--cw-raise-control), var(--cw-bevel);
-  }
-  .docs-links a:hover {
-    color: var(--text);
-    border-color: rgba(91,230,208,.38);
-  }
-  .mode-panel {
-    display: grid;
-    grid-template-columns: minmax(220px, .8fr) minmax(0, 1.2fr);
-    align-items: center;
-    gap: 1rem;
-    margin: 0 0 1.1rem;
-    padding: .75rem .85rem;
-    border: 1px solid rgba(202,231,226,.16);
-    border-radius: var(--radius);
-    background:
-      linear-gradient(100deg, rgba(255,252,244,.045), rgba(91,230,208,.035) 42%, rgba(245,158,11,.026)),
-      var(--cw-surface-panel);
-    box-shadow: var(--cw-raise-panel), var(--cw-bevel);
-  }
-  .mode-kicker {
-    color: var(--cw-amber-2);
-    font-size: .7rem;
+  .docs-title a {
+    color: var(--cw-mint-400);
     font-weight: 900;
-    text-transform: uppercase;
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 3px;
   }
-  .mode-title {
-    color: var(--text);
-    font-weight: 900;
-    line-height: 1.2;
-  }
-  .mode-switch {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: .45rem;
-  }
-  .mode-option {
-    appearance: none;
-    display: grid;
-    gap: .12rem;
-    min-height: 54px;
-    padding: .54rem .62rem;
-    border: 1px solid rgba(202,231,226,.16);
-    border-radius: 7px;
-    background: var(--cw-surface-control);
-    color: var(--cw-mint-100);
-    font-family: var(--font);
-    text-align: left;
-    cursor: pointer;
-    box-shadow: var(--cw-raise-control), var(--cw-bevel);
-    transition: border-color .18s, background .18s, box-shadow .18s, transform .12s;
-  }
-  .mode-option:hover {
-    border-color: rgba(91,230,208,.36);
-    transform: translateY(-1px);
-  }
-  .mode-option[aria-pressed="true"] {
-    border-color: rgba(91,230,208,.58);
-    background:
-      linear-gradient(180deg, rgba(91,230,208,.13), rgba(245,158,11,.035)),
-      rgba(11,11,18,.52);
-    box-shadow: var(--cw-pressed), inset 3px 0 0 var(--cw-mint-400), var(--cw-glow-soft);
-  }
-  .mode-option-title {
-    color: var(--text);
-    font-size: .84rem;
-    font-weight: 900;
-    line-height: 1.15;
-  }
-  .mode-option-copy {
-    color: var(--muted);
-    font-size: .68rem;
-    font-weight: 700;
-    line-height: 1.25;
-  }
+  .docs-title a:hover { color: var(--cw-mint-50); }
   body[data-ui-mode="guided"] #console-card {
     opacity: .74;
   }
@@ -574,9 +492,15 @@
   #results-card.section-focus {
     animation: sectionFocus 1.2s ease-out 1;
   }
-  .upload-section { margin-bottom: 2rem; }
-  .main-container { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; flex: 1; }
-  @media (max-width: 1200px) { .main-container { grid-template-columns: 1fr; } }
+  .upload-section { margin-bottom: 0; }
+  .main-container {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.5rem;
+    flex: 1;
+    width: 100%;
+    min-width: 0;
+  }
   @media (max-width: 1120px) {
     header {
       grid-template-columns: auto minmax(0, 1fr) auto;
@@ -610,10 +534,8 @@
     .header-tagline { display: none; }
     main { padding-inline: 1rem; }
     .identity-band { grid-template-columns: 1fr; align-items: flex-start; }
-    .identity-title { max-width: 16ch; }
+    .identity-title { max-width: none; }
     .docs-strip { align-items: flex-start; flex-direction: column; }
-    .docs-links { justify-content: flex-start; }
-    .mode-panel { grid-template-columns: 1fr; }
   }
   @media (max-width: 700px) {
     .header-actions {
@@ -622,16 +544,21 @@
       justify-content: flex-start;
     }
     .status-chip { flex: 1 1 auto; }
-    .journey-cues,
-    .mode-switch { grid-template-columns: 1fr; }
+    .journey-cues { grid-template-columns: 1fr; }
   }
   @media (max-width: 520px) {
     .identity-band { padding: 1rem; }
     .hero-actions .btn { width: 100%; }
     .nav-action { flex: 1 1 130px; }
   }
-  .left-column { display: flex; flex-direction: column; gap: 1.5rem; }
-  .right-column { display: flex; flex-direction: column; gap: 1.5rem; }
+  .left-column,
+  .right-column {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    min-width: 0;
+    width: 100%;
+  }
 
   /* ── Cards ────────────────────────────────────────────────────────────── */
   .card {
@@ -987,6 +914,15 @@
     text-transform: uppercase;
     color: var(--muted);
   }
+  .summary-panel > summary.summary-head {
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+  }
+  .summary-panel > summary.summary-head::-webkit-details-marker { display: none; }
   .summary-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1283,18 +1219,21 @@
     position: relative;
     z-index: 1;
     display: grid;
-    grid-template-columns: minmax(112px, .72fr) minmax(0, 4fr) minmax(112px, .72fr);
+    grid-template-columns: minmax(0, 1fr);
     gap: .72rem;
     align-items: stretch;
+    min-width: 0;
   }
   .weavemap-stage-wrap {
     position: relative;
     min-width: 0;
+    max-width: 100%;
     padding: .72rem;
     border: 1px solid rgba(202,231,226,.13);
     border-radius: 8px;
     background: rgba(8,10,16,.24);
     box-shadow: var(--cw-inset-well), var(--cw-bevel);
+    overflow: hidden;
   }
   .weavemap-signal {
     position: absolute;
@@ -1323,24 +1262,6 @@
     overflow: hidden;
     box-shadow: var(--cw-raise-control), var(--cw-bevel);
   }
-  .weavemap-endcap::before,
-  .weavemap-endcap::after {
-    content: '';
-    position: absolute;
-    top: 46%;
-    width: .95rem;
-    height: 2px;
-    border-radius: 999px;
-    background: linear-gradient(90deg, var(--cw-mint-400), var(--cw-amber-2));
-    opacity: .54;
-  }
-  .weavemap-endcap::before { right: -.48rem; transform: translateY(-4px) rotate(-10deg); }
-  .weavemap-endcap::after { right: -.48rem; transform: translateY(4px) rotate(10deg); background: linear-gradient(90deg, var(--cw-amber-2), var(--cw-mint-400)); }
-  .weavemap-endcap-output::before,
-  .weavemap-endcap-output::after {
-    right: auto;
-    left: -.48rem;
-  }
   .weavemap-endcap-kicker {
     color: var(--cw-mint-400);
     font-family: var(--mono);
@@ -1365,16 +1286,9 @@
     100% { background-position: 220% 0; opacity: .42; }
   }
   @media (max-width: 1180px) {
-    .weavemap-live {
-      grid-template-columns: 1fr;
-    }
     .weavemap-endcap {
       min-height: auto;
       align-content: start;
-    }
-    .weavemap-endcap::before,
-    .weavemap-endcap::after {
-      display: none;
     }
   }
   @media (max-width: 720px) {
@@ -1397,10 +1311,12 @@
   /* ── Workflow map ─────────────────────────────────────────────────────── */
   .stage-bar {
     display: grid;
-    grid-template-columns: repeat(7, minmax(110px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
     gap: .62rem;
     margin: 0;
     position: relative;
+    min-width: 0;
+    max-width: 100%;
   }
   .stage-step {
     position: relative;
@@ -1418,39 +1334,10 @@
     display: grid;
     grid-template-rows: auto 1fr auto;
     gap: .44rem;
-    overflow: visible;
+    overflow: hidden;
     transition: border-color .25s, background .25s, color .25s, opacity .25s, box-shadow .25s;
     box-shadow: var(--cw-raise-control), var(--cw-bevel);
   }
-  .stage-step::before,
-  .stage-step::after {
-    content: '';
-    position: absolute;
-    left: calc(100% - .1rem);
-    width: calc(.62rem + .22rem);
-    height: 2px;
-    border-radius: 999px;
-    pointer-events: none;
-    z-index: 0;
-  }
-  .stage-step::before {
-    --braid-y: -2px;
-    --braid-skew: -9deg;
-    top: 34%;
-    background: linear-gradient(90deg, var(--cw-mint-400), var(--cw-amber-2), var(--cw-mint-400));
-    opacity: .34;
-    transform: translateY(var(--braid-y)) skewY(var(--braid-skew));
-  }
-  .stage-step::after {
-    --braid-y: 3px;
-    --braid-skew: 9deg;
-    top: 43%;
-    background: linear-gradient(90deg, var(--cw-amber-2), var(--cw-mint-400), var(--cw-amber-2));
-    opacity: .26;
-    transform: translateY(var(--braid-y)) skewY(var(--braid-skew));
-  }
-  .stage-step:last-child::before,
-  .stage-step:last-child::after { display: none; }
   .stage-topline {
     display: flex;
     align-items: center;
@@ -1537,11 +1424,6 @@
     width: 62%;
     animation: workflowPulse 1.25s ease-in-out infinite;
   }
-  .stage-step.active::before,
-  .stage-step.active::after {
-    opacity: .82;
-    animation: weaveBraidPulse 1.3s ease-in-out infinite;
-  }
   .stage-step.done {
     background:
       linear-gradient(180deg, rgba(20,184,166,.17), rgba(20,184,166,.05)),
@@ -1568,33 +1450,207 @@
     box-shadow: var(--cw-inset-control);
   }
   .stage-step.disabled .stage-progress::after { width: 0; }
-  .stage-step.disabled::before,
-  .stage-step.disabled::after { opacity: .08; }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .weavemap-helix {
+    position: relative;
+    margin-top: .75rem;
+    min-height: 330px;
+    border: 1px solid rgba(202,231,226,.12);
+    border-radius: 8px;
+    background:
+      radial-gradient(circle at 18% 28%, rgba(91,230,208,.11), transparent 13rem),
+      radial-gradient(circle at 82% 62%, rgba(245,158,11,.09), transparent 15rem),
+      linear-gradient(90deg, rgba(91,230,208,.035), rgba(148,105,247,.045) 48%, rgba(245,158,11,.035)),
+      rgba(8,10,16,.2);
+    overflow: hidden;
+  }
+  .weavemap-helix.dna-horizontal { min-height: 430px; }
+  .weavemap-helix.dna-vertical { min-height: 760px; }
+  .dna-weave-shell {
+    position: absolute;
+    inset: 0;
+  }
+  .dna-helix-svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+  .dna-strand {
+    fill: none;
+    stroke-width: 8;
+    stroke-linecap: round;
+    filter: drop-shadow(0 0 10px rgba(91,230,208,.18));
+  }
+  .dna-strand-a { stroke: rgba(91,230,208,.82); }
+  .dna-strand-b { stroke: rgba(99,102,241,.76); }
+  .dna-rung {
+    stroke-width: 6;
+    stroke-linecap: round;
+    opacity: .84;
+  }
+  .dna-rung.done { stroke: rgba(91,230,208,.88); }
+  .dna-rung.active { stroke: rgba(245,158,11,.95); filter: drop-shadow(0 0 10px rgba(245,158,11,.36)); }
+  .dna-rung.upcoming { stroke: rgba(165,180,252,.58); }
+  .dna-rung.failed { stroke: rgba(248,113,113,.92); }
+  .dna-rung.disabled { stroke: rgba(129,134,137,.48); }
+  .dna-base-dot {
+    stroke: rgba(8,10,16,.82);
+    stroke-width: 3;
+    filter: drop-shadow(0 0 8px rgba(91,230,208,.22));
+  }
+  .dna-base-dot-a { fill: var(--cw-mint-400); }
+  .dna-base-dot-b { fill: var(--cw-amber-2); }
+  .dna-disabled .dna-base-dot { fill: rgba(129,134,137,.72); filter: none; }
+  .dna-active-ring {
+    fill: none;
+    stroke: rgba(245,158,11,.75);
+    stroke-width: 2;
+    opacity: .8;
+  }
+  .dna-label {
+    fill: var(--cw-mint-50);
+    font-family: var(--font);
+    font-size: 20px;
+    font-weight: 900;
+    letter-spacing: 0;
+  }
+  .dna-label-meta {
+    fill: rgba(202,231,226,.74);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
+  .dna-label.active,
+  .dna-label-meta.active { fill: var(--cw-amber-2); }
+  .dna-label.done,
+  .dna-label-meta.done { fill: var(--cw-mint-400); }
+  .dna-label.disabled,
+  .dna-label-meta.disabled { fill: rgba(165,174,172,.58); }
+  .dna-popover-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  .dna-base-popover {
+    position: absolute;
+    left: var(--x);
+    top: var(--y);
+    transform: translate(-50%, -50%);
+    z-index: 2;
+    pointer-events: auto;
+  }
+  .dna-popover-trigger {
+    appearance: none;
+    width: 2.15rem;
+    height: 2.15rem;
+    border-radius: 50%;
+    border: 1px solid transparent;
+    background: transparent;
+    cursor: pointer;
+    box-shadow: none;
+  }
+  .dna-base-popover.active .dna-popover-trigger {
+    border-color: rgba(245,158,11,.26);
+    box-shadow: 0 0 22px rgba(245,158,11,.18);
+  }
+  .dna-base-popover.done .dna-popover-trigger { border-color: rgba(91,230,208,.12); }
+  .dna-base-popover.failed .dna-popover-trigger { border-color: rgba(248,113,113,.32); }
+  .dna-base-popover.disabled .dna-popover-trigger { opacity: .7; }
+  .dna-popover-panel {
+    position: absolute;
+    left: var(--panel-left, 50%);
+    top: var(--panel-top, calc(100% + .7rem));
+    transform: translateX(var(--panel-shift, -50%)) translateY(.28rem);
+    width: min(24rem, 38vw);
+    min-width: 18rem;
+    border: 1px solid rgba(202,231,226,.1);
+    border-radius: 8px;
+    background:
+      linear-gradient(180deg, rgba(255,252,244,.045), rgba(255,252,244,.012)),
+      rgba(8,10,16,.92);
+    color: var(--muted);
+    box-shadow: 0 20px 60px rgba(0,0,0,.44), var(--cw-bevel);
+    backdrop-filter: blur(12px);
+    overflow: hidden;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity .14s ease, visibility .14s ease, transform .14s ease;
+  }
+  .dna-base-popover:hover .dna-popover-panel,
+  .dna-base-popover:focus-within .dna-popover-panel,
+  .dna-base-popover.hover-restored .dna-popover-panel {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: translateX(var(--panel-shift, -50%)) translateY(0);
+  }
+  .dna-popover-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .65rem;
+    padding: .62rem .7rem;
+    border-bottom: 1px solid rgba(202,231,226,.1);
+    color: var(--text);
+    font-weight: 900;
+    line-height: 1.15;
+  }
+  .dna-popover-status {
+    color: currentColor;
+    font-family: var(--mono);
+    font-size: .62rem;
+    font-weight: 900;
+    text-transform: uppercase;
+  }
+  .dna-node-list {
+    display: grid;
+    gap: .42rem;
+    padding: .62rem;
+    max-height: 13.5rem;
+    overflow: auto;
+  }
+  .dna-node-item {
+    padding: .54rem .62rem;
+    border: 1px solid rgba(202,231,226,.1);
+    border-radius: 7px;
+    background: rgba(11,11,18,.5);
+    color: var(--muted);
+    font-size: .72rem;
+    line-height: 1.35;
+  }
+  .dna-node-title {
+    display: block;
+    color: var(--text);
+    font-weight: 850;
+  }
+  .dna-node-meta {
+    display: block;
+    margin-top: .08rem;
+  }
   @keyframes workflowPulse {
     0%, 100% { opacity: .95; }
     50% { opacity: .42; }
   }
-  @keyframes weaveBraidPulse {
-    0%, 100% { filter: brightness(1); transform: translateY(var(--braid-y)) skewY(var(--braid-skew)) scaleX(1); }
-    50% { filter: brightness(1.38); transform: translateY(var(--braid-y)) skewY(var(--braid-skew)) scaleX(1.04); }
-  }
-  @media (max-width: 1120px) {
-    .stage-bar { grid-template-columns: repeat(4, minmax(130px, 1fr)); }
-    .stage-step:nth-child(4n)::before,
-    .stage-step:nth-child(4n)::after { display: none; }
-  }
-  @media (max-width: 960px) {
-    .stage-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .stage-step::before,
-    .stage-step::after { display: block; }
-    .stage-step:nth-child(2n)::before,
-    .stage-step:nth-child(2n)::after { display: none; }
-  }
   @media (max-width: 720px) {
-    .stage-bar { grid-template-columns: 1fr; }
+    .stage-bar { grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr)); }
     .stage-step { min-height: auto; }
-    .stage-step::before,
-    .stage-step::after { display: none; }
+    .weavemap-helix { min-height: 760px; }
+    .dna-popover-panel { width: min(12.5rem, 56vw); min-width: 11rem; }
+    .dna-node-list { max-height: 12rem; }
   }
   @media (max-width: 760px) {
     .input-node-head,
@@ -1755,105 +1811,6 @@
     .console-actions { justify-content: flex-start; }
   }
 
-  /* ── Results and output discovery ────────────────────────────────────── */
-  .results-intel {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: .65rem;
-    margin: 0 0 1rem;
-  }
-  .output-card {
-    position: relative;
-    overflow: hidden;
-    min-height: 122px;
-    border: 1px solid rgba(202,231,226,.16);
-    border-radius: 8px;
-    padding: .78rem;
-    background:
-      linear-gradient(180deg, rgba(255,252,244,.085), rgba(255,252,244,.024)),
-      var(--cw-surface-output);
-    display: flex;
-    flex-direction: column;
-    gap: .42rem;
-    box-shadow: var(--cw-raise-control), var(--cw-bevel);
-  }
-  .output-card::before {
-    content: '';
-    position: absolute;
-    inset: 0 0 auto;
-    height: 3px;
-    background: linear-gradient(90deg, var(--cw-mint-400), var(--cw-violet-500), var(--cw-amber-2));
-    opacity: .45;
-  }
-  .output-card.available {
-    border-color: rgba(91,230,208,.34);
-    background:
-      linear-gradient(180deg, rgba(91,230,208,.09), rgba(255,252,244,.018)),
-      rgba(11,11,18,.3);
-    box-shadow: var(--cw-raise-control), inset 3px 0 0 rgba(91,230,208,.64), var(--cw-bevel), var(--cw-glow-soft);
-  }
-  .output-card.empty { opacity: .86; }
-  .output-card.pending::before { opacity: .2; }
-  .output-card-head {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: .55rem;
-  }
-  .output-card-title {
-    color: var(--text);
-    font-size: .86rem;
-    font-weight: 800;
-    line-height: 1.2;
-    overflow-wrap: anywhere;
-  }
-  .output-state {
-    flex: 0 0 auto;
-    border: 1px solid rgba(202,231,226,.16);
-    border-radius: 999px;
-    padding: .12rem .42rem;
-    color: var(--muted);
-    font-size: .64rem;
-    font-weight: 800;
-    text-transform: uppercase;
-    box-shadow: var(--cw-inset-control);
-  }
-  .output-card.available .output-state {
-    border-color: rgba(91,230,208,.42);
-    color: var(--cw-mint-400);
-  }
-  .output-card.empty .output-state {
-    border-color: rgba(245,158,11,.32);
-    color: var(--cw-amber-2);
-  }
-  .output-card-copy {
-    color: var(--muted);
-    font-size: .75rem;
-    line-height: 1.4;
-    overflow-wrap: anywhere;
-  }
-  .output-link {
-    margin-top: auto;
-    color: var(--cw-mint-100);
-    font-family: var(--mono);
-    font-size: .7rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .output-link a { color: inherit; }
-  .results-note {
-    margin-bottom: .75rem;
-    color: var(--muted);
-    font-size: .78rem;
-  }
-  @media (max-width: 1120px) {
-    .results-intel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  }
-  @media (max-width: 620px) {
-    .results-intel { grid-template-columns: 1fr; }
-  }
-
   /* ── Results tabs ─────────────────────────────────────────────────────── */
   .tabs {
     display: flex;
@@ -1927,11 +1884,18 @@
     justify-content: flex-end;
   }
   .figure-preview-wrap {
+    position: relative;
     padding: .8rem;
     background:
       linear-gradient(135deg, rgba(91,230,208,.07), rgba(255,252,244,.03) 38%, rgba(148,105,247,.06));
     box-shadow: var(--cw-inset-well);
+    overflow: hidden;
+    min-height: 320px;
+    cursor: zoom-in;
+    touch-action: none;
   }
+  .figure-preview-wrap.is-zoomed { cursor: grab; }
+  .figure-preview-wrap.is-panning { cursor: grabbing; }
   .figure-preview {
     width: 100%;
     max-height: 640px;
@@ -1941,6 +1905,77 @@
     border-radius: 6px;
     display: block;
     box-shadow: var(--cw-raise-control), var(--cw-bevel);
+    transform-origin: 0 0;
+    user-select: none;
+    -webkit-user-drag: none;
+    will-change: transform;
+  }
+  .figure-svg-stage {
+    width: 100%;
+    min-height: 320px;
+    background: #fff;
+    border: 1px solid rgba(11,11,18,.18);
+    border-radius: 6px;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    box-shadow: var(--cw-raise-control), var(--cw-bevel);
+  }
+  .figure-svg-stage .viz-placeholder {
+    width: 100%;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    background: #fff;
+    color: rgba(17,24,39,.64);
+    box-shadow: none;
+  }
+  .figure-svg-preview {
+    width: 100%;
+    height: min(640px, 62vh);
+    min-height: 320px;
+    max-height: 640px;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    transform: none !important;
+  }
+  .figure-zoom-controls {
+    position: absolute;
+    top: .75rem;
+    right: .75rem;
+    z-index: 3;
+    display: inline-flex;
+    gap: .28rem;
+    padding: .28rem;
+    border: 1px solid rgba(202,231,226,.16);
+    border-radius: 999px;
+    background: rgba(8,10,16,.68);
+    box-shadow: var(--cw-raise-control), var(--cw-bevel);
+    backdrop-filter: blur(10px);
+  }
+  .figure-zoom-controls button {
+    appearance: none;
+    display: inline-grid;
+    place-items: center;
+    min-width: 2rem;
+    height: 2rem;
+    border: 1px solid rgba(202,231,226,.14);
+    border-radius: 999px;
+    background: var(--cw-surface-control);
+    color: var(--cw-mint-100);
+    font-family: var(--mono);
+    font-size: .76rem;
+    font-weight: 900;
+    cursor: pointer;
+    box-shadow: var(--cw-raise-control), var(--cw-bevel);
+  }
+  .figure-zoom-controls button:hover {
+    color: var(--text);
+    border-color: rgba(91,230,208,.38);
+  }
+  .figure-zoom-controls .figure-zoom-reset {
+    min-width: 3.1rem;
   }
   .viz-placeholder {
     text-align: center;
@@ -2206,7 +2241,31 @@
     .job-delete { justify-self: end; }
   }
   .rerun-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem .9rem; }
-  @media (max-width: 720px) { .rerun-grid { grid-template-columns: 1fr; } }
+  #rerun-panel:not(:empty) {
+    margin: 1rem 0 1.25rem;
+    padding-left: .75rem;
+  }
+  .rerun-summary { margin-top: 0; }
+  .rerun-summary > .summary-head { border-bottom-color: transparent; }
+  .rerun-summary[open] > .summary-head { border-bottom-color: var(--border); }
+  .rerun-summary > .summary-head::after {
+    content: 'Open';
+    color: var(--cw-mint-100);
+    font-size: .7rem;
+    font-family: var(--mono);
+    font-weight: 900;
+    letter-spacing: 0;
+    border: 1px solid rgba(91,230,208,.2);
+    border-radius: 999px;
+    padding: .18rem .5rem;
+    background: rgba(91,230,208,.08);
+    box-shadow: var(--cw-inset-control);
+  }
+  .rerun-summary[open] > .summary-head::after { content: 'Hide'; }
+  @media (max-width: 720px) {
+    .rerun-grid { grid-template-columns: 1fr; }
+    #rerun-panel:not(:empty) { padding-left: 0; }
+  }
   .rerun-panel-body { padding: 1rem; display: flex; flex-direction: column; gap: .75rem; }
 
   .empty-state { text-align: center; padding: 2rem; color: var(--muted); font-size: .85rem; }
@@ -2230,17 +2289,13 @@
   body[data-access="local"] a.admin-only,
   body[data-access="admin"] button.admin-only,
   body[data-access="local"] button.admin-only { display: inline-flex; }
-  body[data-access="admin"] .mode-panel.admin-only,
-  body[data-access="local"] .mode-panel.admin-only,
   body[data-access="admin"] .form-grid.admin-only,
-  body[data-access="local"] .form-grid.admin-only,
-  body[data-access="admin"] .results-intel.admin-only,
-  body[data-access="local"] .results-intel.admin-only { display: grid; }
+  body[data-access="local"] .form-grid.admin-only { display: grid; }
   body[data-access="admin"] .profile-bar.admin-only,
   body[data-access="local"] .profile-bar.admin-only { display: flex; }
   .access-panel {
     display: grid;
-    grid-template-columns: minmax(0, .9fr) minmax(0, 1.45fr);
+    grid-template-columns: minmax(0, 1fr);
     gap: 1rem;
     margin: 1.2rem 0 1.5rem;
     padding: 1rem;
@@ -2259,7 +2314,7 @@
   }
   .access-grid {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
     gap: .75rem;
   }
   .access-card {
@@ -2281,9 +2336,25 @@
       radial-gradient(circle at 12% 0%, rgba(91,230,208,.08), transparent 16rem),
       rgba(255,252,244,.025);
     box-shadow: var(--cw-inset-control), var(--cw-bevel);
+    overflow: hidden;
+  }
+  .workflow-progress-panel .weavemap-live {
+    gap: 0;
+  }
+  .workflow-progress-panel .weavemap-endcap,
+  .workflow-progress-panel .stage-bar,
+  .workflow-progress-panel .weavemap-signal {
+    display: none;
   }
   .workflow-progress-panel .weavemap-stage-wrap {
     margin-top: .75rem;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  .workflow-progress-panel .weavemap-helix {
+    margin-top: 0;
   }
   body[data-access="public"] .stage-step[data-stage="nplinker"] {
     display: none;
@@ -2527,7 +2598,7 @@
 <main>
   <section class="identity-band section-anchor" id="overview" tabindex="-1" aria-label="ClusterWeave workflow overview">
     <div class="identity-copy">
-      <div class="identity-kicker">Woven fungal discovery command center</div>
+      <div class="identity-kicker">Assemble. Discover. Prioritize.</div>
       <h1 class="identity-title">Upload genomes or accessions, run biosynthetic gene cluster discovery stages, and inspect every output from annotation to gene cluster family context.</h1>
       <div class="hero-actions" aria-label="Quick start actions">
         <button class="btn btn-primary" type="button" onclick="navigateToSection(event, 'intake', 'manual-accessions')">Start from NCBI accessions</button>
@@ -2581,27 +2652,6 @@
           </div>
         </div>
       </div>
-    </div>
-  </section>
-
-  <section class="mode-panel section-anchor admin-only" id="mode-panel" aria-label="Interface mode">
-    <div>
-      <div class="mode-kicker">View mode</div>
-      <div class="mode-title">Choose the surface for this run</div>
-    </div>
-    <div class="mode-switch" role="group" aria-label="Interface mode">
-      <button class="mode-option" id="mode-guided" type="button" data-mode-option="guided" aria-pressed="true" onclick="setUIMode('guided')">
-        <span class="mode-option-title">Guided Demo</span>
-        <span class="mode-option-copy">Intake, stages, outputs</span>
-      </button>
-      <button class="mode-option" id="mode-lab" type="button" data-mode-option="lab" aria-pressed="false" onclick="setUIMode('lab')">
-        <span class="mode-option-title">Lab QA</span>
-        <span class="mode-option-copy">Worker state, logs, IDs</span>
-      </button>
-      <button class="mode-option" id="mode-advanced" type="button" data-mode-option="advanced" aria-pressed="false" onclick="setUIMode('advanced')">
-        <span class="mode-option-title">Advanced</span>
-        <span class="mode-option-copy">HPC knobs, NPLinker, stages</span>
-      </button>
     </div>
   </section>
 
@@ -2662,6 +2712,7 @@
             <span class="stage-progress" aria-hidden="true"></span>
           </span>
         </div>
+        <div class="weavemap-helix" id="weavemap-helix" aria-label="Public workflow activity"></div>
       </div>
       <div class="weavemap-endcap weavemap-endcap-output">
         <span class="weavemap-endcap-kicker">Output node</span>
@@ -2671,10 +2722,10 @@
     </div>
   </section>
 
-  <!-- ── 2-Column Grid: Left (Upload + Widgets) & Right (Queue, Console) ──────────── -->
+  <!-- ── Main Flow: Intake, Queue, Console, Results ──────────────────────────────── -->
   <div class="main-container">
 
-  <!-- ── Left Column: Upload & Widgets ──────────────────────────────────────────── -->
+  <!-- ── Intake Flow ─────────────────────────────────────────────────────────────── -->
   <div class="left-column">
 
     <!-- ── Upload Section ────────────────────────────────────────────────────── -->
@@ -3041,7 +3092,7 @@
     
   </div>
 
-  <!-- ── Right Column: Runs & Console ──────────────────────────────────── -->
+  <!-- ── Runs, Console, Results ────────────────────────────────────────── -->
   <div class="right-column">
 
     <!-- ── Run History (Top) ───────────────────────────────────────────── -->
@@ -3114,33 +3165,6 @@
           <div id="results-workflow-host"></div>
         </div>
         <div id="rerun-panel" class="admin-only"></div>
-        <div class="results-note admin-only">Output discovery is based on files produced by the selected job. Empty panels are placeholders for outputs that have not appeared yet.</div>
-        <div class="results-intel admin-only" id="output-discovery" aria-label="Output discovery overview">
-          <div class="output-card pending">
-            <div class="output-card-head"><div class="output-card-title">Prioritized BGC shortlist</div><span class="output-state">Pending</span></div>
-            <div class="output-card-copy">Run a workflow to populate this panel.</div>
-          </div>
-          <div class="output-card pending">
-            <div class="output-card-head"><div class="output-card-title">Gene cluster family context</div><span class="output-state">Pending</span></div>
-            <div class="output-card-copy">Run a workflow to populate this panel.</div>
-          </div>
-          <div class="output-card pending">
-            <div class="output-card-head"><div class="output-card-title">Synteny / clinker panel</div><span class="output-state">Pending</span></div>
-            <div class="output-card-copy">Run a workflow to populate this panel.</div>
-          </div>
-          <div class="output-card pending">
-            <div class="output-card-head"><div class="output-card-title">Figures</div><span class="output-state">Pending</span></div>
-            <div class="output-card-copy">Run a workflow to populate this panel.</div>
-          </div>
-          <div class="output-card pending">
-            <div class="output-card-head"><div class="output-card-title">Artifacts / files</div><span class="output-state">Pending</span></div>
-            <div class="output-card-copy">No artifacts available yet.</div>
-          </div>
-          <div class="output-card empty">
-            <div class="output-card-head"><div class="output-card-title">NPLinker follow-up</div><span class="output-state">Optional</span></div>
-            <div class="output-card-copy">NPLinker optional follow-up not enabled.</div>
-          </div>
-        </div>
         <div class="tabs results-loaded-only hidden" role="tablist" aria-label="Result views">
           <button class="tab active" id="tab-control-viz" type="button" role="tab" aria-controls="tab-viz" aria-selected="true" onclick="switchTab('viz')" onkeydown="handleResultTabKeydown(event)">Visualization</button>
           <button class="tab" id="tab-control-files" type="button" role="tab" aria-controls="tab-files" aria-selected="false" tabindex="-1" onclick="switchTab('files')" onkeydown="handleResultTabKeydown(event)">Files</button>
@@ -3171,16 +3195,10 @@
   </div>
   <!-- end main-container -->
 
-  <section class="docs-strip section-anchor" id="docs" tabindex="-1" aria-label="Documentation references">
+  <section class="docs-strip section-anchor" id="docs" tabindex="-1" aria-label="ClusterWeave citation">
     <div>
-      <span class="docs-kicker">Resources</span>
-      <span class="docs-title">Methods, artifacts, logs, and runtime notes</span>
-    </div>
-    <div class="docs-links">
-      <a href="#results-card" onclick="navigateToSection(event, 'outputs')">Workflow progress</a>
-      <a href="#results-card" onclick="navigateToSection(event, 'outputs')">Artifacts</a>
-      <a class="admin-only" href="#console-card" onclick="navigateToSection(event, 'qa')">Logs</a>
-      <a class="admin-only" href="#intake" onclick="setUIMode('advanced'); navigateToSection(event, 'intake', 'advanced-panel')">Advanced knobs</a>
+      <span class="docs-kicker">Citation</span>
+      <span class="docs-title">If you have found ClusterWeave useful, please <a href="https://doi.org/" target="_blank" rel="noopener" data-citation-link title="ClusterWeave DOI link coming soon">cite us</a>.</span>
     </div>
   </section>
 
@@ -3200,9 +3218,12 @@ let systemPollTimer = null;
 let runtimeCapabilities = null;
 let activeJobMeta = null;
 let activeStageState = null;
+let weaveActivity = { jobId: null, lastLogCount: null, lastStatus: null, events: [] };
 let activeFileTree = null;
 let activeFileTreeIndex = new Map();
 let activeFileTreeJobId = null;
+let figureZoomState = new Map();
+let activeFigurePan = null;
 let jobHistoryInFlight = false;
 let lastJobHistoryRenderKey = '';
 let currentUIMode = 'guided';
@@ -3227,6 +3248,58 @@ const STAGES = [
   { key: 'figures',    label: 'Figures' },
   { key: 'nplinker',   label: 'NPLinker' },
 ];
+
+const STAGE_DETAILS = {
+  prep: {
+    name: 'Prep',
+    hint: 'Inputs, layout, and accession preparation',
+    queued: 'Waiting for submitted sources.',
+    active: 'Preparing sources and project workspace.',
+    done: 'Inputs are staged for analysis.',
+  },
+  annotation: {
+    name: 'Annotation / BGC detection',
+    hint: 'Genome annotation and biosynthetic cluster detection',
+    queued: 'Waiting for prepared genomes.',
+    active: 'Detecting biosynthetic gene cluster candidates.',
+    done: 'BGC detection has advanced.',
+  },
+  bigscape: {
+    name: 'BiG-SCAPE',
+    hint: 'Gene cluster family graph construction',
+    queued: 'Waiting for detected clusters.',
+    active: 'Building family context.',
+    done: 'Family context has advanced.',
+  },
+  summary: {
+    name: 'Summary',
+    hint: 'Crosswalk tables and shortlist context',
+    queued: 'Waiting for family outputs.',
+    active: 'Building tables and ranking context.',
+    done: 'Summary tables have advanced.',
+  },
+  clinker: {
+    name: 'clinker',
+    hint: 'Synteny panel staging',
+    queued: 'Waiting for prioritized regions.',
+    active: 'Staging synteny comparisons.',
+    done: 'Synteny panel staging has advanced.',
+  },
+  figures: {
+    name: 'Figures',
+    hint: 'Rendered figures and visual summaries',
+    queued: 'Waiting for summary outputs.',
+    active: 'Rendering visual summaries.',
+    done: 'Figure rendering has advanced.',
+  },
+  nplinker: {
+    name: 'NPLinker',
+    hint: 'Optional paired omics follow-up',
+    queued: 'Waiting for enabled omics inputs.',
+    active: 'Running optional omics follow-up.',
+    done: 'Optional omics follow-up has advanced.',
+  },
+};
 
 const NAV_TARGETS = {
   overview: { anchor: 'overview', focus: 'overview' },
@@ -3278,7 +3351,6 @@ function setAccessMode(mode) {
   if (accessMode === 'public') {
     setUIMode('guided', { preserveDisclosure: true });
     document.getElementById('rerun-panel').innerHTML = '';
-    document.getElementById('output-discovery').innerHTML = '';
     if (!activeJobId && !document.getElementById('upload-card')?.classList.contains('upload-card-locked')) {
       setCardCollapsed('upload-card', false);
     }
@@ -3670,6 +3742,41 @@ function resultNeedsAuth(jobId) {
   return accessMode === 'public' && !adminToken() && !!readTokenForJob(jobId);
 }
 
+function inlineResultMime(relPath, fallback = '') {
+  const name = fileNameFromPath(relPath).toLowerCase();
+  const ext = name.includes('.') ? name.split('.').pop() : '';
+  const mimeMap = {
+    svg: 'image/svg+xml',
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    gif: 'image/gif',
+    webp: 'image/webp',
+    pdf: 'application/pdf',
+    html: 'text/html;charset=utf-8',
+    htm: 'text/html;charset=utf-8',
+    txt: 'text/plain;charset=utf-8',
+    log: 'text/plain;charset=utf-8',
+    md: 'text/markdown;charset=utf-8',
+    csv: 'text/csv;charset=utf-8',
+    tsv: 'text/tab-separated-values;charset=utf-8',
+    json: 'application/json',
+    yaml: 'text/yaml;charset=utf-8',
+    yml: 'text/yaml;charset=utf-8',
+    gbk: 'text/plain;charset=utf-8',
+    gb: 'text/plain;charset=utf-8',
+    gbff: 'text/plain;charset=utf-8',
+    gff: 'text/plain;charset=utf-8',
+    gff3: 'text/plain;charset=utf-8',
+    fasta: 'text/plain;charset=utf-8',
+    fa: 'text/plain;charset=utf-8',
+    fna: 'text/plain;charset=utf-8',
+  };
+  if (mimeMap[ext]) return mimeMap[ext];
+  if (fallback && fallback !== 'application/octet-stream') return fallback;
+  return 'text/plain;charset=utf-8';
+}
+
 function resultFetch(jobId, relPath, options = {}) {
   const { download = false, ...fetchOptions } = options;
   const path = `api/jobs/${encodeURIComponent(jobId)}/files/${normalizedResultPath(relPath).split('/').map(encodeURIComponent).join('/')}${download ? '?download=1' : ''}`;
@@ -3677,25 +3784,42 @@ function resultFetch(jobId, relPath, options = {}) {
 }
 
 async function handleResultLinkClick(event, jobId, relPath, download = false) {
-  if (!resultNeedsAuth(jobId)) return true;
+  const shouldDownloadViaClient = download && resultNeedsAuth(jobId);
+  const shouldOpenInline = !download;
+  if (!shouldDownloadViaClient && !shouldOpenInline) return true;
   event.preventDefault();
+  let previewWindow = null;
+  if (shouldOpenInline) {
+    previewWindow = window.open('', '_blank');
+    if (previewWindow) {
+      previewWindow.opener = null;
+      previewWindow.document.title = fileNameFromPath(relPath);
+      previewWindow.document.body.textContent = 'Loading preview...';
+    }
+  }
   try {
-    const resp = await resultFetch(jobId, relPath, { download });
+    const resp = await resultFetch(jobId, relPath, { download: shouldDownloadViaClient });
     if (!resp.ok) throw new Error('Result file could not be opened with the saved read token.');
-    const blob = await resp.blob();
+    const sourceBlob = await resp.blob();
+    const blob = shouldOpenInline
+      ? new Blob([sourceBlob], { type: inlineResultMime(relPath, sourceBlob.type) })
+      : sourceBlob;
     const url = URL.createObjectURL(blob);
     resultObjectUrls.push(url);
-    if (download) {
+    if (shouldDownloadViaClient) {
       const link = document.createElement('a');
       link.href = url;
       link.download = fileNameFromPath(relPath);
       document.body.appendChild(link);
       link.click();
       link.remove();
+    } else if (previewWindow) {
+      previewWindow.location.href = url;
     } else {
       window.open(url, '_blank', 'noopener');
     }
   } catch (err) {
+    if (previewWindow) previewWindow.close();
     alert(err.message || String(err));
   }
   return false;
@@ -4614,6 +4738,10 @@ function jobStageDisplay(job) {
     'Installing NCBI CLI': 'NCBI CLI install',
     'Preparing genomes from accessions': 'Genome prep',
     'Running canonical ClusterWeave workflow': 'Canonical workflow',
+    'Running annotation / BGC detection': 'Annotation / BGC detection',
+    'Running BiG-SCAPE family graph': 'BiG-SCAPE family graph',
+    'Building summary tables': 'Summary tables',
+    'Staging synteny panels': 'Synteny panels',
     'Rendering summary figures': 'Summary figures',
     'Running optional NPLinker follow-up': 'NPLinker follow-up',
   };
@@ -4757,6 +4885,7 @@ function setResultsLoaded(loaded) {
 
 function showEmptyResults() {
   activeStageState = null;
+  resetWeaveActivity();
   resetStages(currentStageControlJob());
   setResultsLoaded(false);
   const badge = document.getElementById('results-status');
@@ -4822,6 +4951,7 @@ async function loadJob(jobId, autoScroll = false, options = {}) {
   document.getElementById('log-terminal').innerHTML = '';
   activeJobMeta = null;
   activeStageState = null;
+  resetWeaveActivity();
   resetStages();
   if (canUseAdminSurfaces() && currentUIMode === 'guided') setUIMode('lab', { preserveDisclosure: true });
 
@@ -4851,6 +4981,7 @@ async function pollJobFinal(jobId, autoScroll = false, seq = jobLoadSeq) {
   const previousJob = activeJobMeta;
   activeJobMeta = job;
   rememberOpenedRun(jobId, readTokenForJob(jobId), job);
+  recordWeaveActivity(job);
   if (!activeStageState || activeStageState.jobId !== jobId) initializeStageState(job);
   applyJobStageSnapshot(job);
   if (canUseAdminSurfaces()) {
@@ -4965,6 +5096,304 @@ function stageIndex(key) {
   return STAGES.findIndex(s => s.key === key);
 }
 
+function resetWeaveActivity(job = null) {
+  weaveActivity = {
+    jobId: job && job.id ? job.id : null,
+    lastLogCount: job ? Number(job.log_count || 0) : null,
+    lastStatus: job ? String(job.status || '') : null,
+    events: [],
+  };
+  const helix = document.getElementById('weavemap-helix');
+  if (helix) delete helix.dataset.rendered;
+}
+
+function stageVisualState(key) {
+  if (!activeStageState || !activeStageState.enabled.has(key)) return { cls: 'disabled', label: 'Skipped' };
+  if (activeStageState.failed === key) return { cls: 'failed', label: 'Failed' };
+  if (activeStageState.completed.has(key)) return { cls: 'done', label: 'Complete' };
+  if (activeStageState.current === key) return { cls: 'active', label: 'Current' };
+  return { cls: 'upcoming', label: 'Queued' };
+}
+
+function formatWorkflowTime(value) {
+  if (!value) return 'time pending';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'time pending';
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function normalizePublicWeaveEvent(event) {
+  if (!event || typeof event !== 'object') return null;
+  const stage = STAGES.some(item => item.key === event.stage) ? event.stage : 'prep';
+  const title = String(event.title || '').trim();
+  if (!title) return null;
+  return {
+    stage,
+    title,
+    meta: String(event.meta || event.time || '').trim(),
+  };
+}
+
+function mergeWeaveActivityEvents(events) {
+  const incoming = Array.isArray(events)
+    ? events.map(normalizePublicWeaveEvent).filter(Boolean)
+    : [];
+  if (!incoming.length) return 0;
+  const keyed = new Map();
+  [...weaveActivity.events, ...incoming].forEach(event => {
+    keyed.set(`${event.stage}|${event.title}|${event.meta}`, event);
+  });
+  weaveActivity.events = Array.from(keyed.values()).slice(-24);
+  return incoming.length;
+}
+
+function recordWeaveActivity(job) {
+  if (!job || !job.id) return;
+  const currentCount = Number(job.log_count || 0);
+  const status = String(job.status || '');
+  const stageKey = jobCurrentStageKey(job) || (status === 'success' ? 'figures' : 'prep');
+  const publicEventCount = Array.isArray(job.public_events) ? job.public_events.length : 0;
+  if (weaveActivity.jobId !== job.id) {
+    resetWeaveActivity(job);
+    if (!mergeWeaveActivityEvents(job.public_events)) {
+      weaveActivity.events.push({
+        stage: stageKey,
+        title: 'Run state loaded',
+        meta: `${jobStageDisplay(job)} at ${formatWorkflowTime(job.updated_at || job.created_at)}`,
+      });
+    }
+    return;
+  }
+  const delta = weaveActivity.lastLogCount === null ? 0 : currentCount - weaveActivity.lastLogCount;
+  mergeWeaveActivityEvents(job.public_events);
+  if (delta > 0 && !publicEventCount) {
+    weaveActivity.events.push({
+      stage: stageKey,
+      title: `${delta} internal update${delta === 1 ? '' : 's'} observed`,
+      meta: `${jobStageDisplay(job)} at ${formatWorkflowTime(job.updated_at)}`,
+    });
+  }
+  if (status && weaveActivity.lastStatus && status !== weaveActivity.lastStatus) {
+    weaveActivity.events.push({
+      stage: stageKey,
+      title: `Run marked ${status}`,
+      meta: formatWorkflowTime(job.updated_at),
+    });
+  }
+  weaveActivity.lastLogCount = currentCount;
+  weaveActivity.lastStatus = status;
+  if (weaveActivity.events.length > 18) weaveActivity.events = weaveActivity.events.slice(-18);
+}
+
+function publicStageNodes(stage, visual, job) {
+  const details = STAGE_DETAILS[stage.key] || {};
+  const status = String((job && job.status) || 'pending').toLowerCase();
+  const nodes = [];
+  const recent = weaveActivity.events
+    .filter(event => event.stage === stage.key)
+    .slice(-4)
+    .reverse();
+  recent.forEach(event => nodes.push({ title: event.title, meta: event.meta }));
+  const stateCopy = visual.cls === 'failed'
+    ? 'Stage did not finish.'
+    : visual.cls === 'disabled'
+      ? 'Skipped for this run.'
+      : details[visual.cls] || details.queued || 'Waiting for workflow state.';
+  if (!nodes.length || visual.cls !== 'active') {
+    nodes.push({ title: stateCopy, meta: visual.label });
+  }
+  if (visual.cls === 'failed') {
+    nodes.push({
+      title: 'Stopped at this stage',
+      meta: job && job.error ? 'Review the public result files or adjust inputs.' : 'Review available outputs below.',
+    });
+  } else if (visual.cls === 'done' && status === 'success') {
+    nodes.push({
+      title: 'Terminal status reached',
+      meta: `${Number((job && job.result_files && job.result_files.length) || 0)} output files indexed`,
+    });
+  }
+  return nodes.slice(0, 5);
+}
+
+function dnaLabelLines(stageKey) {
+  const labels = {
+    prep: ['Prep'],
+    annotation: ['Annotation', 'BGC'],
+    bigscape: ['BiG-SCAPE'],
+    summary: ['Summary'],
+    clinker: ['clinker'],
+    figures: ['Figures'],
+    nplinker: ['NPLinker'],
+  };
+  return labels[stageKey] || [stageKey];
+}
+
+function dnaPoint(model, t, strand) {
+  const wave = Math.sin((t * Math.PI * 4) - Math.PI / 2);
+  if (model.orientation === 'vertical') {
+    const y = model.start + (model.end - model.start) * t;
+    const x = model.mid + strand * model.amp * wave;
+    return { x, y };
+  }
+  const x = model.start + (model.end - model.start) * t;
+  const y = model.mid + strand * model.amp * wave;
+  return { x, y };
+}
+
+function dnaPath(model, strand) {
+  const points = [];
+  for (let i = 0; i <= 96; i++) points.push(dnaPoint(model, i / 96, strand));
+  return points.map((p, idx) => `${idx ? 'L' : 'M'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+}
+
+function dnaLayout(containerWidth) {
+  const vertical = containerWidth < 680;
+  return vertical
+    ? { orientation: 'vertical', width: 360, height: 720, start: 58, end: 628, mid: 62, amp: 27 }
+    : { orientation: 'horizontal', width: 1000, height: 330, start: 82, end: 918, mid: 126, amp: 54 };
+}
+
+function dnaStageModels(job, layout) {
+  return STAGES.map((stage, index) => {
+    const t = STAGES.length === 1 ? 0 : index / (STAGES.length - 1);
+    const visual = stageVisualState(stage.key);
+    const details = STAGE_DETAILS[stage.key] || stage;
+    const a = dnaPoint(layout, t, -1);
+    const b = dnaPoint(layout, t, 1);
+    const x = (a.x + b.x) / 2;
+    const y = (a.y + b.y) / 2;
+    const panelStyle = layout.orientation === 'vertical'
+      ? '--panel-left: calc(100% + .85rem); --panel-top: -1.1rem; --panel-shift: 0%;'
+      : t < .3
+        ? '--panel-left: calc(100% + .85rem); --panel-top: -5.35rem; --panel-shift: 0%;'
+        : t > .7
+          ? '--panel-left: -.85rem; --panel-top: -5.35rem; --panel-shift: -100%;'
+          : '--panel-left: 50%; --panel-top: -5.35rem; --panel-shift: -50%;';
+    return {
+      stage,
+      index,
+      visual,
+      details,
+      nodes: publicStageNodes(stage, visual, job),
+      a,
+      b,
+      x,
+      y,
+      t,
+      xPct: `${(x / layout.width * 100).toFixed(3)}%`,
+      yPct: `${(y / layout.height * 100).toFixed(3)}%`,
+      panelStyle,
+    };
+  });
+}
+
+function renderDnaStageSvg(model, layout) {
+  const { stage, visual, a, b, x, y, index } = model;
+  const cls = visual.cls;
+  const labels = dnaLabelLines(stage.key);
+  const labelX = layout.orientation === 'vertical' ? 128 : x;
+  const labelY = layout.orientation === 'vertical' ? y - 6 : 220 + (index % 2) * 34;
+  const metaY = labelY + labels.length * 22 + 10;
+  const labelAnchor = layout.orientation === 'vertical' ? 'start' : 'middle';
+  const labelLines = labels.map((line, idx) => `
+    <text class="dna-label ${cls}" x="${labelX.toFixed(1)}" y="${(labelY + idx * 22).toFixed(1)}" text-anchor="${labelAnchor}">${escapeHtml(line)}</text>
+  `).join('');
+  const activeRing = cls === 'active' || cls === 'failed'
+    ? `<circle class="dna-active-ring" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="22">
+        <animate attributeName="r" values="18;31;18" dur="1.35s" repeatCount="indefinite"></animate>
+        <animate attributeName="opacity" values=".42;1;.42" dur="1.35s" repeatCount="indefinite"></animate>
+      </circle>`
+    : '';
+  return `
+    <g class="dna-stage dna-${cls}" aria-label="${escapeHtml(stage.label + ': ' + visual.label)}">
+      <line class="dna-rung ${cls}" x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}"></line>
+      ${activeRing}
+      <circle class="dna-base-dot dna-base-dot-a" cx="${a.x.toFixed(1)}" cy="${a.y.toFixed(1)}" r="10"></circle>
+      <circle class="dna-base-dot dna-base-dot-b" cx="${b.x.toFixed(1)}" cy="${b.y.toFixed(1)}" r="10"></circle>
+      <text class="dna-label-meta ${cls}" x="${labelX.toFixed(1)}" y="${metaY.toFixed(1)}" text-anchor="${labelAnchor}">${escapeHtml(visual.label)}</text>
+      ${labelLines}
+    </g>`;
+}
+
+function renderDnaPopover(model) {
+  const { stage, visual, details, nodes } = model;
+  return `
+    <div class="dna-base-popover ${visual.cls}" data-stage="${escapeHtml(stage.key)}" style="--x: ${model.xPct}; --y: ${model.yPct}; ${model.panelStyle}">
+      <button class="dna-popover-trigger" type="button" data-stage="${escapeHtml(stage.key)}" aria-describedby="dna-popover-${escapeHtml(stage.key)}" aria-label="${escapeHtml(details.name || stage.label)} activity">
+        <span class="sr-only">${escapeHtml(details.name || stage.label)} ${escapeHtml(visual.label)}</span>
+      </button>
+      <div class="dna-popover-panel" id="dna-popover-${escapeHtml(stage.key)}" role="tooltip">
+        <div class="dna-popover-head">
+          <span>${escapeHtml(details.name || stage.label)}</span>
+          <span class="dna-popover-status">${escapeHtml(visual.label)}</span>
+        </div>
+        <div class="dna-node-list">
+          ${nodes.map(node => `
+            <span class="dna-node-item">
+              <span class="dna-node-title">${escapeHtml(node.title)}</span>
+              <span class="dna-node-meta">${escapeHtml(node.meta)}</span>
+            </span>
+          `).join('')}
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderWeaveHelix(job = activeJobMeta) {
+  const helix = document.getElementById('weavemap-helix');
+  if (!helix || !activeStageState) return;
+  const layout = dnaLayout(helix.clientWidth || 900);
+  const models = dnaStageModels(job, layout);
+  const renderKey = JSON.stringify({
+    orientation: layout.orientation,
+    current: activeStageState.current || '',
+    failed: activeStageState.failed || '',
+    completed: Array.from(activeStageState.completed).join('|'),
+    enabled: Array.from(activeStageState.enabled).join('|'),
+    status: job ? String(job.status || '') : '',
+    events: weaveActivity.events.map(event => `${event.stage}|${event.title}|${event.meta}`).join('~'),
+  });
+  if (helix.dataset.renderKey === renderKey && helix.dataset.rendered === '1') return;
+  const scrollPositions = new Map(
+    Array.from(helix.querySelectorAll('.dna-base-popover')).map(popover => [
+      popover.dataset.stage,
+      popover.querySelector('.dna-node-list')?.scrollTop || 0,
+    ])
+  );
+  const hoveredStage = helix.querySelector('.dna-base-popover:hover')?.dataset.stage || '';
+  const focusedStage = document.activeElement?.closest?.('.dna-base-popover')?.dataset.stage || '';
+  helix.className = `weavemap-helix dna-${layout.orientation}`;
+  helix.innerHTML = `
+    <div class="dna-weave-shell" aria-hidden="true">
+      <svg class="dna-helix-svg" viewBox="0 0 ${layout.width} ${layout.height}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Workflow double helix">
+        <path class="dna-strand dna-strand-a" d="${dnaPath(layout, -1)}"></path>
+        <path class="dna-strand dna-strand-b" d="${dnaPath(layout, 1)}"></path>
+        ${models.map(model => renderDnaStageSvg(model, layout)).join('')}
+      </svg>
+    </div>
+    <div class="dna-popover-layer">
+      ${models.map(model => renderDnaPopover(model)).join('')}
+    </div>`;
+  models.forEach(model => {
+    const list = helix.querySelector(`.dna-base-popover[data-stage="${model.stage.key}"] .dna-node-list`);
+    if (list && scrollPositions.has(model.stage.key)) list.scrollTop = scrollPositions.get(model.stage.key) || 0;
+  });
+  if (focusedStage) {
+    helix.querySelector(`.dna-popover-trigger[data-stage="${focusedStage}"]`)?.focus({ preventScroll: true });
+  }
+  const restoredStage = focusedStage || hoveredStage;
+  if (restoredStage) {
+    const restoredPopover = helix.querySelector(`.dna-base-popover[data-stage="${restoredStage}"]`);
+    if (restoredPopover) {
+      restoredPopover.classList.add('hover-restored');
+      window.setTimeout(() => restoredPopover.classList.remove('hover-restored'), 300);
+    }
+  }
+  helix.dataset.rendered = '1';
+  helix.dataset.renderKey = renderKey;
+}
+
 function stageFromLine(line) {
   if (/=== Stage: (Preparing ClusterWeave project layout|Installing NCBI CLI|Preparing genomes from accessions)/i.test(line)) return 'prep';
   if (/Stage 1\/4: running run_annotation_and_detection\.sh/i.test(line)) return 'annotation';
@@ -5045,6 +5474,7 @@ function renderStageState() {
     if (stateEl) stateEl.textContent = stateLabel;
     el.setAttribute('aria-label', `${stageLabel}: ${stateLabel}`);
   });
+  renderWeaveHelix(activeJobMeta);
 }
 
 function updateProgressBadge(status) {
@@ -5099,7 +5529,6 @@ async function loadResults(jobId, status, seq = jobLoadSeq, job = activeJobMeta)
   const { files } = await resp.json();
   if (seq !== jobLoadSeq || jobId !== activeJobId) return;
 
-  if (canUseAdminSurfaces()) renderOutputDiscovery(jobId, files, status);
   if (status === 'success') renderViz(jobId, files);
   else if (status === 'pending' || status === 'running') {
     document.getElementById('viz-container').innerHTML = `
@@ -5143,8 +5572,8 @@ function renderRerunPanel(jobId, job) {
       </label>`;
   }).join('');
   panel.innerHTML = `
-    <div class="summary-panel">
-      <div class="summary-head">Rerun Selected Stages</div>
+    <details class="summary-panel rerun-summary">
+      <summary class="summary-head">Rerun Selected Stages</summary>
       <div class="rerun-panel-body">
         <div class="help-note">Reuses this job workspace and existing staged inputs/results. Leave completed stages unchecked to resume after a failure.</div>
         <div class="rerun-grid">${stageRows}</div>
@@ -5154,7 +5583,7 @@ function renderRerunPanel(jobId, job) {
           <span class="text-muted text-sm" id="rerun-status"></span>
         </div>
       </div>
-    </div>`;
+    </details>`;
 }
 
 async function rerunActiveJob() {
@@ -5211,88 +5640,8 @@ function isFigureAsset(path) {
   return /^Data\/Results\/[^/]+\/figures\/[^/]+\.(svg|png|jpe?g|webp)$/i.test(normalizedResultPath(path));
 }
 
-const OUTPUT_CONCEPTS = [
-  {
-    key: 'priority',
-    title: 'Prioritized BGC shortlist',
-    pending: 'Run a workflow to populate this panel.',
-    empty: 'No priority shortlist file was found for this job.',
-    available: 'A shortlist artifact is available in the result files.',
-    match: path => /(^|\/)(priority|family_atlas|shared_family).*shortlist.*\.(md|tsv|csv|txt)$/i.test(path),
-  },
-  {
-    key: 'family',
-    title: 'Gene cluster family context',
-    pending: 'Run a workflow to populate this panel.',
-    empty: 'No family atlas, crosswalk, or BiG-SCAPE context file was found.',
-    available: 'Family context output is available in the result files.',
-    match: path => /(family_atlas|crosswalk|bigscape|gcf|family).*?\.(tsv|csv|svg|png|graphml|md)$/i.test(path),
-  },
-  {
-    key: 'synteny',
-    title: 'Synteny / clinker panel',
-    pending: 'Run a workflow to populate this panel.',
-    empty: 'No clinker or synteny panel artifact was found for this job.',
-    available: 'A synteny panel artifact is available in the result files.',
-    match: path => /(clinker|synteny|panels_manifest|run_all_clinker).*?\.(html?|svg|png|tsv|sh)$/i.test(path),
-  },
-  {
-    key: 'figures',
-    title: 'Figures',
-    pending: 'Run a workflow to populate this panel.',
-    empty: 'No figure assets were found under Data/Results/<project>/figures.',
-    available: 'Figure assets are available and render in the gallery below.',
-    match: path => isFigureAsset(path),
-  },
-  {
-    key: 'artifacts',
-    title: 'Artifacts / files',
-    pending: 'No artifacts available yet.',
-    empty: 'No artifacts available yet.',
-    available: 'Result files are available in the Files tab.',
-    match: path => !!path,
-  },
-  {
-    key: 'nplinker',
-    title: 'NPLinker follow-up',
-    pending: 'Run a workflow to populate this panel.',
-    disabled: 'NPLinker optional follow-up not enabled.',
-    empty: 'NPLinker follow-up did not produce a linked artifact.',
-    available: 'NPLinker follow-up artifacts are available in the result files.',
-    optional: true,
-    enabled: () => jobStageEnabled(activeJobMeta || {}, 'nplinker'),
-    match: path => /(nplinker|gnps|podp|paired_omics|massive|metabolomics).*?\.(html?|tsv|csv|json|txt|md|mgf)$/i.test(path),
-  },
-];
-
-function renderOutputDiscovery(jobId, files, status) {
-  const container = document.getElementById('output-discovery');
-  if (!container) return;
-  const normalizedFiles = files.map(normalizedResultPath).filter(Boolean);
-  container.innerHTML = OUTPUT_CONCEPTS.map(concept => {
-    const matches = normalizedFiles.filter(path => concept.match(path)).sort((a, b) => a.localeCompare(b));
-    const enabled = typeof concept.enabled === 'function' ? concept.enabled() : true;
-    const incomplete = status === 'pending' || status === 'running';
-    const optionalDisabled = concept.optional && !enabled;
-    const state = matches.length ? 'available' : (optionalDisabled ? 'empty' : (incomplete ? 'pending' : 'empty'));
-    const label = state === 'available' ? 'Available' : (optionalDisabled ? 'Optional' : (state === 'empty' ? 'Empty' : 'Pending'));
-    const copy = matches.length ? concept.available : (optionalDisabled ? concept.disabled : (state === 'empty' ? concept.empty : concept.pending));
-    const firstPath = matches[0] || '';
-    const jsJobId = escapeJsString(jobId);
-    const jsPath = escapeJsString(firstPath);
-    const link = firstPath
-      ? `<div class="output-link"><a href="${escapeHtml(resultHref(jobId, firstPath))}" target="_blank" title="${escapeHtml(firstPath)}" onclick="return handleResultLinkClick(event,'${escapeHtml(jsJobId)}','${escapeHtml(jsPath)}',false)">${escapeHtml(fileNameFromPath(firstPath))}</a></div>`
-      : '<div class="output-link text-muted">No file linked yet</div>';
-    return `
-      <div class="output-card ${state}" data-output-kind="${escapeHtml(concept.key)}">
-        <div class="output-card-head">
-          <div class="output-card-title">${escapeHtml(concept.title)}</div>
-          <span class="output-state">${label}</span>
-        </div>
-        <div class="output-card-copy">${escapeHtml(copy)}</div>
-        ${link}
-      </div>`;
-  }).join('');
+function isSvgFigureAsset(path) {
+  return /^Data\/Results\/[^/]+\/figures\/[^/]+\.svg$/i.test(normalizedResultPath(path));
 }
 
 function fileTypeLabel(path) {
@@ -5346,16 +5695,14 @@ function folderSortKey(node) {
 
 function renderFileRow(jobId, f) {
   const name = fileNameFromPath(f);
-  const href = resultHref(jobId, f);
   const downloadHref = resultHref(jobId, f, { download: true });
   const jsJobId = escapeJsString(jobId);
   const jsPath = escapeJsString(f);
   return `<tr>
     <td><span class="ext-badge">${escapeHtml(fileTypeLabel(f))}</span></td>
-    <td><a class="file-path-link" href="${escapeHtml(href)}" target="_blank" onclick="return handleResultLinkClick(event,'${escapeHtml(jsJobId)}','${escapeHtml(jsPath)}',false)">${escapeHtml(normalizedResultPath(f))}</a></td>
+    <td><span class="file-path-link">${escapeHtml(normalizedResultPath(f))}</span></td>
     <td class="file-actions">
       <div class="file-actions-inner">
-        <a class="btn btn-ghost text-sm" href="${escapeHtml(href)}" target="_blank" onclick="return handleResultLinkClick(event,'${escapeHtml(jsJobId)}','${escapeHtml(jsPath)}',false)">Open</a>
         <a class="btn btn-ghost text-sm" href="${escapeHtml(downloadHref)}" download="${escapeHtml(name)}" onclick="return handleResultLinkClick(event,'${escapeHtml(jsJobId)}','${escapeHtml(jsPath)}',true)">Download</a>
       </div>
     </td>
@@ -5425,6 +5772,236 @@ function figureCaption(path) {
   return 'Rendered figure output from Data/Results/<project>/figures.';
 }
 
+function figureZoomKeyFromWrap(wrap) {
+  return `${wrap.dataset.resultJob || ''}|${wrap.dataset.resultPath || ''}`;
+}
+
+function figureZoomRecord(wrap) {
+  const key = figureZoomKeyFromWrap(wrap);
+  if (!figureZoomState.has(key)) {
+    figureZoomState.set(key, { scale: 1, x: 0, y: 0 });
+  }
+  return figureZoomState.get(key);
+}
+
+function clampNumber(value, min, max) {
+  if (max < min) return min;
+  return Math.max(min, Math.min(max, value));
+}
+
+function readSvgBaseViewBox(svg) {
+  const raw = (svg.getAttribute('viewBox') || '').trim();
+  const values = raw.split(/[\s,]+/).map(Number).filter(Number.isFinite);
+  if (values.length === 4 && values[2] > 0 && values[3] > 0) {
+    return { x: values[0], y: values[1], width: values[2], height: values[3] };
+  }
+  const parseSize = value => {
+    const match = String(value || '').match(/^[\d.]+/);
+    return match ? Number(match[0]) : 0;
+  };
+  let width = parseSize(svg.getAttribute('width'));
+  let height = parseSize(svg.getAttribute('height'));
+  if ((!width || !height) && typeof svg.getBBox === 'function') {
+    try {
+      const box = svg.getBBox();
+      width = width || box.width;
+      height = height || box.height;
+    } catch (e) {}
+  }
+  const base = { x: 0, y: 0, width: width || 1000, height: height || 640 };
+  svg.setAttribute('viewBox', `${base.x} ${base.y} ${base.width} ${base.height}`);
+  return base;
+}
+
+function applySvgFigureZoom(wrap, svg, state) {
+  const base = wrap._svgBaseViewBox || readSvgBaseViewBox(svg);
+  wrap._svgBaseViewBox = base;
+  const box = svg.getBoundingClientRect();
+  const viewportWidth = Math.max(1, box.width || wrap.getBoundingClientRect().width);
+  const viewportHeight = Math.max(1, box.height || wrap.getBoundingClientRect().height);
+  const visibleWidth = base.width / state.scale;
+  const visibleHeight = base.height / state.scale;
+  const x = clampNumber(
+    base.x + (-state.x * base.width) / (viewportWidth * state.scale),
+    base.x,
+    base.x + base.width - visibleWidth
+  );
+  const y = clampNumber(
+    base.y + (-state.y * base.height) / (viewportHeight * state.scale),
+    base.y,
+    base.y + base.height - visibleHeight
+  );
+  svg.setAttribute('viewBox', `${x} ${y} ${visibleWidth} ${visibleHeight}`);
+  svg.style.transform = '';
+}
+
+function applyFigureZoom(wrap) {
+  if (!wrap) return;
+  const preview = wrap.querySelector('.figure-preview');
+  if (!preview) return;
+  const state = figureZoomRecord(wrap);
+  const svg = preview.matches('svg') ? preview : null;
+  if (svg) {
+    applySvgFigureZoom(wrap, svg, state);
+  } else {
+    preview.style.transform = `translate(${state.x.toFixed(1)}px, ${state.y.toFixed(1)}px) scale(${state.scale.toFixed(3)})`;
+  }
+  wrap.classList.toggle('is-zoomed', state.scale > 1.01);
+  const reset = wrap.querySelector('.figure-zoom-reset');
+  if (reset) reset.textContent = `${Math.round(state.scale * 100)}%`;
+}
+
+function setFigureZoom(wrap, nextScale, originX, originY) {
+  const state = figureZoomRecord(wrap);
+  const scale = Math.max(1, Math.min(8, nextScale));
+  if (Math.abs(scale - 1) < 0.01) {
+    state.scale = 1;
+    state.x = 0;
+    state.y = 0;
+    applyFigureZoom(wrap);
+    return;
+  }
+  const previous = state.scale || 1;
+  const ratio = scale / previous;
+  state.x = originX - (originX - state.x) * ratio;
+  state.y = originY - (originY - state.y) * ratio;
+  state.scale = scale;
+  applyFigureZoom(wrap);
+}
+
+function zoomFigureAt(wrap, factor, originX = null, originY = null) {
+  if (!wrap) return;
+  const rect = wrap.getBoundingClientRect();
+  const x = originX === null ? rect.width / 2 : originX;
+  const y = originY === null ? rect.height / 2 : originY;
+  setFigureZoom(wrap, figureZoomRecord(wrap).scale * factor, x, y);
+}
+
+function handleFigureWheel(event, wrap) {
+  event.preventDefault();
+  const rect = wrap.getBoundingClientRect();
+  const factor = Math.exp(-event.deltaY * 0.0015);
+  zoomFigureAt(wrap, factor, event.clientX - rect.left, event.clientY - rect.top);
+}
+
+function handleFigurePointerDown(event, wrap) {
+  if (event.button !== undefined && event.button !== 0) return;
+  const state = figureZoomRecord(wrap);
+  if (state.scale <= 1.01) return;
+  event.preventDefault();
+  activeFigurePan = {
+    wrap,
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    originX: state.x,
+    originY: state.y,
+  };
+  wrap.classList.add('is-panning');
+  wrap.setPointerCapture?.(event.pointerId);
+}
+
+function handleFigurePointerMove(event, wrap) {
+  if (!activeFigurePan || activeFigurePan.wrap !== wrap || activeFigurePan.pointerId !== event.pointerId) return;
+  const state = figureZoomRecord(wrap);
+  state.x = activeFigurePan.originX + event.clientX - activeFigurePan.startX;
+  state.y = activeFigurePan.originY + event.clientY - activeFigurePan.startY;
+  applyFigureZoom(wrap);
+}
+
+function handleFigurePointerEnd(event, wrap) {
+  if (!activeFigurePan || activeFigurePan.wrap !== wrap || activeFigurePan.pointerId !== event.pointerId) return;
+  wrap.classList.remove('is-panning');
+  wrap.releasePointerCapture?.(event.pointerId);
+  activeFigurePan = null;
+}
+
+function zoomFigureControl(event, button, factor) {
+  event.preventDefault();
+  event.stopPropagation();
+  zoomFigureAt(button.closest('.figure-preview-wrap'), factor);
+}
+
+function resetFigureZoomControl(event, button) {
+  event.preventDefault();
+  event.stopPropagation();
+  const wrap = button.closest('.figure-preview-wrap');
+  const state = figureZoomRecord(wrap);
+  state.scale = 1;
+  state.x = 0;
+  state.y = 0;
+  applyFigureZoom(wrap);
+}
+
+function handleFigureZoomKeydown(event, wrap) {
+  if (event.key === '+' || event.key === '=') {
+    event.preventDefault();
+    zoomFigureAt(wrap, 1.2);
+  } else if (event.key === '-' || event.key === '_') {
+    event.preventDefault();
+    zoomFigureAt(wrap, 1 / 1.2);
+  } else if (event.key === '0' || event.key === 'Escape') {
+    event.preventDefault();
+    const state = figureZoomRecord(wrap);
+    state.scale = 1;
+    state.x = 0;
+    state.y = 0;
+    applyFigureZoom(wrap);
+  }
+}
+
+function initializeFigureZoomCards() {
+  document.querySelectorAll('.figure-preview-wrap[data-result-path]').forEach(wrap => applyFigureZoom(wrap));
+}
+
+function sanitizeInlineSvg(svg) {
+  svg.querySelectorAll('script, foreignObject, foreignobject, iframe, object, embed, link, meta, base').forEach(el => el.remove());
+  [svg, ...svg.querySelectorAll('*')].forEach(el => {
+    Array.from(el.attributes).forEach(attr => {
+      const name = attr.name.toLowerCase();
+      const value = String(attr.value || '').trim().toLowerCase();
+      if (name.startsWith('on')) {
+        el.removeAttribute(attr.name);
+      } else if ((name === 'href' || name === 'src' || name.endsWith(':href')) && /^(javascript:|data:text\/html)/i.test(value)) {
+        el.removeAttribute(attr.name);
+      }
+    });
+  });
+  return svg;
+}
+
+async function hydrateSvgFigures(jobId) {
+  const stages = Array.from(document.querySelectorAll('.figure-svg-stage'))
+    .filter(stage => stage.dataset.resultJob === jobId);
+  for (const stage of stages) {
+    const path = stage.dataset.resultPath || '';
+    if (!path) continue;
+    try {
+      const resp = await resultFetch(jobId, path);
+      if (!resp.ok) throw new Error('SVG unavailable');
+      const text = await resp.text();
+      const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
+      if (doc.querySelector('parsererror')) throw new Error('SVG could not be parsed');
+      const parsed = doc.documentElement;
+      if (!parsed || parsed.nodeName.toLowerCase() !== 'svg') throw new Error('File is not an SVG');
+      const svg = sanitizeInlineSvg(document.importNode(parsed, true));
+      svg.classList.add('figure-preview', 'figure-svg-preview');
+      svg.setAttribute('role', 'img');
+      if (!svg.getAttribute('aria-label')) svg.setAttribute('aria-label', fileNameFromPath(path));
+      if (!svg.getAttribute('preserveAspectRatio')) svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+      stage.innerHTML = '';
+      stage.appendChild(svg);
+      const wrap = stage.closest('.figure-preview-wrap');
+      if (wrap) {
+        wrap._svgBaseViewBox = readSvgBaseViewBox(svg);
+        applyFigureZoom(wrap);
+      }
+    } catch (err) {
+      stage.innerHTML = `<div class="viz-placeholder text-sm">${escapeHtml(err.message || 'SVG preview unavailable.')}</div>`;
+    }
+  }
+}
+
 function renderViz(jobId, files) {
   const figureFiles = files.filter(isFigureAsset).sort((a, b) => figureSortKey(a).localeCompare(figureSortKey(b)));
   const container = document.getElementById('viz-container');
@@ -5449,7 +6026,11 @@ function renderViz(jobId, files) {
     const downloadHref = resultHref(jobId, f, { download: true });
     const jsJobId = escapeJsString(jobId);
     const jsPath = escapeJsString(f);
+    const isSvg = isSvgFigureAsset(f);
     const imgSrc = resultNeedsAuth(jobId) ? '' : escapeHtml(href);
+    const preview = isSvg
+      ? `<div class="figure-svg-stage" data-result-path="${escapeHtml(f)}" data-result-job="${escapeHtml(jobId)}"><div class="viz-placeholder text-sm">Loading vector preview...</div></div>`
+      : `<img class="figure-preview" src="${imgSrc}" data-result-path="${escapeHtml(f)}" data-result-job="${escapeHtml(jobId)}" alt="${escapeHtml(name)}" draggable="false" />`;
     return `
       <div class="figure-panel">
         <div class="figure-panel-head">
@@ -5463,12 +6044,28 @@ function renderViz(jobId, files) {
             <a class="btn btn-ghost text-sm" href="${escapeHtml(downloadHref)}" download="${escapeHtml(name)}" onclick="return handleResultLinkClick(event,'${escapeHtml(jsJobId)}','${escapeHtml(jsPath)}',true)">Download</a>
           </div>
         </div>
-        <div class="figure-preview-wrap">
-          <img class="figure-preview" src="${imgSrc}" data-result-path="${escapeHtml(f)}" data-result-job="${escapeHtml(jobId)}" alt="${escapeHtml(name)}" />
+        <div class="figure-preview-wrap"
+          data-result-path="${escapeHtml(f)}"
+          data-result-job="${escapeHtml(jobId)}"
+          tabindex="0"
+          onwheel="handleFigureWheel(event,this)"
+          onkeydown="handleFigureZoomKeydown(event,this)"
+          onpointerdown="handleFigurePointerDown(event,this)"
+          onpointermove="handleFigurePointerMove(event,this)"
+          onpointerup="handleFigurePointerEnd(event,this)"
+          onpointercancel="handleFigurePointerEnd(event,this)">
+          ${preview}
+          <div class="figure-zoom-controls" aria-label="Figure zoom controls" onpointerdown="event.stopPropagation()" onwheel="event.stopPropagation()">
+            <button type="button" title="Zoom out" aria-label="Zoom out" onclick="zoomFigureControl(event,this,0.833)">-</button>
+            <button class="figure-zoom-reset" type="button" title="Reset zoom" aria-label="Reset zoom" onclick="resetFigureZoomControl(event,this)">100%</button>
+            <button type="button" title="Zoom in" aria-label="Zoom in" onclick="zoomFigureControl(event,this,1.2)">+</button>
+          </div>
         </div>
       </div>`;
   }).join('');
   container.innerHTML = `<div class="figure-grid">${cards}</div>`;
+  initializeFigureZoomCards();
+  hydrateSvgFigures(jobId);
   hydrateAuthenticatedFigures(jobId);
 }
 

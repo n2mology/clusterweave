@@ -297,6 +297,30 @@ class WebApiAuthTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(body, b"<svg></svg>\n")
 
+    def test_public_activity_events_sanitize_per_genome_runtime_logs(self) -> None:
+        self.write_job("jobone", "read-one", status="running")
+        self.job_store.write_logs(
+            "jobone",
+            [
+                "[08:04:16] Stage 1/4: running run_annotation_and_detection.sh",
+                "[08:04:20] Genomes to process (4): fungus_id1, fungus id2, /data/jobs/jobone/private/fungus_id3.fna, fungus_id4",
+                "[08:04:21] [1/4] genome=fungus_id1",
+                "[08:04:22] [2026-05-12 08:04:22] [INFO] fungus_id1: running antiSMASH (outdir=/data/jobs/jobone/private/secret)",
+                "[08:04:23] [2026-05-12 08:04:23] [INFO] fungus_id4: running FunBGCeX (outdir=/data/jobs/jobone/private/secret)",
+                "[08:04:24] Stage 2/4: running run_bigscape.sh",
+            ],
+        )
+
+        status, payload, _ = self.request("GET", "/api/jobs/jobone", headers=self.auth("read-one"))
+        self.assertEqual(status, 200)
+        events = payload["public_events"]
+        rendered = json.dumps(events)
+        self.assertIn("Running antiSMASH on fungus_id1", rendered)
+        self.assertIn("Running FunBGCeX on fungus_id4", rendered)
+        self.assertIn("Running BiG-SCAPE family graph", rendered)
+        self.assertNotIn("/data/jobs", rendered)
+        self.assertNotIn("secret", rendered)
+
     def test_terminal_notification_email_is_sanitized_and_adds_read_token_hash(self) -> None:
         outbox = Path(self.tmp.name) / "outbox"
         os.environ["CLUSTERWEAVE_SMTP_ENABLED"] = "1"

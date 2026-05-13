@@ -543,6 +543,7 @@ def write_run_panel_script(panel_dir: Path, staged_files: list[Path], project_ro
             "",
             "if [[ -n \"${CLINKER_DOCKER_IMAGE:-}\" ]]; then",
             "  DOCKER_ARGS=(--rm -i --user 0:0 --entrypoint \"\")",
+            "  DOCKER_ARGS+=(--workdir \"${SCRIPT_DIR}\")",
             "  if [[ -n \"${CLINKER_DOCKER_DATA_VOLUME:-}\" ]]; then",
             "    DOCKER_ARGS+=(-v \"${CLINKER_DOCKER_DATA_VOLUME}:/data\")",
             "  else",

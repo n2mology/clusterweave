@@ -1,10 +1,12 @@
 # ClusterWeave Web UI Style Guide
 
-This document is the design and implementation handoff for future UI agents working on
-`web/static/index.html`. ClusterWeave already has a functional static web UI wired to the
-canonical shell workflow. The next UI work should improve visual identity and user
-comprehension without disrupting uploads, jobs, worker telemetry, reruns, file downloads,
-or figure rendering.
+This document is the current design and implementation handoff for future UI agents working on
+`web/static/index.html` and closely related web helpers. It reflects the state after Slice 18 plus
+post-slice UI/runtime hardening on 2026-05-12.
+
+ClusterWeave now has a public Results-first static SPA with server-side token gates, admin/local
+lab QA tools, SMTP-ready result recovery, retention cleanup, a dynamic DNA WeaveMap, zoomable
+figures, and download-only file rows.
 
 ## Corrected Agent Brief
 
@@ -13,10 +15,9 @@ UI. Your task is to evolve the existing operational interface into a distinctive
 discovery command center" while preserving every working backend integration.
 
 ClusterWeave is a fungal biosynthetic gene cluster workflow that remains shell-first and
-HPC/Singularity-aware. The web UI is first a lab QA controller and later a public hosted demo
-for non-coding users. The interface should make the workflow understandable at a glance:
-genomes/accessions enter the system, canonical stages run, logs remain inspectable, and
-figure/files outputs become available.
+HPC/Singularity-aware. The web UI is now both a public hosted workflow surface and an admin/local
+QA controller. Public users should understand: genomes/accessions enter the system, canonical
+stages run, sanitized progress appears, and figures/files become available.
 
 The UI should feel like a polished research instrument: scientific, bioinformatic, woven,
 slightly gamified, modern, and memorable. It should not feel like a generic dark SaaS admin
@@ -40,27 +41,32 @@ Do not break these behaviors or identifiers:
 - No build system, framework, package manager, or external CDN dependency.
 - Preserve all IDs, event handlers, input names, and endpoint behavior used by the current JS.
 - Preserve `apiUrl(...)`; it keeps the app working behind SSH/web preview path prefixes.
-- Preserve `resultHref(...)` behavior: Open/preview should be inline; Download should request
-  `?download=1`.
+- Preserve token-aware `resultHref(...)`, `resultFetch(...)`, and `handleResultLinkClick(...)`.
+  Figure Open/preview may be inline; Download requests `?download=1`.
 - Preserve manual accession entry and submission as `manual_accessions.txt`.
+- Preserve manual accession validation for NCBI assembly accessions such as
+  `GCA_000011425.1` or `GCF_000001405.40`.
 - Preserve same-job rerun behavior and metadata distinction between `submission_settings` and
   rerun settings.
 - Visualization tab stays figure-only:
   `Data/Results/<project>/figures/*.{svg,png,jpg,jpeg,webp}`.
-- Files tab keeps direct file rows with enough path context, Open, and Download.
+- Files tab keeps foldered rows with enough path context and Download only. Do not re-add
+  Files-tab Open links.
 - Console/logs remain available for lab QA, even if visually de-emphasized.
+- Public/job-token views use sanitized stage events and failure summaries, not raw logs.
 - Do not invent result counts, scientific scores, candidate names, or QA outcomes.
 
 ## Visual Direction
 
-Design name: Woven Fungal Discovery Command Center.
+Design name: Woven Fungal Discovery Instrument.
 
 Core idea:
 
-- A live workflow map is the visual center.
+- A live double-helix workflow map is the visual center.
 - Upload/configuration is the input node.
-- Jobs/runs are selected missions through the same workflow.
-- Results are the output node: figures, files, and future priority interpretation.
+- Jobs/runs move through the same canonical workflow.
+- Results are the output node: progress, figures, downloadable files, and future priority
+  interpretation.
 - Braided connectors communicate "weave" without clutter.
 
 Tone:
@@ -79,69 +85,53 @@ Avoid:
 - Fake metrics.
 - Full landing-page hero that hides the actual tool.
 
-## Current UI Evaluation
+## Current Implementation Snapshot
 
-Baseline screenshot reviewed after Slice 7:
+Public/default mode:
 
-- The app is functional and visually much stronger than the original dashboard. It now has a
-  compact identity band, signal-field background, manuscript-inspired teal/violet/amber
-  palette, denser run cards, and a polished telemetry console.
-- The UI reads as a credible lab instrument, but it still leans more "flat dark HUD" than
-  "Neumorphism + Retrofuturism."
-- The first viewport is still panel-first: upload/configuration, job queue, and telemetry are
-  strong, but the user journey is not yet the dominant visual story.
-- The current `Intake / Pipeline / Outputs` pills are directionally useful but too passive and
-  small to serve as product navigation.
-- The hero strip introduces ClusterWeave, but it does not yet carry a memorable WeaveMap motif
-  or direct users through "add sources -> run stages -> inspect outputs."
-- The page has good operational density. Do not replace it with a landing page or oversized
-  hero.
-- The two-column intake/queue layout works well. The next polish should connect these modules
-  visually rather than rearranging the workflow again.
-- The console is visually improved but still competes strongly with the rest of the UI because
-  its contrast and terminal texture are very strong.
+- Header/nav keeps the app single-page and operational.
+- Identity band has two primary actions: `Start from NCBI accessions` and `Load demo run`.
+- Public access and data-use copy explain accepted inputs, retention, and result-link privacy.
+- Upload & Configure locks, greys, and collapses after submission.
+- Results is the main run surface.
+- `Workflow progress` lives inside Results above Visualization/Files.
+- The public WeaveMap is a horizontal DNA-style double helix with sanitized hover activity nodes.
+- Output discovery cards and redundant Results header panels are removed.
+- Visualization is figure-only with crisp SVG zoom and raster pan/zoom.
+- Files tab is foldered and download-only.
+- Bottom docs ribbon is a citation prompt.
 
-Gaps to address before final QA:
+Admin/local mode:
 
-- Surfaces are mostly flat dark cards with borders. They need a tactile depth system:
-  raised panels, recessed wells, bevel highlights, inset selected states, and pressed controls.
-- The current retrofuturist language is mostly background texture and neon accents. It needs
-  clearer instrument-console cues: segmented labels, signal rails, subtle CRT/dither texture,
-  status lamps, and deliberate teal/amber/violet routing.
-- Upload, workflow, queue, telemetry, and outputs still feel like adjacent panels more than one
-  physical control surface.
-- Buttons and inputs need a stronger hierarchy: raised primary action, recessed text wells,
-  pressed toggles, and unmistakable focus states.
-- Guided users need a clearer public-demo path: Load demo, Start run, View workflow map, then
-  inspect outputs.
-- Lab QA users still need fast access to worker state, logs, failures, job IDs, and artifacts,
-  but these should not dominate the default first impression.
-- Neumorphism must not reduce contrast. Text, controls, checkboxes, badges, and focus rings must
-  remain readable and accessible.
+- Run History, full logs, Lab QA console, worker telemetry, advanced knobs, stage toggles,
+  rerun controls, delete, and diagnostics remain available.
+- Rerun Selected Stages is collapsed by default and visually separated from Results tabs.
+- Admin views may show raw logs and worker state; public views must not.
 
-## Public Release Pivot After Slice 11
+Known runtime note:
 
-After browser visual review of the Slice 11 UI, the project direction changed from a lab-QA-first
-controller to a public hosted web service with admin-only QA capabilities. This does not discard
-the visual work; it changes which parts are public by default.
+- Clinker panels generated before the Docker `--workdir` fix can contain empty plot payloads.
+  Rerun the clinker stage to regenerate them.
 
-Key visual review conclusions:
+## Public Release State After Slice 18
 
-- The hero became redundant after the live workflow graphic was added. It should be simplified
-  to two actions: `Start from NCBI accessions` and `Load demo run`.
-- The static hero weave and the top-level `WeaveMap` section repeat the same concept. Remove
-  the static hero weave, remove top-level `WeaveMap` nav, and move the live run timeline into
-  Results as `Workflow progress`.
-- The public Results surface should be the run surface. Before a job is loaded it should say:
+After browser visual review of Slice 11, the project direction changed from a lab-QA-first
+controller to a public hosted web service with admin-only QA capabilities. Slices 13-18 and the
+post-slice hardening pass implemented that pivot.
+
+Implemented visual/product conclusions:
+
+- The hero is simplified to two actions: `Start from NCBI accessions` and `Load demo run`.
+- The static hero weave and top-level WeaveMap nav are gone.
+- The live run timeline lives in Results as `Workflow progress`.
+- The public Results surface is the run surface. Before a job is loaded it says:
   `Submit or load an existing run to see stage progress.`
-- Once a job is submitted, the Upload & Configure panel should visually lock, grey, collapse,
-  and hand the user to Results.
+- Once a job is submitted, Upload & Configure locks, greys, collapses, and hands the user to
+  Results.
 - `Run History`, full logs, reruns, worker telemetry, raw env overrides, stage toggles, and
-  advanced runtime knobs are admin/local features, not public defaults.
-- The output discovery cards introduced in Slice 11 are now redundant with Results tabs and
-  should be removed from public UI.
-- File paths in the Files tab should be displayed relative to the selected job/project; internal
-  prefixes such as `Data/Results/<project>` are implementation details.
+  advanced runtime knobs are admin/local features.
+- Output discovery cards are removed from Results.
+- Files tab paths are text and each file row offers Download only.
 
 Public release product/security decisions now live in `web/STAN.md`. Future agents must read it
 alongside this style guide before editing.
@@ -266,143 +256,65 @@ Suggested additional depth tokens:
 }
 ```
 
-## Journey-First Product Requirements
+## Current UI Contract
 
-The current UI is operationally complete enough to become more productized. The next work should
-shift the page from panel-first to journey-first:
+The journey-first work is implemented. Future agents should preserve this structure unless a
+user explicitly requests a redesign.
 
-1. Add fungal genomes or accessions.
-2. Weave them through canonical BGC workflow stages.
-3. Inspect prioritized BGC outputs, synteny, family context, logs, and artifacts.
+Public/default hierarchy:
 
-### Top-Level Navigation Shell
+1. Header/nav.
+2. Compact identity band and data-use/access copy.
+3. Intake/configuration.
+4. Results shell.
+5. Results `Workflow progress` double-helix map.
+6. Visualization and Files tabs.
+7. Citation strip.
 
-Create a clearer product navigation system while keeping the app single-page:
+Admin/local hierarchy:
 
-- Brand/logo on the left.
-- Primary navigation:
-  - Overview
-  - Intake
-  - WeaveMap
-  - Runs
-  - Outputs
-  - QA Console
-  - Docs
-- Right side actions/status:
-  - Load demo
-  - Start run
-  - Runtime/status chip
-  - Results
+1. Public shell plus token/admin controls.
+2. Run History.
+3. Lab QA console and worker telemetry.
+4. Workflow controls and advanced knobs.
+5. Collapsible `Rerun Selected Stages`.
 
-Navigation behavior:
+### Workflow Progress
 
-- Anchor to sections or switch focus states; do not introduce routing unless needed.
-- Use active states that update when a section is selected.
-- Collapse into a clean menu on smaller screens.
-- Translate high-end product-site navigation to ClusterWeave:
-  - "Services" -> workflow stages/tools.
-  - "Solutions" -> user modes: Guided Demo, Lab QA, Advanced/HPC.
-  - "Resources" -> Docs, Artifacts, Logs, Methods.
-  - CTA -> Start run or Load demo accession.
+The canonical workflow visual is the horizontal DNA-style WeaveMap inside Results.
 
-### Hero And Quick Start
+It should keep:
 
-Replace the compact strip with a memorable but still operational hero:
+- stage status semantics: complete, current, queued, failed, skipped
+- stationary pulsing highlight on the current stage
+- hover-only activity popovers
+- sanitized public events from known script/log markers
+- no heartbeat row
+- no lower duplicate "current stage" ribbon
+- no redundant input/output header cards once the helix is visible
 
-- Left side: strong headline and concise body copy.
-- Right side: static or lightweight animated WeaveMap motif showing genomes entering, braided
-  paths crossing, and priority outputs emerging.
-- Hero actions:
-  - Primary: Start from accessions
-  - Secondary: Load demo run
-  - Tertiary: View workflow map
+### Visualization And Files
 
-Suggested headline:
+Visualization:
 
-> Upload genomes or accessions, run canonical discovery stages, and inspect every output from
-> annotation to gene cluster family context.
+- figure-only
+- figure `Open` and `Download`
+- scroll-wheel zoom
+- keyboard zoom
+- manual `-` / `+` / reset controls
+- inline sanitized SVG with `viewBox` zoom
 
-The hero must lead directly into the app workflow. It should not become a detached marketing
-landing page.
+Files:
 
-### User Modes
+- foldered/lazy tree
+- path context as text
+- Download only
+- no per-file Open action
 
-Add a visible mode switch without changing backend behavior:
+### Admin Reruns
 
-- Guided Demo: minimizes noisy telemetry, emphasizes upload/start/stage progress/outputs.
-- Lab QA: expands worker telemetry, job IDs, runtime state, logs, failures, artifacts.
-- Advanced: exposes advanced knobs, NPLinker assets, annotation strategy, CPU threads, target
-  genome, and stage switches.
-
-Implementation guidance:
-
-- This can be CSS/JS section emphasis in the existing single-page app.
-- Do not remove controls. Modes may collapse, emphasize, or scroll to sections.
-- Default mode may be Guided Demo if no job is active, and Lab QA when a run is selected or
-  running.
-
-### WeaveMap
-
-Make the canonical workflow the central visual story:
-
-- Intake
-- Prep
-- Annotation / BGC detection
-- BiG-SCAPE family mapping
-- Summary / crosswalk
-- clinker synteny
-- Figures
-- NPLinker
-- Outputs
-
-Each stage module should show:
-
-- stage number
-- stage name
-- real tool chips
-- status: idle, ready, running, complete, failed, skipped
-- small progress line
-- hover/focus detail
-- artifact count only if real data exists
-
-Connect stages with braided orange/teal paths. Pulse only the active braid/stage when a run is
-active.
-
-### Section Hierarchy
-
-Suggested page structure after the next polish passes:
-
-1. Header/nav
-2. Cinematic workflow hero
-3. Three-step quick start:
-   - Add sources
-   - Configure workflow
-   - Start / monitor run
-4. WeaveMap pipeline
-5. Intake/configuration panel
-6. Runs / run history
-7. Outputs preview
-8. Collapsible QA console / telemetry
-9. Footer or compact docs/methods links
-
-### Outputs
-
-Add or refine a clear Outputs section, even when empty:
-
-- Prioritized BGC shortlist
-- Gene cluster family context
-- Synteny/clinker panel
-- Figures
-- Artifacts/files
-- NPLinker follow-up
-
-Use honest empty states:
-
-- "Run a workflow to populate this panel."
-- "No artifacts available yet."
-- "NPLinker optional follow-up not enabled."
-
-Do not invent fake scientific results.
+`Rerun Selected Stages` is admin/local only, collapsed, and visually indented from the
+Visualization/Files tabs.
 
 ### Copy Direction
 
@@ -424,26 +336,24 @@ wording except in very subtle internal metaphors.
 
 ## Practical Refinement Checklist
 
-Carry these deltas through the next implementation passes:
+Carry these constraints through future implementation passes:
 
 - Security/API first, then UI. Do not hide an unsafe endpoint behind CSS.
-- Add submit-token, per-job read-token, and admin-token enforcement server-side.
-- Redact anonymous `/api/system/status`.
-- Add quotas and retention metadata before widening public access.
-- Keep one static SPA, but role-gate public, job-token, submit-token, and admin surfaces.
-- Remove public `WeaveMap` naming; use `Workflow progress`.
-- Remove hero static weave and top-level `WeaveMap` nav.
-- Collapse/lock Upload & Configure after submit, then route users to Results.
-- Put the live stage timeline inside Results, above Visualization/Files.
-- Remove public Run History; keep it admin/local only.
-- Remove output discovery cards from public Results.
-- Trim displayed result paths while preserving `resultHref(...)` direct Open/Download behavior.
-- Remove public NPLinker controls, raw env overrides, public reruns, public delete, public stage
-  toggles, and public Lab QA.
-- Add Existing Run loader and browser-session list of unlocked runs.
-- Add ecology label table only when ecology-aware analysis is enabled.
-- Keep public copy explicit about acceptable input types, filename hygiene, retention, result-link
+- Keep server-side token enforcement for anonymous, submit-token, read-token, and admin roles.
+- Keep anonymous `/api/system/status` redacted.
+- Keep quotas and retention metadata aligned with public copy.
+- Keep one static SPA.
+- Keep public `Workflow progress` naming; reserve `WeaveMap` as an internal motif/class name.
+- Keep Upload & Configure lock/collapse after submit.
+- Keep public Run History, Lab QA, Advanced knobs, stage toggles, NPLinker, rerun, delete, and raw
+  env overrides hidden unless admin/local mode unlocks them.
+- Keep output discovery cards removed from public Results.
+- Keep Existing Run loader and browser-session unlocked-run list.
+- Keep ecology label table only when ecology-aware analysis is enabled.
+- Keep Files tab download-only.
+- Keep public copy explicit about accepted inputs, filename hygiene, retention, result-link
   privacy, and local Docker for sensitive work.
+- Keep clinker Docker `--workdir "${SCRIPT_DIR}"` in generated panel scripts.
 
 ## Design Tokens
 
@@ -485,20 +395,31 @@ Suggested palette:
 
 Before editing, inspect these selectors/functions in `web/static/index.html`:
 
+- Access/public auth: `access-panel`, `submit-token`, `admin-token`, `existing-run-link`,
+  `existing-run-token`, `opened-runs-select`, `saveAccessTokens(...)`,
+  `rememberOpenedRun(...)`.
 - Upload: `drop-zone`, `file-input`, `file-list`, `manual-accessions`,
-  `manual-accessions-status`, `run-btn`, `upload-status`.
+  `manual-accessions-status`, `run-btn`, `upload-status`, `data-use-ack`.
+- Email: `email-notification-panel`, `notify-email`, `smtpEnabled`.
+- Ecology table: `run-ecology`, `ecology-label-panel`, `metadata-table-body`,
+  `ECOLOGY_LABELS`, `buildEcologyMetadataText(...)`.
 - Core settings: `project-name`, `cpus`, `target-genome`, `genefinding-mode`.
-- Stage toggles: `run-genome-prep`, `run-annotation`, `run-bigscape`, `run-summary`,
-  `run-clinker`, `run-figures`, `run-ecology`, `run-nplinker`.
+- Admin/local stage toggles: `run-genome-prep`, `run-annotation`, `run-bigscape`,
+  `run-summary`, `run-clinker`, `run-figures`, `run-ecology`, `run-nplinker`.
 - Advanced controls: everything inside `advanced-panel`.
 - Job queue: `job-history`, `loadJob(...)`, `refreshJobHistory(...)`,
   `renderJobHistory(...)`, `markActiveJobCard(...)`.
-- Progress: `stage-bar`, `.stage-step`, `initializeStageState(...)`,
-  `renderStageState(...)`.
+- Progress: `weavemap`, `weavemap-helix`, `stage-bar`, `.stage-step`,
+  `initializeStageState(...)`, `renderStageState(...)`, `renderWeaveHelix(...)`,
+  `publicStageNodes(...)`, `mergeWeaveActivityEvents(...)`.
 - Logs: `log-terminal`, `system-console`, `pollSystemStatus(...)`.
 - Results: `results-card`, `rerun-panel`, `viz-container`, `files-container`,
   `renderViz(...)`, `renderFileTable(...)`.
-- URL helpers: `apiUrl(...)`, `resultHref(...)`, `normalizedResultPath(...)`.
+- Figure zoom: `figure-preview-wrap`, `figure-svg-stage`, `figure-svg-preview`,
+  `figure-zoom-controls`, `handleFigureWheel(...)`, `zoomFigureControl(...)`,
+  `hydrateSvgFigures(...)`.
+- URL helpers: `apiUrl(...)`, `apiFetch(...)`, `resultHref(...)`, `resultFetch(...)`,
+  `handleResultLinkClick(...)`, `normalizedResultPath(...)`.
 
 ## Ordered Vertical Slices
 
@@ -524,9 +445,20 @@ Progress:
 - Completed: Slice 16 - Ecology Label Table.
 - Completed: Slice 17 - Email Notifications And Retention Sweeper.
 - Completed: Slice 18 - Public Deployment QA.
+- Completed post-slice hardening:
+  - SMTP/public-link env passthrough on both `web` and `worker`.
+  - Manual accession validation in UI/API.
+  - Non-retryable NCBI accession-not-found retry policy.
+  - Public-safe DNA WeaveMap with hover activity popovers.
+  - Redundant output/header cards removed from Results.
+  - Crisp SVG figure zoom and fixed zoom controls.
+  - Collapsible admin rerun panel.
+  - Download-only Files tab.
+  - Clinker Docker `--workdir "${SCRIPT_DIR}"` panel-generation fix.
 - Current: No remaining numbered slice. Continue with hosting-specific deployment follow-up.
 
-Complete these slices in order. Each slice should leave the app usable.
+Historical slices are kept below for context. New work should use the current contract above and
+the deployment follow-up queue in `web/STAN.md`, not restart old completed slices.
 
 ### Slice 0: Baseline Safeguards
 
@@ -645,7 +577,7 @@ Tasks:
 
 - Keep Visualization figure-only and preserve `renderViz(...)`.
 - Improve figure cards with better captions and open/download affordances.
-- Keep Files tab folder grouping and lazy expansion.
+- Keep Files tab folder grouping and lazy expansion. Current public contract is Download only.
 - Add empty states for future output concepts:
   "Priority shortlist", "Family context", "Synteny panels", "Figure gallery".
 - Mark future panels as empty/pending/preview. Do not invent data.
@@ -774,7 +706,7 @@ Tasks:
   `NPLinker follow-up`.
 - Use honest empty states: `Run a workflow to populate this panel.`, `No artifacts available yet.`,
   `NPLinker optional follow-up not enabled.`
-- Keep the Visualization tab figure-only and the Files tab direct/open.
+- Keep the Visualization tab figure-only. Current Files tab contract is Download only.
 - Make console/telemetry quieter visually while keeping polling and output behavior intact.
 
 Acceptance:
@@ -901,8 +833,8 @@ Tasks:
 - Before a job is loaded, Results shows:
   `Submit or load an existing run to see stage progress.`
 - After submit, grey/lock Upload & Configure, collapse it, and route to Results.
-- Keep `apiUrl(...)`, `resultHref(...)`, Visualization figure-only behavior, and Files
-  Open/Download behavior.
+- Keep `apiUrl(...)`, `resultHref(...)`, Visualization figure-only behavior, figure
+  Open/Download behavior, and Files Download-only behavior.
 
 Acceptance:
 
@@ -983,7 +915,7 @@ Tasks:
   - read token can view only its job
   - admin can list jobs, see logs, rerun, and delete
   - public status is redacted
-  - result file Open/Download still uses `resultHref(...)`
+  - figure Open/Download and Files Download still use `resultHref(...)`
   - Visualization remains figure-only
   - upload/config locks/collapses after submit
   - no horizontal overflow on mobile
@@ -997,8 +929,7 @@ Acceptance:
 
 ## Prompt Template For A UI Agent
 
-Use this universal project-stamped prompt when handing off the next vertical slice to a fresh
-Codex session:
+Use this prompt when handing off future ClusterWeave web work to a fresh Codex session:
 
 ```text
 PROJECT STAMP
@@ -1006,36 +937,32 @@ PROJECT STAMP
 - Repo: /home/cloud/clusterweave
 - UI target: web/static/index.html
 - Style guide: web/STYLE.md
+- Operational handoff: web/STAN.md
 - Product: fungal BGC discovery and prioritization web UI
-- Runtime model: shell-first canonical workflow, web UI as controller
+- Runtime model: shell-first canonical workflow, static SPA as controller
 
 ROLE
-You are an expert frontend/UI Codex and visual designer joining ClusterWeave for one
-operational vertical build slice. Work like a senior engineer and product-minded UI designer:
-inspect the repository first, preserve working behavior, then make one scoped implementation.
+You are an expert frontend/UI Codex and product-minded visual designer joining ClusterWeave.
+Work like a senior engineer: inspect first, preserve working behavior, then make one scoped
+implementation that matches the current public-service direction.
 
 FIRST, INSPECT
 1. Run `git status --short` and note unrelated changes.
-2. Read `web/STYLE.md`.
-3. Read the `Current UI Evaluation`, `Journey-First Product Requirements`, `Practical
-   Refinement Checklist`, and `Ordered Vertical Slices` sections closely.
-4. Inspect the current `web/static/index.html` structure and the hooks used by the slice:
-   IDs, event handlers, JS functions, API paths, tabs, buttons, and data attributes.
-5. Inspect the current header/nav, hero, workflow map/stage bar, intake panel, job history,
-   results, telemetry, console, and mode/disclosure affordances before editing.
-6. Check nearby tests, especially `tests/test_repo_layout.py`.
-7. Identify the next incomplete slice in `web/STYLE.md`. If the user names a slice, do that
-   slice only. If no slice is named, start with the earliest incomplete slice.
-8. If browser tooling is available, capture or inspect the current UI before editing. If not,
+2. Read `web/STYLE.md` and `web/STAN.md`.
+3. Inspect the current `web/static/index.html` structure and any backend helper touched by the
+   request.
+4. Identify functional hooks involved: IDs, event handlers, JS functions, API paths, auth roles,
+   tabs, buttons, and data attributes.
+5. Check nearby tests, especially `tests/test_repo_layout.py`, `tests/test_web_api_auth.py`,
+   `tests/test_public_stage_sanitizer.py`, and helper-specific tests.
+6. If browser tooling is available, capture or inspect the current UI before editing. If not,
    state that browser screenshot tooling is unavailable and continue using live HTML/API checks.
 
 MISSION
-Implement exactly one vertical slice from `web/STYLE.md`:
-Slice <N>: <slice name>
-
-The current direction is journey-first:
-add fungal genomes or accessions -> weave through canonical BGC stages -> inspect outputs,
-synteny, family context, logs, and artifacts.
+Implement exactly the requested change or the next explicit hosting/deployment follow-up from
+`web/STAN.md`. There are no remaining numbered UI slices. If the user says "next slice" without
+details, choose the highest-priority deployment follow-up documented in STAN, or ask one concise
+question if the next step depends on host-specific information.
 
 ClusterWeave should feel like a woven fungal discovery instrument: scientific, bioinformatic,
 premium, readable, lightly gamified, and credible. The UI should blend Neumorphism and
@@ -1044,41 +971,43 @@ Retrofuturism only in service of clarity:
 - Retrofuturism = restrained signal lines, status lamps, dither texture, and orange/teal
   braided workflow paths.
 
-Do not jump straight to surface effects before the product structure is clear. The intended
-sequence is:
-- Slice 8: journey-first product navigation and hero.
-- Slice 9: Guided Demo / Lab QA / Advanced modes and section hierarchy.
-- Slice 10: Neumorphic surface system.
-- Slice 11: Retrofuturist WeaveMap and Outputs polish.
-- Slice 12: final QA and documentation.
+CURRENT UI CONTRACT
+- Public/default UI is Results-first and hides Lab QA/admin surfaces.
+- Server-side auth is the source of truth; never rely on CSS hiding for security.
+- Public workflow is fixed and canonical.
+- The Results `Workflow progress` surface uses the horizontal DNA double-helix WeaveMap.
+- Public activity popovers use sanitized events only.
+- Visualization is figure-only.
+- Figure cards may Open/Download; Files tab is Download only.
+- SVG figures hydrate inline and zoom by viewBox.
+- Reruns are admin/local only and live in a collapsible panel.
+- SMTP/email is optional and visible only when configured.
+- Clinker Docker panel scripts must set `--workdir "${SCRIPT_DIR}"`.
 
 NON-NEGOTIABLES
 - Keep the app single-page and lightweight; edit mainly `web/static/index.html`.
 - Do not add a build system, framework, package manager, or external CDN dependency.
-- Preserve backend integration, uploads, manual accessions, job queue behavior, worker status,
-  logs, results, file Open/Download links, figure rendering, reruns, and all API endpoints.
-- Preserve all functional IDs, names, event hooks, existing form behavior, polling behavior, and
-  JS integration unless a slice explicitly requires a local helper.
-- Preserve `apiUrl(...)` for proxied/path-prefixed hosting.
-- Preserve `resultHref(...)`: Open/preview is inline, Download requests `?download=1`.
+- Preserve `apiUrl(...)`, `apiFetch(...)`, auth headers, `resultHref(...)`, and `resultFetch(...)`.
+- Preserve token handling in `sessionStorage`; do not put submit/admin tokens in URLs.
+- Preserve public/server-side auth boundaries for anonymous, submit-token, read-token, and admin.
+- Preserve manual accessions as `manual_accessions.txt` and validate NCBI assembly format.
+- Preserve public input policy, quotas, retention, email redaction, and sanitized failures.
+- Preserve admin/local job history, logs, telemetry, reruns, delete, and advanced knobs.
 - Preserve Visualization as figure-only:
   `Data/Results/<project>/figures/*.{svg,png,jpg,jpeg,webp}`.
+- Do not re-add Files-tab Open links.
 - Do not invent fake scientific results, counts, scores, candidates, or QA outcomes.
 - Keep accessibility and responsive behavior in scope for every visual change.
-- Keep console/telemetry available for Lab QA even when the default Guided Demo view minimizes it.
-- Do not turn the first screen into a detached marketing landing page; it must remain an
-  operational workflow surface.
 
 PROCESS
-1. Briefly state the slice, the hooks you will touch, and the hooks you will preserve.
-2. Make the smallest coherent set of edits for that slice.
-3. Use the new direction as the north star:
-   product shell nav, central WeaveMap, mode switch, cleaner intake node, honest outputs, quieter
-   QA console, orange/teal braid motif, fewer nested borders, and stateful signal motion.
-4. Use existing CSS/JS patterns unless the slice clearly requires a new local helper.
+1. Briefly state the change, the hooks you will touch, and the hooks you will preserve.
+2. Make the smallest coherent set of edits.
+3. Use existing CSS/JS patterns unless the change clearly requires a local helper.
+4. Keep current public-service structure as the north star.
 5. Add focused tests only for functional contracts or regression-prone selectors.
 6. Run relevant checks. Prefer:
    - `python3 -m py_compile web/app.py web/worker.py web/canonical_pipeline.py`
+   - `python3 -m py_compile bin/*.py scripts/ncbi/*.py`
    - `python3 -m unittest discover -s tests`
    - `docker compose -f docker-compose.yml config`
    - `docker compose -f clusterweave.yml config`
@@ -1089,12 +1018,12 @@ PROCESS
 
 FINAL RESPONSE
 Summarize:
-- Slice completed.
+- What changed.
 - Files changed.
 - Functional hooks preserved.
 - Checks run and results.
 - Any residual risk.
-- The next slice to hand off, by number and name.
+- The next handoff item from STAN.
 ```
 
 Use this shorter prompt only when the receiving Codex already has the repo and style-guide
@@ -1103,10 +1032,10 @@ context loaded:
 ```text
 You are an expert frontend/UI Codex working on ClusterWeave.
 
-Read `web/STYLE.md` and implement only Slice <N>: <slice name>.
-Use the new direction: journey-first product shell, central WeaveMap, Guided Demo / Lab QA /
-Advanced modes, cleaner intake node, honest outputs, quieter QA console, orange/teal braided
-connectors, and a restrained Neumorphism + Retrofuturism blend.
+Read `web/STYLE.md` and `web/STAN.md`, inspect the repo, and implement the requested single
+change. Preserve the current public-service contract: token-gated API, Results-first UI, DNA
+Workflow progress, figure-only Visualization, download-only Files tab, admin-only QA/reruns,
+optional SMTP, retention, and sanitized public events.
 
 Keep the app single-page and lightweight: edit mainly `web/static/index.html`.
 Preserve every existing functional ID, JS hook, endpoint, upload behavior, job behavior,
@@ -1117,21 +1046,26 @@ scientific, bioinformatic, premium, readable, lightly gamified, and credible. Av
 landing page, generic dark admin dashboard, fake metrics, heavy dependencies, and childish game
 language.
 
-Before editing, inspect the current file, `Current UI Evaluation`, `Practical Refinement
-Checklist`, and list the hooks this slice touches. After editing, run the relevant checks,
-summarize exactly what changed, and name the next slice to hand off.
+Do not re-add Files Open links, output discovery cards, public logs, public stage toggles,
+public NPLinker controls, fake metrics, or marketing-page structure. Run focused tests and
+browser checks where relevant, then name the next deployment handoff item.
 ```
 
 ## Final Visual Review Questions
 
-Ask these after every major slice:
+Ask these after every major UI change:
 
 - Does the page explain the workflow without reading documentation?
-- Are upload, pipeline, queue, console, and outputs visually connected?
+- Does public mode hide admin/QA surfaces without relying on UI hiding for security?
+- Are intake, workflow progress, Visualization, Files, and citation visually connected?
+- Does the double-helix WeaveMap scale without overflow?
+- Are hover popovers useful, stable, and sanitized?
+- Do SVG and raster figure zoom both work?
+- Does Files show Download only?
 - Does the palette resemble the manuscript workflow more than the old dark dashboard?
 - Do neumorphic surfaces clarify hierarchy without lowering contrast?
 - Do retrofuturist signal lines/status lamps connect the modules into one instrument?
 - Is the interface fun and alive without sacrificing scientific trust?
 - Is the console still available but no longer the dominant visual object?
 - Did any fake scientific result or unsupported promise sneak in?
-- Did any functional ID, event hook, or API path change unintentionally?
+- Did any functional ID, event hook, auth boundary, or API path change unintentionally?

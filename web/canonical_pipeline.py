@@ -104,11 +104,27 @@ async def _stream_cmd(cmd: list[str], cwd: Path, job: Job, env: dict[str, str]) 
         async for raw_line in proc.stdout:
             line = raw_line.decode("utf-8", errors="replace").rstrip()
             if line:
+                public_stage = _public_stage_from_stream_line(line)
+                if public_stage:
+                    job.stage = public_stage
                 job.add_log(line)
         return await proc.wait()
     except FileNotFoundError as exc:
         job.add_log(f"ERROR: command not found: {exc}")
         return 127
+
+
+def _public_stage_from_stream_line(line: str) -> str | None:
+    """Return a sanitized stage label derived from known canonical script markers."""
+    if re.search(r"Stage 1/4:\s+running run_annotation_and_detection\.sh", line, re.IGNORECASE):
+        return "Running annotation / BGC detection"
+    if re.search(r"Stage 2/4:\s+running run_bigscape\.sh", line, re.IGNORECASE):
+        return "Running BiG-SCAPE family graph"
+    if re.search(r"Stage 3/4:\s+running summarize_clusterweave\.sh", line, re.IGNORECASE):
+        return "Building summary tables"
+    if re.search(r"Stage 4/4:\s+running run_clinker\.sh", line, re.IGNORECASE):
+        return "Staging synteny panels"
+    return None
 
 
 async def _run_required_stage(job: Job, stage: str, cmd: list[str], cwd: Path, env: dict[str, str]) -> None:

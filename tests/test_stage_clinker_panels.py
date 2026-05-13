@@ -218,6 +218,10 @@ class StageClinkerPanelsTests(unittest.TestCase):
                 [row["target_region"] for row in manifest_rows],
                 ["region001", "region003", "region004"],
             )
+            run_panel = results_root / "clinker" / "panels" / "atlas" / "product_a" / "run_panel.sh"
+            run_panel_text = run_panel.read_text(encoding="utf-8")
+            self.assertIn('DOCKER_ARGS+=(--workdir "${SCRIPT_DIR}")', run_panel_text)
+            self.assertIn('docker run "${DOCKER_ARGS[@]}"', run_panel_text)
             self.assertFalse((results_root / "clinker" / "panels" / "atlas" / "product_b").exists())
             self.assertFalse((results_root / "clinker" / "panels" / "atlas" / "product_a__region001").exists())
 

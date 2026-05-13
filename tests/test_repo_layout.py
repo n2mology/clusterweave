@@ -158,6 +158,7 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn('"reuse_existing_layout"] = True', app_text)
         self.assertIn('"submission_settings"', app_text)
         self.assertIn("Rerun Selected Stages", ui_text)
+        self.assertIn('class="summary-panel rerun-summary"', ui_text)
         self.assertIn("rerunActiveJob()", ui_text)
         self.assertIn("function rerunStageAllowed(key)", ui_text)
 
@@ -180,14 +181,17 @@ class RepoLayoutTests(unittest.TestCase):
     def test_web_visualization_is_limited_to_figure_outputs(self) -> None:
         text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
         self.assertIn("function isFigureAsset(path)", text)
-        self.assertIn("function renderOutputDiscovery(jobId, files, status)", text)
-        self.assertIn('id="output-discovery"', text)
-        self.assertIn("Prioritized BGC shortlist", text)
-        self.assertIn("Gene cluster family context", text)
-        self.assertIn("Synteny / clinker panel", text)
-        self.assertIn("Artifacts / files", text)
-        self.assertIn("NPLinker follow-up", text)
+        self.assertNotIn("function renderOutputDiscovery(jobId, files, status)", text)
+        self.assertNotIn('id="output-discovery"', text)
         self.assertIn("function figureCaption(path)", text)
+        self.assertIn("function handleFigureWheel(event, wrap)", text)
+        self.assertIn("function handleFigurePointerDown(event, wrap)", text)
+        self.assertIn("function hydrateSvgFigures(jobId)", text)
+        self.assertIn("function inlineResultMime(relPath", text)
+        self.assertIn("figure-zoom-controls", text)
+        self.assertIn("figure-svg-stage", text)
+        self.assertIn("figure-svg-preview", text)
+        self.assertIn("onwheel=\"handleFigureWheel(event,this)\"", text)
         self.assertIn('Data\\/Results\\/[^/]+\\/figures', text)
         self.assertIn("bgc_calls_by_tool_category.svg", text)
         self.assertIn("bigscape_network.svg", text)
@@ -220,6 +224,8 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn('Data\\/Results\\/[^/]+\\/figures', text)
         self.assertIn("renderFileRows(jobId, node.files)", text)
         self.assertIn("renderFileRow(jobId, f)", text)
+        self.assertIn('<span class="file-path-link">${escapeHtml(normalizedResultPath(f))}</span>', text)
+        self.assertNotIn('<a class="file-path-link"', text)
         self.assertIn("resultHref(jobId, f, { download: true })", text)
 
     def test_web_upload_supports_manual_accession_entry(self) -> None:
@@ -248,19 +254,21 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("const demoAccessions = ['GCA_000011425.1', 'GCA_030770425.1'];", text)
         self.assertIn("Start from NCBI accessions", text)
         self.assertIn("Load demo run", text)
-        self.assertIn("Upload genomes or accessions, run canonical discovery stages", text)
+        self.assertIn("Upload genomes or accessions, run biosynthetic gene cluster discovery stages", text)
+        self.assertIn("If you have found ClusterWeave useful", text)
+        self.assertIn("data-citation-link", text)
+        self.assertNotIn("Methods, artifacts, logs, and runtime notes", text)
+        self.assertNotIn('class="docs-links"', text)
         self.assertNotIn('href="#weavemap" data-nav-target="weavemap"', text)
         self.assertNotIn("hero-weavemap", text)
 
     def test_web_has_user_modes_and_section_hierarchy(self) -> None:
         text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
         self.assertIn('data-ui-mode="guided"', text)
-        self.assertIn('id="mode-panel"', text)
-        self.assertIn('data-mode-option="guided"', text)
-        self.assertIn('data-mode-option="lab"', text)
-        self.assertIn('data-mode-option="advanced"', text)
-        self.assertIn("Guided Demo", text)
-        self.assertIn("Lab QA", text)
+        self.assertNotIn('id="mode-panel"', text)
+        self.assertNotIn('data-mode-option="guided"', text)
+        self.assertNotIn('data-mode-option="lab"', text)
+        self.assertNotIn('data-mode-option="advanced"', text)
         self.assertIn("function setUIMode(mode", text)
         self.assertIn("body[data-ui-mode=\"guided\"] #console-card", text)
         self.assertIn('id="workflow-controls"', text)
@@ -290,7 +298,7 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn(".upload-zone {", text)
         self.assertIn(".stage-step {", text)
         self.assertIn(".job-card {", text)
-        self.assertIn(".output-card {", text)
+        self.assertIn(".figure-panel {", text)
         self.assertIn("box-shadow: var(--cw-terminal-shadow), var(--cw-bevel);", text)
         self.assertIn("box-shadow: var(--cw-pressed), inset 3px 0 0 var(--accent)", text)
 
@@ -301,7 +309,15 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn('id="results-workflow-host"', text)
         self.assertIn('id="stage-bar"', text)
         self.assertIn("weavemap-signal", text)
-        self.assertIn("weaveBraidPulse", text)
+        self.assertIn('id="weavemap-helix"', text)
+        self.assertIn("dna-active-ring", text)
+        self.assertIn("dna-popover-trigger", text)
+        self.assertIn(".dna-base-popover:hover .dna-popover-panel", text)
+        self.assertIn("hover-restored", text)
+        self.assertIn("renderWeaveHelix(activeJobMeta)", text)
+        self.assertIn("publicStageNodes", text)
+        self.assertIn("helix.dataset.renderKey", text)
+        self.assertIn("scrollPositions", text)
         self.assertIn("shell-first controller", text)
         for stage in [
             'data-stage="prep"',
@@ -325,22 +341,20 @@ class RepoLayoutTests(unittest.TestCase):
             "Outputs",
         ]:
             self.assertIn(label, text)
-        for output in [
-            "Prioritized BGC shortlist",
-            "Gene cluster family context",
-            "Synteny / clinker panel",
-            "Figures",
-            "Artifacts / files",
-            "NPLinker follow-up",
-        ]:
-            self.assertIn(output, text)
-        self.assertIn("Run a workflow to populate this panel.", text)
-        self.assertIn("No artifacts available yet.", text)
-        self.assertIn("NPLinker optional follow-up not enabled.", text)
+        self.assertNotIn("Prioritized BGC shortlist", text)
+        self.assertNotIn("Gene cluster family context", text)
+        self.assertNotIn("Synteny / clinker panel", text)
+        self.assertNotIn("Artifacts / files", text)
+        self.assertNotIn("Run a workflow to populate this panel.", text)
+        self.assertNotIn("No artifacts available yet.", text)
+        self.assertNotIn("NPLinker optional follow-up not enabled.", text)
         self.assertIn('body[data-ui-mode="guided"] #console-card .terminal-shell::before', text)
         self.assertIn(".weavemap-signal,", text)
         self.assertIn("function moveWorkflowProgressIntoResults()", text)
         self.assertNotIn('class="hero-weavemap section-anchor" id="weavemap"', text)
+        self.assertNotIn("dna-status-strip", text)
+        self.assertNotIn("Heartbeat", text)
+        self.assertNotIn('<details class="dna-base-popover', text)
 
     def test_web_job_queue_clicks_guard_against_stale_result_loads(self) -> None:
         text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
@@ -379,7 +393,7 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("function authHeadersFor(kind, jobId = null)", text)
         self.assertIn("function handleResultLinkClick(event, jobId, relPath, download = false)", text)
         self.assertIn('body[data-access="public"] .admin-only', text)
-        self.assertIn('class="mode-panel section-anchor admin-only"', text)
+        self.assertNotIn('class="mode-panel section-anchor admin-only"', text)
         self.assertIn('class="card section-anchor admin-only" id="jobs-card"', text)
         self.assertIn('class="card telemetry-card section-anchor admin-only" id="console-card"', text)
         self.assertIn('id="workflow-controls"', text)
@@ -387,8 +401,8 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn('id="advanced-panel"', text)
         self.assertIn('advanced-wrap admin-only', text)
         self.assertIn('id="rerun-panel" class="admin-only"', text)
-        self.assertIn('id="output-discovery"', text)
-        self.assertIn('results-intel admin-only', text)
+        self.assertNotIn('id="output-discovery"', text)
+        self.assertNotIn('results-intel admin-only', text)
         self.assertIn("Submit or load an existing run to see stage progress.", text)
         self.assertIn("body[data-access=\"public\"] .stage-step[data-stage=\"nplinker\"]", text)
         self.assertIn("const PUBLIC_FILE_EXTENSIONS = new Set(['gbk','gb','gbff','fasta','fa','fna','fsa','txt']);", text)

@@ -98,11 +98,13 @@ SENSITIVE_JOB_FIELDS = {
 }
 PROCESSED_JOB_STATUSES = {"success", "failed"}
 QUEUED_JOB_STATUSES = {"pending", "running"}
+PUBLIC_ACTIVITY_LIMIT = 40
 PUBLIC_GENOME_EXTENSIONS = {".fasta", ".fa", ".fna", ".fsa", ".gb", ".gbk", ".gbff"}
 PUBLIC_ACCESSION_EXTENSIONS = {".txt"}
 PUBLIC_ECOLOGY_METADATA_FILENAME = "ecofun_metadata_normalized.tsv"
 MANUAL_ACCESSIONS_FILENAME = "manual_accessions.txt"
 NCBI_ASSEMBLY_ACCESSION_RE = re.compile(r"^(?:GCA|GCF)_\d{9}\.\d+$", re.IGNORECASE)
+PUBLIC_ACTIVITY_TOKEN_RE = re.compile(r"[^A-Za-z0-9._-]+")
 BYTES_PER_MB = 1024 * 1024
 WORKER_STATUS_PATH = Path(os.environ.get("DATA_DIR", "/data")) / "worker" / "status.json"
 INLINE_MIME_OVERRIDES = {
@@ -349,7 +351,205 @@ def redact_env_overrides(settings: object) -> object:
     return redacted
 
 
-def job_payload(job: dict[str, object], *, admin: bool) -> dict[str, object]:
+def public_activity_label(value: object) -> str:
+    label = str(value or "").strip().strip("'\"")
+    label = label.replace("\\", "/").rsplit("/", 1)[-1]
+    lower_label = label.lower()
+    for extension in sorted(PUBLIC_GENOME_EXTENSIONS, key=len, reverse=True):
+        if lower_label.endswith(extension):
+            label = label[: -len(extension)]
+            break
+    label = PUBLIC_ACTIVITY_TOKEN_RE.sub("_", label).strip("._-")
+    return label[:72] or "genome"
+
+
+def normalize_public_activity_message(message: str) -> str:
+    text = message.strip()
+    while True:
+        updated = re.sub(r"^\[\d{4}-\d{2}-\d{2}[^\]]*\]\s*", "", text)
+        updated = re.sub(r"^\[(?:INFO|WARN|ERROR|FAIL|OK)\]\s*", "", updated, flags=re.IGNORECASE)
+        updated = updated.strip()
+        if updated == text:
+            return text
+        text = updated
+
+
+def public_activity_parts(line: object) -> tuple[str, str]:
+    text = str(line or "").strip()
+    match = re.match(r"^\[(?P<time>\d{2}:\d{2}:\d{2})\]\s*(?P<message>.*)$", text)
+    if not match:
+        return "", normalize_public_activity_message(text)
+    return match.group("time"), normalize_public_activity_message(match.group("message"))
+
+
+def public_activity_stage_from_marker(message: str) -> str | None:
+    if re.search(r"Stage 1/4:\s+running run_annotation_and_detection\.sh", message, re.IGNORECASE):
+        return "annotation"
+    if re.search(r"Stage 2/4:\s+running run_bigscape\.sh", message, re.IGNORECASE):
+        return "bigscape"
+    if re.search(r"Stage 3/4:\s+running summarize_clusterweave\.sh", message, re.IGNORECASE):
+        return "summary"
+    if re.search(r"Stage 4/4:\s+running run_clinker\.sh", message, re.IGNORECASE):
+        return "clinker"
+    return None
+
+
+def add_public_activity_event(
+    events: list[dict[str, str]],
+    seen: set[tuple[str, str, str]],
+    stage: str,
+    title: str,
+    meta: str = "",
+    observed_at: str = "",
+) -> None:
+    safe_title = str(title or "").strip()
+    safe_meta = str(meta or "").strip()
+    if not safe_title:
+        return
+    key = (stage, safe_title, safe_meta)
+    if key in seen:
+        return
+    seen.add(key)
+    event = {"stage": stage, "title": safe_title}
+    if safe_meta:
+        event["meta"] = safe_meta
+    if observed_at:
+        event["time"] = observed_at
+    events.append(event)
+
+
+def public_activity_from_logs(job_id: str, lines: list[str]) -> list[dict[str, str]]:
+    events: list[dict[str, str]] = []
+    seen: set[tuple[str, str, str]] = set()
+    current_stage = "prep"
+    genome_total = 0
+    genome_position: dict[str, str] = {}
+
+    for line in lines:
+        observed_at, message = public_activity_parts(line)
+        if not message:
+            continue
+
+        marker_stage = public_activity_stage_from_marker(message)
+        if marker_stage:
+            current_stage = marker_stage
+            title_by_stage = {
+                "annotation": "Running annotation and BGC detection",
+                "bigscape": "Running BiG-SCAPE family graph",
+                "summary": "Building summary tables",
+                "clinker": "Staging synteny panels",
+            }
+            add_public_activity_event(
+                events,
+                seen,
+                current_stage,
+                title_by_stage[current_stage],
+                "Canonical workflow stage",
+                observed_at,
+            )
+            continue
+
+        work_match = re.search(r"\[WORK\]\s+((?:GCA|GCF)_\d{9}\.\d+)", message, re.IGNORECASE)
+        if work_match:
+            accession = public_activity_label(work_match.group(1).upper())
+            add_public_activity_event(events, seen, "prep", f"Fetching accession {accession}", "NCBI genome download", observed_at)
+            continue
+
+        genomes_match = re.search(r"Genomes to process\s+\((\d+)\):\s*(.+)$", message, re.IGNORECASE)
+        if genomes_match:
+            genome_total = max(0, int(genomes_match.group(1)))
+            labels = [public_activity_label(part) for part in genomes_match.group(2).split(",")]
+            labels = [label for label in labels if label]
+            shown = ", ".join(labels[:3])
+            if len(labels) > 3:
+                shown = f"{shown}, +{len(labels) - 3} more"
+            add_public_activity_event(
+                events,
+                seen,
+                "annotation",
+                f"Queued {genome_total} genome{'s' if genome_total != 1 else ''} for annotation",
+                shown,
+                observed_at,
+            )
+            continue
+
+        genome_match = re.search(r"\[(\d+)/(\d+)\]\s+genome=([^\s]+)", message, re.IGNORECASE)
+        if genome_match:
+            index, total, genome = genome_match.groups()
+            genome_total = max(genome_total, int(total))
+            genome_label = public_activity_label(genome)
+            genome_position[genome_label] = f"{index} of {total}"
+            add_public_activity_event(
+                events,
+                seen,
+                "annotation",
+                f"Preparing genome {index} of {total}",
+                genome_label,
+                observed_at,
+            )
+            continue
+
+        antismash_match = re.search(r"^([^:\s]+):\s+running antiSMASH\b", message, re.IGNORECASE)
+        if antismash_match:
+            genome_label = public_activity_label(antismash_match.group(1))
+            meta = f"Genome {genome_position[genome_label]}" if genome_label in genome_position else "BGC detection"
+            add_public_activity_event(
+                events,
+                seen,
+                "annotation",
+                f"Running antiSMASH on {genome_label}",
+                meta,
+                observed_at,
+            )
+            continue
+
+        funbgcex_match = re.search(r"^([^:\s]+):\s+running FunBGCeX\b", message, re.IGNORECASE)
+        if funbgcex_match:
+            genome_label = public_activity_label(funbgcex_match.group(1))
+            meta = f"Genome {genome_position[genome_label]}" if genome_label in genome_position else "BGC detection"
+            add_public_activity_event(
+                events,
+                seen,
+                "annotation",
+                f"Running FunBGCeX on {genome_label}",
+                meta,
+                observed_at,
+            )
+            continue
+
+        done_match = re.search(r"^([^:\s]+):\s+(antiSMASH|FunBGCeX)\s+OK\b", message, re.IGNORECASE)
+        if done_match:
+            genome_label = public_activity_label(done_match.group(1))
+            tool = "antiSMASH" if done_match.group(2).lower() == "antismash" else "FunBGCeX"
+            add_public_activity_event(
+                events,
+                seen,
+                "annotation",
+                f"Finished {tool} on {genome_label}",
+                "BGC detection",
+                observed_at,
+            )
+            continue
+
+        if re.search(r"\brender(?:ing)?\s+summary\s+figures\b", message, re.IGNORECASE):
+            current_stage = "figures"
+            add_public_activity_event(events, seen, "figures", "Rendering summary figures", "Visual summaries", observed_at)
+            continue
+
+        if re.search(r"\b(FATAL|ERROR|FAILED|failed with exit code)\b", message):
+            add_public_activity_event(
+                events,
+                seen,
+                current_stage,
+                "Run reported an error",
+                "Check inputs and partial outputs.",
+                observed_at,
+            )
+
+    return events[-PUBLIC_ACTIVITY_LIMIT:]
+
+
+def job_payload(job: dict[str, object], *, admin: bool, include_public_events: bool = False) -> dict[str, object]:
     payload = dict(job)
     for key in SENSITIVE_JOB_FIELDS:
         payload.pop(key, None)
@@ -357,6 +557,9 @@ def job_payload(job: dict[str, object], *, admin: bool) -> dict[str, object]:
         for key in ["settings", "submission_settings", "last_rerun_settings"]:
             if key in payload:
                 payload[key] = redact_env_overrides(payload[key])
+    if include_public_events:
+        job_id = str(job.get("id") or "")
+        payload["public_events"] = public_activity_from_logs(job_id, read_logs(job_id)) if job_id else []
     return payload
 
 
@@ -752,7 +955,7 @@ class Handler(BaseHTTPRequestHandler):
             is_admin = request_is_admin(self)
 
             if len(parts) == 4:
-                self._send_json(HTTPStatus.OK, job_payload(job, admin=is_admin))
+                self._send_json(HTTPStatus.OK, job_payload(job, admin=is_admin, include_public_events=True))
                 return
 
             if len(parts) >= 5 and parts[4] == "logs":

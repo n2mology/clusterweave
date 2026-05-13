@@ -1,8 +1,8 @@
 # ClusterWeave Web Handoff For STAN
 
-This file is an internal collaborator and AI-agent handoff for the ClusterWeave web UI. It is
-written for the web-hosting/bioinformatics collaborator who originally scaffolded the web UI and
-for future agents implementing public-release slices.
+This file is an internal collaborator and AI-agent handoff for the ClusterWeave web UI and public
+deployment. It is written for the web-hosting/bioinformatics collaborator who originally
+scaffolded the web UI and for future agents continuing deployment or maintenance work.
 
 Do not store secrets here. Do not commit real tokens, SMTP credentials, VM IPs, private URLs, or
 submitted job links. Use environment variable names and deployment notes only.
@@ -14,50 +14,45 @@ most recent UI work, the interface was substantially improved visually and ergon
 project direction also changed:
 
 - Earlier work optimized for lab QA and local operator visibility.
-- The next phase optimizes for a live public web service with admin-only QA.
-- Public release requires server-side security, quotas, retention, and clearer input policy before
-  more visual polishing.
+- Slices 13-18 pivoted the app to a public hosted service with admin-only QA.
+- Post-slice work hardened public progress UX, file downloads, accession validation, SMTP wiring,
+  NCBI retry behavior, and clinker panel generation.
 
-`web/STYLE.md` remains the build-slice ledger. This file records the operational decisions,
-security model, and handoff notes behind those slices.
+`web/STYLE.md` records the UI contract. This file records the operational decisions, security
+model, deployment wire, and handoff notes.
 
 ## What Changed Since The Original Scaffold
 
-The current `web/static/index.html` is no longer just a plain dashboard. Recent slices added:
+The current `web/static/index.html` is no longer a plain dashboard. Current behavior includes:
 
 - A ClusterWeave wordmark and stronger visual identity.
 - A product-style header and single-page navigation.
 - Manual NCBI accession entry as a first-class input path.
 - A cleaner genome/accession intake panel.
-- Guided Demo / Lab QA / Advanced mode controls.
+- Public/admin access controls and Existing Run loader.
 - Neumorphic depth tokens and tactile controls.
-- A live workflow stage map with braided orange/teal connectors.
+- A Results-first `Workflow progress` map rendered as a DNA-style double helix.
+- Sanitized public activity popovers derived from known workflow markers.
 - More readable run cards, console styling, result tabs, figure rendering, file grouping, and
-  direct Open/Download links.
-- Playwright screenshot capability was installed locally and used to check desktop/mobile
-  no-job empty states.
+  download links.
+- Inline SVG figure preview/zoom that stays crisp.
+- Download-only Files tab.
+- Collapsible admin rerun controls.
+- Optional SMTP completion/failure notifications.
+- Expired-job retention cleanup.
+- Manual accession format validation.
+- Non-retryable NCBI datasets failures for missing/invalid accessions.
+- Clinker Docker panel scripts now run with `--workdir "${SCRIPT_DIR}"`.
 
-Important visual review result: the latest UI now has redundant workflow graphics. Public release
-should remove the static hero weave and top-level WeaveMap nav, then move the live timeline into
-Results as `Workflow progress`.
+Important runtime note: existing clinker `panel.html` files generated before the Docker workdir
+fix may contain `clusters: []` and show no synteny plot. Rerun the clinker stage to regenerate
+those panels.
 
-## Current Repo State Notes
+## Repo And QA State Notes
 
-After local Playwright setup, these files/directories may be untracked:
-
-- `node_modules/`
-- `package.json`
-- `package-lock.json`
-
-Decision needed before committing:
-
-- If Playwright becomes official repo QA tooling, commit `package.json` and `package-lock.json`,
-  ignore `node_modules/`, and document screenshot commands.
-- If Playwright remains local-only, remove the npm files or keep them out of the commit and add
-  only an operator note.
-
-Recommendation: make Playwright official QA tooling for public deployment screenshots, commit the
-package files, and add `node_modules/` to `.gitignore`.
+Playwright/browser checks are useful for UI changes. Keep `node_modules/` ignored. If Playwright
+remains official QA tooling, keep `package.json` and `package-lock.json` committed and document
+the screenshot commands used for public/admin views.
 
 ## Locked Public Release Decisions
 
@@ -388,7 +383,7 @@ After submit:
 
 - Upload & Configure locks, greys, collapses.
 - App routes/focuses to Results.
-- `Workflow progress` timeline appears above Visualization/Files.
+- `Workflow progress` double-helix timeline appears above Visualization/Files.
 - Stage labels:
   - Intake
   - Prep / NCBI retrieval
@@ -398,14 +393,13 @@ After submit:
   - clinker
   - Figures
   - Outputs
-- Annotation stage may show antiSMASH/FunBGCeX per-genome progress only when logs provide real
-  signal. Do not fake counts.
+- Annotation stage may show antiSMASH/FunBGCeX per-genome progress only when sanitized events
+  provide real signal. Do not fake counts.
 
-Remove public output discovery cards. Visualization remains figure-only. Files tab keeps Open and
-Download behavior but should display paths relative to the selected job/project, not full internal
-`Data/Results/<project>` prefixes.
+Remove public output discovery cards. Visualization remains figure-only. Figure cards may keep
+Open/Download. Files tab is download-only and displays paths as text.
 
-## Security/Implementation Risks After Slice 14
+## Implementation Ledger
 
 Slice 13 added an opt-in public API security boundary:
 
@@ -444,7 +438,7 @@ Slice 15 added the public UI shell:
   unlocked runs are tracked in the browser session.
 - Run history, Lab QA, advanced knobs, stage toggles, rerun/delete controls, raw env overrides,
   output discovery, and NPLinker controls are admin/local-only.
-- The live stage timeline moves into Results and public result file/figure links use saved read
+- The live stage timeline moves into Results. Public result file/figure fetches use saved read
   tokens through request headers.
 
 Slice 16 added controlled ecology labels:
@@ -478,14 +472,34 @@ Slice 18 added public deployment QA coverage:
 - Confirmed anonymous status is redacted and anonymous users cannot list, read, log, file, rerun,
   or delete jobs.
 - Confirmed submit tokens can create jobs within public quotas but cannot list jobs.
-- Confirmed read tokens can read only their job and can open/download result files through the
+- Confirmed read tokens can read only their job and can download result files through the
   token-aware result file API.
 - Confirmed admin tokens can list jobs, see full status/logs, rerun, and delete.
 - Captured Playwright screenshots for anonymous, submit-token, job-token, and admin views at
   desktop and mobile sizes using a temporary public-mode server.
 - Browser QA confirmed SMTP field visibility, submit lock/collapse after submission,
-  figure-only Visualization rendering, `resultHref(...)`-shaped Open/Download links, and no
-  horizontal overflow on mobile.
+  figure-only Visualization rendering, `resultHref(...)`-shaped figure Open/download links, and
+  no horizontal overflow on mobile.
+
+Post-slice hardening after Slice 18:
+
+- Docker Compose declares SMTP/public-link env passthroughs on both `web` and `worker`.
+- Manual accessions and uploaded accession lists reject malformed NCBI assembly accessions before
+  job creation in both public and local modes.
+- NCBI datasets "no genome assemblies match" and invalid accession errors are non-retryable, so a
+  failing accession no longer burns through repeated attempts.
+- The public Results workflow visualization is now a horizontal DNA-style WeaveMap with sanitized
+  hover popovers and no stale heartbeat row.
+- Redundant Results output-discovery panels and lower current-stage ribbon are removed.
+- Figure previews are zoomable. SVG figures are hydrated inline and zoom by `viewBox` to stay
+  sharp; raster figures use transform/pan.
+- Files tab rows are download-only.
+- `Rerun Selected Stages` is admin-only, collapsible, and visually separated from Results tabs.
+- Generated clinker Docker panel scripts now set `--workdir "${SCRIPT_DIR}"`. This fixes empty
+  clinker HTML payloads caused by relative `inputs/...` paths resolving from `/` inside Docker.
+
+Existing clinker panels generated before this fix need a clinker-stage rerun to regenerate
+non-empty `panel.html` plots.
 
 Remaining public-release risks:
 
@@ -496,12 +510,15 @@ Remaining public-release risks:
   quotas.
 - SMTP needs one live-provider end-to-end test after provider, sender policy, and public URL are
   confirmed.
+- A fresh public-mode canonical run should verify result links, email delivery, WeaveMap activity,
+  figure zoom, Files downloads, and regenerated clinker `panel.html` plots.
+- The citation strip still points at a future DOI/citation target.
 
-Keep server-side security ahead of UI hiding in the remaining public-release slices.
+Keep server-side security ahead of UI hiding in all future deployment and maintenance work.
 
-## Ordered Next Slices
+## Follow-Up Queue
 
-See `web/STYLE.md` for full task lists and acceptance criteria.
+See `web/STYLE.md` for the UI contract and historical slice ledger.
 
 - Completed: Slice 13 - Public API Security Foundation.
 - Completed: Slice 14 - Public Input Policy, Quotas, And Retention Metadata.
@@ -509,7 +526,18 @@ See `web/STYLE.md` for full task lists and acceptance criteria.
 - Completed: Slice 16 - Ecology Label Table.
 - Completed: Slice 17 - Email Notifications And Retention Sweeper.
 - Completed: Slice 18 - Public Deployment QA.
+- Completed: Post-slice hardening - SMTP compose wire, accession validation, NCBI retry policy,
+  WeaveMap polish, SVG zoom, download-only Files, collapsible reruns, clinker Docker workdir.
 - Current: No remaining numbered slice. Continue with hosting-specific deployment follow-up.
+
+Recommended next work:
+
+- Final DNS/TLS/reverse-proxy smoke test on the real host.
+- Live SMTP provider test with the final `CLUSTERWEAVE_PUBLIC_BASE_URL`.
+- Fresh public-mode demo run that exercises accession prep, WeaveMap public events, figures,
+  Files downloads, email, retention metadata, and clinker panel regeneration.
+- Replace the future citation placeholder with the final DOI or citation URL.
+- Capture desktop/mobile screenshots for anonymous, submit-token, read-token, and admin views.
 
 ## SMTP Deployment Wire
 
@@ -530,6 +558,33 @@ deployment environment or secret store, not this file:
   `CLUSTERWEAVE_SMTP_FROM`.
 - Keep `CLUSTERWEAVE_SMTP_OUTBOX_DIR` empty for live SMTP delivery.
 - Recreate both services so the UI advertises SMTP and the worker sends terminal notifications.
+
+## Local Docker Operation Notes
+
+For local/public-mode dry runs, `HOST_PORT=18080` maps the web service to
+`http://127.0.0.1:18080/` unless the host/reverse proxy exposes another address.
+
+Useful patterns:
+
+```bash
+sudo HOST_PORT=18080 docker compose up -d --force-recreate web worker
+sudo HOST_PORT=18080 docker compose up -d --no-deps --force-recreate web
+sudo docker compose build --no-cache web
+sudo docker compose build --no-cache worker
+```
+
+If Docker reports permission denied on `/var/run/docker.sock`, the operator either needs `sudo`
+or must re-login after being added to the `docker` group.
+
+If `0.0.0.0:18080` is already in use, an older container/process is still bound to that port.
+Use `docker compose ps` and recreate/stop the old web service, or choose a different `HOST_PORT`.
+
+When testing email links, set `CLUSTERWEAVE_PUBLIC_BASE_URL` to the URL users actually open. For
+SSH-forwarded browser tests that may be `http://127.0.0.1:18080/`; for LAN/public tests it should
+be the host/domain URL.
+
+Code copied into running containers is only a live hotfix. Rebuild images before treating a
+change as deployed.
 
 ## Questions For The Hosting Collaborator
 
@@ -554,7 +609,7 @@ Ask these before final public deployment:
 
 ## Suggested Environment Variables
 
-Names may change during implementation, but these are the current suggested contract:
+These are the current deployment contract names:
 
 ```text
 CLUSTERWEAVE_PUBLIC_MODE=1
@@ -584,10 +639,13 @@ CLUSTERWEAVE_SMTP_OUTBOX_DIR=
 ## Agent Rules For Future Work
 
 - Read `web/STYLE.md` and this file before editing.
-- Implement exactly one slice at a time.
+- Implement exactly one requested change or one deployment follow-up at a time.
 - Security/API hardening comes before UI hiding.
-- Preserve `apiUrl(...)`, `resultHref(...)`, result Open/Download behavior, and Visualization
-  figure-only behavior.
+- Preserve `apiUrl(...)`, `resultHref(...)`, token-aware result fetches, figure Open/Download,
+  Files Download-only behavior, and Visualization figure-only behavior.
+- Preserve server-side auth boundaries for anonymous, submit-token, read-token, and admin flows.
+- Preserve manual accession validation and non-retryable NCBI missing-accession behavior.
+- Preserve generated clinker Docker `--workdir "${SCRIPT_DIR}"`.
 - Do not invent scientific results, counts, scores, candidates, or QA outcomes.
 - Keep public copy honest about accepted inputs, retention, and sensitivity.
 - Keep admin/local QA capable, but do not expose it anonymously.
