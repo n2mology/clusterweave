@@ -545,6 +545,14 @@ class WebApiAuthTests(unittest.TestCase):
                 self.assertIn("GCA_000011425.1", payload["detail"])
                 self.assertEqual(list((Path(self.tmp.name) / "jobs").glob("*")), [])
 
+    def test_accession_lists_require_one_accession_per_line(self) -> None:
+        status, payload, _ = self.submit(
+            files=[("files", "accessions.txt", b"GCF_000001405.40 GCA_000011425.1\n")]
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("one accession per line", payload["detail"])
+        self.assertEqual(list((Path(self.tmp.name) / "jobs").glob("*")), [])
+
     def test_manual_accessions_are_validated_even_in_local_mode(self) -> None:
         self.app.PUBLIC_MODE = False
         status, payload, _ = self.submit(files=[("files", "manual_accessions.txt", b"random_accession\n")])

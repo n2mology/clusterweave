@@ -95,6 +95,10 @@ Public/default mode:
 - `NEW RUN` is the default full-page workflow; `RESULTS FROM EXISTING RUN` opens a private
   result link or a `ClusterWeave job ID + result access code`.
 - Data-use acknowledgment is required before a standard hosted submission.
+- Accession intake is a draft-to-accepted workflow: users paste one accession per line, press
+  `Add accessions`, and only accepted accession sources are submitted.
+- Manual accessions and uploaded `.txt` accession lists are merged into one generated
+  `manual_accessions.txt` workflow entry point; uploaded genome files remain separate inputs.
 - Upload & Configure locks, greys, and collapses after submission.
 - Results is the main run surface.
 - `Workflow progress` lives inside Results above Visualization/Files.
@@ -110,6 +114,11 @@ Admin/local mode:
   rerun controls, delete, and diagnostics remain available.
 - Reviewer-only access codes live behind a low-profile `Reviewer access` disclosure; public copy
   must not show `public`, `admin`, `submit token`, or `read token` labels.
+- Local finalization uses two public-mode web faces over one shared backend:
+  `docker-compose.local-faces.yml` runs `clusterweave-dev-web` on `18080` and
+  `clusterweave-public-web` on `18081`, both mounting the original `clusterweave_job_data`,
+  `clusterweave_antismash_db`, and `clusterweave_pfam_db` volumes. Do not run extra dev/public
+  workers in that setup; keep `clusterweave-worker` as the single backend worker.
 - Rerun Selected Stages is collapsed by default and visually separated from Results tabs.
 - Admin views may show raw logs and worker state; public views must not.
 
@@ -165,6 +174,8 @@ Public workflow:
 
 - Public pipeline is fixed and canonical. No public stage toggles.
 - Standard hosted submissions require the data-use acknowledgment in the UI and server request.
+- Accession sources must be one accession per non-empty line. Do not accept comma/semicolon
+  separated rows, header rows, or multiple accessions on one line.
 - Public intake supports:
   - manual NCBI accessions
   - one-accession-per-line `.txt` accession lists

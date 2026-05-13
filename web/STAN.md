@@ -597,6 +597,16 @@ sudo docker compose build --no-cache web
 sudo docker compose build --no-cache worker
 ```
 
+For side-by-side final UI checks, `docker-compose.local-faces.yml` provides two public-mode web
+faces only:
+
+- `clusterweave-dev-web` at `http://127.0.0.1:18080/`
+- `clusterweave-public-web` at `http://127.0.0.1:18081/`
+
+Both mount the original external `clusterweave_job_data`, `clusterweave_antismash_db`, and
+`clusterweave_pfam_db` volumes. Do not start extra dev/public workers for this mode; keep the
+original `clusterweave-worker` as the single backend worker.
+
 If Docker reports permission denied on `/var/run/docker.sock`, the operator either needs `sudo`
 or must re-login after being added to the `docker` group.
 

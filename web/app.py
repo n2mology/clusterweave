@@ -635,16 +635,15 @@ def parse_accession_text(filename: str, content: bytes) -> tuple[str | None, int
     count = 0
     for line_number, raw_line in enumerate(text.splitlines(), start=1):
         line = raw_line.strip()
-        if not line or line.startswith("#"):
+        if not line:
             continue
-        tokens = [token for token in line.replace(",", " ").replace(";", " ").split() if token]
-        if len(tokens) != 1:
+        if re.search(r"[\s,;]+", line):
             return f"Accession list '{filename}' must contain one accession per line; line {line_number} has multiple values", 0
-        if tokens[0].lower() == "accession":
+        if line.lower() == "accession":
             return f"Accession list '{filename}' must not include a header row", 0
-        if not NCBI_ASSEMBLY_ACCESSION_RE.match(tokens[0]):
+        if not NCBI_ASSEMBLY_ACCESSION_RE.match(line):
             return (
-                f"Accession list '{filename}' line {line_number} has invalid accession '{tokens[0]}'. "
+                f"Accession list '{filename}' line {line_number} has invalid accession '{line}'. "
                 "Use NCBI assembly accessions like GCA_000011425.1 or GCF_000001405.40",
                 0,
             )

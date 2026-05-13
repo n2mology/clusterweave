@@ -726,6 +726,54 @@
     border-color: rgba(202,231,226,.14);
     box-shadow: var(--cw-raise-control), var(--cw-bevel);
   }
+  .accession-format-note {
+    margin-top: .45rem;
+    color: var(--muted);
+    font-size: .76rem;
+    line-height: 1.45;
+  }
+  .accession-accepted-panel {
+    margin-top: .8rem;
+    padding: .65rem;
+    border: 1px solid rgba(202,231,226,.14);
+    border-radius: 6px;
+    background: rgba(8,10,16,.24);
+    box-shadow: var(--cw-inset-control);
+  }
+  .accession-accepted-head {
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    justify-content: space-between;
+    margin-bottom: .45rem;
+  }
+  .accession-accepted-list {
+    display: flex;
+    flex-direction: column;
+    gap: .28rem;
+    max-height: 8.5rem;
+    overflow: auto;
+  }
+  .accession-accepted-empty {
+    color: var(--muted);
+    font-size: .78rem;
+  }
+  .accession-accepted-row {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    padding: .28rem .45rem;
+    border-radius: 5px;
+    background: rgba(91,230,208,.045);
+    color: var(--cw-mint-100);
+    font-family: var(--mono);
+    font-size: .78rem;
+  }
+  .accession-check {
+    color: var(--success);
+    font-family: var(--font);
+    font-weight: 900;
+  }
 
   .file-list { margin-top: 1rem; display: flex; flex-direction: column; gap: .4rem; }
   .file-list:empty::before {
@@ -2870,11 +2918,21 @@
             <div class="form-group">
               <label for="manual-accessions">Manual accessions</label>
               <textarea id="manual-accessions" placeholder="GCA_000011425.1&#10;GCF_000002655.1"></textarea>
+              <div class="accession-format-note">One NCBI assembly accession per line. Example: GCA_000011425.1</div>
             </div>
             <div class="accession-actions mt1">
               <button class="btn btn-ghost text-sm" type="button" onclick="normalizeManualAccessions()">Add accessions</button>
-              <button class="btn btn-ghost text-sm" type="button" onclick="clearManualAccessions()">Clear</button>
+              <button class="btn btn-ghost text-sm" type="button" onclick="clearManualAccessions()">Clear draft</button>
               <span id="manual-accessions-status" class="text-muted text-sm"></span>
+            </div>
+            <div class="accession-accepted-panel" id="accepted-accessions-panel">
+              <div class="accession-accepted-head">
+                <div class="group-title">Accepted accessions</div>
+                <button class="btn btn-ghost text-sm" type="button" onclick="clearAcceptedAccessions()">Clear accepted</button>
+              </div>
+              <div class="accession-accepted-list" id="accepted-accessions-list">
+                <div class="accession-accepted-empty">No accepted accessions yet.</div>
+              </div>
             </div>
           </div>
         </div>
@@ -3322,6 +3380,9 @@
 <script>
 // ── State ──────────────────────────────────────────────────────────────────
 let selectedFiles = [];
+let acceptedManualAccessions = [];
+let accessionFileSources = [];
+let accessionFileSourceSerial = 0;
 let activeJobId   = null;
 let jobLoadSeq = 0;
 let pollTimerId = null;
@@ -4163,7 +4224,7 @@ function updateRunSummary() {
   if (!summary) return;
   const manualCount = manualAccessionLines().length;
   const inputLabels = selectedFiles.map(f => f.name);
-  if (manualCount) inputLabels.push(`${MANUAL_ACCESSIONS_FILENAME} (${manualCount} accession${manualCount === 1 ? '' : 's'})`);
+  if (manualCount) inputLabels.push(`${MANUAL_ACCESSIONS_FILENAME} generated (${manualCount} accession${manualCount === 1 ? '' : 's'})`);
   const shownInputs = inputLabels.slice(0, 3).join(', ');
   const moreCount = Math.max(0, inputLabels.length - 3);
   const selectedLabel = inputLabels.length
@@ -4418,76 +4479,141 @@ const ECOLOGY_LABELS = [
   'other',
 ];
 
-fileInput.addEventListener('change', () => addFiles([...fileInput.files]));
+fileInput.addEventListener('change', async () => {
+  await addFiles([...fileInput.files]);
+  fileInput.value = '';
+});
 manualAccessionsInput.addEventListener('input', () => {
   updateManualAccessionsStatus();
   renderFileList();
 });
 dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
 dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
-dropZone.addEventListener('drop', e => {
+dropZone.addEventListener('drop', async e => {
   e.preventDefault();
   dropZone.classList.remove('drag-over');
-  addFiles([...e.dataTransfer.files]);
+  await addFiles([...e.dataTransfer.files]);
 });
 
-function parseManualAccessions() {
-  const raw = manualAccessionsInput ? manualAccessionsInput.value : '';
+function parseAccessionText(raw) {
   const seen = new Set();
   const accessions = [];
   const invalid = [];
+  let duplicateCount = 0;
   raw.split(/\r?\n/).forEach((line, lineIndex) => {
-    const cleanLine = line.replace(/#.*/, '').trim();
+    const cleanLine = line.trim();
     if (!cleanLine) return;
-    cleanLine.split(/[\s,;]+/).forEach(token => {
-      const rawToken = token.trim();
-      const accession = rawToken.toUpperCase();
-      if (!accession || /^accession$/i.test(accession) || seen.has(accession)) return;
-      if (!NCBI_ASSEMBLY_ACCESSION_RE.test(accession)) {
-        invalid.push({ token: rawToken, line: lineIndex + 1 });
-        return;
-      }
-      seen.add(accession);
-      accessions.push(accession);
-    });
+    if (/^accession$/i.test(cleanLine)) {
+      invalid.push({ token: cleanLine, line: lineIndex + 1, kind: 'header' });
+      return;
+    }
+    if (/[\s,;]+/.test(cleanLine)) {
+      invalid.push({ token: cleanLine, line: lineIndex + 1, kind: 'multiple' });
+      return;
+    }
+    const accession = cleanLine.toUpperCase();
+    if (!NCBI_ASSEMBLY_ACCESSION_RE.test(accession)) {
+      invalid.push({ token: cleanLine, line: lineIndex + 1, kind: 'invalid' });
+      return;
+    }
+    if (seen.has(accession)) {
+      duplicateCount += 1;
+      return;
+    }
+    seen.add(accession);
+    accessions.push(accession);
   });
-  return { accessions, invalid };
+  return { accessions, invalid, duplicateCount };
+}
+
+function parseManualAccessions() {
+  return parseAccessionText(manualAccessionsInput ? manualAccessionsInput.value : '');
+}
+
+function mergedAcceptedAccessions() {
+  const seen = new Set();
+  const merged = [];
+  const add = (accession) => {
+    const normalized = String(accession || '').trim().toUpperCase();
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    merged.push(normalized);
+  };
+  acceptedManualAccessions.forEach(add);
+  accessionFileSources.forEach(source => source.accessions.forEach(add));
+  return merged;
 }
 
 function manualAccessionLines() {
-  return parseManualAccessions().accessions;
+  return mergedAcceptedAccessions();
 }
 
-function manualAccessionErrorMessage(parsed = parseManualAccessions()) {
+function manualAccessionErrorMessage(parsed) {
   if (!parsed.invalid.length) return '';
   const first = parsed.invalid[0];
   const more = parsed.invalid.length > 1 ? ` and ${parsed.invalid.length - 1} more` : '';
+  if (first.kind === 'multiple') {
+    return `Line ${first.line} has multiple values${more}. Enter one NCBI assembly accession per line.`;
+  }
+  if (first.kind === 'header') {
+    return `Header row "accession" on line ${first.line} is not allowed. Enter one NCBI assembly accession per line.`;
+  }
   return `Invalid accession "${first.token}" on line ${first.line}${more}. ${NCBI_ASSEMBLY_ACCESSION_HELP}`;
 }
 
 function updateManualAccessionsStatus() {
   const status = document.getElementById('manual-accessions-status');
   if (!status) return;
-  const parsed = parseManualAccessions();
-  const error = manualAccessionErrorMessage(parsed);
-  if (error) {
-    status.textContent = error;
+  const draft = manualAccessionsInput ? manualAccessionsInput.value.trim() : '';
+  if (draft) {
+    status.textContent = 'Draft ready to screen. Press Add accessions.';
     return;
   }
-  const count = parsed.accessions.length;
-  status.textContent = count ? `${count} accession${count === 1 ? '' : 's'} ready` : '';
+  const count = manualAccessionLines().length;
+  status.innerHTML = count ? `<span class="accession-check">&#10003;</span> ${count} accepted accession${count === 1 ? '' : 's'}` : '';
+}
+
+function renderAcceptedAccessions() {
+  const list = document.getElementById('accepted-accessions-list');
+  if (!list) return;
+  const accessions = manualAccessionLines();
+  if (!accessions.length) {
+    list.innerHTML = '<div class="accession-accepted-empty">No accepted accessions yet.</div>';
+    return;
+  }
+  list.innerHTML = accessions.map(accession => `
+    <div class="accession-accepted-row">
+      <span class="accession-check">&#10003;</span>
+      <span>${escapeHtml(accession)}</span>
+    </div>
+  `).join('');
 }
 
 function normalizeManualAccessions() {
   const parsed = parseManualAccessions();
   if (parsed.invalid.length) {
-    updateManualAccessionsStatus();
-    renderFileList();
+    const status = document.getElementById('manual-accessions-status');
+    if (status) status.textContent = manualAccessionErrorMessage(parsed);
     return;
   }
-  if (manualAccessionsInput) manualAccessionsInput.value = parsed.accessions.join('\n');
-  updateManualAccessionsStatus();
+  if (!parsed.accessions.length) {
+    const status = document.getElementById('manual-accessions-status');
+    if (status) status.textContent = 'Enter one NCBI assembly accession per line.';
+    return;
+  }
+  const existing = new Set(manualAccessionLines());
+  const newAccessions = parsed.accessions.filter(accession => !existing.has(accession));
+  acceptedManualAccessions.push(...newAccessions);
+  if (manualAccessionsInput) manualAccessionsInput.value = '';
+  renderAcceptedAccessions();
   renderFileList();
+  const status = document.getElementById('manual-accessions-status');
+  if (status) {
+    const duplicateText = parsed.duplicateCount ? ` ${parsed.duplicateCount} duplicate${parsed.duplicateCount === 1 ? '' : 's'} skipped.` : '';
+    status.innerHTML = newAccessions.length
+      ? `<span class="accession-check">&#10003;</span> ${newAccessions.length} accession${newAccessions.length === 1 ? '' : 's'} accepted.${duplicateText}`
+      : 'No new accessions added; duplicates already accepted.';
+  }
 }
 
 function clearManualAccessions() {
@@ -4496,22 +4622,80 @@ function clearManualAccessions() {
   renderFileList();
 }
 
+function clearAcceptedAccessions() {
+  acceptedManualAccessions = [];
+  accessionFileSources = [];
+  renderAcceptedAccessions();
+  updateManualAccessionsStatus();
+  renderFileList();
+}
+
+function clearAcceptedManualAccessions() {
+  acceptedManualAccessions = [];
+  renderAcceptedAccessions();
+  updateManualAccessionsStatus();
+  renderFileList();
+}
+
 function loadDemoAccessions(event) {
   if (event) event.preventDefault();
   const demoAccessions = ['GCA_000011425.1', 'GCA_030770425.1'];
-  if (manualAccessionsInput) manualAccessionsInput.value = demoAccessions.join('\n');
+  acceptedManualAccessions = demoAccessions.slice();
+  if (manualAccessionsInput) manualAccessionsInput.value = '';
   const projectName = document.getElementById('project-name');
   if (projectName && (!projectName.value.trim() || projectName.value.trim() === 'my_project')) {
     projectName.value = 'clusterweave_demo';
   }
-  updateManualAccessionsStatus();
+  renderAcceptedAccessions();
   renderFileList();
   const status = document.getElementById('upload-status');
-  if (status) status.textContent = 'Demo accessions loaded; review settings before starting.';
+  if (status) status.textContent = 'Demo accessions accepted; review settings before starting.';
   navigateToSection(event, 'intake', 'manual-accessions');
 }
 
-function addFiles(files) {
+async function addAccessionFileSource(file) {
+  if (accessionFileSources.some(source => source.name === file.name)) {
+    alert(`Accession list already added: ${file.name}`);
+    return false;
+  }
+  let text = '';
+  try {
+    text = await file.text();
+  } catch (err) {
+    alert(`Could not read accession list: ${file.name}`);
+    return false;
+  }
+  const parsed = parseAccessionText(text);
+  if (parsed.invalid.length) {
+    alert(`Accession list ${file.name}: ${manualAccessionErrorMessage(parsed)}`);
+    return false;
+  }
+  if (!parsed.accessions.length) {
+    alert(`Accession list ${file.name} does not contain any accessions.`);
+    return false;
+  }
+  const existing = new Set(manualAccessionLines());
+  const newAccessions = parsed.accessions.filter(accession => !existing.has(accession));
+  if (!newAccessions.length) {
+    alert(`Accession list ${file.name} contains only duplicate accessions already accepted.`);
+    return false;
+  }
+  accessionFileSources.push({
+    id: ++accessionFileSourceSerial,
+    name: file.name,
+    accessions: newAccessions,
+  });
+  const skipped = parsed.accessions.length - newAccessions.length + parsed.duplicateCount;
+  const status = document.getElementById('upload-status');
+  if (status) {
+    status.textContent = skipped
+      ? `${newAccessions.length} accession${newAccessions.length === 1 ? '' : 's'} accepted from ${file.name}; ${skipped} duplicate${skipped === 1 ? '' : 's'} skipped.`
+      : `${newAccessions.length} accession${newAccessions.length === 1 ? '' : 's'} accepted from ${file.name}.`;
+  }
+  return true;
+}
+
+async function addFiles(files) {
   const allowed = canUseAdminSurfaces() ? ADMIN_FILE_EXTENSIONS : PUBLIC_FILE_EXTENSIONS;
   const allowedCopy = canUseAdminSurfaces()
     ? '.gbk, .gb, .gbff, .fasta, .fa, .fna, .fsa, .txt, .tsv, .csv, .json, .gff, .gff3, .faa, .mgf, .zip'
@@ -4521,8 +4705,13 @@ function addFiles(files) {
       alert(`Unsupported file type: ${f.name}\nAllowed: ${allowedCopy}`);
       continue;
     }
+    if (ext(f.name) === 'txt') {
+      await addAccessionFileSource(f);
+      continue;
+    }
     if (!selectedFiles.find(x => x.name === f.name)) selectedFiles.push(f);
   }
+  renderAcceptedAccessions();
   renderFileList();
 }
 
@@ -4531,37 +4720,49 @@ function removeFile(index) {
   renderFileList();
 }
 
+function removeAccessionFileSource(index) {
+  accessionFileSources.splice(index, 1);
+  renderAcceptedAccessions();
+  renderFileList();
+}
+
 function renderFileList() {
   const list = document.getElementById('file-list');
   const btn  = document.getElementById('run-btn');
   const stat = document.getElementById('upload-status');
-  const manualParsed = parseManualAccessions();
-  const manualLines = manualParsed.accessions;
-  const manualError = manualAccessionErrorMessage(manualParsed);
-  const manualItem = manualLines.length ? `
+  const accessionLines = manualAccessionLines();
+  const manualItem = acceptedManualAccessions.length ? `
     <div class="file-item">
       <span class="file-icon">📄</span>
-      <span class="file-name">${MANUAL_ACCESSIONS_FILENAME}</span>
-      <span class="file-size">${manualLines.length} accession${manualLines.length === 1 ? '' : 's'}</span>
-      <button class="file-remove" onclick="clearManualAccessions()" title="Remove">✕</button>
+      <span class="file-name">Manual entry &rarr; ${MANUAL_ACCESSIONS_FILENAME}</span>
+      <span class="file-size">${acceptedManualAccessions.length} accession${acceptedManualAccessions.length === 1 ? '' : 's'}</span>
+      <button class="file-remove" onclick="clearAcceptedManualAccessions()" title="Remove">✕</button>
     </div>` : '';
+  const accessionFileItems = accessionFileSources.map((source, idx) => `
+    <div class="file-item">
+      <span class="file-icon">📄</span>
+      <span class="file-name">${escapeHtml(source.name)} &rarr; ${MANUAL_ACCESSIONS_FILENAME}</span>
+      <span class="file-size">${source.accessions.length} accession${source.accessions.length === 1 ? '' : 's'}</span>
+      <button class="file-remove" onclick="removeAccessionFileSource(${idx})" title="Remove">✕</button>
+    </div>`).join('');
   list.innerHTML = selectedFiles.map((f, idx) => `
     <div class="file-item">
       <span class="file-icon">📄</span>
       <span class="file-name">${escapeHtml(f.name)}</span>
       <span class="file-size">${fmt_size(f.size)}</span>
       <button class="file-remove" onclick="removeFile(${idx})" title="Remove">✕</button>
-    </div>`).join('') + manualItem;
-  const inputSourceCount = selectedFiles.length + (manualLines.length ? 1 : 0);
+    </div>`).join('') + manualItem + accessionFileItems;
+  const draftPending = !!(manualAccessionsInput && manualAccessionsInput.value.trim());
+  const inputSourceCount = selectedFiles.length + (accessionLines.length ? 1 : 0);
   const dataUseAck = document.getElementById('data-use-ack');
   const ackMissing = !canUseAdminSurfaces() && dataUseAck && !dataUseAck.checked;
-  btn.disabled = inputSourceCount === 0 || !!manualError || ackMissing;
-  if (manualError) {
-    stat.textContent = manualError;
+  btn.disabled = inputSourceCount === 0 || draftPending || ackMissing;
+  if (draftPending) {
+    stat.textContent = 'Press Add accessions to accept the draft before starting.';
   } else if (inputSourceCount && ackMissing) {
     stat.textContent = 'Confirm the data-use statement before starting.';
   } else {
-    stat.textContent = inputSourceCount ? `${inputSourceCount} input source(s) ready` : '';
+    stat.textContent = inputSourceCount ? `${inputSourceCount} workflow input source(s) ready` : '';
   }
   updateManualAccessionsStatus();
   syncEcologyMetadataPanel();
@@ -4732,10 +4933,8 @@ function metadataProfileText() {
 // ── Start Analysis ─────────────────────────────────────────────────────────
 async function startAnalysis() {
   const manualLines = manualAccessionLines();
-  const manualError = manualAccessionErrorMessage();
-  if (manualError) {
-    document.getElementById('upload-status').textContent = manualError;
-    updateManualAccessionsStatus();
+  if (manualAccessionsInput && manualAccessionsInput.value.trim()) {
+    document.getElementById('upload-status').textContent = 'Press Add accessions to accept the draft before starting.';
     renderFileList();
     return;
   }
@@ -4842,7 +5041,10 @@ async function startAnalysis() {
     const { job_id, read_token, expires_at } = await resp.json();
     if (read_token) rememberOpenedRun(job_id, read_token, { name, status: 'pending' });
     selectedFiles = [];
+    acceptedManualAccessions = [];
+    accessionFileSources = [];
     if (manualAccessionsInput) manualAccessionsInput.value = '';
+    renderAcceptedAccessions();
     renderFileList();
     document.getElementById('upload-status').textContent = expires_at ? `Run submitted. Results expire ${new Date(expires_at).toLocaleDateString()}.` : 'Run submitted.';
     lockSubmittedIntake();
@@ -6561,6 +6763,7 @@ async function initializeApp() {
   updateAccessTokenStatus();
   updateEmailNotificationPanel();
   renderOpenedRuns();
+  renderAcceptedAccessions();
   switchEntryTab('new');
   showEmptyResults();
   syncNavFromHash();
