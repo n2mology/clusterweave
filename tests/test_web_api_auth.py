@@ -373,6 +373,9 @@ class WebApiAuthTests(unittest.TestCase):
         self.assertEqual(len(messages), 1)
         body = messages[0].read_text(encoding="utf-8")
         self.assertIn("https://clusterweave.example.org/app/#/job/failjob/", body)
+        self.assertIn("Recovery details:", body)
+        self.assertIn("ClusterWeave job ID: failjob", body)
+        self.assertIn("Result access code:", body)
         self.assertIn("Suggested fixes:", body)
         self.assertNotIn("/data/jobs", body)
         self.assertNotIn("SECRET_TOKEN", body)
@@ -693,6 +696,24 @@ class WebApiAuthTests(unittest.TestCase):
         self.assertEqual(settings["anno_cpus"], job["cpus"])
         self.assertEqual(settings["workers"], min(2, job["cpus"]))
 
+    def test_web_submission_sanitizes_restricted_annotation_fallbacks_in_local_mode(self) -> None:
+        self.app.PUBLIC_MODE = False
+        fields = {
+            "project_name": "local-annotation-case",
+            "genefinding_mode": "braker3,funannotate",
+            "annotation_fallback_order": "braker3,funannotate",
+            "braker3_enabled": "1",
+        }
+        status, payload, _ = self.submit(fields=fields, token=None)
+        self.assertEqual(status, 201)
+
+        job = self.job_store.read_job(payload["job_id"])
+        self.assertIsNotNone(job)
+        assert job is not None
+        self.assertEqual(job["settings"]["genefinding_mode"], "funannotate")
+        self.assertEqual(job["settings"]["annotation_fallback_order"], "funannotate")
+        self.assertFalse(job["settings"]["braker3_enabled"])
+
     def test_public_runtime_unavailable_is_operator_facing(self) -> None:
         worker_dir = Path(self.tmp.name) / "worker"
         status_payload = {
@@ -793,6 +814,13 @@ class WebApiAuthTests(unittest.TestCase):
         self.assertIn("environment overrides", payload["detail"])
 
         self.app.ALLOW_ENV_OVERRIDES = True
+        status, payload, _ = self.submit(
+            fields={"project_name": "admin-restricted-env", "env_overrides": "BRAKER3_ENABLED=1"},
+            token="admin-secret",
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("Restricted annotation", payload["detail"])
+
         status, payload, _ = self.submit(
             fields={"project_name": "admin-env-allowed", "env_overrides": "SECRET=1"},
             token="admin-secret",

@@ -170,11 +170,12 @@ not legal advice.
 
 - Repo reference: `run_bigscape.sh` downloads `mibig_gbk_<version>.tar.gz` from
   `https://dl.secondarymetabolites.org/mibig`.
-- Upstream terms: MIBiG is an external reference dataset that should be cited as such. The conservative
-  policy for this repo is to treat MIBiG snapshots as externally hosted reference data and not mirror them
-  in ClusterWeave releases unless the exact release terms for the snapshot have been confirmed.
-- Requirement for the published repo: cite MIBiG and link users to the official source rather than
-  bundling the downloaded tarball.
+- Upstream terms: MIBiG 4.0 is an external reference dataset distributed under CC BY 4.0, with citation
+  guidance at https://mibig.secondarymetabolites.org/ and in the MIBiG 4.0 Nucleic Acids Research
+  publication, https://doi.org/10.1093/nar/gkae1115.
+- Requirement for the published repo: cite MIBiG, record the MIBiG version or snapshot date used in
+  provenance, and link users to the official source. If you bundle a MIBiG snapshot in a container or
+  release artifact, include the CC BY 4.0 notice, citation, source URL, and snapshot provenance.
 
 ### NCBI Genome Downloads
 

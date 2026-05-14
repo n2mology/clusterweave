@@ -389,12 +389,11 @@
     background: linear-gradient(var(--cw-mint-400), var(--cw-amber-2));
   }
   .docs-strip {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 1rem;
     margin-top: 1.1rem;
-    padding: .85rem 1rem;
+    padding: 1rem;
     border: 1px solid rgba(202,231,226,.16);
     border-radius: var(--radius);
     background: var(--cw-surface-panel-strong);
@@ -411,6 +410,13 @@
     color: var(--text);
     font-weight: 800;
   }
+  .docs-copy {
+    max-width: 78rem;
+    color: var(--muted);
+    font-size: .84rem;
+    line-height: 1.55;
+    margin-top: .35rem;
+  }
   .docs-title a {
     color: var(--cw-mint-400);
     font-weight: 900;
@@ -419,6 +425,52 @@
     text-underline-offset: 3px;
   }
   .docs-title a:hover { color: var(--cw-mint-50); }
+  .tool-credit-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+    gap: .72rem;
+  }
+  .tool-credit {
+    border: 1px solid rgba(202,231,226,.14);
+    border-radius: var(--radius);
+    background:
+      linear-gradient(180deg, rgba(255,252,244,.045), transparent 58%),
+      var(--cw-surface-control);
+    padding: .76rem .82rem;
+    box-shadow: var(--cw-raise-control), var(--cw-bevel);
+  }
+  .tool-credit-name {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: .5rem;
+    color: var(--cw-mint-50);
+    font-weight: 900;
+    line-height: 1.25;
+  }
+  .tool-credit-license {
+    color: var(--cw-amber-2);
+    font-family: var(--mono);
+    font-size: .66rem;
+    font-weight: 800;
+    white-space: nowrap;
+  }
+  .tool-credit-use,
+  .tool-credit-cite {
+    color: var(--muted);
+    font-size: .74rem;
+    line-height: 1.42;
+    margin-top: .36rem;
+  }
+  .tool-credit a {
+    color: var(--cw-mint-400);
+    font-weight: 800;
+  }
+  .docs-note {
+    color: var(--muted);
+    font-size: .75rem;
+    line-height: 1.45;
+  }
   body[data-ui-mode="guided"] #console-card {
     opacity: .74;
   }
@@ -2935,9 +2987,7 @@
             <div class="node-title">Genome / accession intake</div>
           </div>
           <div class="node-flow" aria-hidden="true">
-            <span>Files</span>
-            <span>Accessions</span>
-            <span>Metadata</span>
+            <span>NCBI GenBank Assembly ID</span>
           </div>
         </div>
 
@@ -3003,7 +3053,6 @@
               <select id="genefinding-mode" title="Uses the canonical annotation fallback order for FASTA inputs; annotated GenBank inputs are passed through when usable.">
                 <option value="auto" selected>Auto (advanced fallback order)</option>
                 <option value="funannotate">funannotate</option>
-                <option value="braker3,funannotate">BRAKER3 then funannotate</option>
               </select>
             </div>
           </div>
@@ -3100,7 +3149,6 @@
                 <label class="form-group-inline"><input type="checkbox" id="force-rerun" /> Force rerun existing outputs</label>
                 <label class="form-group-inline"><input type="checkbox" id="execute-clinker" checked /> Execute staged clinker panels</label>
                 <label class="form-group-inline"><input type="checkbox" id="figures-required" /> Require R figure stage success</label>
-                <label class="form-group-inline"><input type="checkbox" id="braker3-enabled" /> Enable BRAKER3 fallback</label>
               </div>
               <div class="form-grid">
                 <div class="form-group">
@@ -3445,9 +3493,57 @@
 
   <section class="docs-strip section-anchor" id="docs" tabindex="-1" aria-label="ClusterWeave citation">
     <div>
-      <span class="docs-kicker">Citation</span>
-      <span class="docs-title">If you have found ClusterWeave useful, please <a href="https://doi.org/" target="_blank" rel="noopener" data-citation-link title="ClusterWeave DOI link coming soon">cite us</a>.</span>
+      <span class="docs-kicker">Third-party tools and citations</span>
+      <span class="docs-title">ClusterWeave is a portal to public, open-access biosynthetic discovery tools.</span>
+      <p class="docs-copy">
+        We are grateful to the maintainers of these tools and reference datasets. ClusterWeave depends on
+        their public availability and wraps them into a guided workflow so non-coding domain experts can
+        participate in BGC target discovery. Please cite the upstream tools as well as
+        <a href="https://doi.org/" target="_blank" rel="noopener" data-citation-link title="ClusterWeave DOI link coming soon">ClusterWeave</a>
+        when outputs support your work.
+      </p>
     </div>
+    <div class="tool-credit-grid" aria-label="Third-party tool credits">
+      <article class="tool-credit">
+        <div class="tool-credit-name"><a href="https://antismash.secondarymetabolites.org/" target="_blank" rel="noopener">antiSMASH</a><span class="tool-credit-license">AGPL</span></div>
+        <div class="tool-credit-use">Containerized BGC detection with `antismash/standalone:8.0.4`.</div>
+        <div class="tool-credit-cite">Blin et al. antiSMASH 8.0. Nucleic Acids Research 2025. doi:10.1093/nar/gkaf334.</div>
+      </article>
+      <article class="tool-credit">
+        <div class="tool-credit-name"><a href="https://github.com/ydmatsd/funbgcex" target="_blank" rel="noopener">FunBGCeX</a><span class="tool-credit-license">MIT</span></div>
+        <div class="tool-credit-use">Fungal BGC extraction through the ClusterWeave-built FunBGCeX container.</div>
+        <div class="tool-credit-cite">Tang and Matsuda, Nat. Commun. 15, 4312 (2024), doi:10.1038/s41467-024-48771-7; Chan et al., JACS 147, 42100-42109 (2025), doi:10.1021/jacs.5c16272.</div>
+      </article>
+      <article class="tool-credit">
+        <div class="tool-credit-name"><a href="https://github.com/nextgenusfs/funannotate" target="_blank" rel="noopener">funannotate</a><span class="tool-credit-license">BSD-2</span></div>
+        <div class="tool-credit-use">Permissive annotation fallback for compatible fungal genome inputs.</div>
+        <div class="tool-credit-cite">Palmer and Stajich. Funannotate v1.8.1: Eukaryotic genome annotation. Zenodo 2020. doi:10.5281/zenodo.1134477.</div>
+      </article>
+      <article class="tool-credit">
+        <div class="tool-credit-name"><a href="https://github.com/medema-group/BiG-SCAPE" target="_blank" rel="noopener">BiG-SCAPE</a><span class="tool-credit-license">AGPL</span></div>
+        <div class="tool-credit-use">Family graph context via `ghcr.io/medema-group/big-scape:2.0.0-beta.6`.</div>
+        <div class="tool-credit-cite">BiG-SCAPE 2.0 and BiG-SLiCE 2.0, Nat. Commun. 2026. doi:10.1038/s41467-026-68733-5; Navarro-Munoz et al., Nat. Chem. Biol. 2020. doi:10.1038/s41589-019-0400-9.</div>
+      </article>
+      <article class="tool-credit">
+        <div class="tool-credit-name"><a href="https://github.com/gamcil/clinker" target="_blank" rel="noopener">clinker</a><span class="tool-credit-license">MIT</span></div>
+        <div class="tool-credit-use">Synteny comparison panels via the BioContainers clinker image.</div>
+        <div class="tool-credit-cite">Gilchrist and Chooi. clinker and clustermap.js. Bioinformatics 2021. doi:10.1093/bioinformatics/btab007.</div>
+      </article>
+      <article class="tool-credit">
+        <div class="tool-credit-name"><a href="https://mibig.secondarymetabolites.org/" target="_blank" rel="noopener">MIBiG</a><span class="tool-credit-license">CC BY 4.0</span></div>
+        <div class="tool-credit-use">Versioned reference BGC context used by upstream tools and optional local caches.</div>
+        <div class="tool-credit-cite">Zdouc et al. MIBiG 4.0. Nucleic Acids Research 2025. doi:10.1093/nar/gkae1115.</div>
+      </article>
+      <article class="tool-credit">
+        <div class="tool-credit-name"><a href="https://pfam-docs.readthedocs.io/" target="_blank" rel="noopener">Pfam</a><span class="tool-credit-license">CC0</span></div>
+        <div class="tool-credit-use">Protein family HMM reference data used in family-context stages.</div>
+        <div class="tool-credit-cite">Paysan-Lafosse et al. Pfam protein families database. Nucleic Acids Research 2024. doi:10.1093/nar/gkae997.</div>
+      </article>
+    </div>
+    <p class="docs-note">
+      This list is a processed draft and will grow as more public tools are added to ClusterWeave. The hosted portal avoids restricted optional annotation
+      fallbacks; local command-line users should review `THIRD_PARTY.md` before enabling extra tooling.
+    </p>
   </section>
 
 </main>
@@ -3497,7 +3593,6 @@ const PUBLIC_CANONICAL_STAGE_DEFAULTS = {
   'run-ncbi-install': false,
   'force-rerun': false,
   'figures-required': false,
-  'braker3-enabled': false,
 };
 
 const STORAGE_KEYS = {
@@ -4297,7 +4392,6 @@ function applyEnvProfileValues(cfg) {
   setNum('workers', 'WORKERS');
   setNum('anno-cpus', 'ANNO_CPUS');
   setText('annotation-fallback-order', 'ANNOTATION_FALLBACK_ORDER');
-  setBool('braker3-enabled', 'BRAKER3_ENABLED', false);
   setText('funannotate-busco-db', 'FUNANNOTATE_BUSCO_DB');
   setText('funannotate-organism-name', 'FUNANNOTATE_ORGANISM_NAME');
   setText('clinker-mode', 'CLINKER_MODE');
@@ -4349,7 +4443,6 @@ function currentEnvProfileText() {
     `WORKERS=${document.getElementById('workers').value || '2'}`,
     `ANNO_CPUS=${document.getElementById('anno-cpus').value || document.getElementById('cpus').value || '4'}`,
     `ANNOTATION_FALLBACK_ORDER=${document.getElementById('annotation-fallback-order').value.trim()}`,
-    `BRAKER3_ENABLED=${document.getElementById('braker3-enabled').checked ? '1' : '0'}`,
     `FUNANNOTATE_BUSCO_DB=${document.getElementById('funannotate-busco-db').value.trim() || 'dikarya'}`,
     `FUNANNOTATE_ORGANISM_NAME=${document.getElementById('funannotate-organism-name').value.trim() || 'Fungal_sp'}`,
     `CLINKER_MODE=${document.getElementById('clinker-mode').value}`,
@@ -5171,7 +5264,6 @@ async function startAnalysis() {
     : annotationStrategy === 'auto'
     ? document.getElementById('annotation-fallback-order').value.trim()
     : annotationStrategy;
-  const brakerEnabled = !publicFixed && (document.getElementById('braker3-enabled').checked || annotationStrategy.includes('braker3'));
 
   const fd = new FormData();
   for (const f of selectedFiles) fd.append('files', f);
@@ -5209,7 +5301,6 @@ async function startAnalysis() {
   fd.append('threads', String(cpus));
   fd.append('anno_cpus', publicFixed ? String(cpus) : (document.getElementById('anno-cpus').value || String(cpus)));
   fd.append('annotation_fallback_order', fallbackOrder);
-  fd.append('braker3_enabled', boolToFlag(brakerEnabled));
   fd.append('funannotate_busco_db', document.getElementById('funannotate-busco-db').value.trim());
   fd.append('funannotate_organism_name', document.getElementById('funannotate-organism-name').value.trim());
   fd.append('clinker_mode', document.getElementById('clinker-mode').value);
@@ -7033,7 +7124,6 @@ async function initializeApp() {
     'workers',
     'anno-cpus',
     'annotation-fallback-order',
-    'braker3-enabled',
     'funannotate-busco-db',
     'funannotate-organism-name',
     'clinker-mode',

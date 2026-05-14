@@ -254,10 +254,16 @@ NPLinker, public rerun controls, or public delete controls.
 The public Run Coordinates panel should expose only project identity and optional target genome.
 CPU/thread controls are locked behind diagnostics access and non-admin public submissions use the
 fixed canonical CPU budget of `8` via `CLUSTERWEAVE_MAX_CPUS_PER_JOB`. Annotation strategy is also
-not public-facing; hosted submissions use `genefinding_mode=auto`, `funannotate` fallback, and no
-BRAKER3 toggle until an RNA-seq input path exists.
+not public-facing; hosted submissions use `genefinding_mode=auto` with `funannotate` fallback.
+GeneMark-dependent annotation paths are not exposed or enabled in the web portal.
 
-Admin/local deployments may still expose those controls.
+The hosted web portal has an explicit operator agreement at `web/OPERATOR_AGREEMENT.md`. Keep that
+file, `THIRD_PARTY.md`, and the public UI third-party citation surface aligned whenever tools,
+containers, or reference datasets change.
+
+Admin/local deployments may still expose lab QA controls, but the web portal keeps the restricted
+annotation path disabled. Local command-line operators are responsible for any separately licensed
+runtime they enable outside the web service.
 
 ### Lab QA
 
@@ -538,21 +544,141 @@ Post-slice hardening after Slice 18:
 - `Rerun Selected Stages` is admin-only, collapsible, and visually separated from Results tabs.
 - Generated clinker Docker panel scripts now set `--workdir "${SCRIPT_DIR}"`. This fixes empty
   clinker HTML payloads caused by relative `inputs/...` paths resolving from `/` inside Docker.
+- Worker Docker image pre-pull progress parsing no longer emits the harmless `0 0` arithmetic
+  warning when `grep -c` sees no layer matches.
 
 Existing clinker panels generated before this fix need a clinker-stage rerun to regenerate
 non-empty `panel.html` plots.
 
+Deployment Slice A verification on 2026-05-14:
+
+- A fresh public-mode accession run submitted through the local public face
+  `http://127.0.0.1:18081/` completed successfully using the single `clusterweave-worker`
+  backend and shared `clusterweave_job_data` volume.
+- The public progress event stream stayed sanitized while showing accession fetch, antiSMASH,
+  FunBGCeX, BiG-SCAPE, summary, clinker, and figure rendering milestones.
+- Final results included rendered SVG figures, downloadable files, and regenerated clinker atlas
+  panels. Browser verification covered private result-link loading, SVG figure hydration/zoom,
+  Files-tab Download-only behavior, a token-gated small file download, and a regenerated clinker
+  panel opening with readability defaults.
+- Temporary Playwright demo video and screenshots were written under `/tmp` for operator review.
+  Do not commit those artifacts or private result links/tokens.
+
+Deployment Slice B verification on 2026-05-14:
+
+- Existing-result recovery was browser-verified against the local public face
+  `http://127.0.0.1:18081/` using a temporary tiny probe job and a normal result access code
+  returned by the API. No result access code or private result link is recorded here.
+- Fresh browser contexts recovered the run from both a full private result link and a
+  `ClusterWeave job ID + result access code` lookup.
+- `Recent results in this tab` populated after unlock, survived a same-tab reload through
+  `sessionStorage`, and could reload the run from the selector.
+- Anonymous reads, wrong result codes, and job-list requests with only a result access code were
+  rejected. A valid result access code could read its own job only.
+- The diagnostics access code unlocked Run History and QA Console without a page refresh or URL
+  change. Read-token-only recovery kept admin-only controls hidden.
+- The closed public surface did not expose `admin token`, `submit token`, or `read token` wording;
+  the low-profile Reviewer access disclosure retained submission and diagnostics access-code
+  labels.
+
+Deployment Slice C verification on 2026-05-14:
+
+- SMTP result recovery was verified locally in outbox mode against
+  `http://127.0.0.1:18081/`. The local public web face and the single backend worker were rebuilt
+  and recreated with `CLUSTERWEAVE_SMTP_ENABLED=1`,
+  `CLUSTERWEAVE_SMTP_OUTBOX_DIR=/data/smtp-outbox`, matching `CLUSTERWEAVE_JOB_TOKEN_SECRET`, and
+  `CLUSTERWEAVE_PUBLIC_BASE_URL=http://127.0.0.1:18081/`.
+- Public status reported `smtp_enabled: true`, and the optional completion email field was visible
+  in the public UI.
+- Worker-generated outbox `.eml` files were verified for one successful job and one failed job.
+  Both email private links opened the corresponding results in fresh public browser contexts
+  without diagnostics access.
+- Email bodies included project name, job ID, explicit result access code, private result link,
+  expiration/retention copy, and citation/help link.
+- The failure email included sanitized failed stage, likely issue, and suggested fixes. The checked
+  outbox messages did not expose raw logs, filesystem paths, commands, env vars, stack traces, or
+  worker internals.
+- `web/notifications.py` was updated so terminal notifications include explicit `Recovery details`
+  with the result access code and include citation/help copy in failure emails.
+- Live-provider SMTP was not run because the provider, sender policy, credential injection, and
+  final public URL still need confirmation. Do not treat outbox verification as proof of external
+  SMTP delivery.
+
+Deployment Slice D verification on 2026-05-14:
+
+- The public web face was cut over from the temporary `18081` verification port to the port-80 LAN
+  origin `http://10.64.195.209/`.
+- `docker-compose.yml` now passes through the public-mode auth, quota, retention, CORS,
+  public-base-URL, citation, and SMTP environment contract for the port-80 `web` service. The
+  worker keeps the matching public base URL, job token secret, retention, citation, and SMTP
+  notification env contract.
+- The port-80 web service and the single backend worker were recreated from the current images
+  with `CLUSTERWEAVE_PUBLIC_MODE=1`,
+  `CLUSTERWEAVE_PUBLIC_BASE_URL=http://10.64.195.209/`, open submissions, SMTP disabled, and a
+  matching local `CLUSTERWEAVE_JOB_TOKEN_SECRET`.
+- The temporary `clusterweave-dev-web` and `clusterweave-public-web` local verification faces were
+  stopped after cutover. The running topology was reduced to `clusterweave-web` publishing
+  `0.0.0.0:80` and one `clusterweave-worker` publishing no ports.
+- Docker mount verification confirmed both `clusterweave-web` and `clusterweave-worker` use the
+  shared `clusterweave_job_data` volume.
+- Browser verification against `http://10.64.195.209/` confirmed the public UI loads, anonymous
+  status remains redacted, diagnostics status sees an idle worker, and the email field is hidden
+  while live SMTP is unconfigured.
+- A tiny diagnostics-authenticated cutover probe submitted through `http://10.64.195.209/`
+  completed successfully on the shared backend. The returned private result link used the
+  `http://10.64.195.209/#/job/...` origin and opened in a fresh public browser context.
+- A full non-admin public canonical rerun was not repeated during cutover to avoid launching
+  another heavy workload; that path was verified in Deployment Slice A.
+
+Deployment Slice E initial verification on 2026-05-14:
+
+- Slice E is not yet acceptable for public-live release. LAN probes against
+  `http://10.64.195.209/` still reached the Python web app directly on host port `80`; the
+  response advertised `ClusterWeaveHTTP/2.0 Python/3.11.15`, and host listener checks found no
+  `443` listener.
+- `https://10.64.195.209/` failed to connect. DNS, TLS termination, HTTPS result links, and
+  reverse-proxy forwarding therefore remain unverified.
+- Public `/api/system/status` stayed redacted, but reported `submissions_open: true`. Runtime
+  environment probes showed no `CLUSTERWEAVE_SUBMIT_TOKEN`, so anonymous open submission is still
+  active rather than the temporary invite-only launch posture.
+- Runtime probes confirmed app-side quota variables are present, but no reverse proxy is yet in
+  front of the app to enforce matching upload body limits or rate limits before requests reach the
+  Python server.
+- Secret values were not recorded. Before public-live release, replace any local/dev secret values
+  with long host-secret-store values shared by the services that need them.
+
+Deployment Slice E launch hold:
+
+- Put a host-managed reverse proxy in front of `clusterweave-web`, terminate TLS there, and forward
+  to the web service over the Docker host/LAN target.
+- Set `CLUSTERWEAVE_PUBLIC_BASE_URL` to the final `https://.../` origin with a trailing slash for
+  both `web` and `worker`.
+- Align the proxy request body limit with the stricter ClusterWeave upload envelope: individual
+  upload file default `250 MB`, total upload default `1 GB`. The proxy should reject oversized
+  requests before the Python app reads them.
+- Add conservative rate limits for open endpoints, especially job creation and large uploads.
+- For launch, keep invite-only submission enabled by setting a non-empty
+  `CLUSTERWEAVE_SUBMIT_TOKEN` while keeping `CLUSTERWEAVE_SUBMISSIONS_OPEN=1`. Do not set
+  `CLUSTERWEAVE_SUBMISSIONS_OPEN=0` for invite-only launch; that is a maintenance pause and blocks
+  non-admin submit-code users.
+- Store `CLUSTERWEAVE_ADMIN_TOKEN`, `CLUSTERWEAVE_JOB_TOKEN_SECRET`,
+  `CLUSTERWEAVE_SUBMIT_TOKEN`, and any SMTP credentials in the host secret store or deployment
+  environment, not in source, Compose files, shell history, or handoff docs.
+- Unlock anonymous open submission later by removing/emptying `CLUSTERWEAVE_SUBMIT_TOKEN` only
+  after DNS, TLS, proxy body limits, rate limits, secret injection, and at least one HTTPS recovery
+  smoke test have passed.
+
 Remaining public-release risks:
 
-- The live host still needs final DNS/TLS/reverse-proxy confirmation.
-- Live deployment secrets still need to be injected through the host secret store, not committed
-  into Compose or handoff docs.
-- Reverse-proxy body-size and rate-limit settings still need to be aligned with ClusterWeave
-  quotas.
+- DNS, TLS, and reverse-proxy behavior are not installed/verified on the current LAN face.
+- Live deployment secrets still need to be injected through the host secret store with
+  production-strength values, not committed into Compose or handoff docs.
+- Reverse-proxy body-size and rate-limit settings still need to be installed and aligned with
+  ClusterWeave quotas.
+- The current LAN face still allows anonymous open submissions; launch should switch to
+  invite-only submit access until the security envelope is accepted.
 - SMTP needs one live-provider end-to-end test after provider, sender policy, and public URL are
   confirmed.
-- A fresh public-mode canonical run should verify result links, email delivery, WeaveMap activity,
-  figure zoom, Files downloads, and regenerated clinker `panel.html` plots.
 - The citation strip still points at a future DOI/citation target.
 
 Keep server-side security ahead of UI hiding in all future deployment and maintenance work.
@@ -569,14 +695,17 @@ See `web/STYLE.md` for the UI contract and historical slice ledger.
 - Completed: Slice 18 - Public Deployment QA.
 - Completed: Post-slice hardening - SMTP compose wire, accession validation, NCBI retry policy,
   WeaveMap polish, SVG zoom, download-only Files, collapsible reruns, clinker Docker workdir.
-- Current: No remaining numbered slice. Continue with hosting-specific deployment follow-up.
+- Completed: Deployment Slice A - Fresh Canonical Run local verification.
+- Completed: Deployment Slice B - Existing Results / Recovery Pass.
+- Completed: Deployment Slice C - Email / SMTP Pass local outbox verification.
+- Completed: Deployment Slice D - Host Cutover to the port-80 LAN face.
+- Current: Deployment Slice E - Reverse Proxy / Security Envelope.
 
 Recommended next work:
 
 - Final DNS/TLS/reverse-proxy smoke test on the real host.
-- Live SMTP provider test with the final `CLUSTERWEAVE_PUBLIC_BASE_URL`.
-- Fresh public-mode demo run that exercises accession prep, WeaveMap public events, figures,
-  Files downloads, email, retention metadata, and clinker panel regeneration.
+- Live SMTP provider test after provider, sender policy, credential injection, and final
+  `CLUSTERWEAVE_PUBLIC_BASE_URL` are confirmed.
 - Replace the future citation placeholder with the final DOI or citation URL.
 - Capture desktop/mobile screenshots for standard new-run, existing-run, read-token, and
   reviewer/admin views.

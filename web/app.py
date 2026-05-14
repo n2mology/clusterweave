@@ -68,6 +68,16 @@ ALLOWED_CORS_ORIGINS = {
     for origin in os.environ.get("CLUSTERWEAVE_ALLOWED_ORIGINS", "").split(",")
     if origin.strip()
 }
+WEB_DISABLED_ANNOTATION_FALLBACKS = {"braker3", "braker"}
+WEB_DISABLED_RUNTIME_ENV_KEYS = {
+    "BRAKER3_ENABLED",
+    "BRAKER_BAM",
+    "BRAKER_IMAGE_URI",
+    "BRAKER_PROT_SEQ",
+    "BRAKER_SIF",
+    "GENEMARK_KEY",
+    "GENEMARK_PATH",
+}
 
 ALLOWED_EXTENSIONS = {
     ".gbk",
@@ -159,6 +169,56 @@ def settings_bool(settings: dict[str, object], key: str, default: bool = False) 
     if value is None:
         return default
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def web_safe_annotation_fallback_order(value: object) -> str:
+    parts = [
+        part.strip()
+        for part in str(value or "").split(",")
+        if part.strip()
+    ]
+    allowed = [
+        part
+        for part in parts
+        if part.lower() not in WEB_DISABLED_ANNOTATION_FALLBACKS
+    ]
+    return ",".join(allowed) or "funannotate"
+
+
+def annotation_request_uses_web_disabled_fallback(settings: dict[str, object]) -> bool:
+    mode = str(settings.get("genefinding_mode", "")).lower()
+    order = str(settings.get("annotation_fallback_order", "")).lower()
+    if any(token in mode for token in WEB_DISABLED_ANNOTATION_FALLBACKS):
+        return True
+    if any(token in order for token in WEB_DISABLED_ANNOTATION_FALLBACKS):
+        return True
+    return settings_bool(settings, "braker3_enabled", False)
+
+
+def scrub_web_disabled_annotation_settings(settings: dict[str, object]) -> None:
+    fallback_order = web_safe_annotation_fallback_order(settings.get("annotation_fallback_order", "funannotate"))
+    settings["annotation_fallback_order"] = fallback_order
+    if annotation_request_uses_web_disabled_fallback(settings):
+        settings["genefinding_mode"] = "funannotate" if "funannotate" in fallback_order else "auto"
+    settings["braker3_enabled"] = False
+
+
+def env_overrides_use_web_disabled_runtime(env_overrides: str) -> bool:
+    for raw_line in env_overrides.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key = line.split("=", 1)[0].strip().upper()
+        if key in WEB_DISABLED_RUNTIME_ENV_KEYS:
+            return True
+    return False
+
+
+def validate_web_runtime_policy(settings: dict[str, object]) -> str | None:
+    env_overrides = str(settings.get("env_overrides", "")).strip()
+    if env_overrides and env_overrides_use_web_disabled_runtime(env_overrides):
+        return "Restricted annotation runtime keys are not available through the web portal"
+    return None
 
 
 def read_json_body(handler: BaseHTTPRequestHandler) -> dict[str, object] | None:
@@ -816,6 +876,7 @@ def rerun_settings(base_settings: dict[str, object], payload: dict[str, object])
         settings["run_crosswalk"] = settings["run_summary"]
     if "execute_clinker" not in payload and "run_clinker" in payload:
         settings["execute_clinker"] = settings["run_clinker"]
+    scrub_web_disabled_annotation_settings(settings)
     return settings
 
 
@@ -1162,6 +1223,12 @@ class Handler(BaseHTTPRequestHandler):
             settings["annotation_fallback_order"] = settings["genefinding_mode"]
             if "braker3" in settings["genefinding_mode"]:
                 settings["braker3_enabled"] = True
+        scrub_web_disabled_annotation_settings(settings)
+
+        web_runtime_policy_error = validate_web_runtime_policy(settings)
+        if web_runtime_policy_error:
+            self._bad_request(web_runtime_policy_error)
+            return
 
         if PUBLIC_MODE:
             settings["workers"] = min(max(1, int(settings["workers"])), cpus)

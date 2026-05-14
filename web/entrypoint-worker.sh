@@ -172,8 +172,8 @@ run_with_progress() {
       # "Pulling fs layer" lines = total layers seen
       # "Pull complete"    lines = layers fully done
       local total_layers done_layers
-      total_layers="$(grep -c 'Pulling fs layer' "$tmp_out" 2>/dev/null || echo 0)"
-      done_layers="$(grep -c 'Pull complete'     "$tmp_out" 2>/dev/null || echo 0)"
+      total_layers="$(grep -c 'Pulling fs layer' "$tmp_out" 2>/dev/null || true)"
+      done_layers="$(grep -c 'Pull complete'     "$tmp_out" 2>/dev/null || true)"
       if (( total_layers > 0 )); then
         local layer_pct=$(( done_layers * 100 / total_layers ))
         if (( layer_pct > progress )); then progress="$layer_pct"; fi

@@ -32,6 +32,8 @@ class RepoLayoutTests(unittest.TestCase):
             "CITATION.cff",
             "THIRD_PARTY.md",
             "DATA_SOURCES.md",
+            "web/OPERATOR_AGREEMENT.md",
+            "web/UPSTREAM_MAINTAINER_NOTE.md",
             "docs/REPRODUCIBILITY.md",
             "docs/WEB_RUNTIME.md",
             "pyproject.toml",
@@ -259,7 +261,7 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("function copySubmittedResultLink()", text)
         self.assertNotIn("focusRunAction(event)", text)
         self.assertNotIn("nav-action", text)
-        self.assertIn("If you have found ClusterWeave useful", text)
+        self.assertIn("ClusterWeave is a portal to public, open-access biosynthetic discovery tools.", text)
         self.assertIn("data-citation-link", text)
         self.assertNotIn("Methods, artifacts, logs, and runtime notes", text)
         self.assertNotIn('class="docs-links"', text)
@@ -411,6 +413,10 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("Submit or load an existing run to see stage progress.", text)
         self.assertIn("body[data-access=\"public\"] .stage-step[data-stage=\"nplinker\"]", text)
         self.assertIn("const PUBLIC_FILE_EXTENSIONS = new Set(['gbk','gb','gbff','fasta','fa','fna','fsa','txt']);", text)
+        self.assertIn("Third-party tools and citations", text)
+        self.assertIn("ClusterWeave is a portal to public, open-access biosynthetic discovery tools.", text)
+        self.assertNotIn("BRAKER", text)
+        self.assertNotIn("GeneMark", text)
         self.assertNotIn("submit_token=", text)
         self.assertNotIn("admin_token=", text)
 
@@ -421,6 +427,7 @@ class RepoLayoutTests(unittest.TestCase):
         notifications_text = (REPO_ROOT / "web" / "notifications.py").read_text(encoding="utf-8")
         job_store_text = (REPO_ROOT / "web" / "job_store.py").read_text(encoding="utf-8")
         maintenance_text = (REPO_ROOT / "web" / "maintenance.py").read_text(encoding="utf-8")
+        compose_text = (REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
 
         self.assertIn('id="email-notification-panel"', ui_text)
         self.assertIn('id="notify-email"', ui_text)
@@ -436,6 +443,10 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("def sweep_expired_jobs", job_store_text)
         self.assertIn("CLUSTERWEAVE_ALLOW_NEVER_EXPIRE_JOBS", job_store_text)
         self.assertIn("sweep_expired_jobs()", maintenance_text)
+        self.assertIn("CLUSTERWEAVE_PUBLIC_MODE", compose_text)
+        self.assertIn("CLUSTERWEAVE_ADMIN_TOKEN", compose_text)
+        self.assertIn("CLUSTERWEAVE_JOB_TOKEN_SECRET", compose_text)
+        self.assertIn("CLUSTERWEAVE_PUBLIC_BASE_URL", compose_text)
 
     def test_web_ecology_label_table_uses_controlled_public_inputs(self) -> None:
         text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")

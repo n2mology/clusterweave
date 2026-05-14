@@ -173,6 +173,12 @@ def _cfg_str(settings: dict[str, Any], key: str, default: str = "") -> str:
     return str(value).strip() if value is not None else default
 
 
+def _web_safe_annotation_order(value: str) -> str:
+    parts = [part.strip() for part in value.split(",") if part.strip()]
+    allowed = [part for part in parts if part.lower() not in {"braker3", "braker"}]
+    return ",".join(allowed) or "funannotate"
+
+
 def _first_noncomment_line(path: Path) -> str:
     try:
         with path.open("r", encoding="utf-8", errors="ignore") as handle:
@@ -416,10 +422,10 @@ def _base_env(layout: ProjectLayout, settings: dict[str, Any], cpus: int) -> dic
         env["LOCAL_GNPS_DIR"] = str(layout.nplinker_gnps_dir)
     if layout.nplinker_strain_mapping is not None:
         env["LOCAL_STRAIN_MAPPING"] = str(layout.nplinker_strain_mapping)
-    if _cfg_str(settings, "annotation_fallback_order"):
-        env["ANNOTATION_FALLBACK_ORDER"] = _cfg_str(settings, "annotation_fallback_order")
-    if _cfg_bool(settings, "braker3_enabled", False):
-        env["BRAKER3_ENABLED"] = "1"
+    env["ANNOTATION_FALLBACK_ORDER"] = _web_safe_annotation_order(
+        _cfg_str(settings, "annotation_fallback_order", "funannotate")
+    )
+    env["BRAKER3_ENABLED"] = "0"
     if _cfg_str(settings, "funannotate_busco_db"):
         env["FUNANNOTATE_BUSCO_DB"] = _cfg_str(settings, "funannotate_busco_db")
     if _cfg_str(settings, "funannotate_organism_name"):

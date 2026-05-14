@@ -143,13 +143,22 @@ def sanitized_failure_reason(job: dict[str, Any]) -> str:
     return "A workflow stage did not complete successfully."
 
 
-def build_job_email(job: dict[str, Any], link: str) -> EmailMessage:
+def build_job_email(job: dict[str, Any], link: str, access_code: str = "") -> EmailMessage:
     status = str(job.get("status") or "unknown")
     job_id = str(job.get("id") or "unknown")
     project = str(job.get("project_name") or job.get("name") or "ClusterWeave project")
     submitted = str(job.get("created_at") or "unknown")
     expires = str(job.get("expires_at") or "no automatic expiration date")
     phrase = retention_phrase(job)
+    result_access_code = access_code or link.rsplit("/", 1)[-1]
+    recovery_lines = [
+        "Recovery details:",
+        f"- ClusterWeave job ID: {job_id}",
+        f"- Result access code: {result_access_code}",
+        "",
+        "Private result link:",
+        link,
+    ]
 
     if status == "success":
         body = [
@@ -163,8 +172,7 @@ def build_job_email(job: dict[str, Any], link: str) -> EmailMessage:
             "Workflow summary:",
             *workflow_summary_lines(job),
             "",
-            "You can find the results here:",
-            link,
+            *recovery_lines,
             "",
             f"Results will be kept {phrase} and then deleted automatically on {expires}.",
             "",
@@ -187,10 +195,14 @@ def build_job_email(job: dict[str, Any], link: str) -> EmailMessage:
             "- Check that uploaded genomes use supported extensions: .fasta, .fa, .fna, .fsa, .gb, .gbk, .gbff.",
             "- Submit only public or releasable data; for sensitive or advanced troubleshooting, run ClusterWeave locally with Docker.",
             "",
-            "The private result link below may include partial outputs and the public failure summary:",
-            link,
+            "The private result link below may include partial outputs and the public failure summary.",
+            "",
+            *recovery_lines,
             "",
             f"Results will be kept {phrase} and then deleted automatically on {expires}.",
+            "",
+            "For help and citation instructions, see:",
+            docs_link(),
             "",
         ]
 
@@ -252,7 +264,7 @@ def maybe_send_terminal_notification(job_id: str) -> dict[str, Any] | None:
     token = add_email_read_token(job)
     write_job(job)
     link = result_link(job, token)
-    message = build_job_email(job, link)
+    message = build_job_email(job, link, token)
     try:
         deliver_email(message)
         outcome = {
