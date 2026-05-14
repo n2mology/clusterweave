@@ -399,6 +399,7 @@ stage_track() {
   stage_args=(
     "${PYTHON_BIN}" "${STAGE_CLINKER_PY}"
     --project-root "${PROJECTS_ROOT}"
+    --repo-root "${PROJECT_DIR}"
     --project-name "${PROJECT_NAME}"
     --genome "${TARGET_GENOME}"
     --shortlist "${shortlist_path}"

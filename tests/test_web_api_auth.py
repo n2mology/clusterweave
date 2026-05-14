@@ -242,6 +242,7 @@ class WebApiAuthTests(unittest.TestCase):
         read_token = payload["read_token"]
         self.assertIsInstance(read_token, str)
         self.assertNotEqual(read_token, "")
+        self.assertEqual(payload["result_url"], f"http://127.0.0.1:{self.base_port}/#/job/{payload['job_id']}/{read_token}")
 
         job = self.job_store.read_job(payload["job_id"])
         self.assertIsNotNone(job)
@@ -643,6 +644,83 @@ class WebApiAuthTests(unittest.TestCase):
         assert completed is not None
         self.assertEqual(completed["completed_at"], "2026-01-01T00:00:00")
         self.assertEqual(completed["expires_at"], "2026-01-31T00:00:00")
+
+    def test_public_submission_uses_fixed_canonical_workflow(self) -> None:
+        fields = {
+            "project_name": "canonical-case",
+            "cpus": "1",
+            "threads": "1",
+            "anno_cpus": "1",
+            "workers": "64",
+            "run_ncbi_install": "1",
+            "run_genome_prep": "0",
+            "run_annotation": "0",
+            "run_bigscape": "0",
+            "run_summary": "0",
+            "run_crosswalk": "0",
+            "run_clinker": "0",
+            "execute_clinker": "0",
+            "run_figures": "0",
+            "figures_required": "1",
+            "force": "1",
+            "genefinding_mode": "braker3,funannotate",
+            "annotation_fallback_order": "braker3,funannotate",
+            "braker3_enabled": "1",
+        }
+        status, payload, _ = self.submit(fields=fields)
+        self.assertEqual(status, 201)
+
+        job = self.job_store.read_job(payload["job_id"])
+        self.assertIsNotNone(job)
+        assert job is not None
+        settings = job["settings"]
+        self.assertEqual(job["cpus"], min(8, os.cpu_count() or 8))
+        self.assertFalse(settings["run_ncbi_install"])
+        self.assertTrue(settings["run_genome_prep"])
+        self.assertTrue(settings["run_annotation"])
+        self.assertTrue(settings["run_bigscape"])
+        self.assertTrue(settings["run_summary"])
+        self.assertTrue(settings["run_crosswalk"])
+        self.assertTrue(settings["run_clinker"])
+        self.assertTrue(settings["execute_clinker"])
+        self.assertTrue(settings["run_figures"])
+        self.assertFalse(settings["figures_required"])
+        self.assertFalse(settings["force"])
+        self.assertEqual(settings["genefinding_mode"], "auto")
+        self.assertEqual(settings["annotation_fallback_order"], "funannotate")
+        self.assertFalse(settings["braker3_enabled"])
+        self.assertEqual(settings["threads"], job["cpus"])
+        self.assertEqual(settings["anno_cpus"], job["cpus"])
+        self.assertEqual(settings["workers"], min(2, job["cpus"]))
+
+    def test_public_runtime_unavailable_is_operator_facing(self) -> None:
+        worker_dir = Path(self.tmp.name) / "worker"
+        status_payload = {
+            "ready": True,
+            "state": "idle",
+            "phase": "idle",
+            "progress": 100,
+            "detail": "Ready for tests",
+            "substep": "",
+            "updated_at": self.job_store.now_iso(),
+            "runtime": {"mode": "test"},
+            "worker": {"active_jobs": [], "active_count": 0},
+            "capabilities": {
+                "stages": {
+                    "annotation": {
+                        "available": False,
+                        "detail": "Annotation runtime unavailable",
+                        "missing": ["singularity/apptainer"],
+                    }
+                }
+            },
+        }
+        (worker_dir / "status.json").write_text(json.dumps(status_payload), encoding="utf-8")
+
+        status, payload, _ = self.submit(fields={"project_name": "runtime-case"})
+        self.assertEqual(status, 503)
+        self.assertIn("operator restores backend runtime services", payload["detail"])
+        self.assertNotIn("Selected stage unavailable", payload["detail"])
 
     def test_retention_never_requires_explicit_admin_opt_in(self) -> None:
         os.environ["CLUSTERWEAVE_JOB_RETENTION_DAYS"] = "0"

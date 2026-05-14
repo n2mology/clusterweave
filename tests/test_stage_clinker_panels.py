@@ -179,6 +179,8 @@ class StageClinkerPanelsTests(unittest.TestCase):
                     str(MODULE_PATH),
                     "--project-root",
                     str(project_root),
+                    "--repo-root",
+                    str(REPO_ROOT),
                     "--project-name",
                     "demo",
                     "--shortlist",
@@ -220,6 +222,15 @@ class StageClinkerPanelsTests(unittest.TestCase):
             )
             run_panel = results_root / "clinker" / "panels" / "atlas" / "product_a" / "run_panel.sh"
             run_panel_text = run_panel.read_text(encoding="utf-8")
+            self.assertIn(f"PROJECT_ROOT={project_root.resolve().as_posix()}", run_panel_text)
+            self.assertIn(f"REPO_ROOT={REPO_ROOT.resolve().as_posix()}", run_panel_text)
+            self.assertIn('POSTPROCESS_PY="${PROJECT_ROOT}/bin/postprocess_clinker_html.py"', run_panel_text)
+            self.assertIn(
+                'POSTPROCESS_FALLBACK_PY="${REPO_ROOT}/bin/postprocess_clinker_html.py"',
+                run_panel_text,
+            )
+            self.assertIn("resolve_postprocess_py()", run_panel_text)
+            self.assertIn("helper not found under ${PROJECT_ROOT}/bin or ${REPO_ROOT}/bin", run_panel_text)
             self.assertIn('DOCKER_ARGS+=(--workdir "${SCRIPT_DIR}")', run_panel_text)
             self.assertIn('docker run "${DOCKER_ARGS[@]}"', run_panel_text)
             self.assertFalse((results_root / "clinker" / "panels" / "atlas" / "product_b").exists())

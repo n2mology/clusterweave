@@ -240,8 +240,22 @@ The top entry panel should expose two public-facing tabs:
 - `RESULTS FROM EXISTING RUN`: a compact lookup for a private result link or
   `ClusterWeave job ID + result access code`.
 
+The header should not duplicate `Start run` or `Results` buttons. `Start from NCBI accessions`
+already focuses the manual accession box, and the `Outputs` nav item already opens Results.
+
+After a successful submission, Results should show an inline confirmation panel, not a blocking
+modal. The panel should plainly show the project name, ClusterWeave job ID, result access code,
+private result link, copy actions, expiration date, and a note that the completion email will
+include a private result link when the user supplies an email.
+
 Do not expose public stage toggles, public Advanced knobs, public raw env overrides, public
 NPLinker, public rerun controls, or public delete controls.
+
+The public Run Coordinates panel should expose only project identity and optional target genome.
+CPU/thread controls are locked behind diagnostics access and non-admin public submissions use the
+fixed canonical CPU budget of `8` via `CLUSTERWEAVE_MAX_CPUS_PER_JOB`. Annotation strategy is also
+not public-facing; hosted submissions use `genefinding_mode=auto`, `funannotate` fallback, and no
+BRAKER3 toggle until an RNA-seq input path exists.
 
 Admin/local deployments may still expose those controls.
 
@@ -448,12 +462,16 @@ Slice 14 added public submission policy, quotas, and retention metadata:
 
 Slice 15 added the public UI shell:
 
-- The hero now offers only public accession start and demo-load actions; the static hero weave and
-  top-level WeaveMap nav are gone.
+- The hero is orientation copy only; public accession start and demo-load actions live in the
+  `NEW RUN` entry panel. The static hero weave and top-level WeaveMap nav are gone.
 - The visible entry panel uses `NEW RUN` and `RESULTS FROM EXISTING RUN`; no public-facing
   submit/admin/read-token labels are shown.
 - Access codes live in `sessionStorage`; submit/admin tokens stay out of URLs and are tucked
   behind `Reviewer access`.
+- The header action area is runtime status only; duplicated `Start run` and `Results` buttons
+  are removed.
+- Successful submissions render an inline Results confirmation with copyable private result link,
+  job ID, and result access code.
 - Existing runs can be opened from a full result fragment link or a job ID plus result access
   code, and unlocked runs are tracked in the browser session as recent results.
 - Run history, Lab QA, advanced knobs, stage toggles, rerun/delete controls, raw env overrides,

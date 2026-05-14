@@ -257,12 +257,6 @@
     flex-wrap: wrap;
     min-width: 0;
   }
-  .nav-action {
-    min-height: 34px;
-    padding: .44rem .72rem;
-    font-size: .76rem;
-    white-space: nowrap;
-  }
   .status-chip {
     display: inline-flex;
     align-items: center;
@@ -365,13 +359,6 @@
     font-size: .94rem;
     margin-top: .72rem;
     max-width: min(100%, 86ch);
-  }
-  .hero-actions {
-    display: flex;
-    align-items: center;
-    gap: .55rem;
-    flex-wrap: wrap;
-    margin-top: 1rem;
   }
   .journey-cues {
     display: grid;
@@ -548,8 +535,6 @@
   }
   @media (max-width: 520px) {
     .identity-band { padding: 1rem; }
-    .hero-actions .btn { width: 100%; }
-    .nav-action { flex: 1 1 130px; }
   }
   .left-column,
   .right-column {
@@ -2461,6 +2446,54 @@
   .opened-runs select {
     min-width: min(100%, 220px);
   }
+  .submission-confirmation {
+    margin-bottom: 1rem;
+    padding: .9rem;
+    border: 1px solid rgba(91,230,208,.28);
+    border-radius: 8px;
+    background:
+      linear-gradient(135deg, rgba(91,230,208,.1), rgba(148,105,247,.06)),
+      rgba(8,10,16,.54);
+    box-shadow: var(--cw-inset-control), var(--cw-bevel), 0 0 22px rgba(91,230,208,.08);
+  }
+  .submission-confirmation-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: .7rem;
+  }
+  .submission-confirmation-copy {
+    color: var(--muted);
+    font-size: .86rem;
+    margin-bottom: .8rem;
+  }
+  .submission-confirmation-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .7rem;
+  }
+  .submission-confirmation-grid .wide {
+    grid-column: 1 / -1;
+  }
+  .copy-field {
+    display: flex;
+    gap: .45rem;
+    align-items: stretch;
+  }
+  .copy-field input {
+    min-width: 0;
+    flex: 1 1 auto;
+    font-family: var(--mono);
+    font-size: .76rem;
+  }
+  .copy-field button {
+    flex: 0 0 auto;
+  }
+  .submission-confirmation-status {
+    min-height: 1.2rem;
+    color: var(--cw-mint-100);
+  }
   .workflow-progress-panel {
     margin-bottom: 1rem;
     padding: .85rem;
@@ -2504,6 +2537,17 @@
     margin-top: .5rem;
     color: var(--muted);
     font-size: .78rem;
+  }
+  @media (max-width: 760px) {
+    .submission-confirmation-grid {
+      grid-template-columns: 1fr;
+    }
+    .submission-confirmation-head {
+      flex-direction: column;
+    }
+    .copy-field {
+      flex-direction: column;
+    }
   }
   @media (max-width: 980px) {
     .access-panel,
@@ -2720,10 +2764,7 @@
     <a class="nav-link" href="#results-card" data-nav-target="outputs" onclick="navigateToSection(event, 'outputs')">Outputs</a>
   </nav>
   <div class="header-actions" aria-label="Workflow actions">
-    <button class="btn btn-ghost nav-action" type="button" onclick="loadDemoAccessions(event)">Load demo</button>
-    <button class="btn btn-primary nav-action" type="button" onclick="focusRunAction(event)">Start run</button>
     <span class="status-chip status-unknown" id="runtime-status-chip"><span class="signal-lamp" aria-hidden="true"></span> Runtime: checking</span>
-    <a class="btn btn-ghost nav-action" href="#results-card" onclick="navigateToSection(event, 'outputs')">Results</a>
   </div>
   <button class="nav-toggle" id="nav-toggle" type="button" aria-label="Toggle navigation" aria-controls="primary-nav" aria-expanded="false" onclick="togglePrimaryNav()">☰</button>
 </header>
@@ -2733,10 +2774,6 @@
     <div class="identity-copy">
       <div class="identity-kicker">Assemble. Discover. Prioritize.</div>
       <h1 class="identity-title">Upload genomes or accessions, run biosynthetic gene cluster discovery stages, and inspect every output from annotation to gene cluster family context.</h1>
-      <div class="hero-actions" aria-label="Quick start actions">
-        <button class="btn btn-primary" type="button" onclick="navigateToSection(event, 'intake', 'manual-accessions')">Start from NCBI accessions</button>
-        <button class="btn btn-ghost" type="button" onclick="loadDemoAccessions(event)">Load demo run</button>
-      </div>
     </div>
   </section>
 
@@ -2944,7 +2981,7 @@
           <div class="section-title-row">
             <div>
               <div class="node-kicker">Run coordinates</div>
-              <div class="node-title">Project, target, compute, annotation</div>
+              <div class="node-title">Project and target</div>
             </div>
           </div>
 
@@ -2953,15 +2990,15 @@
               <label for="project-name">Project name</label>
               <input type="text" id="project-name" value="my_project" placeholder="e.g. aspergillus_survey" title="Namespace used to group outputs and history for this run." />
             </div>
-            <div class="form-group">
+            <div class="form-group admin-only">
               <label for="cpus">CPU threads</label>
-              <input type="number" id="cpus" value="4" min="1" max="64" title="Threads used by compute-heavy stages like antiSMASH." />
+              <input type="number" id="cpus" value="8" min="1" max="64" title="Threads used by compute-heavy stages like antiSMASH." />
             </div>
             <div class="form-group">
               <label for="target-genome">Target genome (optional)</label>
               <input type="text" id="target-genome" placeholder="Genome ID for targeted ranking/panels" title="Optional genome ID to focus shortlist and targeted analyses." />
             </div>
-            <div class="form-group">
+            <div class="form-group admin-only">
               <label for="genefinding-mode">Annotation strategy</label>
               <select id="genefinding-mode" title="Uses the canonical annotation fallback order for FASTA inputs; annotated GenBank inputs are passed through when usable.">
                 <option value="auto" selected>Auto (advanced fallback order)</option>
@@ -3072,7 +3109,7 @@
                 </div>
                 <div class="form-group">
                   <label for="anno-cpus">Annotation CPUs</label>
-                  <input type="number" id="anno-cpus" value="4" min="1" max="64" />
+                  <input type="number" id="anno-cpus" value="8" min="1" max="64" />
                 </div>
                 <div class="form-group">
                   <label for="annotation-fallback-order">Annotation fallback order</label>
@@ -3329,6 +3366,45 @@
       </div>
       <div class="card-body">
         <div id="results-empty-state" class="empty-state">Submit or load an existing run to see stage progress.</div>
+        <div class="submission-confirmation hidden" id="submission-confirmation" aria-live="polite">
+          <div class="submission-confirmation-head">
+            <div>
+              <div class="node-kicker">Run submitted</div>
+              <div class="node-title" id="submission-confirmation-title">Save this result access</div>
+            </div>
+            <button class="btn btn-ghost text-sm" type="button" onclick="dismissSubmissionConfirmation()">Dismiss</button>
+          </div>
+          <div class="submission-confirmation-copy" id="submission-confirmation-copy">
+            Save the private result link or the job ID with its result access code to return later.
+          </div>
+          <div class="submission-confirmation-grid">
+            <div class="form-group wide">
+              <label for="submitted-result-link">Private result link</label>
+              <div class="copy-field">
+                <input type="text" id="submitted-result-link" readonly />
+                <button class="btn btn-ghost text-sm" type="button" onclick="copySubmittedResultLink()">Copy link</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="submitted-job-id">ClusterWeave job ID</label>
+              <div class="copy-field">
+                <input type="text" id="submitted-job-id" readonly />
+                <button class="btn btn-ghost text-sm" type="button" onclick="copySubmittedJobId()">Copy ID</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="submitted-result-token">Result access code</label>
+              <div class="copy-field">
+                <input type="text" id="submitted-result-token" readonly />
+                <button class="btn btn-ghost text-sm" type="button" onclick="copySubmittedResultCode()">Copy code</button>
+              </div>
+            </div>
+          </div>
+          <div class="flex-gap mt1">
+            <button class="btn btn-primary text-sm" type="button" onclick="openSubmittedRun()">Open this run</button>
+            <span id="submission-confirmation-status" class="submission-confirmation-status text-sm"></span>
+          </div>
+        </div>
         <div class="workflow-progress-panel hidden" id="workflow-progress-panel">
           <div class="weavemap-title-row">
             <span class="node-kicker">Workflow progress</span>
@@ -3406,6 +3482,23 @@ let accessMode = 'public'; // public, admin, local
 let authChecked = false;
 let resultObjectUrls = [];
 let smtpEnabled = false;
+let lastSubmittedRun = null;
+
+const PUBLIC_CANONICAL_CPUS = 8;
+const PUBLIC_CANONICAL_STAGE_DEFAULTS = {
+  'run-genome-prep': true,
+  'run-annotation': true,
+  'run-bigscape': true,
+  'run-summary': true,
+  'run-clinker': true,
+  'execute-clinker': true,
+  'run-figures': true,
+  'run-nplinker': false,
+  'run-ncbi-install': false,
+  'force-rerun': false,
+  'figures-required': false,
+  'braker3-enabled': false,
+};
 
 const STORAGE_KEYS = {
   submitToken: 'clusterweave.submitToken',
@@ -3533,11 +3626,55 @@ function setAccessMode(mode) {
   document.getElementById('progress-card')?.classList.toggle('hidden', !canUseAdminSurfaces() || !activeJobId);
   updateAccessTokenStatus();
   renderOpenedRuns();
-  if (document.getElementById('run-btn')) renderFileList();
+  if (document.getElementById('run-btn')) {
+    syncControlState();
+    renderFileList();
+  }
 }
 
 function canUseAdminSurfaces() {
   return accessMode === 'admin' || accessMode === 'local';
+}
+
+function publicWorkflowLocked() {
+  return !canUseAdminSurfaces();
+}
+
+function publicStageDefault(id, fallback = true) {
+  return Object.prototype.hasOwnProperty.call(PUBLIC_CANONICAL_STAGE_DEFAULTS, id)
+    ? PUBLIC_CANONICAL_STAGE_DEFAULTS[id]
+    : fallback;
+}
+
+function effectiveCheckboxValue(id, publicFallback = true) {
+  if (publicWorkflowLocked()) return publicStageDefault(id, publicFallback);
+  return !!document.getElementById(id)?.checked;
+}
+
+function effectiveCpuCount() {
+  if (publicWorkflowLocked()) return PUBLIC_CANONICAL_CPUS;
+  return parseInt(document.getElementById('cpus')?.value || '4', 10) || 4;
+}
+
+function effectiveAnnotationStrategy() {
+  if (publicWorkflowLocked()) return 'auto';
+  return document.getElementById('genefinding-mode')?.value || 'auto';
+}
+
+function applyPublicCanonicalDefaults() {
+  if (!publicWorkflowLocked()) return;
+  const cpus = document.getElementById('cpus');
+  if (cpus) cpus.value = String(PUBLIC_CANONICAL_CPUS);
+  const annoCpus = document.getElementById('anno-cpus');
+  if (annoCpus) annoCpus.value = String(PUBLIC_CANONICAL_CPUS);
+  const genefinding = document.getElementById('genefinding-mode');
+  if (genefinding) genefinding.value = 'auto';
+  const fallbackOrder = document.getElementById('annotation-fallback-order');
+  if (fallbackOrder) fallbackOrder.value = 'funannotate';
+  Object.entries(PUBLIC_CANONICAL_STAGE_DEFAULTS).forEach(([id, value]) => {
+    const el = document.getElementById(id);
+    if (el && el.type === 'checkbox') el.checked = !!value;
+  });
 }
 
 function setActiveNav(target) {
@@ -3611,16 +3748,6 @@ function parseResultHash() {
   const match = hash.match(/^#\/?job\/([^/\s#?]+)\/([^/\s#?]+)/i);
   if (!match) return null;
   return { jobId: decodeURIComponent(match[1]), token: decodeURIComponent(match[2]) };
-}
-
-function focusRunAction(event) {
-  const runBtn = document.getElementById('run-btn');
-  const disabled = !runBtn || runBtn.disabled;
-  navigateToSection(event, 'intake', disabled ? 'manual-accessions' : 'run-btn');
-  if (disabled) {
-    const status = document.getElementById('upload-status');
-    if (status) status.textContent = 'Add an input source before starting.';
-  }
 }
 
 function updateRuntimeStatusChip(status, label) {
@@ -3871,6 +3998,11 @@ function resultHref(jobId, relPath, options = {}) {
   return options.download ? `${base}?download=1` : base;
 }
 
+function privateResultLink(jobId, token, serverUrl = '') {
+  if (serverUrl) return serverUrl;
+  return `${defaultApiBaseUrl()}#/job/${encodeURIComponent(jobId)}/${encodeURIComponent(token)}`;
+}
+
 function sessionGet(key) {
   try { return sessionStorage.getItem(key) || ''; }
   catch (e) { return ''; }
@@ -3918,6 +4050,79 @@ function rememberOpenedRun(jobId, token, meta = {}) {
   renderOpenedRuns();
 }
 
+async function copyTextToClipboard(text, successMessage) {
+  const status = document.getElementById('submission-confirmation-status');
+  if (!text) {
+    if (status) status.textContent = 'Nothing to copy yet.';
+    return;
+  }
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const helper = document.createElement('textarea');
+      helper.value = text;
+      helper.setAttribute('readonly', '');
+      helper.style.position = 'fixed';
+      helper.style.top = '-1000px';
+      document.body.appendChild(helper);
+      helper.select();
+      document.execCommand('copy');
+      helper.remove();
+    }
+    if (status) status.textContent = successMessage || 'Copied.';
+  } catch (err) {
+    if (status) status.textContent = 'Copy failed; select the field and copy manually.';
+  }
+}
+
+function renderSubmissionConfirmation(payload) {
+  const panel = document.getElementById('submission-confirmation');
+  if (!panel || !payload || !payload.jobId || !payload.readToken) return;
+  const resultUrl = privateResultLink(payload.jobId, payload.readToken, payload.resultUrl || '');
+  lastSubmittedRun = {
+    ...payload,
+    resultUrl,
+  };
+  const title = document.getElementById('submission-confirmation-title');
+  const copy = document.getElementById('submission-confirmation-copy');
+  const linkInput = document.getElementById('submitted-result-link');
+  const jobInput = document.getElementById('submitted-job-id');
+  const tokenInput = document.getElementById('submitted-result-token');
+  const status = document.getElementById('submission-confirmation-status');
+  const project = payload.projectName || 'ClusterWeave run';
+  const expires = payload.expiresAt ? ` Results expire ${new Date(payload.expiresAt).toLocaleDateString()}.` : '';
+  const email = payload.notifyEmail ? ` A completion email will include a private result link for ${payload.notifyEmail}.` : '';
+  if (title) title.textContent = `${project} is queued`;
+  if (copy) copy.textContent = `Save this private result link, or save the job ID with its result access code.${expires}${email}`;
+  if (linkInput) linkInput.value = resultUrl;
+  if (jobInput) jobInput.value = payload.jobId;
+  if (tokenInput) tokenInput.value = payload.readToken;
+  if (status) status.textContent = 'Saved in this browser tab while the run remains open.';
+  panel.classList.remove('hidden');
+}
+
+function dismissSubmissionConfirmation() {
+  document.getElementById('submission-confirmation')?.classList.add('hidden');
+}
+
+function copySubmittedResultLink() {
+  copyTextToClipboard(lastSubmittedRun?.resultUrl || document.getElementById('submitted-result-link')?.value, 'Private result link copied.');
+}
+
+function copySubmittedJobId() {
+  copyTextToClipboard(lastSubmittedRun?.jobId || document.getElementById('submitted-job-id')?.value, 'Job ID copied.');
+}
+
+function copySubmittedResultCode() {
+  copyTextToClipboard(lastSubmittedRun?.readToken || document.getElementById('submitted-result-token')?.value, 'Result access code copied.');
+}
+
+function openSubmittedRun() {
+  if (!lastSubmittedRun) return;
+  loadJob(lastSubmittedRun.jobId, true, { readToken: lastSubmittedRun.readToken, source: 'submission-confirmation' });
+}
+
 function authHeadersFor(kind, jobId = null) {
   const headers = {};
   const admin = adminToken();
@@ -3951,7 +4156,7 @@ function apiFetch(path, options = {}, auth = {}) {
 }
 
 function resultNeedsAuth(jobId) {
-  return accessMode === 'public' && !adminToken() && !!readTokenForJob(jobId);
+  return !!adminToken() || (accessMode === 'public' && !!readTokenForJob(jobId));
 }
 
 function inlineResultMime(relPath, fallback = '') {
@@ -4197,8 +4402,11 @@ function exportEnvProfile() {
   status.textContent = `Exported profile: ${projectName}.env`;
 }
 
-function checkedLabel(id, label) {
-  return { label, enabled: !!document.getElementById(id).checked };
+function checkedLabel(id, label, publicDefault = null) {
+  const enabled = publicDefault === null
+    ? !!document.getElementById(id)?.checked
+    : effectiveCheckboxValue(id, publicDefault);
+  return { label, enabled };
 }
 
 function yesNo(value) {
@@ -4207,14 +4415,14 @@ function yesNo(value) {
 
 function renderStageChips() {
   const chips = [
-    checkedLabel('run-genome-prep', 'NCBI prep'),
-    checkedLabel('run-annotation', 'Annotation'),
-    checkedLabel('run-bigscape', 'BiG-SCAPE'),
-    checkedLabel('run-summary', 'Summary'),
-    checkedLabel('run-clinker', 'clinker'),
-    checkedLabel('run-figures', 'Figures'),
+    checkedLabel('run-genome-prep', 'NCBI prep', true),
+    checkedLabel('run-annotation', 'Annotation', true),
+    checkedLabel('run-bigscape', 'BiG-SCAPE', true),
+    checkedLabel('run-summary', 'Summary', true),
+    checkedLabel('run-clinker', 'clinker', true),
+    checkedLabel('run-figures', 'Figures', true),
     checkedLabel('run-ecology', 'Ecology'),
-    checkedLabel('run-nplinker', 'NPLinker'),
+    checkedLabel('run-nplinker', 'NPLinker', false),
   ].filter(c => canUseAdminSurfaces() || c.label !== 'NPLinker');
   return `<div class="summary-chips">${chips.map(c => `<span class="summary-chip ${c.enabled ? '' : 'off'}">${c.label}</span>`).join('')}</div>`;
 }
@@ -4232,17 +4440,25 @@ function updateRunSummary() {
     : 'No inputs selected';
   const targetGenome = document.getElementById('target-genome').value.trim() || 'None';
   const projectName = document.getElementById('project-name').value.trim() || 'my_project';
-  const cpus = document.getElementById('cpus').value || '4';
-  const annotationStrategy = document.getElementById('genefinding-mode').value;
-  const clinkerMode = document.getElementById('clinker-use-docker-image').checked ? 'Docker image' : 'Local/runtime';
+  const cpus = effectiveCpuCount();
+  const annotationStrategy = effectiveAnnotationStrategy();
+  const computeLabel = publicWorkflowLocked()
+    ? `Hosted canonical workflow (${cpus} CPU threads)`
+    : `${cpus} CPU thread(s), annotation: ${annotationStrategy}`;
+  const clinkerMode = publicWorkflowLocked()
+    ? 'Hosted runtime'
+    : (document.getElementById('clinker-use-docker-image').checked ? 'Docker image' : 'Local/runtime');
   const ecologyRows = currentEcologyMetadataRows();
   const ecologyLabeled = ecologyRows.filter(row => row.primary || row.secondary).length;
   const ecology = document.getElementById('run-ecology').checked
     ? `${ecologyRows.length} input row${ecologyRows.length === 1 ? '' : 's'}, ${ecologyLabeled} labeled`
     : 'Disabled';
-  const clinkerLimit = document.getElementById('run-clinker').checked
+  const clinkerLimit = effectiveCheckboxValue('run-clinker', true)
     ? (document.getElementById('clinker-max-regions').value || '0')
     : 'Off';
+  const artifactsLabel = publicWorkflowLocked()
+    ? 'Managed by the hosted service'
+    : `Capture artifacts: ${yesNo(document.getElementById('capture-external-artifacts').checked)}, auto-normalize metadata: ${yesNo(document.getElementById('auto-normalize-metadata').checked)}`;
 
   summary.innerHTML = `
     <div class="summary-item">
@@ -4255,7 +4471,7 @@ function updateRunSummary() {
     </div>
     <div class="summary-item">
       <div class="summary-label">Compute</div>
-      <div class="summary-value">${escapeHtml(cpus)} CPU thread(s), annotation: ${escapeHtml(annotationStrategy)}</div>
+      <div class="summary-value">${escapeHtml(computeLabel)}</div>
     </div>
     <div class="summary-item">
       <div class="summary-label">Target Genome</div>
@@ -4275,7 +4491,7 @@ function updateRunSummary() {
     </div>
     <div class="summary-item">
       <div class="summary-label">Artifacts & Metadata</div>
-      <div class="summary-value">Capture artifacts: ${yesNo(document.getElementById('capture-external-artifacts').checked)}, auto-normalize metadata: ${yesNo(document.getElementById('auto-normalize-metadata').checked)}</div>
+      <div class="summary-value">${escapeHtml(artifactsLabel)}</div>
     </div>
   `;
 }
@@ -4318,21 +4534,21 @@ function renderRuntimeBanner() {
 }
 
 function currentStageControlJob() {
-  const checked = id => !!document.getElementById(id)?.checked;
   return {
     settings: {
-      run_annotation: checked('run-annotation'),
-      run_bigscape: checked('run-bigscape'),
-      run_summary: checked('run-summary'),
-      run_crosswalk: checked('run-summary'),
-      run_clinker: checked('run-clinker'),
-      run_figures: checked('run-figures'),
-      run_nplinker: checked('run-nplinker'),
+      run_annotation: effectiveCheckboxValue('run-annotation', true),
+      run_bigscape: effectiveCheckboxValue('run-bigscape', true),
+      run_summary: effectiveCheckboxValue('run-summary', true),
+      run_crosswalk: effectiveCheckboxValue('run-summary', true),
+      run_clinker: effectiveCheckboxValue('run-clinker', true),
+      run_figures: effectiveCheckboxValue('run-figures', true),
+      run_nplinker: effectiveCheckboxValue('run-nplinker', false),
     },
   };
 }
 
 function syncControlState() {
+  applyPublicCanonicalDefaults();
   const runBigscape = document.getElementById('run-bigscape');
   const runSummary = document.getElementById('run-summary');
   const runClinker = document.getElementById('run-clinker');
@@ -4947,12 +5163,15 @@ async function startAnalysis() {
   if (selectedFiles.length === 0 && manualLines.length === 0) return;
 
   const name = document.getElementById('project-name').value.trim() || 'my_project';
-  const cpus = parseInt(document.getElementById('cpus').value) || 4;
-  const annotationStrategy = document.getElementById('genefinding-mode').value;
-  const fallbackOrder = annotationStrategy === 'auto'
+  const publicFixed = publicWorkflowLocked();
+  const cpus = effectiveCpuCount();
+  const annotationStrategy = effectiveAnnotationStrategy();
+  const fallbackOrder = publicFixed
+    ? 'funannotate'
+    : annotationStrategy === 'auto'
     ? document.getElementById('annotation-fallback-order').value.trim()
     : annotationStrategy;
-  const brakerEnabled = document.getElementById('braker3-enabled').checked || annotationStrategy.includes('braker3');
+  const brakerEnabled = !publicFixed && (document.getElementById('braker3-enabled').checked || annotationStrategy.includes('braker3'));
 
   const fd = new FormData();
   for (const f of selectedFiles) fd.append('files', f);
@@ -4969,26 +5188,26 @@ async function startAnalysis() {
   fd.append('data_use_ack', boolToFlag(canUseAdminSurfaces() || !!document.getElementById('data-use-ack')?.checked));
   fd.append('cpus', cpus);
   fd.append('target_genome', document.getElementById('target-genome').value.trim());
-  fd.append('run_ncbi_install', boolToFlag(document.getElementById('run-ncbi-install').checked));
-  fd.append('run_genome_prep', boolToFlag(document.getElementById('run-genome-prep').checked));
-  fd.append('run_annotation', boolToFlag(document.getElementById('run-annotation').checked));
-  fd.append('run_bigscape', boolToFlag(document.getElementById('run-bigscape').checked));
-  fd.append('run_summary', boolToFlag(document.getElementById('run-summary').checked));
-  fd.append('run_crosswalk', boolToFlag(document.getElementById('run-summary').checked));
-  fd.append('run_clinker', boolToFlag(document.getElementById('run-clinker').checked));
-  fd.append('execute_clinker', boolToFlag(document.getElementById('execute-clinker').checked));
-  fd.append('run_figures', boolToFlag(document.getElementById('run-figures').checked));
-  fd.append('figures_required', boolToFlag(document.getElementById('figures-required').checked));
-  fd.append('run_nplinker', boolToFlag(document.getElementById('run-nplinker').checked));
+  fd.append('run_ncbi_install', boolToFlag(effectiveCheckboxValue('run-ncbi-install', false)));
+  fd.append('run_genome_prep', boolToFlag(effectiveCheckboxValue('run-genome-prep', true)));
+  fd.append('run_annotation', boolToFlag(effectiveCheckboxValue('run-annotation', true)));
+  fd.append('run_bigscape', boolToFlag(effectiveCheckboxValue('run-bigscape', true)));
+  fd.append('run_summary', boolToFlag(effectiveCheckboxValue('run-summary', true)));
+  fd.append('run_crosswalk', boolToFlag(effectiveCheckboxValue('run-summary', true)));
+  fd.append('run_clinker', boolToFlag(effectiveCheckboxValue('run-clinker', true)));
+  fd.append('execute_clinker', boolToFlag(effectiveCheckboxValue('execute-clinker', true)));
+  fd.append('run_figures', boolToFlag(effectiveCheckboxValue('run-figures', true)));
+  fd.append('figures_required', boolToFlag(effectiveCheckboxValue('figures-required', false)));
+  fd.append('run_nplinker', boolToFlag(effectiveCheckboxValue('run-nplinker', false)));
   fd.append('run_ecology_analysis', boolToFlag(document.getElementById('run-ecology').checked));
   fd.append('ecology_field', document.getElementById('ecology-field').value.trim());
   fd.append('focus_ecology_label', document.getElementById('focus-ecology-label').value.trim());
-  fd.append('genefinding_mode', document.getElementById('genefinding-mode').value);
+  fd.append('genefinding_mode', annotationStrategy);
   fd.append('bigscape_mix_mode', document.getElementById('bigscape-mix-mode').value);
-  fd.append('force', boolToFlag(document.getElementById('force-rerun').checked));
+  fd.append('force', boolToFlag(effectiveCheckboxValue('force-rerun', false)));
   fd.append('workers', document.getElementById('workers').value || '2');
-  fd.append('threads', document.getElementById('cpus').value || '4');
-  fd.append('anno_cpus', document.getElementById('anno-cpus').value || document.getElementById('cpus').value || '4');
+  fd.append('threads', String(cpus));
+  fd.append('anno_cpus', publicFixed ? String(cpus) : (document.getElementById('anno-cpus').value || String(cpus)));
   fd.append('annotation_fallback_order', fallbackOrder);
   fd.append('braker3_enabled', boolToFlag(brakerEnabled));
   fd.append('funannotate_busco_db', document.getElementById('funannotate-busco-db').value.trim());
@@ -5024,8 +5243,8 @@ async function startAnalysis() {
   fd.append('auto_pull_nplinker_sif', boolToFlag(document.getElementById('auto-pull-nplinker-sif').checked));
   fd.append('nplinker_bootstrap_env', boolToFlag(document.getElementById('nplinker-bootstrap-env').checked));
   fd.append('env_overrides', document.getElementById('env-overrides').value);
+  const notifyEmail = smtpEnabled ? (document.getElementById('notify-email')?.value.trim() || '') : '';
   if (smtpEnabled) {
-    const notifyEmail = document.getElementById('notify-email')?.value.trim() || '';
     if (notifyEmail) fd.append('notify_email', notifyEmail);
   }
 
@@ -5038,7 +5257,7 @@ async function startAnalysis() {
       const err = await resp.json();
       throw new Error(err.detail || 'Upload failed');
     }
-    const { job_id, read_token, expires_at } = await resp.json();
+    const { job_id, read_token, expires_at, result_url } = await resp.json();
     if (read_token) rememberOpenedRun(job_id, read_token, { name, status: 'pending' });
     selectedFiles = [];
     acceptedManualAccessions = [];
@@ -5047,6 +5266,14 @@ async function startAnalysis() {
     renderAcceptedAccessions();
     renderFileList();
     document.getElementById('upload-status').textContent = expires_at ? `Run submitted. Results expire ${new Date(expires_at).toLocaleDateString()}.` : 'Run submitted.';
+    renderSubmissionConfirmation({
+      projectName: name,
+      jobId: job_id,
+      readToken: read_token || '',
+      resultUrl: result_url || '',
+      expiresAt: expires_at || '',
+      notifyEmail,
+    });
     lockSubmittedIntake();
     await loadJob(job_id, true, { readToken: read_token || '' });
     if (canUseAdminSurfaces()) refreshJobHistory();
@@ -5253,6 +5480,8 @@ function setResultsLoaded(loaded) {
 
 function showEmptyResults() {
   activeStageState = null;
+  lastSubmittedRun = null;
+  dismissSubmissionConfirmation();
   resetWeaveActivity();
   resetStages(currentStageControlJob());
   setResultsLoaded(false);
@@ -5312,6 +5541,7 @@ async function loadJob(jobId, autoScroll = false, options = {}) {
   logCursor   = 0;
   stopPolling();
   markActiveJobCard(jobId);
+  if (lastSubmittedRun && lastSubmittedRun.jobId !== jobId) dismissSubmissionConfirmation();
 
   document.getElementById('progress-card').classList.toggle('hidden', !canUseAdminSurfaces());
   showResultsShell();

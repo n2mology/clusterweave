@@ -489,9 +489,15 @@ def build_panel_markdown(
     panel_dir.joinpath("panel_notes.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def write_run_panel_script(panel_dir: Path, staged_files: list[Path], project_root: Path) -> None:
+def write_run_panel_script(
+    panel_dir: Path,
+    staged_files: list[Path],
+    project_root: Path,
+    repo_root: Path,
+) -> None:
     input_lines = [f"CLINKER_INPUTS+=('{path.as_posix()}')" for path in staged_files]
     project_root_literal = shlex.quote(project_root.resolve().as_posix())
+    repo_root_literal = shlex.quote(repo_root.resolve().as_posix())
     script_text = "\n".join(
         [
             "#!/usr/bin/env bash",
@@ -501,15 +507,36 @@ def write_run_panel_script(panel_dir: Path, staged_files: list[Path], project_ro
             "SCRIPT_DIR=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd -P)\"",
             "cd \"${SCRIPT_DIR}\"",
             f"PROJECT_ROOT={project_root_literal}",
+            f"REPO_ROOT={repo_root_literal}",
             "POSTPROCESS_PY=\"${PROJECT_ROOT}/bin/postprocess_clinker_html.py\"",
+            "POSTPROCESS_FALLBACK_PY=\"${REPO_ROOT}/bin/postprocess_clinker_html.py\"",
             "POSTPROCESS_MANIFEST=\"${SCRIPT_DIR}/panel_manifest.tsv\"",
             "POSTPROCESS_HTML=\"${SCRIPT_DIR}/panel.html\"",
             "",
             "CLINKER_INPUTS=()",
             *input_lines,
             "",
+            "resolve_postprocess_py() {",
+            "  if [[ -f \"${POSTPROCESS_PY}\" ]]; then",
+            "    return 0",
+            "  fi",
+            "  local candidate",
+            "  for candidate in \"${POSTPROCESS_FALLBACK_PY}\" \"${CLUSTERWEAVE_ROOT:-}/bin/postprocess_clinker_html.py\"; do",
+            "    if [[ -n \"${candidate}\" && -f \"${candidate}\" ]]; then",
+            "      POSTPROCESS_PY=\"${candidate}\"",
+            "      return 0",
+            "    fi",
+            "  done",
+            "  return 1",
+            "}",
+            "",
             "run_postprocess() {",
-            "  if [[ ! -f \"${POSTPROCESS_PY}\" || ! -f \"${POSTPROCESS_MANIFEST}\" || ! -f \"${POSTPROCESS_HTML}\" ]]; then",
+            "  if [[ ! -f \"${POSTPROCESS_MANIFEST}\" || ! -f \"${POSTPROCESS_HTML}\" ]]; then",
+            "    echo \"Skipping clinker HTML post-processing: missing panel manifest or HTML for ${SCRIPT_DIR}\" >&2",
+            "    return 0",
+            "  fi",
+            "  if ! resolve_postprocess_py; then",
+            "    echo \"Skipping clinker HTML post-processing: helper not found under ${PROJECT_ROOT}/bin or ${REPO_ROOT}/bin\" >&2",
             "    return 0",
             "  fi",
             "  local helper_python=\"${PYTHON_BIN:-}\"",
@@ -589,6 +616,12 @@ def main() -> None:
         type=Path,
         default=Path(__file__).resolve().parents[1],
         help="Project root containing Code/ and Data/.",
+    )
+    parser.add_argument(
+        "--repo-root",
+        type=Path,
+        default=Path(__file__).resolve().parents[1],
+        help="ClusterWeave repository root containing bin/postprocess_clinker_html.py.",
     )
     parser.add_argument(
         "--project-name",
@@ -886,7 +919,7 @@ def main() -> None:
             manifest_rows,
         )
         build_panel_markdown(panel_dir, target_row, manifest_rows, mibig_accessions)
-        write_run_panel_script(panel_dir, staged_files, args.project_root)
+        write_run_panel_script(panel_dir, staged_files, args.project_root, args.repo_root)
         panel_dirs.append(panel_dir)
         panel_rows.append(
             {

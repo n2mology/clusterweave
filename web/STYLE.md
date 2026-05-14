@@ -89,8 +89,9 @@ Avoid:
 
 Public/default mode:
 
-- Header/nav keeps the app single-page and operational.
-- Identity band has two primary actions: `Start from NCBI accessions` and `Load demo run`.
+- Header/nav keeps the app single-page and operational with section links only; redundant
+  `Start run` and `Results` header buttons are removed.
+- Identity band is orientation copy only; submission and demo actions live in the entry panel.
 - The entry panel has two public-facing tabs: `NEW RUN` and `RESULTS FROM EXISTING RUN`.
 - `NEW RUN` is the default full-page workflow; `RESULTS FROM EXISTING RUN` opens a private
   result link or a `ClusterWeave job ID + result access code`.
@@ -101,6 +102,9 @@ Public/default mode:
   `manual_accessions.txt` workflow entry point; uploaded genome files remain separate inputs.
 - Upload & Configure locks, greys, and collapses after submission.
 - Results is the main run surface.
+- After submission, Results shows an inline confirmation panel with project name, job ID, visible
+  result access code, private result link, copy actions, expiration, and email handoff copy when
+  a completion email was supplied.
 - `Workflow progress` lives inside Results above Visualization/Files.
 - The public WeaveMap is a horizontal DNA-style double helix with sanitized hover activity nodes.
 - Output discovery cards and redundant Results header panels are removed.
@@ -126,6 +130,12 @@ Known runtime note:
 
 - Clinker panels generated before the Docker `--workdir` fix can contain empty plot payloads.
   Rerun the clinker stage to regenerate them.
+- Clinker panel readability defaults are applied by `bin/postprocess_clinker_html.py` after
+  `clinker` writes `panel.html`. Standard/CLI pathing is preserved: generated `run_panel.sh`
+  scripts first look for `${PROJECT_ROOT}/bin/postprocess_clinker_html.py`. Web-worker mode must
+  pass the repository root separately via `run_clinker.sh --repo-root "${PROJECT_DIR}"`, allowing
+  the generated script to fall back to `${REPO_ROOT}/bin/postprocess_clinker_html.py` when
+  `${PROJECT_ROOT}` is a job directory such as `/data/jobs/<job_id>`.
 
 ## Public Release State After Slice 18
 
@@ -135,7 +145,8 @@ post-slice hardening pass implemented that pivot.
 
 Implemented visual/product conclusions:
 
-- The hero is simplified to two actions: `Start from NCBI accessions` and `Load demo run`.
+- The hero is orientation copy only; `Start from NCBI accessions` and `Load demo run` live in
+  the `NEW RUN` entry panel to avoid duplicate routes.
 - The static hero weave and top-level WeaveMap nav are gone.
 - The live run timeline lives in Results as `Workflow progress`.
 - The public Results surface is the run surface. Before a job is loaded it says:
@@ -173,7 +184,13 @@ Public access model:
 Public workflow:
 
 - Public pipeline is fixed and canonical. No public stage toggles.
+- Public CPU/thread controls are not exposed; standard hosted submissions use the fixed
+  canonical CPU budget of `8` unless the server operator changes the configured public limit.
+- Public annotation strategy is not exposed. The hosted workflow submits `genefinding_mode=auto`
+  with `funannotate` as the fallback order; BRAKER3 is not exposed without an RNA-seq input path.
 - Standard hosted submissions require the data-use acknowledgment in the UI and server request.
+- Job creation returns a private result link. The browser shows it plainly after submit and keeps
+  the job ID/result access code copyable while that run is open in the tab.
 - Accession sources must be one accession per non-empty line. Do not accept comma/semicolon
   separated rows, header rows, or multiple accessions on one line.
 - Public intake supports:
@@ -476,10 +493,131 @@ Progress:
   - Collapsible admin rerun panel.
   - Download-only Files tab.
   - Clinker Docker `--workdir "${SCRIPT_DIR}"` panel-generation fix.
-- Current: No remaining numbered slice. Continue with hosting-specific deployment follow-up.
+  - Clinker HTML postprocess helper resolution for web-worker mode: `run_clinker.sh` passes
+    `--repo-root "${PROJECT_DIR}"`, while generated `run_panel.sh` preserves
+    `${PROJECT_ROOT}/bin/postprocess_clinker_html.py` as the first-choice CLI path and falls back
+    to `${REPO_ROOT}/bin/postprocess_clinker_html.py`.
+- Current: No remaining numbered UI slice. Continue with the deployment verification queue below.
 
 Historical slices are kept below for context. New work should use the current contract above and
-the deployment follow-up queue in `web/STAN.md`, not restart old completed slices.
+the deployment verification queue here plus `web/STAN.md`, not restart old completed slices.
+
+## Deployment Verification Queue
+
+These are not new UI redesign slices. They are release-readiness handoff slices for Stan or a
+future ClusterWeave web/deployment agent. Complete one at a time and update both `web/STYLE.md`
+and `web/STAN.md` with any changed operational agreement.
+
+### Deployment Slice A: Fresh Canonical Run
+
+Goal: validate the rebuilt one-backend/two-web-face system with a real public-mode canonical job.
+
+Tasks:
+
+- Submit a fresh public-mode job through `http://127.0.0.1:18081/` or the current public face.
+- Exercise accession prep, canonical workflow execution, public WeaveMap activity, figure loading,
+  SVG zoom, Files downloads, and private result-link retrieval.
+- Confirm regenerated Clinker `panel.html` files open with readability-first defaults:
+  scale factor `12`, vertical spacing `70`, hidden locus coordinates, visible gene labels,
+  similarity-group colors, and visible link labels.
+- Confirm the rebuilt `clusterweave-worker` is the only worker and that both local web faces share
+  the original `clusterweave_job_data` backend volume.
+
+Acceptance:
+
+- The new run completes or fails with a sanitized, useful public failure summary.
+- Result links and downloads work from the public face.
+- Newly regenerated Clinker panels are readable by default.
+
+### Deployment Slice B: Existing Results / Recovery Pass
+
+Goal: prove users can recover a run after leaving the initial browser state.
+
+Tasks:
+
+- Verify `RESULTS FROM EXISTING RUN` with private result links.
+- Verify job ID plus result access code lookup.
+- Verify `Recent results in this tab` behavior.
+- Verify diagnostics/reviewer access unlocks admin controls without a page refresh.
+
+Acceptance:
+
+- A non-admin user can recover only authorized results.
+- Diagnostics/admin controls unlock only with the configured admin token.
+- Public copy avoids `public`, `admin`, `submit token`, and `read token` labels outside the
+  low-profile reviewer access disclosure.
+
+### Deployment Slice C: Email / SMTP Pass
+
+Goal: verify result recovery by email before public release.
+
+Tasks:
+
+- First run SMTP in outbox mode if provider credentials are not ready.
+- After Stan confirms provider, sender policy, and public URL, run one live-provider SMTP test.
+- Confirm completion/failure emails include project name, job ID, result access code, private
+  result link, expiration date, citation/help copy, and sanitized failure guidance when relevant.
+- Confirm `CLUSTERWEAVE_PUBLIC_BASE_URL` matches the URL users actually open.
+
+Acceptance:
+
+- Email recovery works without leaking logs, paths, commands, env vars, stack traces, or worker
+  internals.
+- `web` and `worker` share the same stable `CLUSTERWEAVE_JOB_TOKEN_SECRET`.
+
+### Deployment Slice D: Host Cutover
+
+Goal: move from local verification ports to the real public face.
+
+Tasks:
+
+- Restore the public face to port `80` / `http://10.64.195.209/` or the final DNS name.
+- Keep one real backend worker and one shared `clusterweave_job_data` volume.
+- Confirm `CLUSTERWEAVE_PUBLIC_BASE_URL` points at the final origin with a trailing slash.
+- Confirm the public web face is internet/LAN-facing and the worker is not.
+
+Acceptance:
+
+- The final public URL loads the public UI and submits to the same backend validated locally.
+- No extra public/dev worker or duplicate job-data volume is introduced.
+
+### Deployment Slice E: Reverse Proxy / Security Envelope
+
+Goal: align the host perimeter with ClusterWeave's public-service quotas and token model.
+
+Tasks:
+
+- Confirm DNS, TLS termination, and reverse-proxy target.
+- Align reverse-proxy body-size limits with `CLUSTERWEAVE_MAX_UPLOAD_FILE_MB` and
+  `CLUSTERWEAVE_MAX_UPLOAD_TOTAL_MB`.
+- Add or confirm rate limits suitable for open submissions.
+- Confirm secret injection method for admin token, job token secret, SMTP credentials, and any
+  invite-only submit token.
+- Decide whether launch remains open submissions enabled or temporarily uses invite-only submit
+  access.
+
+Acceptance:
+
+- Public requests are bounded before and inside the app.
+- Secrets live in the host secret store/environment, not in source or handoff docs.
+
+### Deployment Slice F: Final Visual QA And Handoff
+
+Goal: capture the release state and leave Stan with a trustworthy operational handoff.
+
+Tasks:
+
+- Capture desktop/mobile screenshots for public new run, existing-run lookup, loaded results,
+  failed-job summary, and diagnostics/admin view.
+- Replace the future citation placeholder with the final DOI/citation URL if available.
+- Update `web/STAN.md` with final host URLs, environment expectations, known risks, and operator
+  commands.
+- Run the relevant focused tests and record what was actually verified.
+
+Acceptance:
+
+- The public UI can be handed off without hidden local-only assumptions.
+- Remaining risks are explicit, dated, and owned.
 
 ### Slice 0: Baseline Safeguards
 
@@ -544,8 +682,9 @@ Tasks:
 
 - Restyle drag/drop as a genome/accession intake node.
 - Keep `manual-accessions`, Add, Clear, and selected input list obvious.
-- Keep core settings visible: project, target genome, CPU threads, annotation strategy.
-- Keep stage toggles visible but calmer.
+- Keep public core settings to project and optional target genome. CPU threads, annotation
+  strategy, and stage toggles are admin/local or diagnostics-unlocked controls only.
+- Keep admin/local stage toggles visible but calmer.
 - Rename the advanced area visually to "Advanced knobs" only if IDs and behavior are
   preserved.
 
@@ -638,7 +777,8 @@ Tasks:
   shell.
 - Use primary nav items: `Overview`, `Intake`, `WeaveMap`, `Runs`, `Outputs`, `QA Console`,
   `Docs`.
-- Add right-side actions/status: `Load demo`, `Start run`, runtime/status chip, and `Results`.
+- Keep right-side header status to runtime only. Start and Results actions are redundant with
+  `NEW RUN` and the `Outputs` nav item.
 - Make nav items anchor to sections or switch focus states in the single-page app; add visible
   active states.
 - Add a responsive collapsed navigation treatment for smaller screens.
@@ -648,7 +788,8 @@ Tasks:
   WeaveMap motif.
 - Use hero copy close to:
   `Upload genomes or accessions, run canonical discovery stages, and inspect every output from annotation to gene cluster family context.`
-- Add hero actions: `Start from accessions`, `Load demo run`, `View workflow map`.
+- Keep the hero as orientation copy; avoid duplicate hero actions now that the entry panel owns
+  `Start from NCBI accessions` and `Load demo run`.
 - Keep the first screen operational; do not turn it into a detached marketing landing page.
 
 Acceptance:
@@ -840,8 +981,8 @@ Goal: reshape the SPA around public submission and existing-run retrieval.
 Tasks:
 
 - Remove hero static weave and top-level `WeaveMap` nav.
-- Simplify hero/identity band to two actions:
-  `Start from NCBI accessions` and `Load demo run`.
+- Simplify hero/identity band to orientation copy only; keep `Start from NCBI accessions` and
+  `Load demo run` in the `NEW RUN` entry panel.
 - Rename public workflow copy from `WeaveMap` to `Workflow progress`.
 - Add access key handling using `sessionStorage`; never put submit/admin tokens in URLs.
 - Replace the old visible access-key panel with `NEW RUN` and `RESULTS FROM EXISTING RUN` tabs.
@@ -1010,6 +1151,9 @@ CURRENT UI CONTRACT
 - Reruns are admin/local only and live in a collapsible panel.
 - SMTP/email is optional and visible only when configured.
 - Clinker Docker panel scripts must set `--workdir "${SCRIPT_DIR}"`.
+- Clinker postprocessing must not break standard non-web usage: preserve
+  `${PROJECT_ROOT}/bin/postprocess_clinker_html.py` as the first-choice generated path and add
+  web-specific repo-root fallback behavior separately.
 
 NON-NEGOTIABLES
 - Keep the app single-page and lightweight; edit mainly `web/static/index.html`.

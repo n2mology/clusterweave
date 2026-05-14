@@ -1183,8 +1183,43 @@ class Handler(BaseHTTPRequestHandler):
             self._bad_request(public_policy_error)
             return
 
+        if PUBLIC_MODE and not request_is_admin(self):
+            cpus = public_cpu_limit()
+            settings.update(
+                {
+                    "run_ncbi_install": False,
+                    "run_genome_prep": True,
+                    "run_annotation": True,
+                    "run_bigscape": True,
+                    "run_crosswalk": True,
+                    "run_summary": True,
+                    "run_clinker": True,
+                    "execute_clinker": True,
+                    "run_figures": True,
+                    "figures_required": False,
+                    "force": False,
+                    "genefinding_mode": "auto",
+                    "annotation_fallback_order": "funannotate",
+                    "braker3_enabled": False,
+                    "threads": cpus,
+                    "anno_cpus": cpus,
+                }
+            )
+            settings["workers"] = min(2, cpus)
+
         runtime_error = validate_runtime_request(settings, worker_status())
         if runtime_error:
+            if PUBLIC_MODE and not request_is_admin(self):
+                self._send_json(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    {
+                        "detail": (
+                            "Hosted analysis is temporarily unavailable while the ClusterWeave "
+                            "operator restores backend runtime services."
+                        )
+                    },
+                )
+                return
             self._send_json(HTTPStatus.CONFLICT, {"detail": runtime_error})
             return
 
@@ -1235,6 +1270,7 @@ class Handler(BaseHTTPRequestHandler):
         write_job(job)
 
         enqueue_job(job_id, cpus, settings)
+        result_url = f"{job.get('public_base_url') or request_public_base_url(self)}#/job/{job_id}/{read_token}"
 
         self._send_json(
             HTTPStatus.CREATED,
@@ -1243,6 +1279,7 @@ class Handler(BaseHTTPRequestHandler):
                 "status": job["status"],
                 "message": "Pipeline queued",
                 "read_token": read_token,
+                "result_url": result_url,
                 "expires_at": job.get("expires_at"),
             },
         )
