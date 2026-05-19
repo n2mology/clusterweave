@@ -48,7 +48,7 @@ For stricter reruns, source `profiles/release_v0.1.0.env` from the repository ro
 
 ## Figures
 
-`run_figures.sh` renders a small set of publication-friendly PNG figures directly from the summary tables:
+`run_figures.sh` renders the publication-facing BiG-SCAPE multipanel figure and graph-ready network exports:
 
 ```bash
 bash run_figures.sh
@@ -58,15 +58,17 @@ The outputs are written under:
 
 - `Data/Results/<project-name>/figures/`
 
-The current figure layer writes:
+The default figure layer writes:
 
-- `bgc_calls_by_tool_category.svg`
-- `bigscape_network.svg` when BiG-SCAPE outputs are present
-- `bigscape_network.graphml` when BiG-SCAPE outputs are present
+- `big_scape_multipanel.svg`
+- `big_scape_multipanel.png`
+- `bgc_overlap.svg`
+- `bgc_overlap.png`
+- `bigscape_network.graphml`
 - `bigscape_network_node_attributes.tsv`
-- `bigscape_network_fungal_id_legend.tsv`
+- `bigscape_network_edge_attributes.tsv`
 
-The summary figure uses the condensed BGC categories `NRP`, `PKS`, `RiPP`, `Terpene`, `Hybrid`, and `Other`. The figure layer is intentionally lightweight: base R for the summary plot and pure Python SVG/GraphML for the BiG-SCAPE network, so it does not add a large plotting dependency burden for first-time users.
+The multipanel bar chart and overlap figure use the condensed BGC categories `NRPS`, `PKS`, `RiPP`, `terpene`, `hybrid`, and `other`. The overlap chart counts shared antiSMASH/FunBGCeX BGC calls once per class and splits tool-specific unshared calls by tool and class, with exploded tool-specific agreement slices connected to compact horizontal class bars. The detail bars use a fixed raw-count scale across the figure, show percent-of-union labels, and only include nonzero classes. The figure layer is intentionally lightweight: pure Python SVG/GraphML by default, with PNG conversion through `cairosvg` when available. Set `RUN_SUMMARY_FIGURES=1 KEEP_REDUNDANT_FIGURE_OUTPUTS=1` only when you need the older standalone summary/network side-products.
 
 The BiG-SCAPE network renderer is a pure-Python SVG/GraphML helper. It uses BiG-SCAPE `record_annotations.tsv`, `*_clustering_c*.tsv`, and `*_c*.network` files, preferring the `mix` category. Its default ecology metadata input is `Data/Results/<project-name>/summary_tables/ecofun_metadata_normalized.tsv`; user TSV/CSV files may also use `sample_id` or `fungal_id` plus `ecology_category`. Blank, unknown, or unlabeled ecology values do not draw a gray border unless at least one informative ecology category is present. When `summary/candidate_bgc_gcf_crosswalk.tsv` is present, the best representative dataset record with a MiBIG-style BGC accession annotation in each accession/family group receives a small blue dot; actual MiBIG reference GBKs receive a blue outer ring. Connected components are labeled with concise putative product names above antiSMASH ClusterCompare confidence percentages when available. MiBIG-only reference families are omitted by default. Optional PNG/PDF conversion is available when `cairosvg` is installed.
 
@@ -74,8 +76,9 @@ Useful controls:
 
 ```bash
 RUN_BIGSCAPE_NETWORK_FIGURE=0 bash run_figures.sh
+RUN_BGC_OVERLAP_FIGURE=0 bash run_figures.sh
 FORCE=1 PROJECT_NAME=clusterweave_smoke bash run_figures.sh
-BIGSCAPE_NETWORK_FORMATS=svg,graphml,png bash run_figures.sh
+BIGSCAPE_NETWORK_FORMATS=svg,graphml,png KEEP_REDUNDANT_FIGURE_OUTPUTS=1 bash run_figures.sh
 BIGSCAPE_NETWORK_DISTANCE_THRESHOLD=0.25 bash run_figures.sh
 BIGSCAPE_NETWORK_MAX_NODES=250 bash run_figures.sh
 BIGSCAPE_NETWORK_CANVAS_WIDTH=1200 bash run_figures.sh

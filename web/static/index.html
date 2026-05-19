@@ -6442,9 +6442,10 @@ function handleFileFolderToggle(detailsEl) {
 function figureSortKey(path) {
   const name = fileNameFromPath(path).toLowerCase();
   const preferred = [
-    'bgc_calls_by_tool_category.svg',
-    'bigscape_network.svg',
-    'bigscape_network.png',
+    'big_scape_multipanel.svg',
+    'big_scape_multipanel.png',
+    'bgc_overlap.svg',
+    'bgc_overlap.png',
   ];
   const idx = preferred.indexOf(name);
   return `${idx === -1 ? preferred.length : idx}:${name}`;
@@ -6452,11 +6453,11 @@ function figureSortKey(path) {
 
 function figureCaption(path) {
   const name = fileNameFromPath(path).toLowerCase();
-  if (name === 'bgc_calls_by_tool_category.svg') {
-    return 'Figure output summarizing BGC call categories across the selected run.';
+  if (name === 'big_scape_multipanel.svg' || name === 'big_scape_multipanel.png') {
+    return 'Multipanel BiG-SCAPE figure combining BGC/GCF count bars and network context.';
   }
-  if (name === 'bigscape_network.svg' || name === 'bigscape_network.png') {
-    return 'BiG-SCAPE network figure output generated from family context files.';
+  if (name === 'bgc_overlap.svg' || name === 'bgc_overlap.png') {
+    return 'Shared and tool-specific BGC scaffold overlap between antiSMASH and FunBGCeX by genome.';
   }
   return 'Rendered figure output from Data/Results/<project>/figures.';
 }

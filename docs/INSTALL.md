@@ -25,7 +25,7 @@
 9. Set `RUN_ECOLOGY_ANALYSIS=1` only when you want ecology-aware grouping, candidate ranking, and reviewer-shortlist outputs.
 10. Curate `summary_tables/ecofun_metadata_normalized.tsv` if you want ecology labels to drive that optional analysis. A project-local editable scaffold is written to `summary_tables/ecofun_metadata_template.tsv` when metadata is auto-normalized, and the static repo header template remains at `config/metadata_template.tsv`.
 11. Set `FOCUS_ECOLOGY_LABEL` if you want one ecology label treated as the prioritization focus instead of relying on the target genome's ecology.
-12. Optionally run `bash run_figures.sh` to render lightweight figures from the generated tables. The summary plot compares per-genome antiSMASH and FunBGCeX BGC calls using the condensed categories `NRP`, `PKS`, `RiPP`, `Terpene`, `Hybrid`, and `Other`.
+12. Optionally run `bash run_figures.sh` to render the BGC overlap figure, BiG-SCAPE multipanel SVG/PNG, and graph-ready GraphML/node/edge attribute tables from the generated summaries and BiG-SCAPE output.
 13. The canonical wrapper writes a small provenance bundle under `Data/Results/<project-name>/reproducibility/`, including `external_artifacts.tsv` with checksums for local SIFs, Pfam, FastTree, MiBIG, and related runtime artifacts.
 
 ## Optional Configuration

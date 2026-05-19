@@ -323,6 +323,7 @@ class BigscapeNetworkRenderingTests(unittest.TestCase):
             svg_text = (output_dir / "test_network.svg").read_text(encoding="utf-8")
             graphml_text = (output_dir / "test_network.graphml").read_text(encoding="utf-8")
             node_attrs = (output_dir / "test_network_node_attributes.tsv").read_text(encoding="utf-8")
+            edge_attrs = (output_dir / "test_network_edge_attributes.tsv").read_text(encoding="utf-8")
             legend = (output_dir / "test_network_fungal_id_legend.tsv").read_text(encoding="utf-8")
             warnings = (output_dir / "test_network_warnings.txt").read_text(encoding="utf-8")
 
@@ -334,7 +335,9 @@ class BigscapeNetworkRenderingTests(unittest.TestCase):
             self.assertNotIn("dataset BGC accession hit", svg_text)
             self.assertIn("synthetic product", svg_text)
             self.assertIn("95% / 75%", svg_text)
-            self.assertIn("Product scores are antiSMASH ClusterCompare percentages.", svg_text)
+            self.assertIn("Product scores are antiSMASH ClusterCompare (%).", svg_text)
+            self.assertIn('r="12.00"', svg_text)
+            self.assertIn('r="18.00"', svg_text)
             self.assertNotIn("rotate(", svg_text)
             self.assertIn("Connected GCFs", svg_text)
             self.assertNotIn('stroke="#D0D0D0"', svg_text)
@@ -347,12 +350,16 @@ class BigscapeNetworkRenderingTests(unittest.TestCase):
             self.assertIn("<graphml", graphml_text)
             self.assertIn("hybrid", node_attrs)
             self.assertIn("unknown", node_attrs)
+            self.assertIn("bigscape_record\tlabel_number", node_attrs)
+            self.assertIn("sample_id\tbigscape_gbk", node_attrs)
             self.assertIn("has_mibig_annotation", node_attrs)
             self.assertIn("putative_products", node_attrs)
             self.assertIn("putative_product_scores", node_attrs)
             self.assertIn("synthetic product", node_attrs)
             self.assertIn("95%", node_attrs)
             self.assertNotIn("FBGC", node_attrs)
+            self.assertIn("source_bigscape_record\ttarget_bigscape_record", edge_attrs)
+            self.assertNotIn("source\ttarget", edge_attrs)
             self.assertIn("synthetic product", graphml_text)
             self.assertIn("putative_product_scores", graphml_text)
             self.assertNotIn("FBGC", graphml_text)
@@ -371,6 +378,40 @@ class BigscapeNetworkRenderingTests(unittest.TestCase):
             layout_a = self.module.build_layout(nodes, edges, 900, 10)
             layout_b = self.module.build_layout(nodes, edges, 900, 10)
             self.assertEqual(layout_a.positions, layout_b.positions)
+
+    def test_doubletons_are_vertical_separate_grid(self) -> None:
+        nodes = {
+            node_id: self.module.NodeRecord(record=node_id)
+            for node_id in ["node1", "node2", "node3", "node4", "node5"]
+        }
+        edges = [
+            self.module.EdgeRecord("node1", "node2", distance=0.1),
+            self.module.EdgeRecord("node3", "node4", distance=0.2),
+        ]
+
+        layout = self.module.build_layout(nodes, edges, 900, 0)
+
+        self.assertIn("doubletons", layout.section_y)
+        self.assertIn("singletons", layout.section_y)
+        self.assertLess(layout.section_y["doubletons"], layout.section_y["singletons"])
+        for source, target in [("node1", "node2"), ("node3", "node4")]:
+            source_x, source_y = layout.positions[source]
+            target_x, target_y = layout.positions[target]
+            self.assertAlmostEqual(source_x, target_x)
+            self.assertGreater(abs(target_y - source_y), 35.0)
+
+    def test_edges_are_trimmed_to_visible_node_boundaries(self) -> None:
+        mibig = self.module.NodeRecord(record="BGC0000001.gbk_region_1", is_mibig=True)
+        normal = self.module.NodeRecord(record="node1")
+
+        source_radius = self.module.visible_node_radius(mibig, 12.0, False)
+        target_radius = self.module.visible_node_radius(normal, 12.0, False)
+        trimmed = self.module.trimmed_edge_endpoints((0.0, 0.0), (100.0, 0.0), source_radius, target_radius)
+
+        self.assertIsNotNone(trimmed)
+        assert trimmed is not None
+        self.assertAlmostEqual(trimmed[0], 19.0)
+        self.assertAlmostEqual(trimmed[2], 87.0)
 
     def test_all_unknown_ecology_omits_redundant_border_legend(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

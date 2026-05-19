@@ -32,8 +32,9 @@ UNKNOWN = "unknown"
 MIBIG_SAMPLE_ID = "MiBIG reference"
 MIBIG_BLUE = "#1F77B4"
 DEFAULT_CANVAS_WIDTH = 1200
-PRODUCT_LABEL_FONT_SIZE = 9
-PRODUCT_SCORE_FONT_SIZE = 8
+PRODUCT_LABEL_FONT_SIZE = 13
+PRODUCT_SCORE_FONT_SIZE = 11
+FONT_SIZE_INCREMENT = 2
 
 
 CLASS_COLORS = {
@@ -125,6 +126,7 @@ class LayoutResult:
     height: int
     legend_x: float
     section_y: dict[str, float] = field(default_factory=dict)
+    section_right: float = 0.0
 
 
 def clean(value: object) -> str:
@@ -884,7 +886,12 @@ def graph_components(nodes: dict[str, NodeRecord], edges: list[EdgeRecord]) -> l
                     seen.add(neighbor)
                     stack.append(neighbor)
         components.append(sorted(comp, key=natural_key))
-    return sorted(components, key=lambda comp: (-len(comp), natural_key(comp[0])))
+    edge_counts: dict[frozenset[str], int] = {}
+    for comp in components:
+        comp_set = frozenset(comp)
+        edge_counts[comp_set] = sum(1 for edge in edges if edge.source in comp_set and edge.target in comp_set)
+
+    return sorted(components, key=lambda comp: (-edge_counts[frozenset(comp)], -len(comp), natural_key(comp[0])))
 
 
 def filter_graph(
@@ -931,7 +938,7 @@ def local_component_layout(component: list[str], edges: list[EdgeRecord], iterat
     if n == 1:
         return {component[0]: (30.0, 30.0)}, 60.0, 60.0
     if n == 2:
-        return {component[0]: (25.0, 35.0), component[1]: (95.0, 35.0)}, 120.0, 70.0
+        return {component[0]: (24.0, 24.0), component[1]: (24.0, 68.0)}, 48.0, 92.0
 
     cols = max(2, math.ceil(math.sqrt(n)))
     rows = math.ceil(n / cols)
@@ -1014,57 +1021,97 @@ def build_layout(
     edges: list[EdgeRecord],
     canvas_width: int,
     layout_iterations: int,
+    reserved_top_left: tuple[float, float] | None = None,
+    combine_connected_components: bool = False,
+    network_content_width: float | None = None,
+    top_margin: float = 36.0,
 ) -> LayoutResult:
     margin = 36.0
     gap = 34.0
     row_gap = 56.0
     legend_width = 420.0
     network_width = max(480.0, canvas_width - legend_width - 3 * margin)
+    pack_network_width = min(network_width, network_content_width) if network_content_width else network_width
     legend_x = margin + network_width + margin
 
     components = graph_components(nodes, edges)
     large = [comp for comp in components if len(comp) >= 6]
-    medium_small = [comp for comp in components if 1 < len(comp) < 6]
+    medium_small = [comp for comp in components if 2 < len(comp) < 6]
+    doubletons = [comp for comp in components if len(comp) == 2]
     singletons = [comp[0] for comp in components if len(comp) == 1]
 
     positions: dict[str, tuple[float, float]] = {}
-    y = margin
+    y = top_margin
     section_y: dict[str, float] = {}
+
+    def row_left_for(y_cursor: float) -> float:
+        if reserved_top_left is None:
+            return margin
+        reserved_width, reserved_height = reserved_top_left
+        if y_cursor < margin + reserved_height:
+            return margin + reserved_width + gap
+        return margin
 
     def pack_layer(layer: list[list[str]], start_y: float, section_name: str) -> float:
         if not layer:
             return start_y
         section_y[section_name] = start_y
-        x = margin
         row_top = start_y + 18.0
         row_height = 0.0
         y_cursor = row_top
+        x = row_left_for(y_cursor)
         for comp in layer:
             comp_set = set(comp)
             local_edges = component_edges(comp_set, edges)
             local_pos, box_w, box_h = local_component_layout(comp, local_edges, layout_iterations)
-            if x + box_w > margin + network_width and x > margin:
-                x = margin
+            if x + box_w > margin + pack_network_width and x > margin:
                 y_cursor += row_height + row_gap
                 row_height = 0.0
+                x = row_left_for(y_cursor)
             for node_id, (local_x, local_y) in local_pos.items():
                 positions[node_id] = (x + local_x, y_cursor + local_y)
             x += box_w + gap
             row_height = max(row_height, box_h)
         return y_cursor + row_height + row_gap
 
-    y = pack_layer(large, y, "large")
-    y = pack_layer(medium_small, y, "medium_small")
+    def pack_doubletons(layer: list[list[str]], start_y: float) -> float:
+        if not layer:
+            return start_y
+        section_y["doubletons"] = start_y
+        cell_w = 50.0
+        cell_h = 84.0
+        left = row_left_for(start_y)
+        right = margin + pack_network_width
+        cols = max(1, int(max(cell_w, right - left) // cell_w))
+        for index, comp in enumerate(layer):
+            col = index % cols
+            row = index // cols
+            x = left + col * cell_w + cell_w / 2.0
+            y0 = start_y + 30.0 + row * cell_h
+            positions[comp[0]] = (x, y0)
+            positions[comp[1]] = (x, y0 + 42.0)
+        rows = math.ceil(len(layer) / cols)
+        return start_y + 116.0 + max(0, rows - 1) * cell_h
+
+    if combine_connected_components:
+        y = pack_layer(large + medium_small, y, "medium_small")
+    else:
+        y = pack_layer(large, y, "large")
+        y = pack_layer(medium_small, y, "medium_small")
+    y = pack_doubletons(doubletons, y)
 
     if singletons:
         section_y["singletons"] = y
-        cell = 34.0
-        cols = max(1, int(network_width // cell))
+        cell = 38.0
+        left = row_left_for(y)
+        right = margin + pack_network_width
+        cols = max(1, int(max(cell, right - left) // cell))
         for index, node_id in enumerate(sorted(singletons, key=natural_key)):
             col = index % cols
             row = index // cols
-            positions[node_id] = (margin + col * cell + cell / 2.0, y + 30.0 + row * cell)
-        y += 58.0 + (math.ceil(len(singletons) / cols) * cell)
+            positions[node_id] = (left + col * cell + cell / 2.0, y + 30.0 + row * cell)
+        rows = math.ceil(len(singletons) / cols)
+        y += 58.0 + max(0, rows - 1) * cell
 
     sample_count = len({node.sample_id for node in nodes.values()})
     class_count = len({node.bgc_class for node in nodes.values()})
@@ -1077,15 +1124,22 @@ def build_layout(
         any(node.has_mibig_annotation and not node.is_mibig for node in nodes.values())
     )
     product_note_count = int(any(node.putative_product_scores for node in nodes.values()))
-    legend_height = 165 + 16 * sample_count + 24 * class_count + 24 * ecology_count + 22 * marker_count + 16 * product_note_count
+    legend_height = 205 + 22 * sample_count + 34 * class_count + 36 * ecology_count + 38 * marker_count + 20 * product_note_count
     canvas_height = int(max(y + margin, legend_height + margin))
-    return LayoutResult(positions=positions, width=canvas_width, height=canvas_height, legend_x=legend_x, section_y=section_y)
+    return LayoutResult(
+        positions=positions,
+        width=canvas_width,
+        height=canvas_height,
+        legend_x=legend_x,
+        section_y=section_y,
+        section_right=margin + pack_network_width,
+    )
 
 
 def svg_text(x: float, y: float, text: str, size: int = 11, weight: str = "400", anchor: str = "start") -> str:
     return (
         f'<text x="{x:.1f}" y="{y:.1f}" font-family="Arial, Helvetica, sans-serif" '
-        f'font-size="{size}" font-weight="{weight}" text-anchor="{anchor}" fill="#222222">'
+        f'font-size="{display_font_size(size):g}" font-weight="{weight}" text-anchor="{anchor}" fill="#222222">'
         f"{escape(text)}</text>"
     )
 
@@ -1095,6 +1149,66 @@ def shorten(text: str, limit: int = 48) -> str:
     if len(value) <= limit:
         return value
     return value[: max(0, limit - 3)] + "..."
+
+
+def display_font_size(size: int | float) -> float:
+    return max(4.0, float(size) + FONT_SIZE_INCREMENT)
+
+
+def sample_name_parts(sample_id: str) -> tuple[str, str]:
+    display = re.sub(r"\s+", " ", clean(sample_id).replace("_", " ")).strip()
+    if not display or display == MIBIG_SAMPLE_ID:
+        return "", display
+    words = display.split()
+    if len(words) >= 2 and words[0][:1].isupper() and words[1][:1].islower():
+        return " ".join(words[:2]), " ".join(words[2:])
+    return "", display
+
+
+def sample_display_text(sample_id: str) -> str:
+    italic, plain = sample_name_parts(sample_id)
+    return f"{italic} {plain}".strip() if italic else plain
+
+
+def svg_sample_name_tspans(sample_id: str, suffix: str = "") -> str:
+    italic, plain = sample_name_parts(sample_id)
+    suffix_text = escape(suffix)
+    if italic:
+        plain_text = f" {plain}" if plain else ""
+        return (
+            f'<tspan font-style="italic">{escape(italic)}</tspan>'
+            f"<tspan>{escape(plain_text)}{suffix_text}</tspan>"
+        )
+    return f"<tspan>{escape(plain)}{suffix_text}</tspan>"
+
+
+def svg_sample_label(
+    x: float,
+    y: float,
+    sample_id: str,
+    size: int,
+    weight: str = "400",
+    anchor: str = "start",
+    fill: str = "#222222",
+) -> str:
+    return (
+        f'<text x="{x:.1f}" y="{y:.1f}" font-family="Arial, Helvetica, sans-serif" '
+        f'font-size="{display_font_size(size):g}" font-weight="{weight}" text-anchor="{anchor}" fill="{fill}">'
+        f"{svg_sample_name_tspans(sample_id)}</text>"
+    )
+
+
+def estimated_svg_text_width(text: str, size: int | float, weight: str = "400") -> float:
+    font_size = display_font_size(size)
+    weight_factor = 0.58 if str(weight) in {"700", "800", "bold"} else 0.53
+    return len(clean(text)) * font_size * weight_factor
+
+
+def bigscape_category_label(category: str) -> str:
+    value = clean(category)
+    if value.casefold() == "mix":
+        return "all BGC classes (mix)"
+    return value or UNKNOWN
 
 
 def wrap_label_text(text: str, max_chars: int = 24, max_lines: int = 2) -> list[str]:
@@ -1161,7 +1275,7 @@ def component_label_entries(
 ) -> list[tuple[float, float, list[str]]]:
     entries: list[tuple[float, float, list[str]]] = []
     for component in graph_components(nodes, edges):
-        if len(component) <= 1:
+        if len(component) <= 2:
             continue
         label_lines = component_product_label_lines(component, nodes)
         if not label_lines:
@@ -1171,17 +1285,47 @@ def component_label_entries(
         if not xs or not ys:
             continue
         x = (min(xs) + max(xs)) / 2.0
-        y = max(18.0, min(ys) - 35.0)
+        y = max(18.0, min(ys) - 44.0)
         entries.append((x, y, label_lines))
     return entries
 
 
 def node_radius(node_count: int) -> float:
-    if node_count > 450:
-        return 6.0
-    if node_count > 220:
-        return 7.0
-    return 9.0
+    return 12.0
+
+
+def visible_node_radius(node: NodeRecord, base_radius: float, show_ecology: bool) -> float:
+    if node.is_mibig:
+        return base_radius + 6.0
+    if show_ecology and not is_unknown_ecology(node.ecology_category):
+        return base_radius + 2.5
+    return base_radius
+
+
+def trimmed_edge_endpoints(
+    source_xy: tuple[float, float],
+    target_xy: tuple[float, float],
+    source_radius: float,
+    target_radius: float,
+    padding: float = 1.0,
+) -> tuple[float, float, float, float] | None:
+    x1, y1 = source_xy
+    x2, y2 = target_xy
+    dx = x2 - x1
+    dy = y2 - y1
+    distance = math.hypot(dx, dy)
+    source_trim = source_radius + padding
+    target_trim = target_radius + padding
+    if distance <= source_trim + target_trim:
+        return None
+    ux = dx / distance
+    uy = dy / distance
+    return (
+        x1 + ux * source_trim,
+        y1 + uy * source_trim,
+        x2 - ux * target_trim,
+        y2 - uy * target_trim,
+    )
 
 
 def render_svg(
@@ -1190,30 +1334,57 @@ def render_svg(
     edges: list[EdgeRecord],
     layout: LayoutResult,
     inputs: BigscapeInputs,
+    pre_body_lines: Iterable[str] | None = None,
+    section_titles: dict[str, str | None] | None = None,
+    section_x: float = 36.0,
 ) -> None:
     r = node_radius(len(nodes))
     show_ecology = has_ecology_signal(nodes)
     has_annotation_marker = any(node.has_mibig_annotation and not node.is_mibig for node in nodes.values())
     has_reference_marker = any(node.is_mibig for node in nodes.values())
-    lines: list[str] = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{layout.width}" height="{layout.height}" viewBox="0 0 {layout.width} {layout.height}">',
-        '<rect x="0" y="0" width="100%" height="100%" fill="#FFFFFF"/>',
-    ]
+    lines: list[str] = []
 
-    if "large" in layout.section_y:
-        lines.append(svg_text(36, layout.section_y["large"] + 1, "Large connected components", 12, "700"))
-    if "medium_small" in layout.section_y:
-        lines.append(svg_text(36, layout.section_y["medium_small"] + 1, "Connected GCFs", 12, "700"))
+    if pre_body_lines:
+        lines.extend(pre_body_lines)
+
+    def section_title(key: str, default: str) -> str | None:
+        if section_titles is not None and key in section_titles:
+            return section_titles[key]
+        return default
+
+    large_title = section_title("large", "Large connected components")
+    if "large" in layout.section_y and large_title:
+        lines.append(svg_text(section_x, layout.section_y["large"] + 1, large_title, 12, "700"))
+    medium_small_title = section_title("medium_small", "Connected GCFs")
+    if "medium_small" in layout.section_y and medium_small_title:
+        lines.append(svg_text(section_x, layout.section_y["medium_small"] + 1, medium_small_title, 12, "700"))
+    doubleton_title = section_title("doubletons", "Doubletons")
+    if "doubletons" in layout.section_y:
+        y = layout.section_y["doubletons"] - 18
+        section_right = layout.section_right or layout.legend_x - 44
+        lines.append(f'<line x1="{section_x:.1f}" y1="{y:.1f}" x2="{section_right:.1f}" y2="{y:.1f}" stroke="#DDDDDD" stroke-width="1"/>')
+        if doubleton_title:
+            lines.append(svg_text(section_x, layout.section_y["doubletons"] + 1, doubleton_title, 12, "700"))
+    singleton_title = section_title("singletons", "Singletons")
     if "singletons" in layout.section_y:
         y = layout.section_y["singletons"] - 18
-        lines.append(f'<line x1="36" y1="{y:.1f}" x2="{layout.legend_x - 44:.1f}" y2="{y:.1f}" stroke="#DDDDDD" stroke-width="1"/>')
-        lines.append(svg_text(36, layout.section_y["singletons"] + 1, "Singletons", 12, "700"))
+        section_right = layout.section_right or layout.legend_x - 44
+        lines.append(f'<line x1="{section_x:.1f}" y1="{y:.1f}" x2="{section_right:.1f}" y2="{y:.1f}" stroke="#DDDDDD" stroke-width="1"/>')
+        if singleton_title:
+            lines.append(svg_text(section_x, layout.section_y["singletons"] + 1, singleton_title, 12, "700"))
 
     for edge in edges:
         if edge.source not in layout.positions or edge.target not in layout.positions:
             continue
-        x1, y1 = layout.positions[edge.source]
-        x2, y2 = layout.positions[edge.target]
+        trimmed = trimmed_edge_endpoints(
+            layout.positions[edge.source],
+            layout.positions[edge.target],
+            visible_node_radius(nodes[edge.source], r, show_ecology),
+            visible_node_radius(nodes[edge.target], r, show_ecology),
+        )
+        if trimmed is None:
+            continue
+        x1, y1, x2, y2 = trimmed
         similarity = edge.similarity if edge.similarity is not None else 0.55
         width = 0.8 + 2.0 * similarity
         lines.append(
@@ -1222,14 +1393,14 @@ def render_svg(
         )
 
     for x, y, label_lines in component_label_entries(nodes, edges, layout.positions):
-        line_height = 10.5
+        line_height = 14.0
         for index, line in enumerate(label_lines):
             size = PRODUCT_SCORE_FONT_SIZE if index == len(label_lines) - 1 and line.endswith("%") else PRODUCT_LABEL_FONT_SIZE
             weight = "400" if size == PRODUCT_SCORE_FONT_SIZE else "700"
             fill = "#444444" if size == PRODUCT_SCORE_FONT_SIZE else "#222222"
             lines.append(
                 f'<text x="{x:.1f}" y="{y + 7.0 + index * line_height:.1f}" '
-                f'font-family="Arial, Helvetica, sans-serif" font-size="{size}" font-weight="{weight}" '
+                f'font-family="Arial, Helvetica, sans-serif" font-size="{display_font_size(size):g}" font-weight="{weight}" '
                 f'text-anchor="middle" fill="{fill}">{escape(line)}</text>'
             )
 
@@ -1258,21 +1429,26 @@ def render_svg(
                 f'<circle cx="{x + r * 0.78:.2f}" cy="{y - r * 0.78:.2f}" r="{dot_r:.2f}" '
                 f'fill="{MIBIG_BLUE}" stroke="#FFFFFF" stroke-width="1.0"/>'
             )
-        font_size = 7 if len(node.label_number) > 2 or r < 8 else 8
+        base_font_size = 8 if len(node.label_number) > 2 or r < 8 else 9
+        font_size = display_font_size(base_font_size)
         lines.append(
             f'<text x="{x:.2f}" y="{y + font_size / 2.7:.2f}" font-family="Arial, Helvetica, sans-serif" '
-            f'font-size="{font_size}" font-weight="700" text-anchor="middle" fill="#111111">{escape(node.label_number)}</text>'
+            f'font-size="{font_size:g}" font-weight="800" text-anchor="middle" fill="#111111">{escape(node.label_number)}</text>'
         )
 
     legend_x = layout.legend_x
+    legend_padding = 18.0
+    legend_box_x = legend_x - legend_padding
+    legend_box_y = 4.0
+    legend_start_index = len(lines)
+    legend_text_widths: list[float] = [estimated_svg_text_width("BiG-SCAPE Network", 18, "700")]
     y = 42.0
-    lines.append(svg_text(legend_x, y, "BiG-SCAPE Network", 16, "700"))
-    y += 22
-    lines.append(svg_text(legend_x, y, f"Category: {inputs.category}; nodes: {len(nodes)}; edges: {len(edges)}", 11))
-    y += 25
+    lines.append(svg_text(legend_x, y, "BiG-SCAPE Network", 18, "700"))
+    y += 24
     if any(node.putative_product_scores for node in nodes.values()):
-        lines.append(svg_text(legend_x, y, "Product scores are antiSMASH ClusterCompare percentages.", 10))
-        y += 18
+        legend_text_widths.append(estimated_svg_text_width("Product scores are antiSMASH ClusterCompare (%).", 11))
+        lines.append(svg_text(legend_x, y, "Product scores are antiSMASH ClusterCompare (%).", 11))
+        y += 28
 
     sample_counts: dict[str, int] = defaultdict(int)
     for node in nodes.values():
@@ -1280,58 +1456,88 @@ def render_svg(
     samples = sorted(sample_counts, key=lambda value: int(next(n.label_number for n in nodes.values() if n.sample_id == value)))
     label_by_sample = {node.sample_id: node.label_number for node in nodes.values()}
 
-    lines.append(svg_text(legend_x, y, "Node Labels", 12, "700"))
-    y += 17
+    lines.append(svg_text(legend_x, y, "Node Labels", 14, "700"))
+    legend_text_widths.append(estimated_svg_text_width("Node Labels", 14, "700"))
+    y += 22
     for sample_id in samples:
         label = label_by_sample[sample_id]
         count = sample_counts[sample_id]
-        display = f"{label} = {shorten(sample_id)} ({count})"
-        lines.append(svg_text(legend_x, y, display, 10))
-        y += 15
-    y += 12
+        legend_text_widths.append(estimated_svg_text_width(f"{label} = {sample_display_text(sample_id)} ({count})", 11, "800"))
+        lines.append(
+            f'<text x="{legend_x:.1f}" y="{y:.1f}" font-family="Arial, Helvetica, sans-serif" '
+            f'font-size="{display_font_size(11):g}" font-weight="400" text-anchor="start" fill="#222222">'
+            f'<tspan font-weight="800">{escape(label)}</tspan><tspan> = </tspan>'
+            f'{svg_sample_name_tspans(sample_id, f" ({count})")}</text>'
+        )
+        y += 20
+    y += 14
 
-    lines.append(svg_text(legend_x, y, "BGC Class Fill", 12, "700"))
-    y += 18
+    lines.append(svg_text(legend_x, y, "BGC Class Fill", 14, "700"))
+    legend_text_widths.append(estimated_svg_text_width("BGC Class Fill", 14, "700"))
+    y += 28
     used_classes = sorted({node.bgc_class for node in nodes.values()}, key=lambda value: CLASS_ORDER.index(value) if value in CLASS_ORDER else len(CLASS_ORDER))
     for class_name in used_classes:
         color = CLASS_COLORS.get(class_name, CLASS_COLORS["other"])
-        lines.append(f'<circle cx="{legend_x + 7:.1f}" cy="{y - 4:.1f}" r="6" fill="{color}" stroke="#333333" stroke-width="1"/>')
-        lines.append(svg_text(legend_x + 22, y, class_name, 10))
-        y += 20
-    y += 8
+        lines.append(f'<circle cx="{legend_x + 12:.1f}" cy="{y - 5:.1f}" r="12" fill="{color}" stroke="#333333" stroke-width="1.1"/>')
+        legend_text_widths.append(32.0 + estimated_svg_text_width(class_name, 11))
+        lines.append(svg_text(legend_x + 32, y, class_name, 11))
+        y += 30
+    y += 10
 
     if show_ecology:
-        lines.append(svg_text(legend_x, y, "Ecology Border", 12, "700"))
-        y += 18
+        lines.append(svg_text(legend_x, y, "Ecology Border", 14, "700"))
+        legend_text_widths.append(estimated_svg_text_width("Ecology Border", 14, "700"))
+        y += 30
         used_ecology = sorted(
             {node.ecology_category for node in nodes.values() if not is_unknown_ecology(node.ecology_category)},
             key=natural_key,
         )
         for ecology in used_ecology:
             color = stable_label_color(ecology)
-            lines.append(f'<circle cx="{legend_x + 7:.1f}" cy="{y - 4:.1f}" r="7" fill="none" stroke="{color}" stroke-width="3"/>')
-            lines.append(svg_text(legend_x + 22, y, shorten(ecology, 45), 10))
-            y += 20
+            lines.append(f'<circle cx="{legend_x + 14.5:.1f}" cy="{y - 5:.1f}" r="14.5" fill="none" stroke="{color}" stroke-width="3"/>')
+            legend_text_widths.append(36.0 + estimated_svg_text_width(shorten(ecology, 45), 11))
+            lines.append(svg_text(legend_x + 36, y, shorten(ecology, 45), 11))
+            y += 32
         if any(is_unknown_ecology(node.ecology_category) for node in nodes.values()):
-            lines.append(f'<circle cx="{legend_x + 7:.1f}" cy="{y - 4:.1f}" r="7" fill="none" stroke="#8A8A8A" stroke-width="1.2" stroke-dasharray="2 2"/>')
-            lines.append(svg_text(legend_x + 22, y, "unknown/unlabeled (no border)", 10))
-            y += 20
-        y += 8
+            lines.append(f'<circle cx="{legend_x + 14.5:.1f}" cy="{y - 5:.1f}" r="14.5" fill="none" stroke="#8A8A8A" stroke-width="1.2" stroke-dasharray="2 2"/>')
+            legend_text_widths.append(36.0 + estimated_svg_text_width("unknown/unlabeled (no border)", 11))
+            lines.append(svg_text(legend_x + 36, y, "unknown/unlabeled (no border)", 11))
+            y += 32
+        y += 10
 
     if has_reference_marker or has_annotation_marker:
-        lines.append(svg_text(legend_x, y, "MiBIG Marker", 12, "700"))
-        y += 19
+        lines.append(svg_text(legend_x, y, "MiBIG Marker", 14, "700"))
+        legend_text_widths.append(estimated_svg_text_width("MiBIG Marker", 14, "700"))
+        y += 34
         if has_reference_marker:
-            lines.append(f'<circle cx="{legend_x + 7:.1f}" cy="{y - 4:.1f}" r="9" fill="none" stroke="{MIBIG_BLUE}" stroke-width="3"/>')
-            lines.append(svg_text(legend_x + 22, y, "MiBIG reference GBK", 10))
-            y += 20
+            lines.append(f'<circle cx="{legend_x + 18:.1f}" cy="{y - 5:.1f}" r="18" fill="none" stroke="{MIBIG_BLUE}" stroke-width="3"/>')
+            legend_text_widths.append(42.0 + estimated_svg_text_width("MiBIG reference GBK", 11))
+            lines.append(svg_text(legend_x + 42, y, "MiBIG reference GBK", 11))
+            y += 36
         if has_annotation_marker:
-            lines.append(f'<circle cx="{legend_x + 7:.1f}" cy="{y - 4:.1f}" r="4" fill="{MIBIG_BLUE}" stroke="#FFFFFF" stroke-width="1"/>')
-            lines.append(svg_text(legend_x + 22, y, "representative dataset hit", 10))
+            lines.append(f'<circle cx="{legend_x + 18:.1f}" cy="{y - 5:.1f}" r="4.1" fill="{MIBIG_BLUE}" stroke="#FFFFFF" stroke-width="1"/>')
+            legend_text_widths.append(42.0 + estimated_svg_text_width("representative dataset hit", 11))
+            lines.append(svg_text(legend_x + 42, y, "representative dataset hit", 11))
 
-    lines.append("</svg>")
+    available_legend_w = max(360.0, layout.width - legend_box_x - legend_padding)
+    legend_content_w = max(legend_text_widths) if legend_text_widths else 0.0
+    legend_box_w = min(available_legend_w, max(360.0, legend_content_w + 2 * legend_padding))
+    legend_box_h = max(120.0, y + 21.0 - legend_box_y)
+    lines.insert(
+        legend_start_index,
+        f'<rect x="{legend_box_x:.1f}" y="{legend_box_y:.1f}" width="{legend_box_w:.1f}" '
+        f'height="{legend_box_h:.1f}" fill="none" stroke="#DADADA" stroke-width="1.2"/>',
+    )
+
+    output_width = int(math.ceil(max(layout.section_right, legend_box_x + legend_box_w + legend_padding, 1.0)))
+    document_lines = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{output_width}" height="{layout.height}" viewBox="0 0 {output_width} {layout.height}">',
+        '<rect x="0" y="0" width="100%" height="100%" fill="#FFFFFF"/>',
+        *lines,
+        "</svg>",
+    ]
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    path.write_text("\n".join(document_lines) + "\n", encoding="utf-8")
 
 
 def graphml_attr(value: object) -> str:
@@ -1429,10 +1635,10 @@ def node_attribute_rows(nodes: dict[str, NodeRecord], positions: dict[str, tuple
         x, y = positions.get(node_id, (0.0, 0.0))
         rows.append(
             {
-                "record": node.record,
+                "bigscape_record": node.record,
                 "label_number": node.label_number,
                 "sample_id": node.sample_id,
-                "gbk": node.gbk,
+                "bigscape_gbk": node.gbk,
                 "cc": node.cc,
                 "family": node.family,
                 "bgc_class": node.bgc_class,
@@ -1458,8 +1664,8 @@ def edge_attribute_rows(edges: list[EdgeRecord]) -> list[dict[str, object]]:
     for edge in edges:
         rows.append(
             {
-                "source": edge.source,
-                "target": edge.target,
+                "source_bigscape_record": edge.source,
+                "target_bigscape_record": edge.target,
                 "distance": "" if edge.distance is None else f"{edge.distance:.6g}",
                 "similarity": "" if edge.similarity is None else f"{edge.similarity:.6g}",
                 "jaccard": edge.jaccard,
@@ -1532,6 +1738,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--include-mibig-only", action="store_true", help="Keep MiBIG references even when their family has no dataset records.")
     parser.add_argument("--canvas-width", type=int, default=DEFAULT_CANVAS_WIDTH)
     parser.add_argument("--layout-iterations", type=int, default=80)
+    parser.add_argument("--no-warnings-file", action="store_true", help="Do not write the auxiliary warnings text file.")
+    parser.add_argument("--no-fungal-id-legend", action="store_true", help="Do not write the auxiliary fungal ID legend TSV.")
     return parser
 
 
@@ -1596,7 +1804,9 @@ def main(argv: list[str] | None = None) -> int:
 
     base = output_dir / args.prefix
     svg_path = base.with_suffix(".svg")
-    render_svg(svg_path, nodes, edges, layout, inputs)
+    needs_svg = bool(formats & {"svg", "png", "pdf"})
+    if needs_svg:
+        render_svg(svg_path, nodes, edges, layout, inputs)
 
     if "graphml" in formats:
         write_graphml(base.with_suffix(".graphml"), nodes, edges, layout.positions)
@@ -1609,10 +1819,10 @@ def main(argv: list[str] | None = None) -> int:
     write_tsv(
         output_dir / f"{args.prefix}_node_attributes.tsv",
         [
-            "record",
+            "bigscape_record",
             "label_number",
             "sample_id",
-            "gbk",
+            "bigscape_gbk",
             "cc",
             "family",
             "bgc_class",
@@ -1633,23 +1843,35 @@ def main(argv: list[str] | None = None) -> int:
     )
     write_tsv(
         output_dir / f"{args.prefix}_edge_attributes.tsv",
-        ["source", "target", "distance", "similarity", "jaccard", "adjacency", "dss", "weights"],
+        [
+            "source_bigscape_record",
+            "target_bigscape_record",
+            "distance",
+            "similarity",
+            "jaccard",
+            "adjacency",
+            "dss",
+            "weights",
+        ],
         edge_attribute_rows(edges),
     )
-    write_tsv(
-        output_dir / f"{args.prefix}_fungal_id_legend.tsv",
-        ["label_number", "sample_id", "ecology_category", "node_count"],
-        fungal_legend_rows(nodes),
-    )
+    if not args.no_fungal_id_legend:
+        write_tsv(
+            output_dir / f"{args.prefix}_fungal_id_legend.tsv",
+            ["label_number", "sample_id", "ecology_category", "node_count"],
+            fungal_legend_rows(nodes),
+        )
 
     warning_path = output_dir / f"{args.prefix}_warnings.txt"
     unique_warnings = list(dict.fromkeys(warnings))
-    warning_path.write_text("\n".join(unique_warnings) + ("\n" if unique_warnings else ""), encoding="utf-8")
+    if not args.no_warnings_file:
+        warning_path.write_text("\n".join(unique_warnings) + ("\n" if unique_warnings else ""), encoding="utf-8")
 
-    print(f"Wrote BiG-SCAPE network SVG: {svg_path}")
+    if needs_svg:
+        print(f"Wrote BiG-SCAPE network SVG: {svg_path}")
     if "graphml" in formats:
         print(f"Wrote Cytoscape GraphML: {base.with_suffix('.graphml')}")
-    if unique_warnings:
+    if unique_warnings and not args.no_warnings_file:
         print(f"Wrote warnings: {warning_path}", file=sys.stderr)
     return 0
 

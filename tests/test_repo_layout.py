@@ -21,6 +21,7 @@ class RepoLayoutTests(unittest.TestCase):
             "scripts/ncbi/rename_ncbi_genomes.sh",
             "scripts/ncbi/flatten_ncbi_genomes.sh",
             "bin/capture_external_artifacts.py",
+            "bin/render_bigscape_multipanel.py",
         ]:
             self.assertTrue((REPO_ROOT / rel).exists(), rel)
 
@@ -195,8 +196,10 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("figure-svg-preview", text)
         self.assertIn("onwheel=\"handleFigureWheel(event,this)\"", text)
         self.assertIn('Data\\/Results\\/[^/]+\\/figures', text)
-        self.assertIn("bgc_calls_by_tool_category.svg", text)
-        self.assertIn("bigscape_network.svg", text)
+        self.assertIn("big_scape_multipanel.svg", text)
+        self.assertNotIn("gcf_calls_by_tool_category.svg", text)
+        self.assertNotIn("bgc_calls_by_tool_category.svg", text)
+        self.assertNotIn("bigscape_network.svg", text)
         self.assertIn("const downloadHref = resultHref(jobId, f, { download: true })", text)
         self.assertIn("<th>Result Path</th>", text)
         self.assertNotIn("const htmlFiles = files.filter", text)
@@ -499,8 +502,22 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn('/mnt/c/Program Files/R/R-*/bin/Rscript.exe', text)
         self.assertIn('/c/Program Files/R/R-*/bin/Rscript.exe', text)
         self.assertIn('R_BIN="$(resolve_r_bin)"', text)
+        self.assertIn('RENDER_BGC_OVERLAP_PY="${RENDER_BGC_OVERLAP_PY:-${SCRIPT_DIR}/bin/render_bgc_overlap.py}"', text)
         self.assertIn('RENDER_BIGSCAPE_NETWORK_PY="${RENDER_BIGSCAPE_NETWORK_PY:-${SCRIPT_DIR}/bin/render_bigscape_network.py}"', text)
-        self.assertIn("Skipping R summary figures; continuing to BiG-SCAPE network rendering", text)
+        self.assertIn('RENDER_BIGSCAPE_MULTIPANEL_PY="${RENDER_BIGSCAPE_MULTIPANEL_PY:-${SCRIPT_DIR}/bin/render_bigscape_multipanel.py}"', text)
+        self.assertIn('RUN_SUMMARY_FIGURES="${RUN_SUMMARY_FIGURES:-0}"', text)
+        self.assertIn('RUN_BGC_OVERLAP_FIGURE="${RUN_BGC_OVERLAP_FIGURE:-1}"', text)
+        self.assertIn('RUN_BIGSCAPE_MULTIPANEL_FIGURE="${RUN_BIGSCAPE_MULTIPANEL_FIGURE:-1}"', text)
+        self.assertIn('BGC_OVERLAP_FORMATS="${BGC_OVERLAP_FORMATS:-svg,png}"', text)
+        self.assertIn('BIGSCAPE_NETWORK_FORMATS="${BIGSCAPE_NETWORK_FORMATS:-graphml}"', text)
+        self.assertIn('BIGSCAPE_MULTIPANEL_FORMATS="${BIGSCAPE_MULTIPANEL_FORMATS:-svg,png}"', text)
+        self.assertIn("bgc_overlap_outputs_ready", text)
+        self.assertIn("cleanup_redundant_figure_outputs", text)
+        self.assertIn("--no-standalone-chart", text)
+        self.assertIn("--no-warnings-file", text)
+        self.assertIn("--no-fungal-id-legend", text)
+        self.assertIn("python_candidate_works", text)
+        self.assertIn("Skipping R summary figures because RUN_SUMMARY_FIGURES", text)
         self.assertIn("skipping network figure", text)
         self.assertNotIn("FIGURES_TOP_N", text)
 

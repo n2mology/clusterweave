@@ -22,7 +22,7 @@ Current Docker-native bridge paths:
 - `run_bigscape.sh`: supports `ENGINE=docker` with `BIGSCAPE_DOCKER_IMAGE`.
 - `run_clinker.sh`: supports `CLINKER_USE_DOCKER_IMAGE=1` and passes Docker settings into generated panel scripts.
 - `run_nplinker.sh`: supports `ENGINE=docker` with a Python base image and a persistent `/data/software/nplinker` venv.
-- `run_figures.sh`: the worker image includes base R for summary SVG rendering; if Rscript is unavailable in another runtime, the wrapper skips only the R summary figure and still attempts the Python BiG-SCAPE network SVG.
+- `run_figures.sh`: renders the Python BGC overlap figure, BiG-SCAPE multipanel SVG/PNG, and GraphML/node/edge attribute exports by default. Legacy R summary SVGs are available with `RUN_SUMMARY_FIGURES=1`.
 
 HPC/Singularity behavior remains the default when `ENGINE` is unset and Singularity/Apptainer is available.
 

@@ -3,8 +3,10 @@
 .github
 Data
 Software/*
-!Software/funbgcex
-!Software/funbgcex/**
+!Software/funbgcex/
+!Software/funbgcex/Dockerfile
+!Software/funbgcex/Singularity.def
+!Software/funbgcex/build_funbgcex_sif.sh
 **/__pycache__
 **/.pytest_cache
 **/.ipynb_checkpoints
