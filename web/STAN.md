@@ -29,7 +29,7 @@ The current `web/static/index.html` is no longer a plain dashboard. Current beha
 - A product-style header and single-page navigation.
 - Manual NCBI accession entry as a first-class input path.
 - A cleaner genome/accession intake panel.
-- `NEW RUN` / `RESULTS FROM EXISTING RUN` entry tabs with reviewer access tucked away.
+- `New run` / `Existing results` entry tabs with reviewer access tucked away.
 - Neumorphic depth tokens and tactile controls.
 - A Results-first `Workflow progress` map rendered as a DNA-style double helix.
 - Sanitized public activity popovers derived from known workflow markers.
@@ -118,7 +118,7 @@ https://clusterweave.example.org/#/job/<job_id>/<read_token>
 
 The SPA reads the fragment and sends the token as an `Authorization: Bearer ...` header.
 
-The `RESULTS FROM EXISTING RUN` loader should accept either:
+The `Existing results` loader should accept either:
 
 - a full result link
 - `job_id + result access code`
@@ -235,9 +235,9 @@ Accessions/genomes -> optional ecology labels -> submit -> workflow progress -> 
 
 The top entry panel should expose two public-facing tabs:
 
-- `NEW RUN`: the default full-page workflow for submission, with accepted input copy and the
+- `New run`: the default full-page workflow for submission, with accepted input copy and the
   required data-use acknowledgment.
-- `RESULTS FROM EXISTING RUN`: a compact lookup for a private result link or
+- `Existing results`: a compact lookup for a private result link or
   `ClusterWeave job ID + result access code`.
 
 The header should not duplicate `Start run` or `Results` buttons. `Start from NCBI accessions`
@@ -469,8 +469,8 @@ Slice 14 added public submission policy, quotas, and retention metadata:
 Slice 15 added the public UI shell:
 
 - The hero is orientation copy only; public accession start and demo-load actions live in the
-  `NEW RUN` entry panel. The static hero weave and top-level WeaveMap nav are gone.
-- The visible entry panel uses `NEW RUN` and `RESULTS FROM EXISTING RUN`; no public-facing
+  `New run` entry panel. The static hero weave and top-level WeaveMap nav are gone.
+- The visible entry panel uses `New run` and `Existing results`; no public-facing
   submit/admin/read-token labels are shown.
 - Access codes live in `sessionStorage`; submit/admin tokens stay out of URLs and are tucked
   behind `Reviewer access`.

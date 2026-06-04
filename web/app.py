@@ -117,6 +117,8 @@ NCBI_ASSEMBLY_ACCESSION_RE = re.compile(r"^(?:GCA|GCF)_\d{9}\.\d+$", re.IGNORECA
 PUBLIC_ACTIVITY_TOKEN_RE = re.compile(r"[^A-Za-z0-9._-]+")
 BYTES_PER_MB = 1024 * 1024
 WORKER_STATUS_PATH = Path(os.environ.get("DATA_DIR", "/data")) / "worker" / "status.json"
+STATIC_DIR = Path(__file__).parent / "static"
+STATIC_ASSET_DIR = STATIC_DIR / "assets"
 INLINE_MIME_OVERRIDES = {
     ".svg": "image/svg+xml; charset=utf-8",
     ".svgz": "image/svg+xml",
@@ -977,7 +979,7 @@ class Handler(BaseHTTPRequestHandler):
         route, query = parse_path(self.path)
 
         if route == "/":
-            index = Path(__file__).parent / "static" / "index.html"
+            index = STATIC_DIR / "index.html"
             if not index.exists():
                 self._not_found("Frontend not found")
                 return
@@ -986,6 +988,29 @@ class Handler(BaseHTTPRequestHandler):
                 "text/html; charset=utf-8",
                 index.read_bytes(),
                 {"Cache-Control": "no-store"},
+            )
+            return
+
+        if route.startswith("/assets/"):
+            asset_root = STATIC_ASSET_DIR.resolve()
+            rel_path = urllib.parse.unquote(route.removeprefix("/assets/"))
+            full = (asset_root / rel_path).resolve()
+            try:
+                full.relative_to(asset_root)
+            except ValueError:
+                self._bad_request("Invalid asset path")
+                return
+            if not full.exists() or not full.is_file():
+                self._not_found("Asset not found")
+                return
+            self._send_text(
+                HTTPStatus.OK,
+                result_file_mime(full),
+                full.read_bytes(),
+                {
+                    "Cache-Control": "public, max-age=86400",
+                    "X-Content-Type-Options": "nosniff",
+                },
             )
             return
 

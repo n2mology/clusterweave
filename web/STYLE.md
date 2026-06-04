@@ -1,8 +1,8 @@
 # ClusterWeave Web UI Style Guide
 
 This document is the current design and implementation handoff for future UI agents working on
-`web/static/index.html` and closely related web helpers. It reflects the state after Slice 18 plus
-post-slice UI/runtime hardening on 2026-05-12.
+`web/static/index.html` and closely related web helpers. It reflects the state after Slice 19 plus
+post-slice UI/runtime hardening through 2026-06-04.
 
 ClusterWeave now has a public Results-first static SPA with server-side token gates, admin/local
 lab QA tools, SMTP-ready result recovery, retention cleanup, a dynamic DNA WeaveMap, zoomable
@@ -92,8 +92,8 @@ Public/default mode:
 - Header/nav keeps the app single-page and operational with section links only; redundant
   `Start run` and `Results` header buttons are removed.
 - Identity band is orientation copy only; submission and demo actions live in the entry panel.
-- The entry panel has two public-facing tabs: `NEW RUN` and `RESULTS FROM EXISTING RUN`.
-- `NEW RUN` is the default full-page workflow; `RESULTS FROM EXISTING RUN` opens a private
+- The entry panel has two public-facing tabs: `New run` and `Existing results`.
+- `New run` is the default full-page workflow; `Existing results` opens a private
   result link or a `ClusterWeave job ID + result access code`.
 - Data-use acknowledgment is required before a standard hosted submission.
 - Accession intake is a draft-to-accepted workflow: users paste one accession per line, press
@@ -146,7 +146,7 @@ post-slice hardening pass implemented that pivot.
 Implemented visual/product conclusions:
 
 - The hero is orientation copy only; `Start from NCBI accessions` and `Load demo run` live in
-  the `NEW RUN` entry panel to avoid duplicate routes.
+  the `New run` entry panel to avoid duplicate routes.
 - The static hero weave and top-level WeaveMap nav are gone.
 - The live run timeline lives in Results as `Workflow progress`.
 - The public Results surface is the run surface. Before a job is loaded it says:
@@ -486,6 +486,8 @@ Progress:
 - Completed: Slice 16 - Ecology Label Table.
 - Completed: Slice 17 - Email Notifications And Retention Sweeper.
 - Completed: Slice 18 - Public Deployment QA.
+- Completed: Slice 19 - Logo-Led Frontend Polish With Contract Lock, verified locally on
+  2026-06-04.
 - Completed post-slice hardening:
   - SMTP/public-link env passthrough on both `web` and `worker`.
   - Manual accession validation in UI/API.
@@ -561,7 +563,7 @@ Goal: prove users can recover a run after leaving the initial browser state.
 
 Tasks:
 
-- Verify `RESULTS FROM EXISTING RUN` with private result links.
+- Verify `Existing results` with private result links.
 - Verify job ID plus result access code lookup.
 - Verify `Recent results in this tab` behavior.
 - Verify diagnostics/reviewer access unlocks admin controls without a page refresh.
@@ -894,7 +896,7 @@ Tasks:
 - Use primary nav items: `Overview`, `Intake`, `WeaveMap`, `Runs`, `Outputs`, `QA Console`,
   `Docs`.
 - Keep right-side header status to runtime only. Start and Results actions are redundant with
-  `NEW RUN` and the `Outputs` nav item.
+  `New run` and the `Outputs` nav item.
 - Make nav items anchor to sections or switch focus states in the single-page app; add visible
   active states.
 - Add a responsive collapsed navigation treatment for smaller screens.
@@ -1098,10 +1100,10 @@ Tasks:
 
 - Remove hero static weave and top-level `WeaveMap` nav.
 - Simplify hero/identity band to orientation copy only; keep `Start from NCBI accessions` and
-  `Load demo run` in the `NEW RUN` entry panel.
+  `Load demo run` in the `New run` entry panel.
 - Rename public workflow copy from `WeaveMap` to `Workflow progress`.
 - Add access key handling using `sessionStorage`; never put submit/admin tokens in URLs.
-- Replace the old visible access-key panel with `NEW RUN` and `RESULTS FROM EXISTING RUN` tabs.
+- Replace the old visible access-key panel with `New run` and `Existing results` tabs.
 - Add Existing Run loader accepting a full result link or `job_id + result access code`.
 - Store unlocked runs in browser-session state and provide a `Recent results in this tab`
   switcher.
@@ -1120,8 +1122,8 @@ Tasks:
 
 Acceptance:
 
-- Anonymous users see accepted input policy, data-use acknowledgment, `NEW RUN`, and
-  `RESULTS FROM EXISTING RUN` without job leaks or role/token labels.
+- Anonymous users see accepted input policy, data-use acknowledgment, `New run`, and
+  `Existing results` without job leaks or role/token labels.
 - A loaded job-token run shows progress/results but not admin logs.
 - Admin token restores operational diagnostics without a second page.
 
@@ -1211,6 +1213,151 @@ Acceptance:
 - The admin path remains usable for troubleshooting.
 - The collaborator handoff is complete enough for another agent to continue.
 
+### Slice 19: Logo-Led Frontend Polish With Contract Lock
+
+Status: completed locally on 2026-06-04 and rebuilt with the repo-local
+`skills/taste-skill/SKILL.md` on 2026-06-04 after handoff clarification. The implementation uses
+`web/static/assets/clusterweave-logo.png`, replaces the synthetic header wordmark with the real
+logo asset, rebalances the UI around logo teal/gold/rust, removes visible emoji section markers,
+keeps the Results-first flow and protected frontend/backend hooks intact, and updates
+`tests/test_repo_layout.py` for the logo-led/taste-skill contract. The rebuild shortens the first
+viewport into a compact instrument deck, adds route cues and logo caption chips, changes the entry
+panel into a control rail, enables a desktop intake/output work-surface split, drops Inter as the
+CSS default font family, and locks desktop button labels to a single line while allowing mobile
+wrapping. Verification included inline JavaScript parse, `git diff --check`,
+`tests.test_repo_layout`, Docker rebuild/recreate checks, and Playwright desktop/mobile screenshot
+plus DOM layout checks against the live port-80 surface.
+
+Goal: improve `web/static/index.html` using the local taste-skill references and the new
+transparent logo asset while preserving every existing frontend/backend contract.
+
+Source material:
+
+- Local ignored taste-skill references live in `skills/`, especially
+  `skills/taste-skill/SKILL.md`. Treat it as the named agent-skill lens for this slice even though
+  it is repo-local rather than a globally registered Codex skill. `skills/redesign-skill/SKILL.md`
+  is background context only if present.
+- Brand asset:
+  `manuscript/application_note/figures/cw_logo_noback.png`.
+- Adjacent logo SVGs establish the useful brand palette:
+  amber/gold `#fcb31b`, teal `#00bfa5`, deep teal `#006a61`, and burnt orange `#c36735`.
+
+Design read:
+
+- Existing-product redesign of a public fungal genomics workflow instrument.
+- Audience: researchers, reviewers, and hosted-service operators.
+- Vibe: scientific, bioinformatic, premium, readable, lightly gamified, credible.
+- Use `skills/taste-skill/SKILL.md` as the primary guide, but apply it selectively because the
+  skill itself warns that it is not meant for dashboards or multi-step product UI. Use its design
+  read, theme lock, copy audit, shape consistency, button/input contrast, non-generic layout, and
+  pre-flight discipline; do not force landing-page hero rules onto the operational SPA.
+- Suggested dials: `DESIGN_VARIANCE 5`, `MOTION_INTENSITY 3`, `VISUAL_DENSITY 6`.
+
+Non-negotiable contract lock:
+
+- Preserve all existing functional IDs, input names, event handlers, JS functions, API paths,
+  token flows, result rendering behavior, upload behavior, same-job rerun behavior, admin/public
+  access boundaries, and endpoint semantics.
+- Preserve `apiUrl(...)`, `apiFetch(...)`, `resultHref(...)`, `resultFetch(...)`, and
+  `handleResultLinkClick(...)`.
+- Preserve manual accession submission as `manual_accessions.txt`.
+- Preserve Visualization as figure-only:
+  `Data/Results/<project>/figures/*.{svg,png,jpg,jpeg,webp}`.
+- Preserve Files tab as foldered, path-context rows with Download only. Do not re-add Files-tab
+  Open links.
+- Preserve public sanitized stage events/failure summaries and admin-only raw logs/reruns.
+- Do not add a framework, build system, package manager, or external CDN dependency.
+- Do not invent fake scientific metrics, result counts, candidate names, scores, or QA outcomes.
+
+Tasks:
+
+- Create a web-appropriate logo derivative under `web/static/assets/` from
+  `manuscript/application_note/figures/cw_logo_noback.png` if needed for file size/layout.
+- Replace the synthetic `CW` badge and hand-built header wordmark with the real logo asset while
+  keeping the existing `logo` anchor, nav behavior, and `aria-label`.
+- Use the real logo as a first-viewport brand signal in the compact identity band without turning
+  the app into a marketing landing page.
+- Keep first-viewport copy short: one compact headline, one support sentence, and operational
+  route cues. Do not return to a long hero paragraph.
+- Rebalance CSS variables around logo teal and amber; reduce violet/purple glow to a secondary
+  accent instead of the dominant brand read.
+- Tune WeaveMap strand, active, completed, and signal colors to echo the logo teal/gold
+  relationship.
+- Remove obvious generic/AI UI tells where low-risk:
+  emoji section markers, repeated all-caps labels, excessive nested card surfaces, and
+  decorative gradients that compete with the logo.
+- Keep the Results-first structure: public entry tabs, Upload & Configure, Workflow progress,
+  Visualization, Files, and citation ribbon remain the operational flow.
+- Improve responsive logo/header behavior so text and controls never wrap awkwardly or overlap.
+- Keep `prefers-reduced-motion` behavior intact and avoid new motion-heavy effects.
+
+Acceptance:
+
+- The first viewport clearly feels branded by the new ClusterWeave logo.
+- The page still reads as a scientific workflow instrument, not a landing page or generic admin
+  dashboard.
+- Existing public/admin workflows still work by selector and by behavior.
+- No protected functional IDs, JS hooks, API paths, auth behavior, file filtering, or download
+  behavior changed.
+- Visualization remains figure-only and Files remains Download only.
+- Mobile header, entry tabs, Results tabs, WeaveMap, figure controls, and file rows do not
+  overflow or overlap.
+- Checks include at minimum:
+  - JavaScript parse check for inline scripts in `web/static/index.html`
+  - `git diff --check`
+  - browser or screenshot review when tooling is available
+
+#### Slice 19 Handoff Prompt
+
+Use this prompt for the next Codex session when the goal is to review or extend this rebuilt
+frontend slice:
+
+```text
+You are joining ClusterWeave after Slice 19 was rebuilt with the repo-local taste skill.
+
+First read `web/STYLE.md` and `web/STAN.md`. Then read
+`skills/taste-skill/SKILL.md` and treat it as the named agent-skill lens for frontend taste. It is
+repo-local and landing/redesign oriented, so apply it selectively: use its design read, theme lock,
+copy audit, shape consistency, button/input contrast, non-generic layout, explicit responsive
+collapse, and pre-flight discipline. Do not force a marketing landing-page structure onto this
+operational SPA.
+
+Inspect `web/static/index.html`, `web/app.py`, `tests/test_repo_layout.py`, and the logo asset at
+`web/static/assets/clusterweave-logo.png`. Preserve all existing functional IDs, input names,
+event handlers, JS functions, API paths, token flows, upload behavior, result rendering behavior,
+same-job rerun behavior, admin/public access boundaries, and endpoint semantics. Preserve
+`apiUrl(...)`, `apiFetch(...)`, `resultHref(...)`, `resultFetch(...)`, and
+`handleResultLinkClick(...)`.
+
+Design read: existing-product redesign of a public fungal genomics workflow instrument for
+researchers, reviewers, and hosted-service operators. The UI should feel scientific,
+bioinformatic, premium, readable, lightly gamified, and credible. Dials: `DESIGN_VARIANCE 5`,
+`MOTION_INTENSITY 3`, `VISUAL_DENSITY 6`.
+
+Current Slice 19 visual contract:
+- Real logo asset is the primary brand signal.
+- The first viewport is a compact instrument deck, not a long landing-page hero.
+- Identity copy stays short, with route cues for Input / Weave / Output.
+- Entry tabs behave as a control rail on desktop and collapse explicitly on mobile.
+- Desktop work surface may split intake/output columns; mobile remains single-column.
+- Palette stays anchored in logo teal/gold/rust, with violet/purple only secondary if used.
+- Desktop button labels stay on one line; mobile may wrap when needed.
+- No fake metrics, fake scientific results, public logs, public stage toggles, Files-tab Open
+  links, framework/build-system/CDN dependencies, or generic emoji section markers.
+
+Keep Results-first behavior intact: public entry tabs, Upload & Configure, Workflow progress,
+Visualization, Files, and citation ribbon remain the operational flow. Visualization stays
+figure-only under `Data/Results/<project>/figures/*.{svg,png,jpg,jpeg,webp}`. Files stays foldered
+and Download only.
+
+Before editing, name the hooks you will preserve. After editing, run the inline JavaScript parse
+check for `web/static/index.html`, `python3 -m unittest tests.test_repo_layout`,
+`git diff --check`, and browser/screenshot review if tooling is available. If you rebuild Docker,
+verify the actual user-facing host/port and that `/assets/clusterweave-logo.png` returns 200.
+In the final response, summarize files changed, functional hooks preserved, checks run, active
+URL/port, and residual risk.
+```
+
 ## Prompt Template For A UI Agent
 
 Use this prompt when handing off future ClusterWeave web work to a fresh Codex session:
@@ -1222,6 +1369,7 @@ PROJECT STAMP
 - UI target: web/static/index.html
 - Style guide: web/STYLE.md
 - Operational handoff: web/STAN.md
+- Repo-local frontend taste skill: skills/taste-skill/SKILL.md
 - Product: fungal BGC discovery and prioritization web UI
 - Runtime model: shell-first canonical workflow, static SPA as controller
 
@@ -1232,7 +1380,7 @@ implementation that matches the current public-service direction.
 
 FIRST, INSPECT
 1. Run `git status --short` and note unrelated changes.
-2. Read `web/STYLE.md` and `web/STAN.md`.
+2. Read `web/STYLE.md`, `web/STAN.md`, and `skills/taste-skill/SKILL.md` for frontend work.
 3. Inspect the current `web/static/index.html` structure and any backend helper touched by the
    request.
 4. Identify functional hooks involved: IDs, event handlers, JS functions, API paths, auth roles,
@@ -1243,14 +1391,16 @@ FIRST, INSPECT
    state that browser screenshot tooling is unavailable and continue using live HTML/API checks.
 
 MISSION
-Implement exactly the requested change or the next explicit hosting/deployment follow-up from
-`web/STAN.md`. There are no remaining numbered UI slices. If the user says "next slice" without
-details, choose the highest-priority deployment follow-up documented in STAN, or ask one concise
-question if the next step depends on host-specific information.
+Implement exactly the requested change, the next explicit build slice in this style guide, or the
+next explicit hosting/deployment follow-up from `web/STAN.md`. If the user says "next slice"
+without details and no later unimplemented numbered UI slice has been added, continue with the
+current hosting/deployment follow-up from `web/STAN.md`, or ask one concise question if the next
+step depends on host-specific information.
 
 ClusterWeave should feel like a woven fungal discovery instrument: scientific, bioinformatic,
-premium, readable, lightly gamified, and credible. The UI should blend Neumorphism and
-Retrofuturism only in service of clarity:
+premium, readable, lightly gamified, and credible. For frontend visual work, treat
+`skills/taste-skill/SKILL.md` as the local taste lens, applied selectively to this operational SPA.
+The UI should blend Neumorphism and Retrofuturism only in service of clarity:
 - Neumorphism = tactile, pressed/raised scientific controls with strong contrast.
 - Retrofuturism = restrained signal lines, status lamps, dither texture, and orange/teal
   braided workflow paths.
