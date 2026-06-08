@@ -1,8 +1,15 @@
-# ClusterWeave
+# `ClusterWeave`: a workflow for biosynthetic target discovery and prioritization
 
 `ClusterWeave` is a workflow for biosynthetic target discovery and prioritization. It assembles annotation, BGC detection, BiG-SCAPE family context, shortlist generation, and clinker-ready panel staging into one reproducible workflow.
 
 The repository is organized as a standalone workflow so it can be versioned and shared.
+
+## Manuscript Details
+
+- Title: `ClusterWeave`: a workflow for biosynthetic target discovery and prioritization
+- Authors: Julian B. Cosner, Stanton Martin, and Tomás A Rush
+- Keywords: bioinformatics, biosynthetic gene clusters, secondary metabolism, fungal genomics
+- Description: `ClusterWeave` is a workflow for biosynthetic target discovery and prioritization. It assembles annotation, BGC detection, BiG-SCAPE family context, shortlist generation, and clinker-ready panel staging into one reproducible workflow.
 
 ## Scope
 
@@ -355,6 +362,10 @@ NPLINKER_BOOTSTRAP_ENV=0
 - [DATA_SOURCES.md](DATA_SOURCES.md)
 - [web/OPERATOR_AGREEMENT.md](web/OPERATOR_AGREEMENT.md)
 - [BEGINNER_SETUP.md](BEGINNER_SETUP.md)
+
+## Funding Acknowledgement
+
+This research was funded by the Genomic System Sciences Program, U.S. Department of Energy, Office of Science, Biological and Environmental Research, as part of the Plant-Microbe Interfaces Scientific Focus Area at Oak Ridge National Laboratory (https://pmiweb.ornl.gov/). Oak Ridge National Laboratory is managed by UT-Battelle, LLC, for the U.S. Department of Energy under contract DE-AC05-00OR22725.
 
 ## Status
 

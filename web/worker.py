@@ -8,12 +8,12 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from job_store import DATA_DIR, QUEUE_DIR, now_iso, read_job, read_logs, write_job, write_logs
+    from job_store import DATA_DIR, QUEUE_DIR, append_log, list_jobs, now_iso, read_job, read_logs, write_job, write_logs
     from canonical_pipeline import Job, JobStatus, run_pipeline
     from notifications import maybe_send_terminal_notification
     from runtime_capabilities import runtime_health
 except ImportError:  # pragma: no cover - package-style imports in local tests
-    from .job_store import DATA_DIR, QUEUE_DIR, now_iso, read_job, read_logs, write_job, write_logs
+    from .job_store import DATA_DIR, QUEUE_DIR, append_log, list_jobs, now_iso, read_job, read_logs, write_job, write_logs
     from .canonical_pipeline import Job, JobStatus, run_pipeline
     from .notifications import maybe_send_terminal_notification
     from .runtime_capabilities import runtime_health
@@ -87,6 +87,72 @@ def claim_next_job() -> tuple[str, int, dict[str, Any]] | None:
         finally:
             working.unlink(missing_ok=True)
     return None
+
+
+def queue_path_for_job(job_id: str) -> Path:
+    return QUEUE_DIR / f"{job_id}.json"
+
+
+def stale_queue_paths(job_id: str) -> list[Path]:
+    return [*QUEUE_DIR.glob(f"{job_id}*.json"), *QUEUE_DIR.glob(f"{job_id}*.working")]
+
+
+def queue_payload(job_id: str, cpus: int, settings: dict[str, Any]) -> dict[str, Any]:
+    return {"job_id": job_id, "cpus": cpus, "settings": settings}
+
+
+def stage_has_passed_genome_prep(stage: object) -> bool:
+    normalized = str(stage or "").strip().lower()
+    if not normalized:
+        return False
+    prep_stages = {
+        "queued",
+        "preparing clusterweave project layout",
+        "installing ncbi cli",
+        "preparing genomes from accessions",
+    }
+    return normalized not in prep_stages
+
+
+def recover_orphaned_running_jobs() -> list[str]:
+    recovered: list[str] = []
+    for meta in list_jobs():
+        job_id = str(meta.get("id") or "")
+        if not job_id or str(meta.get("status") or "").lower() != JobStatus.RUNNING.value:
+            continue
+        if queue_path_for_job(job_id).exists():
+            continue
+
+        for path in stale_queue_paths(job_id):
+            path.unlink(missing_ok=True)
+
+        settings = dict(meta.get("settings") or meta.get("submission_settings") or {})
+        settings["reuse_existing_layout"] = True
+        previous_stage = str(meta.get("stage") or "")
+        if stage_has_passed_genome_prep(previous_stage):
+            settings["run_genome_prep"] = False
+        try:
+            cpus = max(1, int(meta.get("cpus", 4)))
+        except (TypeError, ValueError):
+            cpus = 4
+
+        append_log(job_id, "Recovered interrupted running job after worker restart; re-queued for worker slot.")
+        if stage_has_passed_genome_prep(previous_stage):
+            append_log(
+                job_id,
+                "Recovery resume skipped accession genome prep because the interrupted run had already passed genome preparation.",
+            )
+        meta["status"] = JobStatus.PENDING.value
+        meta["stage"] = "queued"
+        meta["error"] = None
+        meta["cpus"] = cpus
+        meta["settings"] = settings
+        meta["log_count"] = len(read_logs(job_id))
+        meta["updated_at"] = now_iso()
+        write_job(meta)
+        queue_path_for_job(job_id).write_text(json.dumps(queue_payload(job_id, cpus, settings)), encoding="utf-8")
+        recovered.append(job_id)
+    return recovered
 
 
 def build_job_from_meta(meta: dict) -> Job:
@@ -171,7 +237,11 @@ async def process_claim(job_id: str, cpus: int, settings: dict[str, Any]) -> Non
 
 async def worker_loop() -> None:
     print(f"ClusterWeave worker started. concurrency={WORKER_CONCURRENCY}")
-    write_worker_status("ready", f"Worker loop started (concurrency={WORKER_CONCURRENCY})")
+    recovered = recover_orphaned_running_jobs()
+    if recovered:
+        write_worker_status("ready", f"Recovered {len(recovered)} interrupted job(s)", ", ".join(recovered))
+    else:
+        write_worker_status("ready", f"Worker loop started (concurrency={WORKER_CONCURRENCY})")
     active: dict[str, asyncio.Task[None]] = {}
     while True:
         for job_id, task in list(active.items()):

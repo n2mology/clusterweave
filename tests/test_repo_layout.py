@@ -1,4 +1,9 @@
+import json
+import os
 from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import unittest
 
 
@@ -24,6 +29,82 @@ class RepoLayoutTests(unittest.TestCase):
             "bin/render_bigscape_multipanel.py",
         ]:
             self.assertTrue((REPO_ROOT / rel).exists(), rel)
+
+    def test_ncbi_rename_is_idempotent_for_already_renamed_package_dir(self) -> None:
+        fungus_id = "Amanita_muscaria_2016PMI152"
+        report = {
+            "organism": {
+                "organismName": "Amanita muscaria strain 2016PMI152",
+                "taxId": 41956,
+            },
+            "assemblyStats": {"totalSequenceLength": 2},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            genome_root = Path(tmp) / "Genomes"
+            data_dir = genome_root / fungus_id / "ncbi_dataset" / "data"
+            package_dir = data_dir / fungus_id
+            package_dir.mkdir(parents=True)
+            (data_dir / "assembly_data_report.jsonl").write_text(json.dumps(report) + "\n", encoding="utf-8")
+            (package_dir / f"{fungus_id}.fna").write_text(">seq\nAC\n", encoding="utf-8")
+            (package_dir / f"{fungus_id}.gff").write_text("##gff-version 3\n", encoding="utf-8")
+            (package_dir / f"{fungus_id}.gbff").write_text("LOCUS       seq 2 bp DNA\n", encoding="utf-8")
+
+            env = dict(os.environ)
+            env["GENOME_ROOT"] = str(genome_root)
+            env["PYTHON_BIN"] = sys.executable
+            subprocess.run(
+                ["bash", str(REPO_ROOT / "scripts" / "ncbi" / "rename_ncbi_genomes.sh")],
+                cwd=str(REPO_ROOT),
+                env=env,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+            self.assertTrue(package_dir.exists())
+            self.assertFalse((package_dir / fungus_id).exists())
+
+    def test_ncbi_flatten_skips_accession_alias_when_canonical_files_exist(self) -> None:
+        accession = "GCA_017499595.2"
+        fungus_id = "Psilocybe_cubensis_MGC-MH-2018"
+        with tempfile.TemporaryDirectory() as tmp:
+            genome_root = Path(tmp) / "Genomes"
+            genome_root.mkdir(parents=True)
+            for ext in ["fna", "gff", "gbff"]:
+                (genome_root / f"{fungus_id}.{ext}").write_text(f"canonical {ext}\n", encoding="utf-8")
+            (genome_root / "accessions_fungusID_taxonomyID.txt").write_text(
+                f"{accession}\t{fungus_id}\t181762\t46.39\n",
+                encoding="utf-8",
+            )
+            package_dir = genome_root / accession / "ncbi_dataset" / "data" / accession
+            package_dir.mkdir(parents=True)
+            for ext in ["fna", "gff", "gbff"]:
+                (package_dir / f"{accession}.{ext}").write_text(f"alias {ext}\n", encoding="utf-8")
+
+            env = dict(os.environ)
+            env["GENOME_ROOT"] = str(genome_root)
+            result = subprocess.run(
+                ["bash", str(REPO_ROOT / "scripts" / "ncbi" / "flatten_ncbi_genomes.sh")],
+                cwd=str(REPO_ROOT),
+                env=env,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+            self.assertIn("skipping accession alias flatten", result.stderr)
+            self.assertFalse((genome_root / f"{accession}.fna").exists())
+            self.assertFalse((genome_root / f"{accession}.gff").exists())
+            self.assertFalse((genome_root / f"{accession}.gbff").exists())
+            self.assertTrue((package_dir / f"{accession}.fna").exists())
+
+    def test_annotation_discovery_filters_accession_aliases(self) -> None:
+        text = (REPO_ROOT / "run_annotation_and_detection.sh").read_text(encoding="utf-8")
+        self.assertIn("mapped_canonical_stem()", text)
+        self.assertIn("should_skip_discovered_stem", text)
+        self.assertIn("skipping accession alias genome stem", text)
 
     def test_release_metadata_exists(self) -> None:
         for rel in [
@@ -163,6 +244,10 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("Rerun Selected Stages", ui_text)
         self.assertIn('class="summary-panel rerun-summary"', ui_text)
         self.assertIn("rerunActiveJob()", ui_text)
+        self.assertIn("function rerunJobFromHistory(event, jobId)", ui_text)
+        self.assertIn('class="job-rerun"', ui_text)
+        self.assertIn("function rerunPayloadFromStages(stageKeys", ui_text)
+        self.assertIn("function queueJobRerun(jobId, payload)", ui_text)
         self.assertIn("function rerunStageAllowed(key)", ui_text)
 
     def test_worker_supports_bounded_concurrency(self) -> None:

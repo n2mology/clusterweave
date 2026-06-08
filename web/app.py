@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import io
 import json
 import hashlib
 import hmac
@@ -12,6 +13,7 @@ import shutil
 from datetime import datetime
 import urllib.parse
 import uuid
+import zipfile
 from email.parser import BytesParser
 from email.policy import default
 from http import HTTPStatus
@@ -615,10 +617,97 @@ def public_activity_from_logs(job_id: str, lines: list[str]) -> list[dict[str, s
     return events[-PUBLIC_ACTIVITY_LIMIT:]
 
 
+
+def worker_active_job_ids(status: dict[str, object] | None = None) -> list[str]:
+    worker = (status or worker_status()).get("worker")
+    if not isinstance(worker, dict):
+        return []
+    active = worker.get("active_jobs")
+    if not isinstance(active, list):
+        return []
+    return [str(job_id) for job_id in active if str(job_id)]
+
+
+def queued_job_ids() -> list[str]:
+    ids: list[str] = []
+    for queue_path in sorted(QUEUE_DIR.glob("*.json")):
+        job_id = queue_path.stem
+        try:
+            payload = json.loads(queue_path.read_text(encoding="utf-8"))
+            if isinstance(payload, dict) and payload.get("job_id"):
+                job_id = str(payload["job_id"])
+        except Exception:
+            pass
+        if job_id:
+            ids.append(job_id)
+    return ids
+
+
+def job_queue_status(job: dict[str, object], *, admin: bool) -> dict[str, object] | None:
+    job_id = str(job.get("id") or "")
+    status = str(job.get("status") or "").lower()
+    if not job_id or status not in QUEUED_JOB_STATUSES:
+        return None
+
+    worker = worker_status()
+    active_ids = worker_active_job_ids(worker)
+    queued_ids = queued_job_ids()
+    active_count = len(active_ids)
+
+    if job_id in active_ids or status == "running":
+        detail = "Worker is processing this run."
+        if job_id not in active_ids:
+            detail = "Run is marked running; waiting for the next worker heartbeat."
+        payload: dict[str, object] = {
+            "state": "running",
+            "position": 0,
+            "jobs_ahead": 0,
+            "active_count": active_count,
+            "queue_depth": len(queued_ids),
+            "detail": detail,
+        }
+        if admin:
+            payload["active_jobs"] = active_ids
+        return payload
+
+    if job_id in queued_ids:
+        queue_position = queued_ids.index(job_id) + 1
+        jobs_ahead = active_count + queue_position - 1
+        if jobs_ahead:
+            detail = f"Waiting for worker slot; {jobs_ahead} active or queued run(s) ahead."
+        else:
+            detail = "Waiting for worker slot; this run is next."
+        payload = {
+            "state": "queued",
+            "position": queue_position,
+            "jobs_ahead": jobs_ahead,
+            "active_count": active_count,
+            "queue_depth": len(queued_ids),
+            "detail": detail,
+        }
+        if admin:
+            payload["active_jobs"] = active_ids
+        return payload
+
+    payload = {
+        "state": "claiming",
+        "position": None,
+        "jobs_ahead": active_count,
+        "active_count": active_count,
+        "queue_depth": len(queued_ids),
+        "detail": "Worker has claimed or is about to claim this run.",
+    }
+    if admin:
+        payload["active_jobs"] = active_ids
+    return payload
+
 def job_payload(job: dict[str, object], *, admin: bool, include_public_events: bool = False) -> dict[str, object]:
     payload = dict(job)
     for key in SENSITIVE_JOB_FIELDS:
         payload.pop(key, None)
+    queue_status = job_queue_status(job, admin=admin)
+    if queue_status is not None:
+        payload["queue_status"] = queue_status
     if PUBLIC_MODE and not admin:
         for key in ["settings", "submission_settings", "last_rerun_settings"]:
             if key in payload:
@@ -1053,6 +1142,39 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(HTTPStatus.OK, {"lines": lines[max(0, since):], "total": len(lines)})
                 return
 
+            if len(parts) == 5 and parts[4] == "archive":
+                base_dir = job_dir(job_id).resolve()
+                archive_buffer = io.BytesIO()
+                added = 0
+                with zipfile.ZipFile(archive_buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+                    for rel in job.get("result_files", []):
+                        rel_path = str(rel).replace("\\", "/").lstrip("/")
+                        if not rel_path or ".." in Path(rel_path).parts:
+                            continue
+                        full = (base_dir / rel_path).resolve()
+                        try:
+                            full.relative_to(base_dir)
+                        except ValueError:
+                            continue
+                        if not full.exists() or not full.is_file():
+                            continue
+                        archive.write(full, rel_path)
+                        added += 1
+                    if not added:
+                        archive.writestr("README.txt", "No result files are available for this ClusterWeave run yet.\n")
+                safe_job_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", job_id).strip("._") or "clusterweave"
+                self._send_text(
+                    HTTPStatus.OK,
+                    "application/zip",
+                    archive_buffer.getvalue(),
+                    {
+                        "Content-Disposition": content_disposition("attachment", f"{safe_job_id}_clusterweave_results.zip"),
+                        "Cache-Control": "no-store",
+                        "X-Content-Type-Options": "nosniff",
+                    },
+                )
+                return
+
             if len(parts) >= 5 and parts[4] == "files":
                 if len(parts) == 5:
                     self._send_json(HTTPStatus.OK, {"files": job.get("result_files", [])})
@@ -1119,6 +1241,7 @@ class Handler(BaseHTTPRequestHandler):
 
             cpus = clamp_public_cpus(parse_int(str(payload.get("cpus", job.get("cpus", 4))), 4))
             append_log(job_id, "Re-queued existing job with selected stage rerun settings.")
+            append_log(job_id, "Queued: waiting for worker slot.")
             lines = read_logs(job_id)
             job["status"] = "pending"
             job["stage"] = "queued"
@@ -1356,6 +1479,7 @@ class Handler(BaseHTTPRequestHandler):
                 handle.write(bytes(item["content"]))
             append_log(job_id, f"Uploaded: {filename} ({destination.stat().st_size:,} bytes)")
 
+        append_log(job_id, "Queued: waiting for worker slot.")
         lines = read_logs(job_id)
         job["log_count"] = len(lines)
         job["updated_at"] = now_iso()

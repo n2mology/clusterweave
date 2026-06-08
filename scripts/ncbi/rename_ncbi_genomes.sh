@@ -244,7 +244,9 @@ while IFS=$'\t' read -r acc fungus_id taxid genome_size_mb || [[ -n "${acc:-}" ]
 
     if [[ -n "${sub_old}" && -d "${sub_old}" ]]; then
       sub_new="${data_dir}/${fungus_id}"
-      if [[ -e "${sub_new}" && "${sub_old}" != "${sub_new}" ]]; then
+      if [[ "${sub_old}" == "${sub_new}" ]]; then
+        :
+      elif [[ -e "${sub_new}" ]]; then
         echo "WARN: target exists, skipping subfolder rename: ${sub_new}" >&2
       else
         mv -f "${sub_old}" "${sub_new}"

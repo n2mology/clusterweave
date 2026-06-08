@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import http.client
 import importlib
+import io
 import json
 import os
 from datetime import datetime
@@ -11,6 +12,7 @@ import sys
 import tempfile
 import threading
 import unittest
+import zipfile
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -254,10 +256,72 @@ class WebApiAuthTests(unittest.TestCase):
         status, _, _ = self.request("GET", "/api/jobs", headers=self.auth("submit-secret"))
         self.assertEqual(status, 403)
 
+        logs = self.job_store.read_logs(payload["job_id"])
+        self.assertTrue(any("Queued: waiting for worker slot." in line for line in logs))
+
         status, job_payload, _ = self.request("GET", f"/api/jobs/{payload['job_id']}", headers=self.auth(read_token))
         self.assertEqual(status, 200)
         self.assertNotIn("read_token_hash", job_payload)
         self.assertNotIn("read_token_created_at", job_payload)
+        queue_status = job_payload.get("queue_status")
+        self.assertIsInstance(queue_status, dict)
+        assert isinstance(queue_status, dict)
+        self.assertEqual(queue_status.get("state"), "queued")
+        self.assertEqual(queue_status.get("position"), 1)
+        self.assertEqual(queue_status.get("jobs_ahead"), 0)
+        self.assertIn("worker slot", str(queue_status.get("detail", "")))
+        self.assertNotIn("active_jobs", queue_status)
+
+    def test_worker_recovers_orphaned_running_jobs(self) -> None:
+        created = "2026-01-01T00:00:00"
+        job = {
+            "id": "stalejob",
+            "name": "stale-project",
+            "status": "running",
+            "stage": "Running annotation / BGC detection",
+            "created_at": created,
+            "updated_at": created,
+            "log_count": 0,
+            "result_files": [],
+            "error": "interrupted",
+            "cpus": 3,
+            "settings": {"run_genome_prep": True, "run_annotation": True},
+            "submission_settings": {"run_genome_prep": True, "run_annotation": True},
+        }
+        self.job_store.write_job(job)
+        self.job_store.append_log("stalejob", "Running antiSMASH on demo")
+        stale_working = Path(self.tmp.name) / "queue" / "stalejob.working"
+        stale_working.write_text("{}", encoding="utf-8")
+
+        sys.modules.pop("worker", None)
+        try:
+            worker = importlib.import_module("worker")
+            recovered = worker.recover_orphaned_running_jobs()
+        finally:
+            sys.modules.pop("worker", None)
+
+        self.assertEqual(recovered, ["stalejob"])
+        recovered_job = self.job_store.read_job("stalejob")
+        self.assertIsNotNone(recovered_job)
+        assert recovered_job is not None
+        self.assertEqual(recovered_job["status"], "pending")
+        self.assertEqual(recovered_job["stage"], "queued")
+        self.assertIsNone(recovered_job["error"])
+        self.assertTrue(recovered_job["settings"]["reuse_existing_layout"])
+        self.assertFalse(recovered_job["settings"]["run_genome_prep"])
+        self.assertGreaterEqual(recovered_job["log_count"], 3)
+        logs = self.job_store.read_logs("stalejob")
+        self.assertTrue(any("Recovered interrupted running job" in line for line in logs))
+        self.assertTrue(any("skipped accession genome prep" in line for line in logs))
+
+        queue_path = Path(self.tmp.name) / "queue" / "stalejob.json"
+        self.assertTrue(queue_path.exists())
+        self.assertFalse(stale_working.exists())
+        queue_payload = json.loads(queue_path.read_text(encoding="utf-8"))
+        self.assertEqual(queue_payload["job_id"], "stalejob")
+        self.assertEqual(queue_payload["cpus"], 3)
+        self.assertTrue(queue_payload["settings"]["reuse_existing_layout"])
+        self.assertFalse(queue_payload["settings"]["run_genome_prep"])
 
     def test_invite_only_public_submission_rejects_missing_submission_code(self) -> None:
         status, payload, _ = self.submit(token=None)
@@ -319,6 +383,15 @@ class WebApiAuthTests(unittest.TestCase):
         status, body, _ = self.request("GET", "/api/jobs/jobone/files/results/figure.svg", headers=self.auth("read-one"))
         self.assertEqual(status, 200)
         self.assertEqual(body, b"<svg></svg>\n")
+
+        status, archive_body, headers = self.request("GET", "/api/jobs/jobone/archive", headers=self.auth("read-one"))
+        self.assertEqual(status, 200)
+        self.assertEqual(headers.get("Content-Type"), "application/zip")
+        with zipfile.ZipFile(io.BytesIO(archive_body)) as archive:
+            self.assertEqual(archive.read("results/figure.svg"), b"<svg></svg>\n")
+
+        status, _, _ = self.request("GET", "/api/jobs/jobtwo/archive", headers=self.auth("read-one"))
+        self.assertEqual(status, 403)
 
     def test_public_activity_events_sanitize_per_genome_runtime_logs(self) -> None:
         self.write_job("jobone", "read-one", status="running")

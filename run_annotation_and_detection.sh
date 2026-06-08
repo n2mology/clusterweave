@@ -461,12 +461,43 @@ PY
 ###############################################################################
 # Input discovery/resolution
 ###############################################################################
+GENOME_MAPPING_FILE="${GENOME_MAPPING_FILE:-${GENOME_ROOT}/accessions_fungusID_taxonomyID.txt}"
+
+genome_stem_has_file() {
+  local stem="$1"
+  local ext
+  for ext in fna fa fsa fasta gb gbk gbff; do
+    [[ -s "${GENOME_ROOT}/${stem}.${ext}" ]] && return 0
+  done
+  return 1
+}
+
+mapped_canonical_stem() {
+  local stem="$1"
+  [[ -f "${GENOME_MAPPING_FILE}" ]] || return 1
+  awk -F '\t' -v stem="${stem}" '$1 == stem && $2 != "" && $2 != stem { print $2; exit }' "${GENOME_MAPPING_FILE}"
+}
+
+should_skip_discovered_stem() {
+  local stem="$1"
+  local canonical
+  canonical="$(mapped_canonical_stem "${stem}" || true)"
+  [[ -n "${canonical}" ]] || return 1
+  genome_stem_has_file "${canonical}" || return 1
+  warn "skipping accession alias genome stem: ${stem} maps to existing ${canonical}"
+  return 0
+}
+
 discover_stems() {
   find "${GENOME_ROOT}" -maxdepth 1 -type f \
     \( -iname "*.fa" -o -iname "*.fna" -o -iname "*.fsa" -o -iname "*.fasta" -o -iname "*.gb" -o -iname "*.gbk" -o -iname "*.gbff" \) \
     -printf "%f\n" 2>/dev/null \
   | sed -E 's/\.(fa|fna|fsa|fasta|gb|gbk|gbff)$//' \
-  | sort -u
+  | sort -u \
+  | while IFS= read -r stem; do
+      should_skip_discovered_stem "${stem}" && continue
+      printf '%s\n' "${stem}"
+    done
 }
 
 resolve_fasta_for_stem() {
