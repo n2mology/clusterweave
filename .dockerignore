@@ -1,0 +1,24 @@
+.git
+.gitignore
+.github
+data
+software/*
+!software/funbgcex/
+!software/funbgcex/Dockerfile
+!software/funbgcex/Singularity.def
+!software/funbgcex/build_funbgcex_sif.sh
+**/__pycache__
+**/.pytest_cache
+**/.ipynb_checkpoints
+*.log
+*.tmp
+*.swp
+
+# Local web handoff boards and QA-only compose files.
+web/STAN.md
+web/STYLE.md
+web/UI_SLICE_ARCHIVE.md
+docker-compose.local-faces.yml
+
+# Editable manuscript/design source files not needed in the public source release.
+manuscript/application_note/figures/logo_3D_1.ai

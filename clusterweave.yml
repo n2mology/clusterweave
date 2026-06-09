@@ -1,0 +1,110 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# clusterweave.yml — ClusterWeave Web (End-user version - pulls pre-built images)
+#
+# Usage:
+#   docker compose -f clusterweave.yml up -d      # start services
+#   docker compose -f clusterweave.yml down       # stop services
+#   docker compose -f clusterweave.yml logs -f    # tail logs
+#
+# The web UI is available at http://localhost
+#
+# This file intentionally does not mount /var/run/docker.sock. Public hosted
+# deployments should run prebuilt, constrained stage workers behind the API
+# queue instead of letting the web worker launch host Docker containers.
+#
+# On first startup the container downloads:
+#   - antiSMASH databases (~5 GB) to the `antismash_db` volume
+#   - Pfam-A.hmm (~1 GB) to the `pfam_db` volume
+# Both are cached in named Docker volumes and reused on subsequent starts.
+# ─────────────────────────────────────────────────────────────────────────────
+services:
+  web:
+    image: ghcr.io/n2mology/clusterweave-web:${CLUSTERWEAVE_IMAGE_TAG:-latest}
+    container_name: clusterweave-web
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT:-80}:8080"
+    volumes:
+      # Persistent database caches (survive container restarts / rebuilds)
+      - antismash_db:/databases/antismash
+      - pfam_db:/databases/pfam
+      # Persistent job data (uploads and results)
+      - job_data:/data
+    environment:
+      SERVICE_MODE: web
+      DATA_DIR: /data
+      ANTISMASH_DB_DIR: /databases/antismash
+      PFAM_DIR: /databases/pfam
+      PORT: "8080"
+      CLUSTERWEAVE_PUBLIC_MODE: "${CLUSTERWEAVE_PUBLIC_MODE:-1}"
+      CLUSTERWEAVE_SUBMISSIONS_OPEN: "${CLUSTERWEAVE_SUBMISSIONS_OPEN:-1}"
+      CLUSTERWEAVE_SUBMIT_TOKEN: "${CLUSTERWEAVE_SUBMIT_TOKEN:-}"
+      CLUSTERWEAVE_ADMIN_TOKEN: "${CLUSTERWEAVE_ADMIN_TOKEN:-}"
+      CLUSTERWEAVE_ALLOWED_ORIGINS: "${CLUSTERWEAVE_ALLOWED_ORIGINS:-}"
+      CLUSTERWEAVE_JOB_RETENTION_DAYS: "${CLUSTERWEAVE_JOB_RETENTION_DAYS:-30}"
+      CLUSTERWEAVE_MAX_ACCESSIONS: "${CLUSTERWEAVE_MAX_ACCESSIONS:-25}"
+      CLUSTERWEAVE_MAX_GENOME_FILES: "${CLUSTERWEAVE_MAX_GENOME_FILES:-25}"
+      CLUSTERWEAVE_MAX_UPLOAD_FILE_MB: "${CLUSTERWEAVE_MAX_UPLOAD_FILE_MB:-250}"
+      CLUSTERWEAVE_MAX_UPLOAD_TOTAL_MB: "${CLUSTERWEAVE_MAX_UPLOAD_TOTAL_MB:-1024}"
+      CLUSTERWEAVE_MAX_QUEUED_JOBS: "${CLUSTERWEAVE_MAX_QUEUED_JOBS:-50}"
+      CLUSTERWEAVE_MAX_CPUS_PER_JOB: "${CLUSTERWEAVE_MAX_CPUS_PER_JOB:-8}"
+      CLUSTERWEAVE_PUBLIC_BASE_URL: "${CLUSTERWEAVE_PUBLIC_BASE_URL:-http://localhost/}"
+      CLUSTERWEAVE_JOB_TOKEN_SECRET: "${CLUSTERWEAVE_JOB_TOKEN_SECRET:-}"
+    mem_limit: 2g
+    shm_size: 512m
+    tmpfs:
+      - /tmp:size=4g
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  worker:
+    image: ghcr.io/n2mology/clusterweave-worker:${CLUSTERWEAVE_IMAGE_TAG:-latest}
+    container_name: clusterweave-worker
+    restart: unless-stopped
+    volumes:
+      - antismash_db:/databases/antismash
+      - pfam_db:/databases/pfam
+      - job_data:/data
+    environment:
+      SERVICE_MODE: worker
+      DATA_DIR: /data
+      ANTISMASH_DB_DIR: /databases/antismash
+      PFAM_DIR: /databases/pfam
+      CLUSTERWEAVE_ROOT: /clusterweave
+      CLUSTERWEAVE_SOFTWARE_ROOT: /data/software
+      CLUSTERWEAVE_RUNTIME_MODE: public-queue
+      CLUSTERWEAVE_ENABLE_DOCKER_SOCKET: "0"
+      WORKER_POLL_SECONDS: "1"
+      PREPULL_FUNBGCEX_IMAGE: "0"
+      PREPULL_CLINKER_IMAGE: "0"
+      PREPULL_BIGSCAPE_IMAGE: "0"
+      BIGSCAPE_USE_DOCKER_IMAGE: "0"
+      BIGSCAPE_DOCKER_IMAGE: "ghcr.io/medema-group/big-scape:2.0.0-beta.6"
+      BIGSCAPE_DOCKER_DATA_VOLUME: "clusterweave_job_data"
+      BIGSCAPE_DOCKER_PFAM_VOLUME: "clusterweave_pfam_db"
+      CLINKER_USE_DOCKER_IMAGE: "0"
+      CLINKER_DOCKER_IMAGE: "quay.io/biocontainers/clinker-py:0.0.32--pyhdfd78af_0"
+      CLINKER_DOCKER_DATA_VOLUME: "clusterweave_job_data"
+      NPLINKER_USE_DOCKER_IMAGE: "0"
+      NPLINKER_DOCKER_DATA_VOLUME: "clusterweave_job_data"
+      WORKER_CONCURRENCY: "${WORKER_CONCURRENCY:-1}"
+      PIPELINE_CPUS: "4"
+      CLUSTERWEAVE_PUBLIC_BASE_URL: "${CLUSTERWEAVE_PUBLIC_BASE_URL:-http://localhost/}"
+      CLUSTERWEAVE_JOB_TOKEN_SECRET: "${CLUSTERWEAVE_JOB_TOKEN_SECRET:-}"
+      CLUSTERWEAVE_JOB_RETENTION_DAYS: "${CLUSTERWEAVE_JOB_RETENTION_DAYS:-30}"
+    mem_limit: 16g
+    shm_size: 512m
+    tmpfs:
+      - /tmp:size=4g
+
+volumes:
+  antismash_db:
+    driver: local
+  pfam_db:
+    driver: local
+  job_data:
+    driver: local

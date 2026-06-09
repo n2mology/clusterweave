@@ -1,0 +1,30 @@
+FROM python:3.11-slim
+
+USER root
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        bash \
+        ca-certificates \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY web/app.py /app/app.py
+COPY web/job_store.py /app/job_store.py
+COPY web/notifications.py /app/notifications.py
+COPY web/runtime_capabilities.py /app/runtime_capabilities.py
+COPY web/static/ /app/static/
+COPY web/entrypoint-web.sh /app/entrypoint.sh
+
+RUN chmod +x /app/entrypoint.sh
+
+RUN mkdir -p /data/uploads /data/jobs /databases/antismash /databases/pfam
+
+EXPOSE 8080
+
+ENV DATA_DIR=/data
+ENV ANTISMASH_DB_DIR=/databases/antismash
+ENV PFAM_DIR=/databases/pfam
+ENV PORT=8080
+
+ENTRYPOINT ["/app/entrypoint.sh"]

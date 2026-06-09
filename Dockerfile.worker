@@ -1,0 +1,42 @@
+FROM antismash/standalone:8.0.4
+
+USER root
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+        gzip \
+        hmmer \
+        r-base-core \
+        rsync \
+        tar \
+        unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY web/worker.py /app/worker.py
+COPY web/canonical_pipeline.py /app/canonical_pipeline.py
+COPY web/job_store.py /app/job_store.py
+COPY web/notifications.py /app/notifications.py
+COPY web/runtime_capabilities.py /app/runtime_capabilities.py
+COPY web/entrypoint-worker.sh /app/entrypoint.sh
+
+RUN chmod +x /app/entrypoint.sh
+
+WORKDIR /clusterweave
+COPY *.sh /clusterweave/
+COPY bin/ /clusterweave/bin/
+COPY config/ /clusterweave/config/
+COPY scripts/ /clusterweave/scripts/
+COPY software/funbgcex/ /clusterweave/software/funbgcex/
+
+RUN chmod +x /clusterweave/*.sh /clusterweave/scripts/ncbi/*.sh /clusterweave/software/funbgcex/*.sh || true
+
+RUN mkdir -p /data/uploads /data/jobs /databases/antismash /databases/pfam
+
+ENV DATA_DIR=/data
+ENV ANTISMASH_DB_DIR=/databases/antismash
+ENV PFAM_DIR=/databases/pfam
+ENV CLUSTERWEAVE_ROOT=/clusterweave
+ENV CLUSTERWEAVE_SOFTWARE_ROOT=/data/software
+
+ENTRYPOINT ["/app/entrypoint.sh"]

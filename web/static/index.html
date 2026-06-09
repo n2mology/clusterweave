@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ClusterWeave - BGC Analysis</title>
+<link rel="stylesheet" href="assets/clusterweave.css?v=20260609-architecture">
+</head>
+<body data-ui-mode="guided" data-access="public" data-workflow-state="idle" data-results-dashboard="closed" data-result-focus="overview" data-entry-mode="new" data-existing-run-loaded="false" data-management-view="closed">
+
+<!-- ── Bootstrap Splash Screen ──────────────────────────────────────────────── -->
+<div class="bootstrap-splash" id="bootstrap-splash">
+  <div class="bootstrap-content">
+    <div class="bootstrap-icon" aria-hidden="true"><span></span></div>
+    <div class="bootstrap-title">ClusterWeave</div>
+    <div class="bootstrap-subtitle">Initializing worker services...</div>
+    <div class="spinner"></div>
+    <div class="bootstrap-progress-wrap">
+      <div class="bootstrap-progress-head">
+        <span id="bootstrap-phase-label">Bootstrapping</span>
+        <span class="bootstrap-progress-pct" id="bootstrap-progress-pct">0%</span>
+      </div>
+      <div class="bootstrap-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Worker bootstrap progress">
+        <div class="bootstrap-progress-fill" id="bootstrap-progress-fill"></div>
+      </div>
+    </div>
+    <div class="bootstrap-status" id="bootstrap-status">Checking worker status...</div>
+    <div class="bootstrap-substep" id="bootstrap-substep">Waiting for first bootstrap update...</div>
+    <div class="bootstrap-steps" id="bootstrap-steps"></div>
+  </div>
+</div>
+
+<div class="app">
+
+<!-- ── Header ─────────────────────────────────────────────────────────── -->
+<header>
+  <a class="logo" href="#overview" data-nav-target="overview" onclick="navigateToSection(event, 'overview')" aria-label="ClusterWeave overview">
+    <img class="logo-mark" src="assets/clusterweave-logo.png" alt="" decoding="async" />
+  </a>
+  <nav class="primary-nav" id="primary-nav" aria-label="Primary navigation">
+    <a class="nav-link active" href="#overview" data-nav-target="overview" onclick="navigateToSection(event, 'overview')">Overview</a>
+    <a class="nav-link" href="#intake" data-nav-target="intake" onclick="navigateToSection(event, 'intake', 'manual-accessions')">Intake</a>
+    <a class="nav-link admin-only" href="#jobs-card" data-nav-target="runs" onclick="navigateToSection(event, 'runs')">Runs</a>
+    <a class="nav-link admin-only" href="#console-card" data-nav-target="qa" onclick="navigateToSection(event, 'qa')">QA Console</a>
+    <a class="nav-link" href="#results-card" data-nav-target="outputs" onclick="navigateToSection(event, 'outputs')">Outputs</a>
+  </nav>
+  <div class="header-actions" aria-label="Workflow actions">
+    <span class="status-chip status-unknown" id="runtime-status-chip"><span class="signal-lamp" aria-hidden="true"></span> Runtime: checking</span>
+  </div>
+  <button class="nav-toggle" id="nav-toggle" type="button" aria-label="Toggle navigation" aria-controls="primary-nav" aria-expanded="false" onclick="togglePrimaryNav()"><span class="nav-toggle-bars" aria-hidden="true"><span></span><span></span><span></span></span></button>
+</header>
+
+<main>
+  <section class="launch-deck identity-band section-anchor" id="overview" tabindex="-1" aria-label="ClusterWeave workflow overview">
+    <div class="launch-command">
+    <div class="identity-copy">
+      <div class="identity-kicker">Woven fungal discovery instrument</div>
+      <h1 class="identity-title">Run fungal BGC discovery from genomes or accessions.</h1>
+      <p class="identity-subtitle">ClusterWeave stages annotation, family context, synteny panels, figures, and downloads in one gated result surface.</p>
+      <div class="journey-cues" aria-label="ClusterWeave route">
+        <span class="journey-cue"><span class="journey-cue-label">Input</span>Genome files or NCBI accessions</span>
+        <span class="journey-cue"><span class="journey-cue-label">Weave</span>Canonical stages with sanitized progress</span>
+        <span class="journey-cue"><span class="journey-cue-label">Output</span>Figures, files, and citation-ready artifacts</span>
+      </div>
+      <div class="identity-brand-mark" hidden><div class="identity-brand-caption"><span>prepare</span><span>detect</span><span>compare</span><span>render</span></div></div>
+    </div>
+  <section class="access-panel section-anchor" id="access-panel" aria-label="Run entry options">
+    <div class="entry-tabs" role="tablist" aria-label="Run entry options">
+      <button class="entry-tab active" id="entry-tab-new" type="button" role="tab" aria-controls="entry-panel-new" aria-selected="true" onclick="switchEntryTab('new')" onkeydown="handleEntryTabKeydown(event)">New run</button>
+      <button class="entry-tab" id="entry-tab-existing" type="button" role="tab" aria-controls="entry-panel-existing" aria-selected="false" tabindex="-1" onclick="switchEntryTab('existing')" onkeydown="handleEntryTabKeydown(event)">Existing results</button>
+    </div>
+
+    <div class="entry-panel active" id="entry-panel-new" role="tabpanel" aria-labelledby="entry-tab-new">
+      <div class="access-copy">
+        <div class="node-kicker">New analysis</div>
+        <div class="node-title">Start a ClusterWeave run</div>
+        <p>Accepted inputs are NCBI assembly accessions, one-accession-per-line .txt lists, and nucleotide FASTA or GenBank genome files. Downstream BGC tools require CDS/protein translations: accessions and FASTA uploads route through funannotate first, while GenBank uploads must include CDS /translation= entries or be paired with a same-stem FASTA. Use public or releasable data only; anyone with the private result link can view that run until it expires.</p>
+      </div>
+      <div class="access-actions">
+        <button class="btn btn-primary text-sm" type="button" onclick="navigateToSection(event, 'intake', 'manual-accessions')">Start from NCBI accessions</button>
+        <button class="btn btn-ghost text-sm" type="button" onclick="loadDemoAccessions(event)">Load demo run</button>
+      </div>
+    </div>
+
+    <div class="entry-panel" id="entry-panel-existing" role="tabpanel" aria-labelledby="entry-tab-existing" hidden>
+      <div class="access-copy">
+        <div class="node-kicker">Results lookup</div>
+        <div class="node-title">Open results from an existing run</div>
+        <p>Use the private result link, or enter the ClusterWeave job ID with its result access code. Recent results are remembered only in this browser tab.</p>
+      </div>
+      <div class="access-grid">
+        <div class="access-card">
+          <div class="group-title">Results from existing run</div>
+          <div class="form-group">
+            <label for="existing-run-link">ClusterWeave job ID or private result link</label>
+            <input type="text" id="existing-run-link" autocomplete="off" placeholder="job_id or https://.../#/job/job_id/result_access_code" />
+          </div>
+          <div class="form-group">
+            <label for="existing-run-token">Result access code</label>
+            <input type="password" id="existing-run-token" autocomplete="off" placeholder="Required when entering a job ID" />
+          </div>
+          <div class="flex-gap mt1">
+            <button class="btn btn-primary text-sm" type="button" onclick="unlockExistingRun()">Open results</button>
+            <span id="existing-run-status" class="text-muted text-sm"></span>
+          </div>
+          <div class="opened-runs mt1" id="opened-runs-panel">
+            <label for="opened-runs-select" class="text-sm text-muted">Recent results in this tab</label>
+            <div class="flex-gap">
+              <select id="opened-runs-select" onchange="loadSelectedOpenedRun()"></select>
+              <button class="btn btn-ghost text-sm" type="button" onclick="forgetOpenedRuns()">Forget</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <details class="reviewer-access" id="reviewer-access">
+      <summary>Reviewer access</summary>
+      <div class="reviewer-grid">
+        <div class="form-group">
+          <label for="submit-token">Submission access code</label>
+          <input type="password" id="submit-token" autocomplete="off" placeholder="Only needed on invite-only test servers" />
+        </div>
+        <div class="form-group admin-token-row">
+          <label for="admin-token">Diagnostics access code</label>
+          <input type="password" id="admin-token" autocomplete="off" placeholder="Unlock review tools" />
+        </div>
+      </div>
+      <div class="flex-gap mt1">
+        <button class="btn btn-ghost text-sm" type="button" onclick="saveAccessTokens()">Save for this tab</button>
+        <button class="btn btn-ghost text-sm" type="button" onclick="clearAccessTokens()">Clear</button>
+        <span id="access-token-status" class="text-muted text-sm"></span>
+      </div>
+    </details>
+  </section>
+    <div class="upload-section section-anchor" id="intake" tabindex="-1">
+      <div class="card" id="upload-card" tabindex="-1">
+      <div class="card-header" onclick="toggleCard('upload-card')">
+        <span class="card-marker">Run</span> Run Fungal BGC Discovery
+        <span class="toggle-icon">▾</span>
+      </div>
+      <div class="card-body" id="upload-card-body">
+
+        <div class="input-node-head">
+          <div>
+            <div class="node-kicker">Input node</div>
+            <div class="node-title">Genome / accession intake</div>
+          </div>
+          <div class="node-flow" aria-hidden="true">
+            <span>Fungal assemblies / NCBI accessions</span>
+          </div>
+        </div>
+
+        <div class="intake-grid">
+          <div class="upload-zone" id="drop-zone">
+            <input type="file" id="file-input" multiple accept=".gbk,.gb,.gbff,.fasta,.fa,.fna,.fsa,.txt" />
+            <div class="upload-zone-content">
+              <div class="upload-icon" aria-hidden="true"></div>
+              <div class="upload-title">Drop translated GenBank, nucleotide FASTA, or accession lists</div>
+              <div class="upload-hint">GenBank needs CDS /translation= entries unless paired with same-stem FASTA; accessions and FASTA route through funannotate before BGC tools.</div>
+            </div>
+          </div>
+
+          <div class="accession-entry">
+            <div class="form-group">
+              <label for="manual-accessions">Manual accessions</label>
+              <textarea id="manual-accessions" placeholder="GCA_000011425.1&#10;GCF_000002655.1"></textarea>
+              <div class="accession-format-note">One NCBI assembly accession per line; downloaded genome FASTA can feed funannotate if protein translations are missing. Example: GCA_000011425.1</div>
+            </div>
+            <div class="accession-actions mt1">
+              <button class="btn btn-ghost text-sm" type="button" onclick="normalizeManualAccessions()">Add accessions</button>
+              <button class="btn btn-ghost text-sm" type="button" onclick="clearManualAccessions()">Clear draft</button>
+              <span id="manual-accessions-status" class="text-muted text-sm"></span>
+            </div>
+            <div class="accession-accepted-panel" id="accepted-accessions-panel">
+              <div class="accession-accepted-head">
+                <div class="group-title">Accepted accessions</div>
+                <button class="btn btn-ghost text-sm" type="button" onclick="clearAcceptedAccessions()">Clear accepted</button>
+              </div>
+              <div class="accession-accepted-list" id="accepted-accessions-list">
+                <div class="accession-accepted-empty">No accepted accessions yet.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="file-list" id="file-list"></div>
+        <div class="input-checker" id="input-checker" aria-live="polite">
+          <div class="input-checker-head">
+            <div>
+              <div class="node-kicker">Input checker</div>
+              <div class="input-checker-title">Annotation and protein readiness</div>
+            </div>
+            <div class="input-checker-limits" id="input-checker-limits"></div>
+          </div>
+          <div class="input-checker-list" id="input-checker-list">
+            <div class="input-check-empty">No accepted intake sources yet.</div>
+          </div>
+        </div>
+        <div class="runtime-banner hidden" id="runtime-banner"></div>
+
+        <div class="settings-section">
+          <div class="section-title-row">
+            <div>
+              <div class="node-kicker">Run coordinates</div>
+              <div class="node-title">Project and target</div>
+            </div>
+          </div>
+
+          <div class="form-grid core-settings-grid">
+            <div class="form-group">
+              <label for="project-name">Project name</label>
+              <input type="text" id="project-name" value="my_project" placeholder="e.g. aspergillus_survey" title="Namespace used to group outputs and history for this run." />
+            </div>
+            <div class="form-group admin-only">
+              <label for="cpus">CPU threads</label>
+              <input type="number" id="cpus" value="8" min="1" max="64" title="Threads used by compute-heavy stages like antiSMASH." />
+            </div>
+            <div class="form-group">
+              <label for="target-genome">Target genome (optional)</label>
+              <input type="text" id="target-genome" placeholder="Genome ID for targeted ranking/panels" title="Optional genome ID to focus shortlist and targeted analyses." />
+            </div>
+            <div class="form-group admin-only">
+              <label for="genefinding-mode">Annotation strategy</label>
+              <select id="genefinding-mode" title="Uses the canonical annotation fallback order for FASTA inputs; annotated GenBank inputs are passed through when usable.">
+                <option value="auto" selected>Auto (advanced fallback order)</option>
+                <option value="funannotate">funannotate</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-grid mt2 admin-only">
+          <div class="form-group">
+            <label for="run-preset">Preset</label>
+            <select id="run-preset" onchange="applyPreset(this.value)">
+              <option value="balanced" selected>Balanced</option>
+              <option value="beginner">Beginner (fastest)</option>
+              <option value="full">Full analysis</option>
+              <option value="repro">Reproducible-lite</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="summary-panel">
+          <div class="summary-head">Current Run Summary</div>
+          <div class="summary-grid" id="run-summary-content"></div>
+        </div>
+
+        <div class="summary-panel ecology-label-panel" id="ecology-label-panel">
+          <div class="summary-head ecology-label-head">
+            <label class="form-group-inline ecology-toggle">
+              <input type="checkbox" id="run-ecology" />
+              Enable ecology-aware analysis
+            </label>
+            <span id="ecology-label-status" class="text-muted text-sm"></span>
+          </div>
+          <div class="card-body hidden" id="ecology-label-body">
+            <div class="help-note">Optional labels are submitted behind the scenes as project-local ecology metadata. Rows are generated from pasted NCBI accessions and uploaded genome filename stems.</div>
+            <table class="file-table ecology-table mt1" id="metadata-table">
+              <thead><tr><th>Input</th><th>Primary ecology</th><th>Secondary ecology</th></tr></thead>
+              <tbody id="metadata-table-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="summary-panel email-notification-panel hidden" id="email-notification-panel">
+          <div class="summary-head">Result recovery email</div>
+          <div class="card-body">
+            <div class="form-group">
+              <label for="notify-email">Completion email (optional)</label>
+              <input type="email" id="notify-email" autocomplete="email" placeholder="you@example.org" />
+            </div>
+            <div class="help-note">ClusterWeave sends the private result link and expiration date when this run completes or fails.</div>
+          </div>
+        </div>
+
+        <div class="data-use-ack" id="data-use-ack-panel">
+          <label class="form-group-inline">
+            <input type="checkbox" id="data-use-ack" onchange="renderFileList()" />
+            <span>I understand this service is for public or releasable data only. Results are accessible to anyone with the private result link until expiration.</span>
+          </label>
+        </div>
+
+        <div class="run-row">
+          <button class="btn btn-primary" id="run-btn" onclick="startAnalysis()" disabled>
+            Run analysis
+          </button>
+          <span id="upload-status" class="text-muted text-sm"></span>
+        </div>
+
+        <details class="stage-toggle-panel workflow-controls admin-only" id="workflow-controls">
+          <summary class="workflow-summary">
+            <span class="workflow-summary-main">
+              <span class="node-kicker">Workflow controls</span>
+              <span class="node-title">Canonical workflow stages</span>
+            </span>
+            <span class="section-note">Open to tune stage switches</span>
+          </summary>
+          <div class="workflow-controls-body">
+            <div class="switch-grid stage-toggle-grid">
+              <label class="form-group-inline"><input type="checkbox" id="run-genome-prep" checked /> Prepare genomes from accessions</label>
+              <label class="form-group-inline"><input type="checkbox" id="run-annotation" checked /> Run annotation/detection</label>
+              <label class="form-group-inline"><input type="checkbox" id="run-bigscape" checked /> Run BiG-SCAPE stage</label>
+              <label class="form-group-inline"><input type="checkbox" id="run-summary" checked /> Build summary and crosswalk tables</label>
+              <label class="form-group-inline"><input type="checkbox" id="run-clinker" checked /> Generate clinker panels</label>
+              <label class="form-group-inline"><input type="checkbox" id="run-figures" checked /> Render summary figures</label>
+              <label class="form-group-inline"><input type="checkbox" id="run-nplinker" /> NPLinker follow-up job</label>
+            </div>
+          </div>
+        </details>
+
+        <details class="advanced-wrap admin-only" id="advanced-panel">
+          <summary>Advanced knobs</summary>
+          <div class="advanced-content">
+            <div>
+              <div class="group-title">Stage Behavior</div>
+              <div class="help-note">Control which canonical ClusterWeave stages run for this job.</div>
+              <div class="switch-grid">
+                <label class="form-group-inline"><input type="checkbox" id="run-ncbi-install" /> Install NCBI CLI before accession prep</label>
+                <label class="form-group-inline"><input type="checkbox" id="force-rerun" /> Force rerun existing outputs</label>
+                <label class="form-group-inline"><input type="checkbox" id="execute-clinker" checked /> Execute staged clinker panels</label>
+                <label class="form-group-inline"><input type="checkbox" id="figures-required" /> Require R figure stage success</label>
+              </div>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label for="workers">FunBGCeX workers</label>
+                  <input type="number" id="workers" value="2" min="1" max="64" />
+                </div>
+                <div class="form-group">
+                  <label for="anno-cpus">Annotation CPUs</label>
+                  <input type="number" id="anno-cpus" value="8" min="1" max="64" />
+                </div>
+                <div class="form-group">
+                  <label for="annotation-fallback-order">Annotation fallback order</label>
+                  <input type="text" id="annotation-fallback-order" value="funannotate" />
+                </div>
+                <div class="form-group">
+                  <label for="funannotate-busco-db">funannotate BUSCO DB</label>
+                  <input type="text" id="funannotate-busco-db" value="dikarya" />
+                </div>
+                <div class="form-group">
+                  <label for="funannotate-organism-name">funannotate organism name</label>
+                  <input type="text" id="funannotate-organism-name" value="Fungal_sp" />
+                </div>
+                <div class="form-group">
+                  <label for="clinker-mode">clinker mode</label>
+                  <select id="clinker-mode">
+                    <option value="auto" selected>Auto</option>
+                    <option value="atlas">Atlas only</option>
+                    <option value="targeted">Targeted only</option>
+                    <option value="both">Atlas + targeted</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="panel-target-set">Targeted panel set</label>
+                  <select id="panel-target-set">
+                    <option value="both" selected>Priority + shared family</option>
+                    <option value="priority">Priority only</option>
+                    <option value="shared_family">Shared family only</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="clinker-max-regions">Atlas panel limit</label>
+                  <input type="number" id="clinker-max-regions" value="12" min="1" max="500" title="Number of atlas target rows staged for clinker." />
+                </div>
+                <div class="form-group">
+                  <label for="bigscape-mix-mode">BiG-SCAPE mode</label>
+                  <select id="bigscape-mix-mode" title="Mixed mode groups classes together; disabling uses stricter class-specific behavior.">
+                    <option value="1" selected>Mixed mode (--mix)</option>
+                    <option value="0">No mix mode</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div class="group-title">Clinker Runtime</div>
+              <div class="help-note">Use the prebuilt clinker container image to avoid local dependency installation errors.</div>
+              <div class="switch-grid">
+                <label class="form-group-inline"><input type="checkbox" id="clinker-use-docker-image" checked /> Use preinstalled clinker container</label>
+                <label class="form-group-inline"><input type="checkbox" id="capture-external-artifacts" checked /> Capture external artifact metadata</label>
+              </div>
+              <div class="form-grid mt1">
+                <div class="form-group">
+                  <label for="clinker-docker-image">Clinker image</label>
+                  <input type="text" id="clinker-docker-image" value="quay.io/biocontainers/clinker-py:0.0.32--pyhdfd78af_0" title="Container image used when clinker is executed via Docker." />
+                </div>
+                <div class="form-group">
+                  <label for="clinker-docker-data-volume">Docker volume mapped to /data</label>
+                  <input type="text" id="clinker-docker-data-volume" value="clusterweave_job_data" title="Named Docker volume where job inputs/results are shared with the clinker container." />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div class="group-title">Runtime Resources</div>
+              <div class="help-note">These map to the canonical script bootstrap toggles for containers, Pfam, FastTree, MiBIG, and FunBGCeX.</div>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label for="auto-pull-images">Annotation image pulls</label>
+                  <select id="auto-pull-images">
+                    <option value="always" selected>Always</option>
+                    <option value="ask">Ask in interactive shells</option>
+                    <option value="never">Never</option>
+                  </select>
+                </div>
+                <label class="form-group-inline"><input type="checkbox" id="auto-build-funbgcex-sif" checked /> Auto-build FunBGCeX SIF</label>
+                <label class="form-group-inline"><input type="checkbox" id="auto-pull-bigscape-sif" checked /> Auto-pull BiG-SCAPE SIF</label>
+                <label class="form-group-inline"><input type="checkbox" id="auto-download-pfam" checked /> Auto-download Pfam</label>
+                <label class="form-group-inline"><input type="checkbox" id="auto-download-fasttree" checked /> Auto-download FastTree</label>
+                <label class="form-group-inline"><input type="checkbox" id="mibig-auto-download" checked /> Auto-download MiBIG cache</label>
+              </div>
+              <div class="form-group mt1">
+                <label for="env-overrides">Raw env overrides</label>
+                <textarea id="env-overrides" placeholder="KEY=value&#10;ANOTHER_KEY=value"></textarea>
+              </div>
+            </div>
+
+            <div>
+              <div class="group-title">Ecology & Metadata</div>
+              <div class="help-note">These options only matter when ecology-aware analysis is enabled.</div>
+              <div class="switch-grid">
+                <label class="form-group-inline"><input type="checkbox" id="auto-normalize-metadata" checked /> Auto-normalize metadata</label>
+              </div>
+              <div class="form-grid mt1">
+                <div class="form-group">
+                  <label for="ecology-field">Ecology field</label>
+                  <input type="text" id="ecology-field" value="ecofun_primary" />
+                </div>
+                <div class="form-group">
+                  <label for="focus-ecology-label">Focus ecology label (optional)</label>
+                  <input type="text" id="focus-ecology-label" placeholder="e.g. plant_associated" />
+                </div>
+                <div class="form-group">
+                  <label for="metadata-tsv">Metadata TSV path (optional)</label>
+                  <input type="text" id="metadata-tsv" placeholder="/data/path/to/ecology_metadata.tsv" />
+                </div>
+                <div class="form-group">
+                  <label for="atlas-min-records">Atlas min records</label>
+                  <input type="number" id="atlas-min-records" value="2" min="1" max="100" />
+                </div>
+                <div class="form-group">
+                  <label for="shortlist-limit">Shortlist limit</label>
+                  <input type="number" id="shortlist-limit" value="12" min="1" max="1000" />
+                </div>
+                <div class="form-group">
+                  <label for="max-comparators">Max comparators</label>
+                  <input type="number" id="max-comparators" value="50" min="1" max="1000" />
+                </div>
+                <div class="form-group">
+                  <label for="shared-family-stage-limit">Shared-family panel limit</label>
+                  <input type="number" id="shared-family-stage-limit" value="12" min="1" max="1000" />
+                </div>
+                <div class="form-group">
+                  <label for="shared-family-min-records">Shared-family min records</label>
+                  <input type="number" id="shared-family-min-records" value="4" min="1" max="1000" />
+                </div>
+                <div class="form-group">
+                  <label for="max-same-ecology">Max same-ecology comparators</label>
+                  <input type="number" id="max-same-ecology" value="20" min="0" max="1000" />
+                </div>
+                <div class="form-group">
+                  <label for="max-other-ecology">Max other-ecology comparators</label>
+                  <input type="number" id="max-other-ecology" value="20" min="0" max="1000" />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div class="group-title">NPLinker Follow-up</div>
+              <div class="help-note">Enable this only when metabolomics inputs or a Paired Omics project are ready for the selected target strain.</div>
+              <div class="switch-grid">
+                <label class="form-group-inline"><input type="checkbox" id="auto-pull-nplinker-sif" checked /> Auto-pull NPLinker SIF</label>
+                <label class="form-group-inline"><input type="checkbox" id="nplinker-bootstrap-env" checked /> Bootstrap NPLinker env</label>
+              </div>
+              <div class="form-grid mt1">
+                <div class="form-group">
+                  <label for="nplinker-run-mode">NPLinker mode</label>
+                  <select id="nplinker-run-mode">
+                    <option value="local" selected>Local GNPS upload</option>
+                    <option value="podp">Paired Omics project</option>
+                    <option value="auto">Auto</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="target-strain">Target strain override</label>
+                  <input type="text" id="target-strain" placeholder="Defaults to target genome" />
+                </div>
+                <div class="form-group">
+                  <label for="nplinker-podp-id">PODP ID</label>
+                  <input type="text" id="nplinker-podp-id" placeholder="Paired Omics project ID" />
+                </div>
+                <div class="form-group">
+                  <label for="massive-dataset-id">MassIVE dataset ID</label>
+                  <input type="text" id="massive-dataset-id" placeholder="Optional MassIVE ID" />
+                </div>
+                <div class="form-group">
+                  <label for="gnps-version">GNPS version</label>
+                  <select id="gnps-version">
+                    <option value="2" selected>GNPS2</option>
+                    <option value="1">GNPS1</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <div class="profile-bar admin-only">
+          <button class="btn btn-ghost text-sm" type="button" onclick="document.getElementById('profile-file-input').click()">Load .env Profile</button>
+          <button class="btn btn-ghost text-sm" type="button" onclick="exportEnvProfile()">Export Current Settings</button>
+          <input type="file" id="profile-file-input" accept=".env,.txt" class="hidden" />
+          <span id="profile-load-status" class="text-muted text-sm"></span>
+        </div>
+
+      </div>
+    </div>
+    </div>
+    <!-- end upload-section -->
+    </div>
+  </section>
+
+  <section class="weavemap-section section-anchor hidden" id="weavemap" tabindex="-1" aria-label="Live ClusterWeave workflow progress">
+    <div class="weavemap-head">
+      <div>
+        <div class="weavemap-title-row">
+          <span class="node-kicker">Canonical route</span>
+          <span class="badge badge-pending"><span class="badge-dot"></span> Live stage state</span>
+        </div>
+        <h2 class="weavemap-title">Workflow progress</h2>
+        <p class="weavemap-copy">Follow the selected job from source preparation through BGC detection, family context, synteny panels, figures, and downloadable artifacts.</p>
+      </div>
+      <div class="weavemap-status-rail">shell-first controller</div>
+    </div>
+    <div class="weavemap-live">
+      <div class="weavemap-endcap weavemap-endcap-intake">
+        <span class="weavemap-endcap-kicker">Input node</span>
+        <span class="weavemap-endcap-title">Genomes, accessions, metadata</span>
+        <span class="weavemap-endcap-copy">Upload files or paste accession IDs before starting a canonical workflow.</span>
+      </div>
+      <div class="weavemap-stage-wrap">
+        <div class="weavemap-signal" aria-hidden="true"></div>
+        <div class="stage-bar" id="stage-bar" role="list" aria-label="Canonical ClusterWeave workflow stages">
+          <span class="stage-step" data-stage="prep" role="listitem">
+            <span class="stage-topline"><span class="stage-number">01</span><span class="stage-state">Queued</span></span>
+            <span class="stage-copy"><span class="stage-name">Prep</span><span class="stage-hint">Accessions and project layout</span></span>
+            <span class="stage-telemetry"><span class="stage-elapsed">Elapsed pending</span><span class="stage-estimate">Estimated range pending</span></span>
+            <span class="stage-progress" aria-hidden="true"></span>
+          </span>
+          <span class="stage-step" data-stage="annotation" role="listitem">
+            <span class="stage-topline"><span class="stage-number">02</span><span class="stage-state">Queued</span></span>
+            <span class="stage-copy"><span class="stage-name">Annotation / BGC detection</span><span class="stage-hint">antiSMASH / FunBGCeX detection</span></span>
+            <span class="stage-telemetry"><span class="stage-elapsed">Elapsed pending</span><span class="stage-estimate">Estimated range pending</span></span>
+            <span class="stage-progress" aria-hidden="true"></span>
+          </span>
+          <span class="stage-step" data-stage="bigscape" role="listitem">
+            <span class="stage-topline"><span class="stage-number">03</span><span class="stage-state">Queued</span></span>
+            <span class="stage-copy"><span class="stage-name">BiG-SCAPE</span><span class="stage-hint">Family graph construction</span></span>
+            <span class="stage-telemetry"><span class="stage-elapsed">Elapsed pending</span><span class="stage-estimate">Estimated range pending</span></span>
+            <span class="stage-progress" aria-hidden="true"></span>
+          </span>
+          <span class="stage-step" data-stage="summary" role="listitem">
+            <span class="stage-topline"><span class="stage-number">04</span><span class="stage-state">Queued</span></span>
+            <span class="stage-copy"><span class="stage-name">Summary</span><span class="stage-hint">Crosswalks and tables</span></span>
+            <span class="stage-telemetry"><span class="stage-elapsed">Elapsed pending</span><span class="stage-estimate">Estimated range pending</span></span>
+            <span class="stage-progress" aria-hidden="true"></span>
+          </span>
+          <span class="stage-step" data-stage="clinker" role="listitem">
+            <span class="stage-topline"><span class="stage-number">05</span><span class="stage-state">Queued</span></span>
+            <span class="stage-copy"><span class="stage-name">clinker</span><span class="stage-hint">Synteny panel staging</span></span>
+            <span class="stage-telemetry"><span class="stage-elapsed">Elapsed pending</span><span class="stage-estimate">Estimated range pending</span></span>
+            <span class="stage-progress" aria-hidden="true"></span>
+          </span>
+          <span class="stage-step" data-stage="figures" role="listitem">
+            <span class="stage-topline"><span class="stage-number">06</span><span class="stage-state">Queued</span></span>
+            <span class="stage-copy"><span class="stage-name">Figures</span><span class="stage-hint">SVG / image rendering</span></span>
+            <span class="stage-telemetry"><span class="stage-elapsed">Elapsed pending</span><span class="stage-estimate">Estimated range pending</span></span>
+            <span class="stage-progress" aria-hidden="true"></span>
+          </span>
+          <span class="stage-step" data-stage="nplinker" role="listitem">
+            <span class="stage-topline"><span class="stage-number">07</span><span class="stage-state">Queued</span></span>
+            <span class="stage-copy"><span class="stage-name">NPLinker</span><span class="stage-hint">Optional omics follow-up</span></span>
+            <span class="stage-telemetry"><span class="stage-elapsed">Elapsed pending</span><span class="stage-estimate">Estimated range pending</span></span>
+            <span class="stage-progress" aria-hidden="true"></span>
+          </span>
+        </div>
+        <div class="weavemap-helix" id="weavemap-helix" aria-label="Workflow activity"></div>
+      </div>
+      <div class="weavemap-endcap weavemap-endcap-output">
+        <span class="weavemap-endcap-kicker">Output node</span>
+        <span class="weavemap-endcap-title">Figures, files, context</span>
+        <span class="weavemap-endcap-copy">Review generated figures, direct file links, synteny panels, and downloadable artifacts.</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Main Flow: Intake, Queue, Console, Results ──────────────────────────────── -->
+  <div class="main-container results-deck">
+
+  <!-- ── Lab QA side panel ─────────────────────────────────────────────── -->
+  <aside class="ops-side-panel admin-only" id="ops-side-panel" aria-label="Lab QA panels">
+
+    <!-- ── Run History (Top) ───────────────────────────────────────────── -->
+    <div class="card section-anchor admin-only" id="jobs-card" tabindex="-1">
+      <div class="card-header" onclick="toggleCard('jobs-card')">
+        <span class="card-marker">Runs</span> Run history
+        <span class="toggle-icon">▾</span>
+      </div>
+      <div class="card-body" id="jobs-card-body">
+        <div class="job-history" id="job-history">
+          <div class="empty-state">No runs yet. Add sources and start a workflow.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Worker Telemetry ───────────────────────────────────────────── -->
+    <div class="card telemetry-card section-anchor admin-only" id="console-card" tabindex="-1">
+      <div class="card-header">
+        <span class="card-marker">Telemetry</span> Worker telemetry
+        <span id="worker-telemetry-badge" class="badge badge-pending ml-auto"><span class="badge-dot"></span> Monitoring</span>
+      </div>
+      <div class="card-body telemetry-body" id="console-card-body">
+        <div class="telemetry-strip" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+        <div class="terminal-shell terminal-compact">
+          <div class="terminal-titlebar">
+            <span class="terminal-lights" aria-hidden="true"><span></span><span></span><span></span></span>
+            <span class="terminal-title">System Stream</span>
+            <span class="terminal-signal">polling</span>
+          </div>
+          <div class="log-terminal" id="system-console" aria-live="polite" aria-label="Worker telemetry log"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Progress / Logs ────────────────────────────────────────────── -->
+    <div class="card hidden lab-console-card section-anchor admin-only" id="progress-card" tabindex="-1">
+      <div class="card-header">
+        <span class="card-marker">Console</span> Lab console
+        <span id="progress-badge" class="badge badge-running ml-auto"><span class="badge-dot"></span> Running</span>
+      </div>
+      <div class="card-body lab-console-body">
+        <div class="terminal-shell terminal-run">
+          <div class="terminal-titlebar">
+            <span class="terminal-lights" aria-hidden="true"><span></span><span></span><span></span></span>
+            <span class="terminal-title">Run Log</span>
+            <span id="log-count" class="terminal-signal">0 lines</span>
+          </div>
+          <div class="log-terminal" id="log-terminal" aria-live="polite" aria-label="Selected run log"></div>
+        </div>
+        <div class="flex-gap console-actions mt1">
+          <button class="btn btn-ghost text-sm" type="button" onclick="clearLog()">Clear display</button>
+          <button class="btn btn-ghost text-sm" type="button" onclick="scrollToBottom()">Scroll to bottom</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="rerun-panel" class="admin-only"></div>
+
+  </aside>
+
+  <!-- ── Run status side panel ─────────────────────────────────────────── -->
+  <div class="right-column">
+
+    <!-- ── Results ────────────────────────────────────────────────────── -->
+    <div class="card section-anchor" id="results-card" tabindex="-1">
+      <div class="card-header">
+        <span class="card-marker">Run</span> Run status
+        <span id="results-status" class="badge badge-pending ml-auto"><span class="badge-dot"></span> No run loaded</span>
+      </div>
+      <div class="card-body">
+        <div id="results-empty-state" class="empty-state">Submit or load an existing run to see stage progress.</div>
+        <div class="submission-confirmation hidden" id="submission-confirmation" aria-live="polite">
+          <div class="submission-confirmation-head">
+            <div>
+              <div class="node-kicker">Run submitted</div>
+              <div class="node-title" id="submission-confirmation-title">Save this result access</div>
+            </div>
+            <button class="btn btn-ghost text-sm" type="button" onclick="dismissSubmissionConfirmation()">Dismiss</button>
+          </div>
+          <div class="submission-confirmation-copy" id="submission-confirmation-copy">
+            Save the private result link or the job ID with its result access code to return later.
+          </div>
+          <div class="submission-confirmation-grid">
+            <div class="form-group wide">
+              <label for="submitted-result-link">Private result link</label>
+              <div class="copy-field">
+                <input type="text" id="submitted-result-link" readonly />
+                <button class="btn btn-ghost text-sm" type="button" onclick="copySubmittedResultLink()">Copy link</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="submitted-job-id">ClusterWeave job ID</label>
+              <div class="copy-field">
+                <input type="text" id="submitted-job-id" readonly />
+                <button class="btn btn-ghost text-sm" type="button" onclick="copySubmittedJobId()">Copy ID</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="submitted-result-token">Result access code</label>
+              <div class="copy-field">
+                <input type="text" id="submitted-result-token" readonly />
+                <button class="btn btn-ghost text-sm" type="button" onclick="copySubmittedResultCode()">Copy code</button>
+              </div>
+            </div>
+          </div>
+          <div class="flex-gap mt1">
+            <button class="btn btn-primary text-sm" type="button" onclick="openSubmittedRun()">Open this run</button>
+            <span id="submission-confirmation-status" class="submission-confirmation-status text-sm"></span>
+          </div>
+        </div>
+        <div class="workflow-progress-panel hidden" id="workflow-progress-panel">
+          <div class="weavemap-title-row">
+            <span class="node-kicker">Workflow progress</span>
+            <span class="badge badge-pending"><span class="badge-dot"></span> Live stage state</span>
+          </div>
+          <div class="workflow-now" id="workflow-now-panel" aria-live="polite">
+            <div><span>Current scaffold</span><strong id="workflow-current-stage">Waiting for run</strong></div>
+            <div><span>Elapsed</span><strong id="workflow-current-elapsed">Not started</strong></div>
+            <div><span>Estimated range</span><strong id="workflow-current-estimate">Run dependent</strong></div>
+          </div>
+          <div id="results-workflow-host"></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+  <!-- end right-column -->
+
+  </div>
+  <!-- end main-container -->
+
+  <div class="completion-callout hidden" id="completion-callout" aria-hidden="true">
+    <div>
+      <div class="node-kicker">Run complete</div>
+      <div class="node-title">Results are live</div>
+      <button class="btn btn-primary text-sm" type="button" id="ready-results-btn" onclick="showResultDashboard()">Review output flow</button>
+    </div>
+  </div>
+
+  <section class="result-dashboard-board results-loaded-only result-dashboard-surface hidden" id="result-dashboard-section" tabindex="-1" aria-label="ClusterWeave result output flowchart">
+    <div class="result-dashboard-head">
+      <div>
+        <div class="node-kicker">Live results</div>
+        <div class="weavemap-title-row">
+          <div class="node-title">Output flowchart</div>
+          <span id="result-flow-status" class="badge badge-pending"><span class="badge-dot"></span> Waiting</span>
+        </div>
+        <p class="result-dashboard-copy">Available output nodes branch from real result files as the workflow produces them. The complete package remains available for full run contents.</p>
+      </div>
+      <div class="result-dashboard-actions">
+        <button class="btn btn-primary text-sm" type="button" id="download-package-btn" onclick="downloadResultArchive(event)" disabled>Download full package</button>
+      </div>
+    </div>
+    <div class="result-bubble-panel results-loaded-only hidden" id="result-bubble-panel" aria-label="Result output flowchart bubbles"></div>
+    <div class="result-focus-panel results-loaded-only result-dashboard-surface hidden" id="result-focus-panel" tabindex="-1">
+      <div class="result-focus-toolbar">
+        <button class="btn btn-ghost text-sm result-overview-btn" type="button" id="result-overview-btn" onclick="clearResultFocus()">Clear selection</button>
+        <span class="result-focus-label" id="result-focus-label">Select an output node</span>
+      </div>
+      <div class="result-overview-panel" id="result-overview-panel"></div>
+      <div class="tabs results-loaded-only result-dashboard-surface hidden result-output-tabs" role="tablist" aria-label="Result views">
+        <button class="tab active" id="tab-control-viz" type="button" role="tab" aria-controls="tab-viz" aria-selected="true" onclick="switchTab('viz')" onkeydown="handleResultTabKeydown(event)">Visualization</button>
+        <button class="tab" id="tab-control-files" type="button" role="tab" aria-controls="tab-files" aria-selected="false" tabindex="-1" onclick="switchTab('files')" onkeydown="handleResultTabKeydown(event)">Files</button>
+      </div>
+
+      <!-- Visualization tab -->
+      <div class="tab-panel active results-loaded-only result-dashboard-surface hidden" id="tab-viz" role="tabpanel" aria-labelledby="tab-control-viz">
+        <div id="viz-container">
+          <div class="viz-placeholder">
+            <span class="viz-placeholder-mark" aria-hidden="true"></span>
+            <div>Summary figures will appear here once the pipeline completes.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Files tab -->
+      <div class="tab-panel results-loaded-only result-dashboard-surface hidden" id="tab-files" role="tabpanel" aria-labelledby="tab-control-files" hidden>
+        <div id="files-container">
+          <div class="empty-state">No result files yet.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <details class="docs-strip section-anchor" id="docs" aria-label="ClusterWeave citation">
+    <summary class="docs-summary">
+      <span>
+        <span class="docs-kicker">Third-party tools and citations</span>
+        <span class="docs-title">Tool credits and citations <span class="docs-count">7 tools</span></span>
+      </span>
+    </summary>
+    <div class="docs-panel">
+      <p class="docs-copy">
+        ClusterWeave is a portal to public, open-access biosynthetic discovery tools. We are grateful to
+        the maintainers of these tools and reference datasets. ClusterWeave depends on their public
+        availability and wraps them into a guided workflow so non-coding domain experts can participate in
+        BGC target discovery. Please cite the upstream tools as well as
+        <a href="https://doi.org/" target="_blank" rel="noopener" data-citation-link title="ClusterWeave DOI link coming soon">ClusterWeave</a>
+        when outputs support your work.
+      </p>
+      <div class="tool-credit-grid" aria-label="Third-party tool credits">
+      <article class="tool-credit">
+        <div class="tool-credit-name"><a href="https://antismash.secondarymetabolites.org/" target="_blank" rel="noopener">antiSMASH</a><span class="tool-credit-license">AGPL</span></div>
+        <div class="tool-credit-use">Containerized BGC detection with `antismash/standalone:8.0.4`.</div>
+        <div class="tool-credit-cite">Blin et al. antiSMASH 8.0. Nucleic Acids Research 2025. doi:10.1093/nar/gkaf334.</div>
+      </article>
+      <article class="tool-credit">
+        <div class="tool-credit-name"><a href="https://github.com/ydmatsd/funbgcex" target="_blank" rel="noopener">FunBGCeX</a><span class="tool-credit-license">MIT</span></div>
+        <div class="tool-credit-use">Fungal BGC extraction through the ClusterWeave-built FunBGCeX container.</div>
+        <div class="tool-credit-cite">Tang and Matsuda, Nat. Commun. 15, 4312 (2024), doi:10.1038/s41467-024-48771-7; Chan et al., JACS 147, 42100-42109 (2025), doi:10.1021/jacs.5c16272.</div>
+      </article>
+      <article class="tool-credit">
+        <div class="tool-credit-name"><a href="https://github.com/nextgenusfs/funannotate" target="_blank" rel="noopener">funannotate</a><span class="tool-credit-license">BSD-2</span></div>
+        <div class="tool-credit-use">Annotation fallback that predicts CDS/protein translations from nucleotide FASTA before BGC tools run.</div>
+        <div class="tool-credit-cite">Palmer and Stajich. Funannotate v1.8.1: Eukaryotic genome annotation. Zenodo 2020. doi:10.5281/zenodo.1134477.</div>
+      </article>
+      <article class="tool-credit">
+        <div class="tool-credit-name"><a href="https://github.com/medema-group/BiG-SCAPE" target="_blank" rel="noopener">BiG-SCAPE</a><span class="tool-credit-license">AGPL</span></div>
+        <div class="tool-credit-use">Family graph context via `ghcr.io/medema-group/big-scape:2.0.0-beta.6`.</div>
+        <div class="tool-credit-cite">BiG-SCAPE 2.0 and BiG-SLiCE 2.0, Nat. Commun. 2026. doi:10.1038/s41467-026-68733-5; Navarro-Munoz et al., Nat. Chem. Biol. 2020. doi:10.1038/s41589-019-0400-9.</div>
+      </article>
+      <article class="tool-credit">
+        <div class="tool-credit-name"><a href="https://github.com/gamcil/clinker" target="_blank" rel="noopener">clinker</a><span class="tool-credit-license">MIT</span></div>
+        <div class="tool-credit-use">Synteny comparison panels via the BioContainers clinker image.</div>
+        <div class="tool-credit-cite">Gilchrist and Chooi. clinker and clustermap.js. Bioinformatics 2021. doi:10.1093/bioinformatics/btab007.</div>
+      </article>
+      <article class="tool-credit">
+        <div class="tool-credit-name"><a href="https://mibig.secondarymetabolites.org/" target="_blank" rel="noopener">MIBiG</a><span class="tool-credit-license">CC BY 4.0</span></div>
+        <div class="tool-credit-use">Versioned reference BGC context used by upstream tools and optional local caches.</div>
+        <div class="tool-credit-cite">Zdouc et al. MIBiG 4.0. Nucleic Acids Research 2025. doi:10.1093/nar/gkae1115.</div>
+      </article>
+      <article class="tool-credit">
+        <div class="tool-credit-name"><a href="https://pfam-docs.readthedocs.io/" target="_blank" rel="noopener">Pfam</a><span class="tool-credit-license">CC0</span></div>
+        <div class="tool-credit-use">Protein family HMM reference data used in family-context stages.</div>
+        <div class="tool-credit-cite">Paysan-Lafosse et al. Pfam protein families database. Nucleic Acids Research 2024. doi:10.1093/nar/gkae997.</div>
+      </article>
+      </div>
+      <p class="docs-note">
+        This list is a processed draft and will grow as more public tools are added to ClusterWeave. The hosted portal avoids restricted optional annotation
+        fallbacks; local command-line users should review `THIRD_PARTY.md` before enabling extra tooling.
+      </p>
+    </div>
+  </details>
+
+</main>
+</div><!-- /app -->
+
+<script src="assets/clusterweave.js?v=20260609-architecture"></script>
+</body>
+</html>

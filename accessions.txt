@@ -1,0 +1,6 @@
+# One accession per line below example.
+# Example:
+# GCA_########.#
+
+GCA_000011425.1
+GCA_030770425.1
