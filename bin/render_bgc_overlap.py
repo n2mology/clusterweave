@@ -631,7 +631,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--project-root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--project-name", default="clusterweave")
     parser.add_argument("--summary-table", type=Path, default=None)
-    parser.add_argument("--output-dir", type=Path, default=None, help="Defaults to Data/Results/<project-name>/figures.")
+    parser.add_argument("--output-dir", type=Path, default=None, help="Defaults to data/results/<project-name>/figures.")
     parser.add_argument("--prefix", default="bgc_overlap")
     parser.add_argument("--formats", default="svg,png", help="Comma-separated outputs: svg,png.")
     return parser
@@ -640,7 +640,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_arg_parser()
     args = parser.parse_args(argv)
-    results_root = args.project_root / "Data" / "Results" / args.project_name
+    results_root = args.project_root / "data" / "results" / args.project_name
     summary_path = args.summary_table or results_root / "summary" / "all_tools_shared_unshared_summary.csv"
     output_dir = args.output_dir or results_root / "figures"
     formats = parse_formats(args.formats)

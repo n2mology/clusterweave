@@ -171,7 +171,7 @@ def mibig_root_has_gbks(mibig_root: Path | None) -> bool:
 
 
 def default_mibig_root(project_root: Path) -> Path | None:
-    software_root = project_root / "Software"
+    software_root = project_root / "software"
     bigscape_softdir = software_root / "big_scape"
     res_dir = bigscape_softdir / "resources"
     mibig_cache = res_dir / "mibig_cache"
@@ -615,7 +615,7 @@ def main() -> None:
         "--project-root",
         type=Path,
         default=Path(__file__).resolve().parents[1],
-        help="Project root containing Code/ and Data/.",
+        help="Project root containing Code/ and data/.",
     )
     parser.add_argument(
         "--repo-root",
@@ -626,7 +626,7 @@ def main() -> None:
     parser.add_argument(
         "--project-name",
         default="clusterweave",
-        help="Project name used under Data/Results.",
+        help="Project name used under data/results.",
     )
     parser.add_argument(
         "--genome",
@@ -649,7 +649,7 @@ def main() -> None:
         "--output-root",
         type=Path,
         default=None,
-        help="Output root for staged clinker panels. Defaults to Data/Results/<project>/clinker.",
+        help="Output root for staged clinker panels. Defaults to data/results/<project>/clinker.",
     )
     parser.add_argument(
         "--bucket",
@@ -710,7 +710,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    results_root = args.project_root / "Data" / "Results" / args.project_name
+    results_root = args.project_root / "data" / "results" / args.project_name
     summary_root = results_root / "summary"
     antismash_root = results_root / "antismash"
     output_root = args.output_root or (results_root / "clinker")

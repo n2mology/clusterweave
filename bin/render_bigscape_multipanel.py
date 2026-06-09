@@ -289,7 +289,7 @@ def write_count_chart_svg(path: Path, summary_path: Path, warnings: list[str]) -
 
 
 def prepare_network_data(args: argparse.Namespace) -> tuple[network.BigscapeInputs, dict[str, network.NodeRecord], list[network.EdgeRecord], list[str]]:
-    results_root = args.project_root / "Data" / "Results" / args.project_name
+    results_root = args.project_root / "data" / "results" / args.project_name
     bigscape_root = args.bigscape_root or results_root / "big_scape" / "output_files"
     annotation_table = args.annotation_table
     if annotation_table is None:
@@ -393,7 +393,7 @@ def update_manifest(output_dir: Path, paths: Iterable[Path]) -> None:
 
 
 def render_multipanel(args: argparse.Namespace) -> int:
-    results_root = args.project_root / "Data" / "Results" / args.project_name
+    results_root = args.project_root / "data" / "results" / args.project_name
     output_dir = args.output_dir or results_root / "figures"
     output_dir.mkdir(parents=True, exist_ok=True)
     summary_path = args.summary_table or results_root / "summary" / "all_tools_shared_unshared_summary.csv"
@@ -499,7 +499,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--summary-table", type=Path, default=None, help="Summary CSV with entity_type=BGC and entity_type=GCF rows.")
     parser.add_argument("--metadata-id-column", default="", help="Metadata ID column. Defaults to sample_id, fungal_id, genome_id_current, genome, or isolate.")
     parser.add_argument("--ecology-field", default="ecofun_primary", help="Metadata ecology column. Generic ecology_category is also recognized.")
-    parser.add_argument("--output-dir", type=Path, default=None, help="Defaults to Data/Results/<project-name>/figures.")
+    parser.add_argument("--output-dir", type=Path, default=None, help="Defaults to data/results/<project-name>/figures.")
     parser.add_argument("--prefix", default="big_scape_multipanel")
     parser.add_argument("--category", default="mix", help="BiG-SCAPE category directory to render. Defaults to mix when present.")
     parser.add_argument("--clustering-threshold", default="0.3", help="BiG-SCAPE c-threshold label to select, for example 0.3.")

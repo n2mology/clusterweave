@@ -29,7 +29,7 @@ def write_tsv(path: Path, fieldnames: list[str], rows: list[dict[str, str]]) -> 
 
 def build_synthetic_bigscape_project(tmpdir: str) -> tuple[Path, Path]:
     project_root = Path(tmpdir)
-    run_dir = project_root / "Data" / "Results" / "demo" / "big_scape" / "output_files" / "2026-01-01_00-00-00_c0.3"
+    run_dir = project_root / "data" / "results" / "demo" / "big_scape" / "output_files" / "2026-01-01_00-00-00_c0.3"
     mix_dir = run_dir / "mix"
 
     records = [
@@ -67,7 +67,7 @@ def build_synthetic_bigscape_project(tmpdir: str) -> tuple[Path, Path]:
                 "Class": "NRPS",
                 "Category": "NRPS",
                 "Organism": "genomeA",
-                "Taxonomy": "Fungi",
+                "Taxonomy": "fungi",
                 "Description": "sample A",
             },
             {
@@ -78,7 +78,7 @@ def build_synthetic_bigscape_project(tmpdir: str) -> tuple[Path, Path]:
                 "Class": "T1PKS",
                 "Category": "PKS",
                 "Organism": "genomeB",
-                "Taxonomy": "Fungi",
+                "Taxonomy": "fungi",
                 "Description": "sample B",
             },
             {
@@ -89,7 +89,7 @@ def build_synthetic_bigscape_project(tmpdir: str) -> tuple[Path, Path]:
                 "Class": "terpene",
                 "Category": "terpene",
                 "Organism": "MiBIG organism",
-                "Taxonomy": "Fungi",
+                "Taxonomy": "fungi",
                 "Description": "MiBIG reference",
             },
             {
@@ -100,7 +100,7 @@ def build_synthetic_bigscape_project(tmpdir: str) -> tuple[Path, Path]:
                 "Class": "",
                 "Category": "",
                 "Organism": "genomeC",
-                "Taxonomy": "Fungi",
+                "Taxonomy": "fungi",
                 "Description": "missing class",
             },
             {
@@ -111,7 +111,7 @@ def build_synthetic_bigscape_project(tmpdir: str) -> tuple[Path, Path]:
                 "Class": "NRPS.T1PKS",
                 "Category": "NRPS.PKS",
                 "Organism": "genomeD",
-                "Taxonomy": "Fungi",
+                "Taxonomy": "fungi",
                 "Description": "hybrid class",
             },
             {
@@ -122,7 +122,7 @@ def build_synthetic_bigscape_project(tmpdir: str) -> tuple[Path, Path]:
                 "Class": "T1PKS",
                 "Category": "PKS",
                 "Organism": "Aspergillus nidulans FGSC A4",
-                "Taxonomy": "Fungi",
+                "Taxonomy": "fungi",
                 "Description": "MiBIG-only singleton",
             },
         ],
@@ -220,7 +220,7 @@ def build_synthetic_bigscape_project(tmpdir: str) -> tuple[Path, Path]:
         ],
     )
     write_tsv(
-        project_root / "Data" / "Results" / "demo" / "summary" / "candidate_bgc_gcf_crosswalk.tsv",
+        project_root / "data" / "results" / "demo" / "summary" / "candidate_bgc_gcf_crosswalk.tsv",
         ["genome", "antismash_region", "bigscape_record", "nearest_mibig_or_annotation_if_available"],
         [
             {
@@ -249,7 +249,7 @@ class BigscapeNetworkRenderingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root, metadata_path = build_synthetic_bigscape_project(tmpdir)
             inputs = self.module.select_bigscape_inputs(
-                project_root / "Data" / "Results" / "demo" / "big_scape" / "output_files",
+                project_root / "data" / "results" / "demo" / "big_scape" / "output_files",
                 "mix",
                 "0.3",
             )
@@ -259,11 +259,11 @@ class BigscapeNetworkRenderingTests(unittest.TestCase):
             metadata, metadata_warnings, columns = self.module.load_metadata(metadata_path, "ecology_category")
             merge_warnings = self.module.assign_metadata_and_labels(nodes, metadata)
             annotated_records, _ = self.module.load_mibig_annotation_records(
-                project_root / "Data" / "Results" / "demo" / "summary" / "candidate_bgc_gcf_crosswalk.tsv"
+                project_root / "data" / "results" / "demo" / "summary" / "candidate_bgc_gcf_crosswalk.tsv"
             )
             marker_warnings = self.module.mark_mibig_annotations(nodes, annotated_records)
             product_labels, _ = self.module.load_product_labels(
-                project_root / "Data" / "Results" / "demo" / "summary" / "candidate_bgc_gcf_crosswalk.tsv"
+                project_root / "data" / "results" / "demo" / "summary" / "candidate_bgc_gcf_crosswalk.tsv"
             )
             self.module.assign_product_labels(nodes, product_labels)
 
@@ -300,7 +300,7 @@ class BigscapeNetworkRenderingTests(unittest.TestCase):
     def test_render_outputs_include_legends_graphml_warnings_and_deterministic_layout(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root, metadata_path = build_synthetic_bigscape_project(tmpdir)
-            output_dir = project_root / "Data" / "Results" / "demo" / "figures"
+            output_dir = project_root / "data" / "results" / "demo" / "figures"
 
             rc = self.module.main(
                 [
@@ -370,7 +370,7 @@ class BigscapeNetworkRenderingTests(unittest.TestCase):
             self.assertIn("genomeC", warnings)
             self.assertIn("metadata_only", warnings)
 
-            inputs = self.module.select_bigscape_inputs(project_root / "Data" / "Results" / "demo" / "big_scape", "mix", "0.3")
+            inputs = self.module.select_bigscape_inputs(project_root / "data" / "results" / "demo" / "big_scape", "mix", "0.3")
             nodes, _ = self.module.load_nodes(inputs.clustering_path, self.module.load_annotations(inputs.annotations_path))
             edges, _ = self.module.load_edges(inputs.network_path, set(nodes), None, None)
             nodes, edges, _ = self.module.filter_dataset_dependent_mibig_references(nodes, edges)
@@ -426,7 +426,7 @@ class BigscapeNetworkRenderingTests(unittest.TestCase):
                     {"fungal_id": "genomeD", "ecology_category": ""},
                 ],
             )
-            output_dir = project_root / "Data" / "Results" / "demo" / "figures"
+            output_dir = project_root / "data" / "results" / "demo" / "figures"
 
             self.module.main(
                 [

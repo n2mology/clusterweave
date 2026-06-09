@@ -23,5 +23,10 @@
 
 - public code repository
 - pinned runtime notes
-- example profile 
-- minimal public example dataset or example-output bundle
+- example profile
+- curated public example-output bundle
+- data availability statement that distinguishes public source/example outputs from private runtime inputs, raw logs, databases, and full generated result archives
+
+## Availability Statement Draft
+
+ClusterWeave source code, including command-line workflow scripts, Python helpers, hosted web portal UI/API code, build recipes, documentation, and public-safe example outputs, will be available at https://doi.org/10.11578/PMI/dc.20260608.2 once the DOI is activated. Until activation, cite the repository URL and `CITATION.cff`. Uploaded inputs, private runtime job data, raw logs, local databases, generated full-result archives, container images/SIFs, caches, and restricted third-party assets are not distributed publicly. Public examples are curated, derived, and path-sanitized.

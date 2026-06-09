@@ -1,6 +1,6 @@
 # Dataset-Wide Family Atlas
 
-- Source summary: `/mnt/c/Users/wbz/OneDrive - Oak Ridge National Laboratory/Projects/Code/clusterweave/Data/Results/clusterweave_smoke/summary/bigscape_family_atlas.tsv`
+- Source summary: `data/results/clusterweave_smoke/summary/bigscape_family_atlas.tsv`
 - Representative family rows: `138`
 - `atlas_now`: `12`
 - `atlas_context`: `126`

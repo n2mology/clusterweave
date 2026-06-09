@@ -36,7 +36,7 @@ parse_args <- function(args) {
   }
 
   if (!nzchar(options$output_dir)) {
-    options$output_dir <- file.path(options$project_root, "Data", "Results", options$project_name, "figures")
+    options$output_dir <- file.path(options$project_root, "data", "results", options$project_name, "figures")
   }
   options
 }
@@ -277,7 +277,7 @@ write_manifest <- function(figures_written, manifest_path) {
 
 main <- function() {
   opts <- parse_args(commandArgs(trailingOnly = TRUE))
-  summary_root <- file.path(opts$project_root, "Data", "Results", opts$project_name, "summary")
+  summary_root <- file.path(opts$project_root, "data", "results", opts$project_name, "summary")
   dir.create(opts$output_dir, recursive = TRUE, showWarnings = FALSE)
 
   shared_summary_path <- file.path(summary_root, "all_tools_shared_unshared_summary.csv")

@@ -372,12 +372,12 @@ def main() -> None:
         "--project-root",
         type=Path,
         default=Path(__file__).resolve().parents[1],
-        help="Project root containing Code/ and Data/.",
+        help="Project root containing Code/ and data/.",
     )
     parser.add_argument(
         "--project-name",
         default="clusterweave",
-        help="Project name used under Data/Results and Code/.",
+        help="Project name used under data/results and Code/.",
     )
     parser.add_argument(
         "--target-genome",
@@ -396,7 +396,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    results_root = args.project_root / "Data" / "Results" / args.project_name
+    results_root = args.project_root / "data" / "results" / args.project_name
     summary_root = results_root / "summary"
     summary_tables_root = results_root / "summary_tables"
 

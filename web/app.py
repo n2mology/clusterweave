@@ -33,7 +33,7 @@ from job_store import (
 from notifications import validate_email
 from runtime_capabilities import unavailable_stage_reason
 
-HOST = "0.0.0.0"
+HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT", "8080"))
 
 
@@ -53,6 +53,7 @@ def env_int(name: str, default: int, minimum: int = 0) -> int:
 
 
 PUBLIC_MODE = env_bool("CLUSTERWEAVE_PUBLIC_MODE", False)
+ALLOW_UNSAFE_LOCAL_MODE = env_bool("CLUSTERWEAVE_ALLOW_UNSAFE_LOCAL_MODE", False)
 SUBMISSIONS_OPEN = env_bool("CLUSTERWEAVE_SUBMISSIONS_OPEN", True)
 SUBMIT_TOKEN = os.environ.get("CLUSTERWEAVE_SUBMIT_TOKEN", "")
 ADMIN_TOKEN = os.environ.get("CLUSTERWEAVE_ADMIN_TOKEN", "")
@@ -113,6 +114,10 @@ QUEUED_JOB_STATUSES = {"pending", "running"}
 PUBLIC_ACTIVITY_LIMIT = 40
 PUBLIC_GENOME_EXTENSIONS = {".fasta", ".fa", ".fna", ".fsa", ".gb", ".gbk", ".gbff"}
 PUBLIC_ACCESSION_EXTENSIONS = {".txt"}
+PUBLIC_FASTA_EXTENSIONS = {".fasta", ".fa", ".fna", ".fsa"}
+PUBLIC_GENBANK_EXTENSIONS = {".gb", ".gbk", ".gbff"}
+PUBLIC_GENOME_STEM_RE = re.compile(r"^[A-Za-z0-9._-]{1,120}$")
+PUBLIC_NUCLEOTIDE_CHARS = set("ACGTRYSWKMBDHVNU-.")
 PUBLIC_ECOLOGY_METADATA_FILENAME = "ecofun_metadata_normalized.tsv"
 MANUAL_ACCESSIONS_FILENAME = "manual_accessions.txt"
 NCBI_ASSEMBLY_ACCESSION_RE = re.compile(r"^(?:GCA|GCF)_\d{9}\.\d+$", re.IGNORECASE)
@@ -410,6 +415,97 @@ def request_can_read_job(handler: BaseHTTPRequestHandler, job: dict[str, object]
     )
 
 
+def normalized_job_result_path(value: object) -> str:
+    rel_path = str(value or "").replace("\\", "/").lstrip("/")
+    if not rel_path or ".." in Path(rel_path).parts:
+        return ""
+    return rel_path
+
+
+def result_path_forbidden(rel_path: str) -> bool:
+    normalized = normalized_job_result_path(rel_path)
+    if not normalized:
+        return True
+    lower = normalized.lower()
+    if lower in {"job.json", "logs.txt"}:
+        return True
+    if lower.startswith(("inputs/", "work/", "data/genomes/")):
+        return True
+    private_markers = (
+        "/antismash/",
+        "/funbgcex/",
+        "/funannotate/",
+        "/braker3/",
+        "/big_scape/",
+        "/input_gbks/",
+        "/summary_tables/logs/",
+        "/reproducibility/",
+        "/clinker/",
+    )
+    if any(marker in f"/{lower}" for marker in private_markers):
+        return True
+    filename = lower.rsplit("/", 1)[-1]
+    if filename in {"external_artifacts.tsv", "run_clusterweave_context.env", "panel_manifest.tsv", "run_panel.sh", "panel_notes.md"}:
+        return True
+    return False
+
+
+PUBLIC_SUMMARY_FILENAMES = {
+    "all_tools_shared_unshared_summary.csv",
+    "family_atlas_shortlist.md",
+    "family_atlas_shortlist.tsv",
+    "priority_shortlist.md",
+    "priority_shortlist.tsv",
+    "shared_family_shortlist.md",
+    "shared_family_shortlist.tsv",
+}
+PUBLIC_SUMMARY_TABLE_FILENAMES = {"ecofun_metadata_normalized.tsv", "ecofun_metadata_template.tsv"}
+PUBLIC_FIGURE_EXTENSIONS = {".svg", ".png", ".pdf", ".graphml", ".tsv"}
+
+
+def result_path_public_shape(rel_path: str) -> bool:
+    if result_path_forbidden(rel_path):
+        return False
+    lower = normalized_job_result_path(rel_path).lower()
+    filename = lower.rsplit("/", 1)[-1]
+    suffix = Path(filename).suffix.lower()
+    if lower == "downloads/public_results_manifest.tsv":
+        return True
+    if lower.startswith("downloads/") and lower.endswith("_public_results.zip"):
+        return True
+    if lower.startswith("results/") and suffix in PUBLIC_FIGURE_EXTENSIONS:
+        return True
+    parts = lower.split("/")
+    if len(parts) < 4 or parts[0] != "data" or parts[1] != "results":
+        return False
+    subparts = parts[3:]
+    if len(subparts) >= 2 and subparts[0] == "figures" and suffix in PUBLIC_FIGURE_EXTENSIONS:
+        return True
+    if len(subparts) == 2 and subparts[0] == "summary" and filename in PUBLIC_SUMMARY_FILENAMES:
+        return True
+    if len(subparts) == 2 and subparts[0] == "summary_tables" and filename in PUBLIC_SUMMARY_TABLE_FILENAMES:
+        return True
+    return False
+
+
+def result_file_allowlist(job: dict[str, object]) -> list[str]:
+    files: list[str] = []
+    seen: set[str] = set()
+    for item in job.get("result_files", []):
+        rel_path = normalized_job_result_path(item)
+        if not result_path_public_shape(rel_path) or rel_path in seen:
+            continue
+        seen.add(rel_path)
+        files.append(rel_path)
+    return files
+
+
+def public_error_summary(error: object) -> str:
+    if not str(error or "").strip():
+        return "Run failed. Check public progress events and available files, or submit a new run after fixing the input."
+    return "Run failed. Check public progress events and available files, or submit a new run after fixing the input."
+
+
 def redact_env_overrides(settings: object) -> object:
     if not isinstance(settings, dict):
         return settings
@@ -451,6 +547,8 @@ def public_activity_parts(line: object) -> tuple[str, str]:
 
 
 def public_activity_stage_from_marker(message: str) -> str | None:
+    if re.search(r"=== Stage: (Preparing ClusterWeave project layout|Installing NCBI CLI|Preparing genomes from accessions)", message, re.IGNORECASE):
+        return "prep"
     if re.search(r"Stage 1/4:\s+running run_annotation_and_detection\.sh", message, re.IGNORECASE):
         return "annotation"
     if re.search(r"Stage 2/4:\s+running run_bigscape\.sh", message, re.IGNORECASE):
@@ -459,6 +557,10 @@ def public_activity_stage_from_marker(message: str) -> str | None:
         return "summary"
     if re.search(r"Stage 4/4:\s+running run_clinker\.sh", message, re.IGNORECASE):
         return "clinker"
+    if re.search(r"=== Stage: Rendering summary figures", message, re.IGNORECASE):
+        return "figures"
+    if re.search(r"=== Stage: Running optional NPLinker follow-up", message, re.IGNORECASE):
+        return "nplinker"
     return None
 
 
@@ -502,10 +604,13 @@ def public_activity_from_logs(job_id: str, lines: list[str]) -> list[dict[str, s
         if marker_stage:
             current_stage = marker_stage
             title_by_stage = {
+                "prep": "Preparing input workspace",
                 "annotation": "Running annotation and BGC detection",
                 "bigscape": "Running BiG-SCAPE family graph",
                 "summary": "Building summary tables",
                 "clinker": "Staging synteny panels",
+                "figures": "Rendering summary figures",
+                "nplinker": "Running optional NPLinker follow-up",
             }
             add_public_activity_event(
                 events,
@@ -515,6 +620,23 @@ def public_activity_from_logs(job_id: str, lines: list[str]) -> list[dict[str, s
                 "Canonical workflow stage",
                 observed_at,
             )
+            continue
+
+        staged_match = re.search(r"^(Staged genome input|Staged accession list|Staged ecology metadata):\s+(.+)$", message, re.IGNORECASE)
+        if staged_match:
+            label = public_activity_label(Path(staged_match.group(2)).name)
+            kind = staged_match.group(1).lower()
+            if "genome" in kind:
+                title = "Staged genome input"
+            elif "ecology" in kind:
+                title = "Staged ecology labels"
+            else:
+                title = "Staged accession list"
+            add_public_activity_event(events, seen, "prep", title, label, observed_at)
+            continue
+
+        if re.search(r"Reusing existing staged ClusterWeave layout for rerun", message, re.IGNORECASE):
+            add_public_activity_event(events, seen, "prep", "Reused staged inputs for rerun", "Existing job workspace", observed_at)
             continue
 
         work_match = re.search(r"\[WORK\]\s+((?:GCA|GCF)_\d{9}\.\d+)", message, re.IGNORECASE)
@@ -599,9 +721,45 @@ def public_activity_from_logs(job_id: str, lines: list[str]) -> list[dict[str, s
             )
             continue
 
-        if re.search(r"\brender(?:ing)?\s+summary\s+figures\b", message, re.IGNORECASE):
+        bigscape_region_match = re.search(r"Staged region GBKs:\s*(\d+)", message, re.IGNORECASE)
+        if bigscape_region_match:
+            add_public_activity_event(events, seen, "bigscape", "Staged region GBKs", f"{bigscape_region_match.group(1)} regions", observed_at)
+            continue
+
+        if re.search(r"Running BiG-SCAPE|BiG-SCAPE complete|BiG-SCAPE outputs already exist", message, re.IGNORECASE):
+            title = "BiG-SCAPE complete" if re.search(r"complete|already exist", message, re.IGNORECASE) else "Running BiG-SCAPE clustering"
+            add_public_activity_event(events, seen, "bigscape", title, "Family graph construction", observed_at)
+            continue
+
+        summary_written_match = re.search(r"Wrote (?:scaffold comparison table|BGC comparison table|summary table|.*crosswalk rows|ecology-group .*|GCF ecology distribution|targeted candidate ranking|.*shortlist(?: TSV| Markdown| note)?)", message, re.IGNORECASE)
+        if summary_written_match:
+            add_public_activity_event(events, seen, "summary", "Updated summary outputs", "Crosswalks and shortlist tables", observed_at)
+            continue
+
+        if re.search(r"Refreshing (candidate ranking|dataset-wide family atlas|priority shortlist|BiG-SCAPE shared-family shortlist)|Skipping .*shortlist refresh", message, re.IGNORECASE):
+            add_public_activity_event(events, seen, "clinker", "Prepared synteny shortlist inputs", "Panel target selection", observed_at)
+            continue
+
+        clinker_panel_match = re.search(r"Staged (\d+) clinker panels", message, re.IGNORECASE)
+        if clinker_panel_match:
+            add_public_activity_event(events, seen, "clinker", "Staged clinker panels", f"{clinker_panel_match.group(1)} panels", observed_at)
+            continue
+
+        if re.search(r"Running .*clinker panels|run_clinker\.sh complete|Wrote panel manifest|Wrote master run script", message, re.IGNORECASE):
+            add_public_activity_event(events, seen, "clinker", "Updated synteny panel outputs", "clinker staging", observed_at)
+            continue
+
+        if re.search(r"\brender(?:ing)?\s+summary\s+figures\b|Rendering BGC overlap figure|Rendering BiG-SCAPE (?:network|multipanel) figure", message, re.IGNORECASE):
             current_stage = "figures"
             add_public_activity_event(events, seen, "figures", "Rendering summary figures", "Visual summaries", observed_at)
+            continue
+
+        if re.search(r"Wrote .*\.(?:svg|png|pdf)$|run_figures\.sh complete", message, re.IGNORECASE):
+            add_public_activity_event(events, seen, "figures", "Updated figure outputs", "Visual summaries", observed_at)
+            continue
+
+        if re.search(r"Wrote .*NPLinker|Wrote .*links to|Wrote .*summary rows to|Seeded BiG-SCAPE data", message, re.IGNORECASE):
+            add_public_activity_event(events, seen, "nplinker", "Updated NPLinker outputs", "Optional omics follow-up", observed_at)
             continue
 
         if re.search(r"\b(FATAL|ERROR|FAILED|failed with exit code)\b", message):
@@ -702,16 +860,38 @@ def job_queue_status(job: dict[str, object], *, admin: bool) -> dict[str, object
     return payload
 
 def job_payload(job: dict[str, object], *, admin: bool, include_public_events: bool = False) -> dict[str, object]:
-    payload = dict(job)
-    for key in SENSITIVE_JOB_FIELDS:
-        payload.pop(key, None)
+    if PUBLIC_MODE and not admin:
+        payload = {
+            key: job[key]
+            for key in [
+                "id",
+                "name",
+                "status",
+                "stage",
+                "created_at",
+                "updated_at",
+                "log_count",
+                "cpus",
+                "project_name",
+                "input_summary",
+                "retention_days",
+                "expires_at",
+                "completed_at",
+                "failed_at",
+            ]
+            if key in job
+        }
+        payload["result_files"] = result_file_allowlist(job)
+        if job.get("error") or str(job.get("status", "")).lower() == "failed":
+            payload["error"] = public_error_summary(job.get("error"))
+            payload["error_summary"] = payload["error"]
+    else:
+        payload = dict(job)
+        for key in SENSITIVE_JOB_FIELDS:
+            payload.pop(key, None)
     queue_status = job_queue_status(job, admin=admin)
     if queue_status is not None:
         payload["queue_status"] = queue_status
-    if PUBLIC_MODE and not admin:
-        for key in ["settings", "submission_settings", "last_rerun_settings"]:
-            if key in payload:
-                payload[key] = redact_env_overrides(payload[key])
     if include_public_events:
         job_id = str(job.get("id") or "")
         payload["public_events"] = public_activity_from_logs(job_id, read_logs(job_id)) if job_id else []
@@ -726,6 +906,15 @@ def queued_job_count() -> int:
     return sum(1 for job in list_jobs() if str(job.get("status", "")).lower() in QUEUED_JOB_STATUSES)
 
 
+def public_quota_payload() -> dict[str, int]:
+    return {
+        "max_accessions": MAX_ACCESSIONS,
+        "max_genome_files": MAX_GENOME_FILES,
+        "max_upload_file_mb": MAX_UPLOAD_FILE_MB,
+        "max_upload_total_mb": MAX_UPLOAD_TOTAL_MB,
+    }
+
+
 def redacted_system_status() -> dict[str, object]:
     submissions_open = SUBMISSIONS_OPEN
     return {
@@ -735,12 +924,14 @@ def redacted_system_status() -> dict[str, object]:
         "submissions": "open" if submissions_open else "paused",
         "jobs_processed": jobs_processed_count(),
         "smtp_enabled": SMTP_ENABLED,
+        "public_quota": public_quota_payload(),
     }
 
 
 def full_system_status() -> dict[str, object]:
     payload = worker_status()
     payload["smtp_enabled"] = SMTP_ENABLED
+    payload["public_quota"] = public_quota_payload()
     return payload
 
 
@@ -813,53 +1004,188 @@ def validate_manual_accession_uploads(uploads: list[dict[str, object]]) -> str |
     return None
 
 
+def public_genome_stem(filename: str) -> str:
+    return Path(filename).stem.strip()
+
+
+def validate_public_genome_stem(filename: str, seen_stems: set[str]) -> tuple[str | None, str]:
+    stem = public_genome_stem(filename)
+    if not stem:
+        return f"Genome file '{filename}' needs a filename stem before the extension", stem
+    if not PUBLIC_GENOME_STEM_RE.match(stem):
+        return (
+            f"Genome file '{filename}' must use a simple stem with 1-120 letters, numbers, dots, underscores, or hyphens; "
+            "avoid spaces, parentheses, slashes, and shell-like characters",
+            stem,
+        )
+    normalized = stem.lower()
+    if normalized in seen_stems:
+        return f"Genome file stem '{stem}' is duplicated; use one unique genome assembly stem per file", stem
+    seen_stems.add(normalized)
+    return None, stem
+
+
+def classify_public_fasta(filename: str, content: bytes) -> tuple[str, str]:
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError:
+        return "invalid", f"FASTA genome '{filename}' must be UTF-8 compatible text"
+
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return "invalid", f"FASTA genome '{filename}' is empty"
+    if not lines[0].startswith(">"):
+        return "invalid", f"FASTA genome '{filename}' must start with a FASTA header line beginning with >"
+
+    sequence_chars: list[str] = []
+    sequence_lines = 0
+    for line in lines:
+        if line.startswith(">"):
+            continue
+        clean = re.sub(r"\s+", "", line).upper()
+        if not clean:
+            continue
+        sequence_lines += 1
+        sequence_chars.extend(clean)
+
+    if sequence_lines == 0 or not sequence_chars:
+        return "invalid", f"FASTA genome '{filename}' must include at least one nucleotide sequence line"
+
+    nucleotide_count = sum(1 for char in sequence_chars if char in PUBLIC_NUCLEOTIDE_CHARS)
+    nucleotide_ratio = nucleotide_count / len(sequence_chars)
+    if nucleotide_ratio < 0.85:
+        return (
+            "invalid",
+            f"FASTA genome '{filename}' looks like protein FASTA or arbitrary text; upload a nucleotide genome assembly FASTA",
+        )
+
+    return (
+        "raw_fasta_requires_annotation",
+        "Nucleotide FASTA accepted; funannotate must predict CDS/protein translations before downstream BGC tools can run, and may fail if the assembly is not annotatable",
+    )
+
+
+def classify_public_genbank(filename: str, content: bytes) -> tuple[str, str]:
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError:
+        return "invalid", f"GenBank genome '{filename}' must be UTF-8 compatible text"
+
+    if not text.strip():
+        return "invalid", f"GenBank genome '{filename}' is empty"
+
+    required_markers = {
+        "LOCUS": re.search(r"^LOCUS\s+", text, re.MULTILINE),
+        "FEATURES": re.search(r"^FEATURES\b", text, re.MULTILINE),
+        "ORIGIN": re.search(r"^ORIGIN\b", text, re.MULTILINE),
+        "//": re.search(r"^//\s*$", text, re.MULTILINE),
+    }
+    missing = [name for name, match in required_markers.items() if not match]
+    if missing:
+        return "invalid", f"GenBank genome '{filename}' is missing required marker(s): {', '.join(missing)}"
+
+    has_cds = re.search(r"^\s+CDS\b", text, re.MULTILINE) is not None
+    has_translation = re.search(r"/translation\s*=", text) is not None
+    if has_cds and has_translation:
+        return "annotated_genbank_ready", "Annotated GenBank with CDS translations is ready for antiSMASH and FunBGCeX"
+
+    return (
+        "genbank_requires_fallback_or_translations",
+        "GenBank structure is present, but CDS translations were not detected; submit a same-stem nucleotide FASTA or translated GenBank so funannotate can produce proteins before downstream BGC tools run",
+    )
+
+
+def public_genome_upload_kind(ext: str) -> str:
+    return "fasta" if ext in PUBLIC_FASTA_EXTENSIONS else "genbank"
+
+
+def classify_public_genome_upload(filename: str, ext: str, content: bytes) -> tuple[str, str]:
+    if ext in PUBLIC_FASTA_EXTENSIONS:
+        return classify_public_fasta(filename, content)
+    if ext in PUBLIC_GENBANK_EXTENSIONS:
+        return classify_public_genbank(filename, content)
+    return "invalid", f"Unsupported public genome file type '{ext}'"
+
+
 def validate_public_uploads(
     uploads: list[dict[str, object]],
     settings: dict[str, object],
-) -> tuple[str | None, dict[str, int]]:
-    summary = {
+) -> tuple[str | None, dict[str, object]]:
+    readiness_records: list[dict[str, str]] = []
+    summary: dict[str, object] = {
         "accession_count": 0,
         "genome_file_count": 0,
         "metadata_file_count": 0,
         "upload_bytes": 0,
+        "genome_readiness": readiness_records,
     }
     max_file_bytes = MAX_UPLOAD_FILE_MB * BYTES_PER_MB
     max_total_bytes = MAX_UPLOAD_TOTAL_MB * BYTES_PER_MB
     ecology_enabled = settings_bool(settings, "run_ecology_analysis")
+    genome_stem_kinds: dict[str, set[str]] = {}
+    genome_stem_labels: dict[str, str] = {}
 
     for item in uploads:
-        filename = Path(str(item.get("filename") or "unknown")).name
-        ext = Path(filename).suffix.lower()
+        raw_filename = str(item.get("filename") or "unknown")
+        ext = Path(raw_filename).suffix.lower()
+        filename = Path(raw_filename).name
         content = bytes(item.get("content") or b"")
         size = len(content)
+
+        if ext in PUBLIC_GENOME_EXTENSIONS and ("/" in raw_filename or "\\" in raw_filename):
+            return f"Genome file '{filename}' must use a simple stem without folders or slashes", summary
 
         if size > max_file_bytes:
             return f"File '{filename}' exceeds the {MAX_UPLOAD_FILE_MB} MB public upload limit", summary
 
-        summary["upload_bytes"] += size
-        if summary["upload_bytes"] > max_total_bytes:
+        summary["upload_bytes"] = int(summary["upload_bytes"]) + size
+        if int(summary["upload_bytes"]) > max_total_bytes:
             return f"Total upload size exceeds the {MAX_UPLOAD_TOTAL_MB} MB public job limit", summary
 
         if ext in PUBLIC_GENOME_EXTENSIONS:
-            summary["genome_file_count"] += 1
-            if summary["genome_file_count"] > MAX_GENOME_FILES:
+            summary["genome_file_count"] = int(summary["genome_file_count"]) + 1
+            if int(summary["genome_file_count"]) > MAX_GENOME_FILES:
                 return f"Public jobs may include at most {MAX_GENOME_FILES} genome files", summary
+            stem_error, stem = validate_public_genome_stem(filename, set())
+            if stem_error:
+                return stem_error, summary
+            stem_key = stem.lower()
+            genome_stem_labels.setdefault(stem_key, stem)
+            upload_kind = public_genome_upload_kind(ext)
+            stem_kinds = genome_stem_kinds.setdefault(stem_key, set())
+            if upload_kind in stem_kinds:
+                return (
+                    f"Genome file stem '{stem}' has duplicate {upload_kind.upper()} uploads; submit at most one FASTA and one GenBank file per genome assembly stem",
+                    summary,
+                )
+            stem_kinds.add(upload_kind)
+            readiness_class, reason = classify_public_genome_upload(filename, ext, content)
+            readiness_records.append(
+                {
+                    "filename": filename,
+                    "stem": stem,
+                    "readiness": readiness_class,
+                    "reason": reason,
+                }
+            )
+            if readiness_class == "invalid":
+                return reason, summary
             continue
 
         if ext in PUBLIC_ACCESSION_EXTENSIONS:
             error, accession_count = parse_accession_text(filename, content)
             if error:
                 return error, summary
-            summary["accession_count"] += accession_count
-            if summary["accession_count"] > MAX_ACCESSIONS:
+            summary["accession_count"] = int(summary["accession_count"]) + accession_count
+            if int(summary["accession_count"]) > MAX_ACCESSIONS:
                 return f"Public jobs may include at most {MAX_ACCESSIONS} accessions", summary
             continue
 
         if filename == PUBLIC_ECOLOGY_METADATA_FILENAME:
             if not ecology_enabled:
                 return "Ecology metadata is only accepted when ecology-aware analysis is enabled", summary
-            summary["metadata_file_count"] += 1
-            if summary["metadata_file_count"] > 1:
+            summary["metadata_file_count"] = int(summary["metadata_file_count"]) + 1
+            if int(summary["metadata_file_count"]) > 1:
                 return "Only one ecology metadata table may be submitted", summary
             continue
 
@@ -872,8 +1198,20 @@ def validate_public_uploads(
             summary,
         )
 
-    if summary["accession_count"] + summary["genome_file_count"] <= 0:
+    if int(summary["accession_count"]) + int(summary["genome_file_count"]) <= 0:
         return "Submit at least one accession list or genome file", summary
+
+    for record in readiness_records:
+        if record.get("readiness") != "genbank_requires_fallback_or_translations":
+            continue
+        stem = record.get("stem", "")
+        stem_key = stem.lower()
+        if "fasta" not in genome_stem_kinds.get(stem_key, set()):
+            filename = record.get("filename") or f"{genome_stem_labels.get(stem_key, stem)}.gbk"
+            return (
+                f"GenBank genome '{filename}' lacks CDS translations and no same-stem nucleotide FASTA was submitted; upload translated GenBank or pair it with {stem}.fna so funannotate can create proteins before downstream BGC tools",
+                summary,
+            )
 
     return None, summary
 
@@ -882,7 +1220,7 @@ def apply_public_submission_policy(
     handler: BaseHTTPRequestHandler,
     settings: dict[str, object],
     uploads: list[dict[str, object]],
-) -> tuple[str | None, dict[str, int]]:
+) -> tuple[str | None, dict[str, object]]:
     if not PUBLIC_MODE:
         return None, {}
 
@@ -1137,6 +1475,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             if len(parts) >= 5 and parts[4] == "logs":
+                if PUBLIC_MODE and not is_admin:
+                    self._auth_failed("Admin token required for raw logs")
+                    return
                 since = parse_int(query.get("since", ["0"])[0], 0)
                 lines = read_logs(job_id)
                 self._send_json(HTTPStatus.OK, {"lines": lines[max(0, since):], "total": len(lines)})
@@ -1147,9 +1488,9 @@ class Handler(BaseHTTPRequestHandler):
                 archive_buffer = io.BytesIO()
                 added = 0
                 with zipfile.ZipFile(archive_buffer, "w", zipfile.ZIP_DEFLATED) as archive:
-                    for rel in job.get("result_files", []):
-                        rel_path = str(rel).replace("\\", "/").lstrip("/")
-                        if not rel_path or ".." in Path(rel_path).parts:
+                    for rel_path in result_file_allowlist(job):
+                        lower = rel_path.lower()
+                        if lower.startswith("downloads/") and lower.endswith(".zip"):
                             continue
                         full = (base_dir / rel_path).resolve()
                         try:
@@ -1161,7 +1502,7 @@ class Handler(BaseHTTPRequestHandler):
                         archive.write(full, rel_path)
                         added += 1
                     if not added:
-                        archive.writestr("README.txt", "No result files are available for this ClusterWeave run yet.\n")
+                        archive.writestr("README.txt", "No public result files are available for this ClusterWeave run yet.\n")
                 safe_job_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", job_id).strip("._") or "clusterweave"
                 self._send_text(
                     HTTPStatus.OK,
@@ -1176,11 +1517,18 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             if len(parts) >= 5 and parts[4] == "files":
+                allowed_files = result_file_allowlist(job)
                 if len(parts) == 5:
-                    self._send_json(HTTPStatus.OK, {"files": job.get("result_files", [])})
+                    self._send_json(HTTPStatus.OK, {"files": allowed_files})
                     return
 
-                rel_path = urllib.parse.unquote("/".join(parts[5:]))
+                rel_path = normalized_job_result_path(urllib.parse.unquote("/".join(parts[5:])))
+                if not rel_path:
+                    self._bad_request("Invalid path")
+                    return
+                if rel_path not in set(allowed_files):
+                    self._auth_failed("Result file is not available through the public manifest")
+                    return
                 base_dir = job_dir(job_id).resolve()
                 full = (base_dir / rel_path).resolve()
                 try:
@@ -1533,7 +1881,20 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
 
+def validate_startup_binding() -> None:
+    if PUBLIC_MODE or ALLOW_UNSAFE_LOCAL_MODE:
+        return
+    if HOST in {"127.0.0.1", "localhost", "::1"}:
+        return
+    raise RuntimeError(
+        "Refusing to start non-public ClusterWeave web server on a non-loopback host. "
+        "Set CLUSTERWEAVE_PUBLIC_MODE=1 for shared deployments, or set "
+        "CLUSTERWEAVE_ALLOW_UNSAFE_LOCAL_MODE=1 only for isolated lab QA."
+    )
+
+
 def main() -> None:
+    validate_startup_binding()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"ClusterWeave web server listening on http://{HOST}:{PORT}")
     try:

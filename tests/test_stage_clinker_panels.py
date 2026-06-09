@@ -22,7 +22,7 @@ class StageClinkerPanelsTests(unittest.TestCase):
     def test_atlas_staging_skips_exact_and_already_covered_targets(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project_root = Path(tmp)
-            results_root = project_root / "Data" / "Results" / "demo"
+            results_root = project_root / "data" / "results" / "demo"
             summary_root = results_root / "summary"
             antismash_root = results_root / "antismash"
 

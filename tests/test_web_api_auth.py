@@ -213,8 +213,9 @@ class WebApiAuthTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(
             set(payload),
-            {"online", "service", "submissions_open", "submissions", "jobs_processed", "smtp_enabled"},
+            {"online", "service", "submissions_open", "submissions", "jobs_processed", "smtp_enabled", "public_quota"},
         )
+        self.assertEqual(payload["public_quota"]["max_accessions"], 25)
         self.assertEqual(payload["jobs_processed"], 1)
         self.assertFalse(payload["smtp_enabled"])
         self.assertNotEqual(headers.get("Access-Control-Allow-Origin"), "*")
@@ -367,14 +368,15 @@ class WebApiAuthTests(unittest.TestCase):
         status, payload, _ = self.request("GET", "/api/jobs/jobone", headers=self.auth("read-one"))
         self.assertEqual(status, 200)
         self.assertEqual(payload["id"], "jobone")
-        self.assertEqual(payload["settings"]["env_overrides"], "[redacted]")
+        self.assertNotIn("settings", payload)
+        self.assertNotIn("submission_settings", payload)
 
         status, _, _ = self.request("GET", "/api/jobs/jobtwo", headers=self.auth("read-one"))
         self.assertEqual(status, 403)
 
         status, payload, _ = self.request("GET", "/api/jobs/jobone/logs", headers=self.auth("read-one"))
-        self.assertEqual(status, 200)
-        self.assertEqual(payload["total"], 1)
+        self.assertEqual(status, 403)
+        self.assertIn("Admin token", payload["detail"])
 
         status, payload, _ = self.request("GET", "/api/jobs/jobone/files", headers=self.auth("read-one"))
         self.assertEqual(status, 200)
@@ -392,6 +394,84 @@ class WebApiAuthTests(unittest.TestCase):
 
         status, _, _ = self.request("GET", "/api/jobs/jobtwo/archive", headers=self.auth("read-one"))
         self.assertEqual(status, 403)
+
+    def test_read_token_cannot_fetch_unmanifested_or_private_job_files(self) -> None:
+        self.write_job("jobone", "read-one")
+        job_root = self.job_store.job_dir("jobone")
+        for rel, content in {
+            "inputs/private.fna": ">private\nATGC\n",
+            "work/intermediate.txt": "work detail\n",
+            "data/genomes/fungi/project/raw.gbk": "LOCUS       raw\n",
+            "data/results/project/private.tsv": "not\tmanifested\n",
+        }.items():
+            path = job_root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+
+        for rel in [
+            "job.json",
+            "logs.txt",
+            "inputs/private.fna",
+            "work/intermediate.txt",
+            "data/genomes/fungi/project/raw.gbk",
+            "data/results/project/private.tsv",
+            "results/missing.svg",
+        ]:
+            with self.subTest(rel=rel):
+                status, _, _ = self.request(
+                    "GET",
+                    f"/api/jobs/jobone/files/{rel}",
+                    headers=self.auth("read-one"),
+                )
+                self.assertIn(status, {403, 404})
+
+        status, body, _ = self.request("GET", "/api/jobs/jobone/files/results/figure.svg", headers=self.auth("read-one"))
+        self.assertEqual(status, 200)
+        self.assertEqual(body, b"<svg></svg>\n")
+
+    def test_raw_logs_are_admin_only_in_public_mode(self) -> None:
+        self.write_job("jobone", "read-one")
+
+        status, payload, _ = self.request("GET", "/api/jobs/jobone/logs", headers=self.auth("read-one"))
+        self.assertEqual(status, 403)
+        self.assertIn("Admin token", payload["detail"])
+
+        status, payload, _ = self.request("GET", "/api/jobs/jobone", headers=self.auth("read-one"))
+        self.assertEqual(status, 200)
+        self.assertIn("public_events", payload)
+
+        status, payload, _ = self.request("GET", "/api/jobs/jobone/logs", headers=self.auth("admin-secret"))
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["total"], 1)
+
+    def test_read_token_payload_redacts_raw_settings_and_errors(self) -> None:
+        self.write_job("jobone", "read-one", status="failed")
+        job = self.job_store.read_job("jobone")
+        self.assertIsNotNone(job)
+        assert job is not None
+        job["error"] = "/data/jobs/jobone failed with SECRET_TOKEN=abc"
+        job["settings"] = {
+            "target_genome": "private_target",
+            "env_overrides": "SECRET_TOKEN=abc",
+            "massive_dataset_id": "MSV000000000",
+        }
+        job["submission_settings"] = dict(job["settings"])
+        self.job_store.write_job(job)
+
+        status, payload, _ = self.request("GET", "/api/jobs/jobone", headers=self.auth("read-one"))
+        self.assertEqual(status, 200)
+        self.assertNotIn("settings", payload)
+        self.assertNotIn("submission_settings", payload)
+        self.assertNotIn("result_root", payload)
+        rendered = json.dumps(payload)
+        self.assertNotIn("SECRET_TOKEN", rendered)
+        self.assertNotIn("/data/jobs", rendered)
+        self.assertIn("error_summary", payload)
+
+        status, payload, _ = self.request("GET", "/api/jobs/jobone", headers=self.auth("admin-secret"))
+        self.assertEqual(status, 200)
+        self.assertIn("settings", payload)
+        self.assertIn("SECRET_TOKEN", payload["error"])
 
     def test_public_activity_events_sanitize_per_genome_runtime_logs(self) -> None:
         self.write_job("jobone", "read-one", status="running")
@@ -490,7 +570,7 @@ class WebApiAuthTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(
             set(payload),
-            {"online", "service", "submissions_open", "submissions", "jobs_processed", "smtp_enabled"},
+            {"online", "service", "submissions_open", "submissions", "jobs_processed", "smtp_enabled", "public_quota"},
         )
         self.assertNotIn("worker", payload)
         self.assertNotIn("runtime", payload)
@@ -606,6 +686,102 @@ class WebApiAuthTests(unittest.TestCase):
                 self.assertIn("detail", payload)
                 self.assertEqual(list((Path(self.tmp.name) / "jobs").glob("*")), [])
 
+    def test_public_genome_content_checker_rejects_bad_fasta_before_job_creation(self) -> None:
+        rejected_files = [
+            ("empty.fna", b""),
+            ("notes.fasta", b"this is not a FASTA genome\n"),
+            ("protein_like.fna", b">protein\nMKWVTFISLLFLFSSAYSRGVFRRDTHKSEIAHRFKDLGE\n"),
+        ]
+        for filename, content in rejected_files:
+            with self.subTest(filename=filename):
+                status, payload, _ = self.submit(files=[("files", filename, content)])
+                self.assertEqual(status, 400)
+                self.assertIn("detail", payload)
+                self.assertEqual(list((Path(self.tmp.name) / "jobs").glob("*")), [])
+
+    def test_public_genome_content_checker_records_valid_fasta_and_genbank_readiness(self) -> None:
+        genbank = b"""LOCUS       DemoGenome              24 bp    DNA     linear   PLN 01-JAN-2026
+FEATURES             Location/Qualifiers
+     CDS             1..24
+                     /translation="MKT"
+ORIGIN
+        1 atgcatgcat gcatgcatgc atgc
+//
+"""
+        genbank_without_translations = b"""LOCUS       FallbackGenome          24 bp    DNA     linear   PLN 01-JAN-2026
+FEATURES             Location/Qualifiers
+ORIGIN
+        1 atgcatgcat gcatgcatgc atgc
+//
+"""
+        status, payload, _ = self.submit(
+            files=[
+                ("files", "Aspergillus_fumigatus_Af293.fna", b">contig1\nATGCRYSWKMBDHVNATGCNNNN\n"),
+                ("files", "Penicillium_demo.gbk", genbank),
+                ("files", "Fallback_demo.fna", b">contig1\nATGCATGCATGCATGCATGCATGC\n"),
+                ("files", "Fallback_demo.gbff", genbank_without_translations),
+            ]
+        )
+        self.assertEqual(status, 201)
+        job = self.job_store.read_job(payload["job_id"])
+        self.assertIsNotNone(job)
+        assert job is not None
+        summary = job["input_summary"]
+        self.assertEqual(summary["genome_file_count"], 4)
+        readiness = {item["filename"]: item for item in summary["genome_readiness"]}
+        self.assertEqual(readiness["Aspergillus_fumigatus_Af293.fna"]["readiness"], "raw_fasta_requires_annotation")
+        self.assertEqual(readiness["Penicillium_demo.gbk"]["readiness"], "annotated_genbank_ready")
+        self.assertEqual(readiness["Fallback_demo.fna"]["readiness"], "raw_fasta_requires_annotation")
+        self.assertEqual(readiness["Fallback_demo.gbff"]["readiness"], "genbank_requires_fallback_or_translations")
+
+    def test_public_genbank_without_translations_requires_same_stem_fasta_before_job_creation(self) -> None:
+        genbank_without_translations = b"""LOCUS       FallbackGenome          24 bp    DNA     linear   PLN 01-JAN-2026
+FEATURES             Location/Qualifiers
+ORIGIN
+        1 atgcatgcat gcatgcatgc atgc
+//
+"""
+        status, payload, _ = self.submit(files=[("files", "Fallback_demo.gbff", genbank_without_translations)])
+        self.assertEqual(status, 400)
+        self.assertIn("lacks CDS translations", payload["detail"])
+        self.assertIn("same-stem nucleotide FASTA", payload["detail"])
+        self.assertEqual(list((Path(self.tmp.name) / "jobs").glob("*")), [])
+
+    def test_public_genome_content_checker_rejects_malformed_genbank_before_job_creation(self) -> None:
+        malformed = b"""LOCUS       DemoGenome              24 bp    DNA     linear   PLN 01-JAN-2026
+ORIGIN
+        1 atgcatgcat gcatgcatgc atgc
+//
+"""
+        status, payload, _ = self.submit(files=[("files", "broken.gbk", malformed)])
+        self.assertEqual(status, 400)
+        self.assertIn("FEATURES", payload["detail"])
+        self.assertEqual(list((Path(self.tmp.name) / "jobs").glob("*")), [])
+
+    def test_public_genome_stems_must_be_safe_and_unique(self) -> None:
+        fasta = b">contig1\nATGCATGCATGC\n"
+        rejected_single_files = [
+            ("bad name.fna", fasta),
+            ("bad(name).fna", fasta),
+            ("bad/name.fna", fasta),
+        ]
+        for filename, content in rejected_single_files:
+            with self.subTest(filename=filename):
+                status, payload, _ = self.submit(files=[("files", filename, content)])
+                self.assertEqual(status, 400)
+                self.assertIn("simple stem", payload["detail"])
+                self.assertEqual(list((Path(self.tmp.name) / "jobs").glob("*")), [])
+
+        status, payload, _ = self.submit(
+            files=[
+                ("files", "duplicate.fna", fasta),
+                ("files", "duplicate.fa", fasta),
+            ]
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("duplicate FASTA", payload["detail"])
+        self.assertEqual(list((Path(self.tmp.name) / "jobs").glob("*")), [])
+
     def test_accession_lists_reject_malformed_assembly_accessions_before_job_creation(self) -> None:
         rejected_files = [
             ("accessions.txt", b"totally_random\n"),
@@ -677,8 +853,8 @@ class WebApiAuthTests(unittest.TestCase):
 
         self.app.MAX_UPLOAD_TOTAL_MB = 1
         files = [
-            ("files", "one.fna", b"A" * (700 * 1024)),
-            ("files", "two.fna", b"A" * (400 * 1024)),
+            ("files", "one.fna", b">one\n" + b"A" * (700 * 1024) + b"\n"),
+            ("files", "two.fna", b">two\n" + b"A" * (400 * 1024) + b"\n"),
         ]
         status, payload, _ = self.submit(files=files)
         self.assertEqual(status, 400)

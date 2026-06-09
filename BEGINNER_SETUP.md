@@ -108,8 +108,8 @@ PROJECT_NAME=my_project bash run_clusterweave.sh
 
 This creates project-specific folders here:
 
-- `Data/Genomes/Fungi/my_project/`
-- `Data/Results/my_project/`
+- `data/genomes/fungi/my_project/`
+- `data/results/my_project/`
 
 ## Running More Than One Project
 

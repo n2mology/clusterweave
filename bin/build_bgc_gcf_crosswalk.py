@@ -164,23 +164,23 @@ def main() -> None:
         "--project-root",
         type=Path,
         default=Path(__file__).resolve().parents[1],
-        help="Project root containing Data/Results and Code directories.",
+        help="Project root containing data/results and Code directories.",
     )
     parser.add_argument(
         "--project-name",
         default="clusterweave",
-        help="Project name used under Data/Results.",
+        help="Project name used under data/results.",
     )
     parser.add_argument(
         "--output",
         type=Path,
         default=None,
-        help="Output TSV path. Defaults to Data/Results/<project-name>/summary/candidate_bgc_gcf_crosswalk.tsv",
+        help="Output TSV path. Defaults to data/results/<project-name>/summary/candidate_bgc_gcf_crosswalk.tsv",
     )
     args = parser.parse_args()
 
     projects_root = args.project_root
-    data_root = projects_root / "Data" / "Results" / args.project_name
+    data_root = projects_root / "data" / "results" / args.project_name
     comparison_csv = data_root / "summary" / "all_tools_bgc_comparison.csv"
     bigscape_root = data_root / "big_scape" / "output_files"
     record_annotations_path = next(bigscape_root.rglob("record_annotations.tsv"), None)

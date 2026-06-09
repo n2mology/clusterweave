@@ -47,9 +47,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 PROJECT_DIR="${PROJECT_DIR:-${SCRIPT_DIR}}"
 PROJECT_NAME="${PROJECT_NAME:-$(basename "${PROJECT_DIR}")}"
 PROJECTS_ROOT="${PROJECTS_ROOT:-${PROJECT_DIR}}"
-DATA_ROOT="${DATA_ROOT:-${PROJECTS_ROOT}/Data}"
-SOFTWARE_ROOT="${SOFTWARE_ROOT:-${PROJECTS_ROOT}/Software}"
-RESULTS_BASE="${RESULTS_BASE:-${DATA_ROOT}/Results}"
+DATA_ROOT="${DATA_ROOT:-${PROJECTS_ROOT}/data}"
+SOFTWARE_ROOT="${SOFTWARE_ROOT:-${PROJECTS_ROOT}/software}"
+RESULTS_BASE="${RESULTS_BASE:-${DATA_ROOT}/results}"
 RESULTS_ROOT="${RESULTS_ROOT:-${RESULTS_BASE}/${PROJECT_NAME}}"
 SUMMARY_ROOT="${SUMMARY_ROOT:-${RESULTS_ROOT}/summary}"
 CLINKER_SOFTDIR="${CLINKER_SOFTDIR:-${SOFTWARE_ROOT}/clinker}"
@@ -129,7 +129,7 @@ EXPORT_SHARED_FAMILY_PY="${EXPORT_SHARED_FAMILY_PY:-${PROJECT_DIR}/bin/export_sh
 STAGE_CLINKER_PY="${STAGE_CLINKER_PY:-${PROJECT_DIR}/bin/stage_clinker_panels.py}"
 NORMALIZE_METADATA_PY="${NORMALIZE_METADATA_PY:-${PROJECT_DIR}/bin/normalize_metadata.py}"
 AUTO_NORMALIZE_METADATA="${AUTO_NORMALIZE_METADATA:-1}"
-ACCESSIONS_MAP="${ACCESSIONS_MAP:-${DATA_ROOT}/Genomes/Fungi/${PROJECT_NAME}/accessions_fungusID_taxonomyID.txt}"
+ACCESSIONS_MAP="${ACCESSIONS_MAP:-${DATA_ROOT}/genomes/fungi/${PROJECT_NAME}/accessions_fungusID_taxonomyID.txt}"
 METADATA_TSV="${METADATA_TSV:-${RESULTS_ROOT}/summary_tables/ecofun_metadata_normalized.tsv}"
 METADATA_TEMPLATE_TSV="${METADATA_TEMPLATE_TSV:-${RESULTS_ROOT}/summary_tables/ecofun_metadata_template.tsv}"
 
@@ -187,14 +187,39 @@ ensure_metadata_tsv() {
 
   [[ "${AUTO_NORMALIZE_METADATA}" == "1" ]] || return 1
   [[ -f "${NORMALIZE_METADATA_PY}" ]] || return 1
-  [[ -f "${ACCESSIONS_MAP}" ]] || return 1
 
-  log "Metadata TSV missing; generating a normalized scaffold from ${ACCESSIONS_MAP}"
-  "${PYTHON_BIN}" "${NORMALIZE_METADATA_PY}" \
-    --accessions "${ACCESSIONS_MAP}" \
-    --out "${METADATA_TSV}" \
-    --template-out "${METADATA_TEMPLATE_TSV}" \
-    --allow-missing-legacy
+  if [[ -f "${ACCESSIONS_MAP}" ]]; then
+    log "Metadata TSV missing; generating a normalized scaffold from ${ACCESSIONS_MAP}"
+    "${PYTHON_BIN}" "${NORMALIZE_METADATA_PY}" \
+      --accessions "${ACCESSIONS_MAP}" \
+      --out "${METADATA_TSV}" \
+      --template-out "${METADATA_TEMPLATE_TSV}" \
+      --allow-missing-legacy || return 1
+    return 0
+  fi
+
+  local genome_dir="${DATA_ROOT}/genomes/fungi/${PROJECT_NAME}"
+  local first_genome=""
+  if [[ -d "${genome_dir}" ]]; then
+    first_genome="$(find "${genome_dir}" -maxdepth 1 -type f \
+      \( -name "*.fasta" -o -name "*.fa" -o -name "*.fna" -o -name "*.fsa" \
+      -o -name "*.gb" -o -name "*.gbk" -o -name "*.gbff" \
+      -o -name "*.fasta.gz" -o -name "*.fa.gz" -o -name "*.fna.gz" -o -name "*.fsa.gz" \
+      -o -name "*.gb.gz" -o -name "*.gbk.gz" -o -name "*.gbff.gz" \) \
+      -print -quit 2>/dev/null || true)"
+  fi
+  if [[ -n "${first_genome}" ]]; then
+    log "Metadata TSV missing; generating a blank normalized scaffold from genome files in ${genome_dir}"
+    "${PYTHON_BIN}" "${NORMALIZE_METADATA_PY}" \
+      --accessions "${ACCESSIONS_MAP}" \
+      --genome-dir "${genome_dir}" \
+      --out "${METADATA_TSV}" \
+      --template-out "${METADATA_TEMPLATE_TSV}" \
+      --allow-missing-legacy || return 1
+    return 0
+  fi
+
+  return 1
 }
 
 resolve_python_cmd() {

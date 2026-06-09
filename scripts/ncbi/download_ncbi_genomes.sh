@@ -6,8 +6,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 PROJECT_ROOT="${PROJECT_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd -P)}"
 PROJECT_NAME="${PROJECT_NAME:-$(basename "${PROJECT_ROOT}")}"
 ACCESSIONS_FILE="${ACCESSIONS_FILE:-${PROJECT_ROOT}/accessions.txt}"
-GENOME_ROOT="${GENOME_ROOT:-${PROJECT_ROOT}/Data/Genomes/Fungi/${PROJECT_NAME}}"
-NCBI_CLI_ROOT="${NCBI_CLI_ROOT:-${PROJECT_ROOT}/Software/ncbi_cli}"
+GENOME_ROOT="${GENOME_ROOT:-${PROJECT_ROOT}/data/genomes/fungi/${PROJECT_NAME}}"
+NCBI_CLI_ROOT="${NCBI_CLI_ROOT:-${PROJECT_ROOT}/software/ncbi_cli}"
 
 INCLUDE_SETS=(
   "genome,gff3,gbff"
@@ -25,7 +25,7 @@ is_windowsapps_alias() {
   local candidate_path="${1:-}"
   [[ -n "${candidate_path}" ]] || return 1
   case "${candidate_path}" in
-    *"/AppData/Local/Microsoft/WindowsApps/"*|*"\\AppData\\Local\\Microsoft\\WindowsApps\\"*)
+    *"/Appdata/Local/Microsoft/WindowsApps/"*|*"\\AppData\\Local\\Microsoft\\WindowsApps\\"*)
       return 0
       ;;
   esac

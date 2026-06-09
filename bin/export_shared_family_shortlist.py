@@ -131,6 +131,13 @@ def build_safe_claim_text(row: dict[str, object], genome: str) -> str:
     return sentence
 
 
+def public_path_label(path: Path) -> str:
+    parts = path.parts
+    if "data" in parts:
+        return Path(*parts[parts.index("data") :]).as_posix()
+    return path.name
+
+
 def write_markdown_summary(
     path: Path,
     shortlist_rows: list[dict[str, object]],
@@ -146,7 +153,7 @@ def write_markdown_summary(
         f"# Most-Shared Family Shortlist For {genome}",
         "",
         f"- Genome: `{genome}`",
-        f"- Source summary: `{global_summary_path}`",
+        f"- Source summary: `{public_path_label(global_summary_path)}`",
         f"- Target rows: `{len(shortlist_rows)}`",
         f"- `shared_family_now`: `{len(stage_rows)}`",
         f"- `shared_family_context`: `{len(shortlist_rows) - len(stage_rows)}`",
@@ -211,12 +218,12 @@ def main() -> None:
         "--project-root",
         type=Path,
         default=Path(__file__).resolve().parents[1],
-        help="Project root containing Code/ and Data/.",
+        help="Project root containing Code/ and data/.",
     )
     parser.add_argument(
         "--project-name",
         default="clusterweave",
-        help="Project name used under Data/Results.",
+        help="Project name used under data/results.",
     )
     parser.add_argument(
         "--genome",
@@ -249,7 +256,7 @@ def main() -> None:
     if not clean(args.genome):
         raise ValueError("--genome is required")
 
-    results_root = args.project_root / "Data" / "Results" / args.project_name
+    results_root = args.project_root / "data" / "results" / args.project_name
     summary_root = results_root / "summary"
     summary_tables_root = results_root / "summary_tables"
     bigscape_root = results_root / "big_scape" / "output_files"

@@ -12,8 +12,8 @@ BIGSCAPE_DOCKER_IMAGE="${BIGSCAPE_DOCKER_IMAGE:-ghcr.io/medema-group/big-scape:2
 PREPULL_FUNBGCEX_IMAGE="${PREPULL_FUNBGCEX_IMAGE:-1}"
 AUTO_BUILD_FUNBGCEX_DOCKER="${AUTO_BUILD_FUNBGCEX_DOCKER:-1}"
 FUNBGCEX_DOCKER_IMAGE="${FUNBGCEX_DOCKER_IMAGE:-clusterweave-funbgcex:latest}"
-FUNBGCEX_DOCKERFILE="${FUNBGCEX_DOCKERFILE:-/clusterweave/Software/funbgcex/Dockerfile}"
-FUNBGCEX_BUILD_CONTEXT="${FUNBGCEX_BUILD_CONTEXT:-/clusterweave/Software/funbgcex}"
+FUNBGCEX_DOCKERFILE="${FUNBGCEX_DOCKERFILE:-/clusterweave/software/funbgcex/Dockerfile}"
+FUNBGCEX_BUILD_CONTEXT="${FUNBGCEX_BUILD_CONTEXT:-/clusterweave/software/funbgcex}"
 
 log() { echo "[$(date +'%H:%M:%S')] [entrypoint] $*"; }
 have() { command -v "$1" >/dev/null 2>&1; }

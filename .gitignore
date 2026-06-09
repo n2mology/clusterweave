@@ -15,25 +15,25 @@ package.json
 package-lock.json
 skills/
 
-Data/Results/**
-!Data/Results/.gitkeep
+data/results/**
+!data/results/.gitkeep
 
-Data/Genomes/**
-!Data/Genomes/
-!Data/Genomes/Fungi/
-!Data/Genomes/Fungi/.gitkeep
+data/genomes/**
+!data/genomes/
+!data/genomes/fungi/
+!data/genomes/fungi/.gitkeep
 
-Software/**
-!Software/.gitkeep
-!Software/funbgcex/
-Software/funbgcex/**
-!Software/funbgcex/build_funbgcex_sif.sh
-!Software/funbgcex/Dockerfile
-!Software/funbgcex/Singularity.def
+software/**
+!software/.gitkeep
+!software/funbgcex/
+software/funbgcex/**
+!software/funbgcex/build_funbgcex_sif.sh
+!software/funbgcex/Dockerfile
+!software/funbgcex/Singularity.def
 
-results/
-logs/
-tmp/
+/results/
+/logs/
+/tmp/
 
 *.sif
 *.tar.gz
@@ -43,3 +43,12 @@ tmp/
 accessions_aspergillus.txt
 accessions_dse.txt
 demo
+
+# Local web handoff boards and QA-only compose files.
+web/STAN.md
+web/STYLE.md
+web/UI_SLICE_ARCHIVE.md
+docker-compose.local-faces.yml
+
+# Editable manuscript/design source files not needed in the public source release.
+manuscript/application_note/figures/logo_3D_1.ai

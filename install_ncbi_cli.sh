@@ -4,7 +4,7 @@ IFS=$' \n\t'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 PROJECT_ROOT="${PROJECT_ROOT:-${SCRIPT_DIR}}"
-INSTALL_DIR="${INSTALL_DIR:-${PROJECT_ROOT}/Software/ncbi_cli}"
+INSTALL_DIR="${INSTALL_DIR:-${PROJECT_ROOT}/software/ncbi_cli}"
 NCBI_CLI_TARGET="${NCBI_CLI_TARGET:-auto}"
 
 ts(){ date +"%Y-%m-%d %H:%M:%S"; }

@@ -5,7 +5,7 @@ IFS=$' \n\t'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 PROJECT_ROOT="${PROJECT_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd -P)}"
 PROJECT_NAME="${PROJECT_NAME:-$(basename "${PROJECT_ROOT}")}"
-GENOME_ROOT="${GENOME_ROOT:-${PROJECT_ROOT}/Data/Genomes/Fungi/${PROJECT_NAME}}"
+GENOME_ROOT="${GENOME_ROOT:-${PROJECT_ROOT}/data/genomes/fungi/${PROJECT_NAME}}"
 MAPPING_FILE="${MAPPING_FILE:-${GENOME_ROOT}/accessions_fungusID_taxonomyID.txt}"
 
 die(){ echo "ERROR: $*" >&2; exit 1; }

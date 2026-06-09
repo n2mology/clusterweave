@@ -1,13 +1,13 @@
 # Third-Party Software, Containers, And Data
 
 `ClusterWeave` is BSD-3-Clause for this repository's own source files, including the shell entrypoints,
-Python helpers, `Software/funbgcex/Dockerfile`, and `Software/funbgcex/Singularity.def`. Those files are
+Python helpers, `software/funbgcex/Dockerfile`, and `software/funbgcex/Singularity.def`. Those files are
 workflow glue written for this repo. They do not relicense the third-party software that the workflow
 pulls, builds, or bootstraps.
 
 The published source repository currently does not ship pulled containers, SIF files, downloaded
-databases, genomes, or full result trees. The current ignore rules exclude `Software/**`, `*.sif`,
-`*.tar.gz`, `*.hmm`, `Data/Genomes/**`, and `Data/Results/**`. That means the public repo is mainly a
+databases, genomes, or full result trees. The current ignore rules exclude `software/**`, `*.sif`,
+`*.tar.gz`, `*.hmm`, `data/genomes/**`, and `data/results/**`. That means the public repo is mainly a
 launcher and build recipe, not a redistribution bundle for upstream tools.
 
 This file documents what the public repo should disclose, and what additional obligations appear if you
@@ -44,7 +44,7 @@ not legal advice.
 ### FunBGCeX
 
 - Repo reference: `run_annotation_and_detection.sh` can build a repo-local image from
-  `Software/funbgcex/Singularity.def` or `Software/funbgcex/Dockerfile`, and the host fallback installs
+  `software/funbgcex/Singularity.def` or `software/funbgcex/Dockerfile`, and the host fallback installs
   `funbgcex==1.0.1`.
 - Upstream terms: FunBGCeX is MIT-licensed upstream and includes citation guidance in its README and Zenodo
   records. See https://github.com/ydmatsd/funbgcex , https://pypi.org/project/funbgcex/ , and

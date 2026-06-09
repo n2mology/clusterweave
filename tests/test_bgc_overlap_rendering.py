@@ -30,8 +30,8 @@ class BgcOverlapRenderingTests(unittest.TestCase):
     def test_shared_counts_are_not_double_counted_and_tool_specific_classes_are_union_relative_bars(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root = Path(tmpdir)
-            summary_path = project_root / "Data" / "Results" / "demo" / "summary" / "all_tools_shared_unshared_summary.csv"
-            output_dir = project_root / "Data" / "Results" / "demo" / "figures"
+            summary_path = project_root / "data" / "results" / "demo" / "summary" / "all_tools_shared_unshared_summary.csv"
+            output_dir = project_root / "data" / "results" / "demo" / "figures"
             summary_path.parent.mkdir(parents=True, exist_ok=True)
             rows = [
                 ("Aspergillus_alpha_NRRL_1", "antismash", "BGC", "NRPS", "5", "2", "7"),

@@ -7,6 +7,18 @@ import os
 import re
 from pathlib import Path
 
+METADATA_FIELDS = [
+    "accession",
+    "genome_id_current",
+    "taxonomy_id",
+    "genome_size_mb",
+    "genome_id_original_if_different",
+    "ecofun_primary",
+    "ecofun_secondary",
+]
+
+GENOME_EXTS = {".fasta", ".fa", ".fna", ".fsa", ".gb", ".gbk", ".gbff"}
+
 
 def _normalize_name(text: str) -> str:
     """Normalize historical fungus labels to a stable matching key.
@@ -72,6 +84,37 @@ def _parse_accessions(path: Path) -> list[dict[str, str]]:
     return rows
 
 
+def _genome_file_stem(path: Path) -> str:
+    if path.suffix.lower() in GENOME_EXTS:
+        return path.stem
+    if path.suffix.lower() == ".gz":
+        uncompressed = Path(path.name[:-3])
+        if uncompressed.suffix.lower() in GENOME_EXTS:
+            return uncompressed.stem
+    return ""
+
+
+def _parse_genome_dir(path: Path) -> list[dict[str, str]]:
+    rows = []
+    seen = set()
+    for candidate in sorted(path.iterdir(), key=lambda item: item.name.lower()):
+        if not candidate.is_file():
+            continue
+        genome_id_current = _genome_file_stem(candidate)
+        if not genome_id_current or genome_id_current in seen:
+            continue
+        seen.add(genome_id_current)
+        rows.append(
+            {
+                "accession": "",
+                "genome_id_current": genome_id_current,
+                "taxonomy_id": "",
+                "genome_size_mb": "",
+            }
+        )
+    return rows
+
+
 def _build_alias_map() -> dict[str, str]:
     """Map current genome names to the historical ecofun label when the names drifted."""
     return {
@@ -90,9 +133,9 @@ def main() -> None:
     legacy_default_root = project_root / "legacy_context"
     primary_default = Path(os.environ["ECOFUN_PRIMARY"]) if "ECOFUN_PRIMARY" in os.environ else legacy_default_root / "ecofun_primary_from_original.txt"
     secondary_default = Path(os.environ["ECOFUN_SECONDARY"]) if "ECOFUN_SECONDARY" in os.environ else legacy_default_root / "ecofun_secondary_from_original.txt"
-    accessions_default = project_root / "Data" / "Genomes" / "Fungi" / project_name / "accessions_fungusID_taxonomyID.txt"
-    out_default = project_root / "Data" / "Results" / project_name / "summary_tables" / "ecofun_metadata_normalized.tsv"
-    template_default = project_root / "Data" / "Results" / project_name / "summary_tables" / "ecofun_metadata_template.tsv"
+    accessions_default = project_root / "data" / "genomes" / "fungi" / project_name / "accessions_fungusID_taxonomyID.txt"
+    out_default = project_root / "data" / "results" / project_name / "summary_tables" / "ecofun_metadata_normalized.tsv"
+    template_default = project_root / "data" / "results" / project_name / "summary_tables" / "ecofun_metadata_template.tsv"
 
     parser = argparse.ArgumentParser(
         description=(
@@ -117,7 +160,16 @@ def main() -> None:
         "--accessions",
         type=Path,
         default=accessions_default,
-        help="Current accession mapping file with accession, current genome ID, and taxonomy ID.",
+        help=(
+            "Current accession mapping file with accession, current genome ID, and taxonomy ID. "
+            "Optional when --genome-dir is provided for direct genome uploads."
+        ),
+    )
+    parser.add_argument(
+        "--genome-dir",
+        type=Path,
+        default=None,
+        help="Directory of direct genome upload files to use for a blank metadata scaffold.",
     )
     parser.add_argument(
         "--out",
@@ -145,7 +197,20 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if not args.accessions.exists():
+    if args.accessions.exists():
+        input_rows = _parse_accessions(args.accessions)
+        input_label = f"accession mapping {args.accessions}"
+    elif args.genome_dir and args.genome_dir.exists():
+        input_rows = _parse_genome_dir(args.genome_dir)
+        input_label = f"genome files in {args.genome_dir}"
+        if not input_rows:
+            parser.error(f"--genome-dir has no supported genome files: {args.genome_dir}")
+    else:
+        if args.genome_dir:
+            parser.error(
+                f"--accessions file not found: {args.accessions}; "
+                f"--genome-dir not found: {args.genome_dir}"
+            )
         parser.error(f"--accessions file not found: {args.accessions}")
 
     missing_legacy = []
@@ -162,14 +227,13 @@ def main() -> None:
 
     primary = _parse_ecofun_colorstrip(args.primary) if args.primary.exists() else {}
     secondary = _parse_ecofun_colorstrip(args.secondary) if args.secondary.exists() else {}
-    accessions = _parse_accessions(args.accessions)
     alias_map = _build_alias_map()
 
     rows = []
     unmatched_accessions = []
 
     # First pass: join current genomes to the original labels.
-    for row in accessions:
+    for row in input_rows:
         current_name = row["genome_id_current"]
         current_norm = _normalize_name(current_name)
         original_name = ""
@@ -205,15 +269,7 @@ def main() -> None:
     with args.out.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(
             handle,
-            fieldnames=[
-                "accession",
-                "genome_id_current",
-                "taxonomy_id",
-                "genome_size_mb",
-                "genome_id_original_if_different",
-                "ecofun_primary",
-                "ecofun_secondary",
-            ],
+            fieldnames=METADATA_FIELDS,
             delimiter="\t",
         )
         writer.writeheader()
@@ -223,19 +279,12 @@ def main() -> None:
     with args.template_out.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(
             handle,
-            fieldnames=[
-                "accession",
-                "genome_id_current",
-                "taxonomy_id",
-                "genome_size_mb",
-                "genome_id_original_if_different",
-                "ecofun_primary",
-                "ecofun_secondary",
-            ],
+            fieldnames=METADATA_FIELDS,
             delimiter="\t",
         )
         writer.writeheader()
 
+    print(f"Metadata input source: {input_label}")
     print(f"Wrote normalized ecology metadata to {args.out}")
     print(f"Wrote TSV template to {args.template_out}")
     print(f"Matched {sum(1 for r in rows if r['ecofun_primary'] or r['ecofun_secondary'])} of {len(rows)} current genomes")

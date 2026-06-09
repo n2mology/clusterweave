@@ -10,6 +10,16 @@ import unittest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+def frontend_text() -> str:
+    static_dir = REPO_ROOT / "web" / "static"
+    parts = [
+        static_dir / "index.html",
+        static_dir / "assets" / "clusterweave.css",
+        static_dir / "assets" / "clusterweave.js",
+    ]
+    return "\n".join(path.read_text(encoding="utf-8") for path in parts)
+
+
 class RepoLayoutTests(unittest.TestCase):
     def test_core_entrypoints_exist(self) -> None:
         for rel in [
@@ -40,7 +50,7 @@ class RepoLayoutTests(unittest.TestCase):
             "assemblyStats": {"totalSequenceLength": 2},
         }
         with tempfile.TemporaryDirectory() as tmp:
-            genome_root = Path(tmp) / "Genomes"
+            genome_root = Path(tmp) / "genomes"
             data_dir = genome_root / fungus_id / "ncbi_dataset" / "data"
             package_dir = data_dir / fungus_id
             package_dir.mkdir(parents=True)
@@ -69,7 +79,7 @@ class RepoLayoutTests(unittest.TestCase):
         accession = "GCA_017499595.2"
         fungus_id = "Psilocybe_cubensis_MGC-MH-2018"
         with tempfile.TemporaryDirectory() as tmp:
-            genome_root = Path(tmp) / "Genomes"
+            genome_root = Path(tmp) / "genomes"
             genome_root.mkdir(parents=True)
             for ext in ["fna", "gff", "gbff"]:
                 (genome_root / f"{fungus_id}.{ext}").write_text(f"canonical {ext}\n", encoding="utf-8")
@@ -126,6 +136,18 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertTrue((REPO_ROOT / "profiles" / "example_project.env").exists())
         self.assertTrue((REPO_ROOT / "examples" / "example_project" / "README.md").exists())
 
+    def test_lowercase_runtime_roots_exist(self) -> None:
+        for rel in [
+            "data/genomes/fungi/.gitkeep",
+            "data/results/.gitkeep",
+            "software/.gitkeep",
+            "software/funbgcex/Dockerfile",
+            "software/funbgcex/Singularity.def",
+        ]:
+            self.assertTrue((REPO_ROOT / rel).exists(), rel)
+        self.assertFalse((REPO_ROOT / "Data").exists())
+        self.assertFalse((REPO_ROOT / "Software").exists())
+
     def test_no_plaintext_massive_password_default(self) -> None:
         text = (REPO_ROOT / "run_nplinker.sh").read_text(encoding="utf-8")
         self.assertIn('MASSIVE_PASSWORD="${MASSIVE_PASSWORD:-}"', text)
@@ -181,6 +203,9 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn('METADATA_TEMPLATE_TSV="${METADATA_TEMPLATE_TSV:-${RESULTS_ROOT}/summary_tables/ecofun_metadata_template.tsv}"', text)
         self.assertIn('EXPORT_FAMILY_ATLAS_PY="${EXPORT_FAMILY_ATLAS_PY:-${PROJECT_DIR}/bin/export_dataset_family_atlas.py}"', text)
         self.assertIn("ensure_metadata_tsv()", text)
+        self.assertIn('local genome_dir="${DATA_ROOT}/genomes/fungi/${PROJECT_NAME}"', text)
+        self.assertIn("generating a blank normalized scaffold from genome files", text)
+        self.assertIn('--genome-dir "${genome_dir}"', text)
         self.assertIn("infer_target_genome_from_existing_outputs()", text)
         self.assertIn("mode_includes_track()", text)
         self.assertIn("can_run_existing_panels_without_target()", text)
@@ -222,8 +247,62 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("/var/run/docker.sock:/var/run/docker.sock", compose)
         self.assertIn("CLUSTERWEAVE_RUNTIME_MODE: public-queue", public_compose)
         self.assertIn("CLUSTERWEAVE_ENABLE_DOCKER_SOCKET: \"0\"", public_compose)
+        self.assertIn('CLUSTERWEAVE_PUBLIC_MODE: "${CLUSTERWEAVE_PUBLIC_MODE:-1}"', public_compose)
+        self.assertIn('CLUSTERWEAVE_JOB_TOKEN_SECRET: "${CLUSTERWEAVE_JOB_TOKEN_SECRET:-}"', public_compose)
         self.assertIn('WORKER_CONCURRENCY: "${WORKER_CONCURRENCY:-1}"', public_compose)
         self.assertNotIn("/var/run/docker.sock:/var/run/docker.sock", public_compose)
+
+    def test_public_release_files_do_not_contain_private_handoff_markers(self) -> None:
+        release_files = [
+            "README.md",
+            "DATA_SOURCES.md",
+            "THIRD_PARTY.md",
+            "docs/RELEASE_CHECKLIST.md",
+            "docs/WEB_RUNTIME.md",
+            "manuscript/application_note/outline.md",
+            "examples/example_project/clusterweave_smoke_derived_outputs/README.md",
+            "examples/example_project/clusterweave_smoke_derived_outputs/summary/family_atlas_shortlist.md",
+            "docker-compose.yml",
+            "clusterweave.yml",
+            "web/OPERATOR_AGREEMENT.md",
+            "web/UPSTREAM_MAINTAINER_NOTE.md",
+        ]
+        forbidden = [
+            "OneDrive",
+            "10.64.195.209",
+            "dev-admin",
+            "dev-change-me",
+            "/home/cloud",
+            "/mnt/c/Users",
+        ]
+        for rel in release_files:
+            text = (REPO_ROOT / rel).read_text(encoding="utf-8", errors="replace")
+            for marker in forbidden:
+                with self.subTest(file=rel, marker=marker):
+                    self.assertNotIn(marker, text)
+
+    def test_frontend_static_assets_are_extracted_without_new_dependencies(self) -> None:
+        static_dir = REPO_ROOT / "web" / "static"
+        index_text = (static_dir / "index.html").read_text(encoding="utf-8")
+        css_text = (static_dir / "assets" / "clusterweave.css").read_text(encoding="utf-8")
+        js_text = (static_dir / "assets" / "clusterweave.js").read_text(encoding="utf-8")
+
+        self.assertLess(len(index_text.splitlines()), 1000)
+        self.assertIn('href="assets/clusterweave.css?v=20260609-architecture"', index_text)
+        self.assertIn('src="assets/clusterweave.js?v=20260609-architecture"', index_text)
+        self.assertNotIn("<style>", index_text)
+        self.assertNotIn("<script>\n", index_text)
+        self.assertIn("function apiUrl(path)", js_text)
+        self.assertIn("function handleResultLinkClick(event, jobId, relPath, download = false)", js_text)
+        self.assertIn('body[data-access="public"] .admin-only', css_text)
+        self.assertNotIn("https://cdn", index_text + css_text + js_text)
+        self.assertNotIn("unpkg.com", index_text + css_text + js_text)
+
+    def test_frontend_does_not_open_generated_html_for_public_users(self) -> None:
+        ui_text = frontend_text()
+        self.assertIn("function canOpenRichHtmlArtifacts()", ui_text)
+        self.assertIn("Download HTML", ui_text)
+        self.assertIn("canUseAdminSurfaces()", ui_text)
 
     def test_canonical_bridge_passes_runtime_env(self) -> None:
         text = (REPO_ROOT / "web" / "canonical_pipeline.py").read_text(encoding="utf-8")
@@ -237,7 +316,7 @@ class RepoLayoutTests(unittest.TestCase):
 
     def test_web_supports_in_place_stage_reruns(self) -> None:
         app_text = (REPO_ROOT / "web" / "app.py").read_text(encoding="utf-8")
-        ui_text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        ui_text = frontend_text()
         self.assertIn('route.startswith("/api/jobs/") and route.endswith("/rerun")', app_text)
         self.assertIn('"reuse_existing_layout"] = True', app_text)
         self.assertIn('"submission_settings"', app_text)
@@ -258,7 +337,7 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("payload = dict(read_job(job.id) or {})", text)
 
     def test_ui_stage_states_use_semantic_classes(self) -> None:
-        text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        text = frontend_text()
         self.assertIn(".stage-step.upcoming", text)
         self.assertIn(".stage-step.active", text)
         self.assertIn(".stage-step.done", text)
@@ -267,7 +346,7 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("function finalizeStageState(status)", text)
 
     def test_web_visualization_is_limited_to_figure_outputs(self) -> None:
-        text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        text = frontend_text()
         self.assertIn("function isFigureAsset(path)", text)
         self.assertNotIn("function renderOutputDiscovery(jobId, files, status)", text)
         self.assertNotIn('id="output-discovery"', text)
@@ -280,7 +359,7 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("figure-svg-stage", text)
         self.assertIn("figure-svg-preview", text)
         self.assertIn("onwheel=\"handleFigureWheel(event,this)\"", text)
-        self.assertIn('Data\\/Results\\/[^/]+\\/figures', text)
+        self.assertIn('data\\/results\\/[^/]+\\/figures', text)
         self.assertIn("big_scape_multipanel.svg", text)
         self.assertNotIn("gcf_calls_by_tool_category.svg", text)
         self.assertNotIn("bgc_calls_by_tool_category.svg", text)
@@ -290,7 +369,7 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertNotIn("const htmlFiles = files.filter", text)
 
     def test_web_results_tabs_are_keyboard_accessible(self) -> None:
-        text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        text = frontend_text()
         self.assertIn('role="tablist"', text)
         self.assertIn('button class="tab active"', text)
         self.assertIn('role="tab"', text)
@@ -301,7 +380,7 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("panel.hidden = !active", text)
 
     def test_web_files_tab_groups_results_into_collapsible_folders(self) -> None:
-        text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        text = frontend_text()
         self.assertIn("function buildFileTree(files)", text)
         self.assertIn("function renderFileFolder(jobId, node, depth = 0)", text)
         self.assertIn("function handleFileFolderToggle(detailsEl)", text)
@@ -311,7 +390,7 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("file-folder-count", text)
         self.assertIn("function defaultFolderOpen(path, depth)", text)
         self.assertIn("normalized === 'downloads'", text)
-        self.assertIn('Data\\/Results\\/[^/]+\\/figures', text)
+        self.assertIn('data\\/results\\/[^/]+\\/figures', text)
         self.assertIn("renderFileRows(jobId, node.files)", text)
         self.assertIn("renderFileRow(jobId, f)", text)
         self.assertIn('<span class="file-path-link">${escapeHtml(normalizedResultPath(f))}</span>', text)
@@ -319,7 +398,7 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("resultHref(jobId, f, { download: true })", text)
 
     def test_web_upload_supports_manual_accession_entry(self) -> None:
-        text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        text = frontend_text()
         self.assertIn('id="manual-accessions"', text)
         self.assertIn("function manualAccessionLines()", text)
         self.assertIn("const MANUAL_ACCESSIONS_FILENAME = 'manual_accessions.txt'", text)
@@ -328,7 +407,7 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("input source(s) ready", text)
 
     def test_web_has_journey_first_navigation_and_hero(self) -> None:
-        text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        text = frontend_text()
         self.assertIn('id="primary-nav"', text)
         self.assertIn('data-nav-target="overview"', text)
         self.assertIn('data-nav-target="intake"', text)
@@ -365,7 +444,7 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertNotIn("hero-weavemap", text)
 
     def test_web_has_user_modes_and_section_hierarchy(self) -> None:
-        text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        text = frontend_text()
         self.assertIn('data-ui-mode="guided"', text)
         self.assertNotIn('id="mode-panel"', text)
         self.assertNotIn('data-mode-option="guided"', text)
@@ -381,7 +460,7 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("if (accessMode === 'public' && mode !== 'guided') mode = 'guided'", text)
 
     def test_web_has_neumorphic_surface_system_tokens(self) -> None:
-        text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        text = frontend_text()
         for token in [
             "--cw-surface-panel",
             "--cw-surface-well",
@@ -405,7 +484,7 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("box-shadow: var(--cw-pressed), inset 3px 0 0 var(--accent)", text)
 
     def test_web_has_retrofuturist_weavemap_and_outputs_polish(self) -> None:
-        text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        text = frontend_text()
         self.assertIn('class="weavemap-section section-anchor hidden" id="weavemap"', text)
         self.assertIn('id="workflow-progress-panel"', text)
         self.assertIn('id="results-workflow-host"', text)
@@ -459,7 +538,7 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertNotIn('<details class="dna-base-popover', text)
 
     def test_web_job_queue_clicks_guard_against_stale_result_loads(self) -> None:
-        text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        text = frontend_text()
         self.assertIn("let jobLoadSeq = 0", text)
         self.assertIn("function markActiveJobCard(jobId)", text)
         self.assertIn("let jobHistoryInFlight = false", text)
@@ -470,7 +549,7 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("seq !== jobLoadSeq || jobId !== activeJobId", text)
 
     def test_web_api_calls_work_behind_path_prefixed_proxies(self) -> None:
-        text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        text = frontend_text()
         self.assertIn("function apiUrl(path)", text)
         self.assertIn("function defaultApiBaseUrl()", text)
         self.assertIn("window.CLUSTERWEAVE_API_BASE", text)
@@ -481,7 +560,7 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertNotIn('fetch("/api/', text)
 
     def test_web_public_ui_restructure_gates_admin_surfaces(self) -> None:
-        text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        text = frontend_text()
         self.assertIn('data-access="public"', text)
         self.assertIn('id="access-panel"', text)
         self.assertIn('id="submit-token"', text)
@@ -509,6 +588,19 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("Submit or load an existing run to see stage progress.", text)
         self.assertIn("body[data-access=\"public\"] .stage-step[data-stage=\"nplinker\"]", text)
         self.assertIn("const PUBLIC_FILE_EXTENSIONS = new Set(['gbk','gb','gbff','fasta','fa','fna','fsa','txt']);", text)
+        self.assertIn('id="input-checker"', text)
+        self.assertIn('id="input-checker-list"', text)
+        self.assertIn("Annotation and protein readiness", text)
+        self.assertIn("Drop translated GenBank, nucleotide FASTA, or accession lists", text)
+        self.assertIn("Downstream BGC tools require CDS/protein translations", text)
+        self.assertIn("same-stem FASTA", text)
+        self.assertIn("translated GenBank", text)
+        self.assertIn("function renderInputChecker()", text)
+        self.assertIn("function cacheGenomeFileCheck(file)", text)
+        self.assertIn("function publicGenomeUploadKind(fileExt)", text)
+        self.assertIn("raw_fasta_requires_annotation", text)
+        self.assertIn("annotated_genbank_ready", text)
+        self.assertIn("genbank_requires_fallback_or_translations", text)
         self.assertIn("Third-party tools and citations", text)
         self.assertIn("ClusterWeave is a portal to public, open-access biosynthetic discovery tools.", text)
         self.assertNotIn("BRAKER", text)
@@ -517,7 +609,7 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertNotIn("admin_token=", text)
 
     def test_web_email_and_retention_slice_has_public_recovery_hooks(self) -> None:
-        ui_text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        ui_text = frontend_text()
         app_text = (REPO_ROOT / "web" / "app.py").read_text(encoding="utf-8")
         worker_text = (REPO_ROOT / "web" / "worker.py").read_text(encoding="utf-8")
         notifications_text = (REPO_ROOT / "web" / "notifications.py").read_text(encoding="utf-8")
@@ -541,11 +633,12 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("sweep_expired_jobs()", maintenance_text)
         self.assertIn("CLUSTERWEAVE_PUBLIC_MODE", compose_text)
         self.assertIn("CLUSTERWEAVE_ADMIN_TOKEN", compose_text)
-        self.assertIn("CLUSTERWEAVE_JOB_TOKEN_SECRET", compose_text)
+        self.assertIn('CLUSTERWEAVE_JOB_TOKEN_SECRET: "${CLUSTERWEAVE_JOB_TOKEN_SECRET:-}"', compose_text)
+        self.assertNotIn("dev-change-me", compose_text)
         self.assertIn("CLUSTERWEAVE_PUBLIC_BASE_URL", compose_text)
 
     def test_web_ecology_label_table_uses_controlled_public_inputs(self) -> None:
-        text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        text = frontend_text()
         self.assertIn('id="ecology-label-panel"', text)
         self.assertIn('id="run-ecology"', text)
         self.assertIn('<th>Input</th><th>Primary ecology</th><th>Secondary ecology</th>', text)
@@ -659,20 +752,20 @@ class RepoLayoutTests(unittest.TestCase):
 
     def test_funbgcex_build_recipe_exists(self) -> None:
         for rel in [
-            "Software/funbgcex/build_funbgcex_sif.sh",
-            "Software/funbgcex/Dockerfile",
-            "Software/funbgcex/Singularity.def",
+            "software/funbgcex/build_funbgcex_sif.sh",
+            "software/funbgcex/Dockerfile",
+            "software/funbgcex/Singularity.def",
         ]:
             self.assertTrue((REPO_ROOT / rel).exists(), rel)
 
     def test_gitignore_unignores_funbgcex_text_recipes(self) -> None:
         text = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
         for pattern in [
-            "!Software/funbgcex/",
-            "Software/funbgcex/**",
-            "!Software/funbgcex/build_funbgcex_sif.sh",
-            "!Software/funbgcex/Dockerfile",
-            "!Software/funbgcex/Singularity.def",
+            "!software/funbgcex/",
+            "software/funbgcex/**",
+            "!software/funbgcex/build_funbgcex_sif.sh",
+            "!software/funbgcex/Dockerfile",
+            "!software/funbgcex/Singularity.def",
         ]:
             self.assertIn(pattern, text)
 

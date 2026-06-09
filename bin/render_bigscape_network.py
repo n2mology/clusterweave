@@ -1726,7 +1726,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--annotation-table", type=Path, default=None, help="Optional ClusterWeave summary table with MiBIG/BGC accession annotations.")
     parser.add_argument("--metadata-id-column", default="", help="Metadata ID column. Defaults to sample_id, fungal_id, genome_id_current, genome, or isolate.")
     parser.add_argument("--ecology-field", default="ecofun_primary", help="Metadata ecology column. Generic ecology_category is also recognized.")
-    parser.add_argument("--output-dir", type=Path, default=None, help="Defaults to Data/Results/<project-name>/figures.")
+    parser.add_argument("--output-dir", type=Path, default=None, help="Defaults to data/results/<project-name>/figures.")
     parser.add_argument("--prefix", default="bigscape_network")
     parser.add_argument("--category", default="mix", help="BiG-SCAPE category directory to render. Defaults to mix when present.")
     parser.add_argument("--clustering-threshold", default="0.3", help="BiG-SCAPE c-threshold label to select, for example 0.3.")
@@ -1747,7 +1747,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_arg_parser()
     args = parser.parse_args(argv)
 
-    results_root = args.project_root / "Data" / "Results" / args.project_name
+    results_root = args.project_root / "data" / "results" / args.project_name
     bigscape_root = args.bigscape_root or results_root / "big_scape" / "output_files"
     annotation_table = args.annotation_table
     if annotation_table is None:

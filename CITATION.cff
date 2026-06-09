@@ -6,10 +6,14 @@ authors:
   - given-names: "Julian"
     family-names: "Cosner"
     orcid: "https://orcid.org/0009-0007-6841-2270"
+  - given-names: "Stanton"
+    family-names: "Martin"
   - given-names: "Tomas"
     family-names: "Rush"
     orcid: "https://orcid.org/0000-0002-3207-1466"
 version: 0.1.0
-date-released: 2026-04-16
+date-released: 2026-06-08
 license: BSD-3-Clause
+doi: "10.11578/PMI/dc.20260608.2"
+url: "https://doi.org/10.11578/PMI/dc.20260608.2"
 repository-code: "https://github.com/n2mology/clusterweave"

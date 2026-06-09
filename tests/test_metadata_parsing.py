@@ -1,5 +1,8 @@
+import csv
 import importlib.util
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -32,6 +35,51 @@ class MetadataParsingTests(unittest.TestCase):
         self.assertEqual(rows[0]["accession"], "GCA_000011425.1")
         self.assertEqual(rows[0]["taxonomy_id"], "227321")
         self.assertEqual(rows[0]["genome_size_mb"], "29.83")
+
+    def test_genome_dir_fallback_writes_blank_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            genome_dir = root / "genomes"
+            genome_dir.mkdir()
+            (genome_dir / "Septoria_glycines_17Sg100.fna").write_text(">seq\nATGC\n", encoding="utf-8")
+            (genome_dir / "Sphaerulina_musiva_MN-14.gbff").write_text("LOCUS test\n", encoding="utf-8")
+            (genome_dir / "notes.txt").write_text("ignore me\n", encoding="utf-8")
+            out = root / "ecofun_metadata_normalized.tsv"
+            template = root / "ecofun_metadata_template.tsv"
+            missing_accessions = root / "missing_accessions.tsv"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(MODULE_PATH),
+                    "--accessions",
+                    str(missing_accessions),
+                    "--genome-dir",
+                    str(genome_dir),
+                    "--out",
+                    str(out),
+                    "--template-out",
+                    str(template),
+                    "--allow-missing-legacy",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+            with out.open("r", newline="", encoding="utf-8") as handle:
+                rows = list(csv.DictReader(handle, delimiter="\t"))
+            template_lines = template.read_text(encoding="utf-8").splitlines()
+
+        self.assertIn("Metadata input source: genome files in", result.stdout)
+        self.assertEqual(
+            [row["genome_id_current"] for row in rows],
+            ["Septoria_glycines_17Sg100", "Sphaerulina_musiva_MN-14"],
+        )
+        self.assertEqual([row["accession"] for row in rows], ["", ""])
+        self.assertEqual([row["taxonomy_id"] for row in rows], ["", ""])
+        self.assertEqual([row["ecofun_primary"] for row in rows], ["", ""])
+        self.assertEqual(len(template_lines), 1)
 
 
 if __name__ == "__main__":

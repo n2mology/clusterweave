@@ -180,6 +180,13 @@ def build_safe_claim_text(row: dict[str, object]) -> str:
     return sentence
 
 
+def public_path_label(path: Path) -> str:
+    parts = path.parts
+    if "data" in parts:
+        return Path(*parts[parts.index("data") :]).as_posix()
+    return path.name
+
+
 def write_markdown_summary(
     path: Path,
     shortlist_rows: list[dict[str, object]],
@@ -192,7 +199,7 @@ def write_markdown_summary(
     lines = [
         "# Dataset-Wide Family Atlas",
         "",
-        f"- Source summary: `{global_summary_path}`",
+        f"- Source summary: `{public_path_label(global_summary_path)}`",
         f"- Representative family rows: `{len(shortlist_rows)}`",
         f"- `atlas_now`: `{len(stage_rows)}`",
         f"- `atlas_context`: `{len(context_rows)}`",
@@ -243,12 +250,12 @@ def main() -> None:
         "--project-root",
         type=Path,
         default=Path(__file__).resolve().parents[1],
-        help="Project root containing Code/ and Data/.",
+        help="Project root containing Code/ and data/.",
     )
     parser.add_argument(
         "--project-name",
         default="clusterweave",
-        help="Project name used under Data/Results.",
+        help="Project name used under data/results.",
     )
     parser.add_argument(
         "--ecology-field",
@@ -274,7 +281,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    results_root = args.project_root / "Data" / "Results" / args.project_name
+    results_root = args.project_root / "data" / "results" / args.project_name
     summary_root = results_root / "summary"
     summary_tables_root = results_root / "summary_tables"
     bigscape_root = results_root / "big_scape" / "output_files"

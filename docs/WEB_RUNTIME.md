@@ -42,7 +42,7 @@ The published compose file (`clusterweave.yml`) is deliberately socket-free. It 
 
 | Stage | Depends On | Declared Inputs | Declared Outputs | Key Knobs |
 | --- | --- | --- | --- | --- |
-| prepare | uploads | accession list, optional NCBI CLI cache | `Data/Genomes/Fungi/<project>` | `ACCESSIONS_FILE`, `RUN_GENOME_PREP` |
+| prepare | uploads | accession list, optional NCBI CLI cache | `data/genomes/fungi/<project>` | `ACCESSIONS_FILE`, `RUN_GENOME_PREP` |
 | annotation/FunBGCeX | prepare or uploaded genomes | FASTA/GenBank files | `antismash/`, `funbgcex/`, staged GBKs, manifest | `CPUS`, `ANNO_CPUS`, `WORKERS`, `ANNOTATION_FALLBACK_ORDER`, `BRAKER3_ENABLED` |
 | BiG-SCAPE | annotation | antiSMASH region GBKs, Pfam, optional MiBIG | `big_scape/` | `THREADS`, `AUTO_DOWNLOAD_PFAM`, `MIBIG_AUTO_DOWNLOAD`, `BIGSCAPE_*` |
 | summarize/crosswalk | annotation, optional BiG-SCAPE | antiSMASH, FunBGCeX, BiG-SCAPE outputs, metadata | `summary/`, `summary_tables/` | `RUN_ECOLOGY_ANALYSIS`, `ECOLOGY_FIELD`, `FOCUS_ECOLOGY_LABEL` |

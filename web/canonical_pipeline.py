@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 import re
 import shutil
@@ -348,9 +349,9 @@ def _base_env(layout: ProjectLayout, settings: dict[str, Any], cpus: int) -> dic
         "PROJECTS_ROOT": str(layout.data_root.parent),
         "PROJECT_NAME": layout.project_name,
         "DATA_ROOT": str(layout.data_root),
-        "RESULTS_BASE": str(layout.data_root / "Results"),
+        "RESULTS_BASE": str(layout.data_root / "results"),
         "RESULTS_ROOT": str(layout.results_root),
-        "GENOMES_ROOT": str(layout.data_root / "Genomes" / "Fungi"),
+        "GENOMES_ROOT": str(layout.data_root / "genomes" / "fungi"),
         "GENOME_ROOT": str(layout.genome_root),
         "SOFTWARE_ROOT": str(layout.software_root),
         "TOOLS_ROOT": str(layout.software_root),
@@ -455,27 +456,94 @@ def _has_genome_inputs(layout: ProjectLayout) -> bool:
     return any(path.is_file() for path in layout.genome_root.glob("*") if path.suffix.lower() in GENOME_EXTS)
 
 
+PUBLIC_SUMMARY_FILENAMES = {
+    "all_tools_shared_unshared_summary.csv",
+    "family_atlas_shortlist.md",
+    "family_atlas_shortlist.tsv",
+    "priority_shortlist.md",
+    "priority_shortlist.tsv",
+    "shared_family_shortlist.md",
+    "shared_family_shortlist.tsv",
+}
+PUBLIC_SUMMARY_TABLE_FILENAMES = {
+    "ecofun_metadata_normalized.tsv",
+    "ecofun_metadata_template.tsv",
+}
+PUBLIC_FIGURE_EXTENSIONS = {".svg", ".png", ".pdf", ".graphml", ".tsv"}
+
+
+def _is_public_result_file(path: Path, layout: ProjectLayout) -> bool:
+    if not path.is_file():
+        return False
+    try:
+        rel = path.relative_to(layout.results_root).as_posix()
+    except ValueError:
+        return False
+    lower = rel.lower()
+    if any(marker in f"/{lower}" for marker in [
+        "/antismash/",
+        "/funbgcex/",
+        "/funannotate/",
+        "/braker3/",
+        "/big_scape/",
+        "/input_gbks/",
+        "/summary_tables/logs/",
+        "/reproducibility/",
+        "/clinker/",
+    ]):
+        return False
+    parts = rel.split("/")
+    filename = parts[-1]
+    if len(parts) >= 2 and parts[0] == "figures" and path.suffix.lower() in PUBLIC_FIGURE_EXTENSIONS:
+        return True
+    if len(parts) == 2 and parts[0] == "summary" and filename in PUBLIC_SUMMARY_FILENAMES:
+        return True
+    if len(parts) == 2 and parts[0] == "summary_tables" and filename in PUBLIC_SUMMARY_TABLE_FILENAMES:
+        return True
+    return False
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _write_public_manifest(manifest_path: Path, job_dir: Path, public_paths: list[Path]) -> None:
+    lines = ["path\tbytes\tsha256"]
+    for path in public_paths:
+        rel = path.relative_to(job_dir).as_posix()
+        lines.append(f"{rel}\t{path.stat().st_size}\t{_sha256(path)}")
+    manifest_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def _collect_result_files(job: Job, job_dir: Path, layout: ProjectLayout) -> None:
     job.result_files = []
-    seen: set[str] = set()
-    if layout.results_root.exists():
-        for path in sorted(layout.results_root.rglob("*")):
-            if not path.is_file():
-                continue
-            rel = str(path.relative_to(job_dir))
-            seen.add(rel)
-            job.result_files.append(rel)
-
     downloads_dir = job_dir / "downloads"
     downloads_dir.mkdir(parents=True, exist_ok=True)
+
+    public_paths: list[Path] = []
     if layout.results_root.exists():
-        archive_base = downloads_dir / f"{layout.project_name}_Data_Results"
-        archive_path = Path(
-            shutil.make_archive(str(archive_base), "zip", root_dir=layout.results_root.parent, base_dir=layout.project_name)
-        )
-        rel = str(archive_path.relative_to(job_dir))
-        if rel not in seen:
-            job.result_files.insert(0, rel)
+        public_paths = [
+            path for path in sorted(layout.results_root.rglob("*"))
+            if _is_public_result_file(path, layout)
+        ]
+
+    manifest_path = downloads_dir / "public_results_manifest.tsv"
+    _write_public_manifest(manifest_path, job_dir, public_paths)
+
+    archive_path = downloads_dir / f"{layout.project_name}_public_results.zip"
+    with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as archive:
+        for path in public_paths:
+            archive.write(path, path.relative_to(job_dir).as_posix())
+
+    job.result_files = [
+        archive_path.relative_to(job_dir).as_posix(),
+        manifest_path.relative_to(job_dir).as_posix(),
+    ]
+    job.result_files.extend(path.relative_to(job_dir).as_posix() for path in public_paths)
 
 
 async def run_pipeline(
@@ -499,9 +567,9 @@ async def run_pipeline(
     layout = ProjectLayout(
         project_name=project_name,
         repo_root=repo_root,
-        data_root=job_dir / "Data",
-        genome_root=job_dir / "Data" / "Genomes" / "Fungi" / project_name,
-        results_root=job_dir / "Data" / "Results" / project_name,
+        data_root=job_dir / "data",
+        genome_root=job_dir / "data" / "genomes" / "fungi" / project_name,
+        results_root=job_dir / "data" / "results" / project_name,
         software_root=GLOBAL_SOFTWARE_ROOT,
         work_root=job_dir / "work",
         downloads_root=job_dir / "downloads",

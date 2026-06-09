@@ -135,20 +135,20 @@ def main() -> None:
     parser.add_argument(
         "--project-name",
         default=env("PROJECT_NAME", "clusterweave"),
-        help="Project name used under Data/Results.",
+        help="Project name used under data/results.",
     )
     parser.add_argument(
         "--output",
         type=Path,
         default=None,
-        help="Output TSV. Defaults to Data/Results/<project>/reproducibility/external_artifacts.tsv.",
+        help="Output TSV. Defaults to data/results/<project>/reproducibility/external_artifacts.tsv.",
     )
     args = parser.parse_args()
 
     project_root = args.project_root.resolve()
-    data_root = Path(env("DATA_ROOT", str(project_root / "Data")))
-    software_root = Path(env("SOFTWARE_ROOT", str(project_root / "Software")))
-    results_root = Path(env("RESULTS_ROOT", str(data_root / "Results" / args.project_name)))
+    data_root = Path(env("DATA_ROOT", str(project_root / "data")))
+    software_root = Path(env("SOFTWARE_ROOT", str(project_root / "software")))
+    results_root = Path(env("RESULTS_ROOT", str(data_root / "results" / args.project_name)))
     output_path = args.output or (results_root / "reproducibility" / "external_artifacts.tsv")
     captured_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -187,7 +187,7 @@ def main() -> None:
         rows,
         stage="stage1_annotation_detection",
         artifact="funbgcex_sif",
-        source_uri=env("FUNBGCEX_IMAGE_URI", "built_from_repo_recipe:Software/funbgcex/Singularity.def"),
+        source_uri=env("FUNBGCEX_IMAGE_URI", "built_from_repo_recipe:software/funbgcex/Singularity.def"),
         local_path=funbgcex_sif,
         version_or_tag=env("FUNBGCEX_VERSION", "1.0.1"),
         captured_at=captured_at,
