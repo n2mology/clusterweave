@@ -134,28 +134,25 @@ class RepoLayoutTests(unittest.TestCase):
             "THIRD_PARTY.md",
             "DATA_SOURCES.md",
             "web/OPERATOR_AGREEMENT.md",
-            "web/UPSTREAM_MAINTAINER_NOTE.md",
-            "web/GLOSSARY.md",
             "docs/REPRODUCIBILITY.md",
             "docs/WEB_RUNTIME.md",
             "pyproject.toml",
         ]:
             self.assertTrue((REPO_ROOT / rel).exists(), rel)
 
-    def test_web_glossary_defines_ui_terms(self) -> None:
-        text = (REPO_ROOT / "web" / "GLOSSARY.md").read_text(encoding="utf-8")
-        for term in [
-            "Hero",
-            "Intake Panel",
-            "Upload Card",
-            "Entry Tabs",
-            "Runtime Status Dropdown",
-            "Public/Admin Boundary",
-            "Results Dashboard",
-            "DNA Spine",
-            "Run History",
+    def test_private_web_handoff_docs_are_ignored(self) -> None:
+        gitignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
+        dockerignore = (REPO_ROOT / ".dockerignore").read_text(encoding="utf-8")
+        for rel in [
+            "web/STAN.md",
+            "web/STYLE.md",
+            "web/UI_SLICE_ARCHIVE.md",
+            "web/GLOSSARY.md",
+            "web/UPSTREAM_MAINTAINER_NOTE.md",
         ]:
-            self.assertIn(term, text)
+            with self.subTest(rel=rel):
+                self.assertIn(rel, gitignore)
+                self.assertIn(rel, dockerignore)
 
     def test_generic_example_paths_exist(self) -> None:
         self.assertTrue((REPO_ROOT / "profiles" / "example_project.env").exists())
@@ -290,7 +287,6 @@ class RepoLayoutTests(unittest.TestCase):
             "docker-compose.yml",
             "clusterweave.yml",
             "web/OPERATOR_AGREEMENT.md",
-            "web/UPSTREAM_MAINTAINER_NOTE.md",
         ]
         forbidden = [
             "OneDrive",
