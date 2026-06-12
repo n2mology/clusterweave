@@ -1371,9 +1371,13 @@ antismash_done() {
   local outdir="$1"
   [[ -d "${outdir}" ]] || return 1
   [[ -f "${outdir}/.done" ]] && return 0
-  if find "${outdir}" -maxdepth 5 -type f -name "index.html" 2>/dev/null | grep -q .; then return 0; fi
-  if find "${outdir}" -maxdepth 5 -type f \( -name "*region*.gbk" -o -name "*regions*.gbk" \) 2>/dev/null | grep -q .; then return 0; fi
-  if find "${outdir}" -maxdepth 3 -type f -name "*.gbk" 2>/dev/null -exec grep -qm1 "##antiSMASH-Data-START##" {} \; ; then return 0; fi
+  [[ -s "${outdir}/index.html" ]] || return 1
+
+  # Legacy runs did not always write .done. Require browseable antiSMASH output,
+  # not just interrupted region GBKs, before skipping a rerun.
+  if find "${outdir}" -maxdepth 3 -type f \( -name "regions.js" -o -name "*.antismash.json" -o -name "overview*.js" \) 2>/dev/null | grep -q .; then
+    return 0
+  fi
   return 1
 }
 

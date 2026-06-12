@@ -12,10 +12,55 @@ WEB_DIR = REPO_ROOT / "web"
 if str(WEB_DIR) not in sys.path:
     sys.path.insert(0, str(WEB_DIR))
 
-from canonical_pipeline import Job, ProjectLayout, _collect_result_files  # noqa: E402
+import canonical_pipeline  # noqa: E402
+from canonical_pipeline import Job, ProjectLayout, _collect_result_files, _resolve_target_genome_alias  # noqa: E402
 
 
 class PublicResultManifestTests(unittest.TestCase):
+    def manifest_paths(self, job_root: Path) -> set[str]:
+        lines = (job_root / "downloads" / "public_results_manifest.tsv").read_text(encoding="utf-8").splitlines()
+        self.assertGreaterEqual(len(lines), 1)
+        self.assertEqual(lines[0], "path\tbytes\tsha256")
+        return {line.split("\t", 1)[0] for line in lines[1:] if line.strip()}
+
+    def archive_names(self, archive_path: Path) -> set[str]:
+        with zipfile.ZipFile(archive_path) as archive:
+            return set(archive.namelist())
+
+    def test_target_genome_accepts_accession_alias_from_prep_mapping(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            job_root = Path(tmp) / "job"
+            genome_root = job_root / "data" / "genomes" / "fungi" / "demo"
+            genome_root.mkdir(parents=True)
+            (genome_root / "accessions_fungusID_taxonomyID.txt").write_text(
+                "GCA_017499595.2\tPsilocybe_cubensis_MGC-MH-2018\t181762\t46.39\n",
+                encoding="utf-8",
+            )
+            layout = ProjectLayout(
+                project_name="demo",
+                repo_root=REPO_ROOT,
+                data_root=job_root / "data",
+                genome_root=genome_root,
+                results_root=job_root / "data" / "results" / "demo",
+                software_root=job_root / "software",
+                work_root=job_root / "work",
+                downloads_root=job_root / "downloads",
+            )
+
+            self.assertEqual(
+                _resolve_target_genome_alias(layout, "GCA_017499595.2"),
+                "Psilocybe_cubensis_MGC-MH-2018",
+            )
+            self.assertEqual(
+                _resolve_target_genome_alias(layout, "GCA_017499595"),
+                "Psilocybe_cubensis_MGC-MH-2018",
+            )
+            self.assertEqual(
+                _resolve_target_genome_alias(layout, "Psilocybe_cubensis_MGC-MH-2018"),
+                "Psilocybe_cubensis_MGC-MH-2018",
+            )
+            self.assertEqual(_resolve_target_genome_alias(layout, "unknown_target"), "unknown_target")
+
     def test_collector_indexes_only_public_safe_outputs_and_public_zip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             job_root = Path(tmp) / "job"
@@ -27,9 +72,16 @@ class PublicResultManifestTests(unittest.TestCase):
                 "summary/family_atlas_shortlist.md": "# shortlist\n",
                 "summary/family_atlas_shortlist.tsv": "rank\tgenome\n",
                 "summary_tables/ecofun_metadata_normalized.tsv": "accession\tgenome_id_current\n",
-                "antismash/raw/index.html": "raw antismash\n",
-                "funbgcex/raw.tsv": "raw funbgcex\n",
-                "big_scape/output_files/network.db": "sqlite bytes\n",
+                "antismash/genome_a/index.html": "<html>antiSMASH</html>\n",
+                "antismash/genome_a/style.css": "body{}\n",
+                "antismash/genome_a/region001.gbk": "LOCUS raw\n",
+                "funbgcex/genome_a/index.html": "<html>FunBGCeX</html>\n",
+                "funbgcex/genome_a/raw.tsv": "raw funbgcex\n",
+                "big_scape/output_files/index.html": "<html>BiG-SCAPE</html>\n",
+                "big_scape/output_files/data_sqlite.db": "sqlite bytes\n",
+                "big_scape/output_files/network.gml": "graph bytes\n",
+                "clinker/panel/panel.html": "<html>clinker</html>\n",
+                "clinker/panel/panel.js": "window.CLINKER=1;\n",
                 "clinker/panel/inputs/raw.gbk": "LOCUS raw\n",
                 "clinker/panel/panel_manifest.tsv": "source_gbk_path\n/private/raw.gbk\n",
                 "clinker/panel/run_panel.sh": "docker run private\n",
@@ -62,15 +114,21 @@ class PublicResultManifestTests(unittest.TestCase):
             self.assertIn("data/results/demo/figures/bgc_overlap.svg", public_files)
             self.assertIn("data/results/demo/summary/family_atlas_shortlist.md", public_files)
             self.assertIn("data/results/demo/summary/all_tools_shared_unshared_summary.csv", public_files)
-            self.assertNotIn("data/results/demo/antismash/raw/index.html", public_files)
+            self.assertIn("data/results/demo/antismash/genome_a/index.html", public_files)
+            self.assertIn("data/results/demo/antismash/genome_a/style.css", public_files)
+            self.assertIn("data/results/demo/funbgcex/genome_a/index.html", public_files)
+            self.assertIn("data/results/demo/big_scape/output_files/index.html", public_files)
+            self.assertIn("data/results/demo/big_scape/output_files/data_sqlite.db", public_files)
+            self.assertIn("data/results/demo/clinker/panel/panel.html", public_files)
+            self.assertIn("data/results/demo/clinker/panel/panel.js", public_files)
+            self.assertNotIn("data/results/demo/antismash/genome_a/region001.gbk", public_files)
+            self.assertNotIn("data/results/demo/funbgcex/genome_a/raw.tsv", public_files)
+            self.assertNotIn("data/results/demo/big_scape/output_files/network.gml", public_files)
             self.assertNotIn("data/results/demo/clinker/panel/inputs/raw.gbk", public_files)
             self.assertNotIn("data/results/demo/reproducibility/external_artifacts.tsv", public_files)
 
             joined = "\n".join(sorted(public_files))
             for private_marker in [
-                "antismash/",
-                "funbgcex/",
-                "big_scape/",
                 "input_gbks/",
                 "summary_tables/logs/",
                 "external_artifacts",
@@ -80,14 +138,107 @@ class PublicResultManifestTests(unittest.TestCase):
             ]:
                 self.assertNotIn(private_marker, joined)
 
+            manifest_paths = self.manifest_paths(job_root)
+            analysis_paths = {rel for rel in public_files if not rel.startswith("downloads/")}
+            self.assertEqual(manifest_paths, analysis_paths)
+
             archive_path = job_root / "downloads" / "demo_public_results.zip"
-            with zipfile.ZipFile(archive_path) as archive:
-                names = set(archive.namelist())
+            names = self.archive_names(archive_path)
+            self.assertEqual(names, manifest_paths | {"downloads/public_results_manifest.tsv"})
             self.assertIn("data/results/demo/figures/bgc_overlap.svg", names)
             self.assertIn("data/results/demo/summary/family_atlas_shortlist.tsv", names)
-            self.assertNotIn("data/results/demo/antismash/raw/index.html", names)
+            self.assertIn("data/results/demo/antismash/genome_a/index.html", names)
+            self.assertIn("data/results/demo/big_scape/output_files/data_sqlite.db", names)
+            self.assertIn("data/results/demo/clinker/panel/panel.html", names)
+            self.assertIn("downloads/public_results_manifest.tsv", names)
+            self.assertNotIn("downloads/demo_public_results.zip", names)
+            self.assertNotIn("data/results/demo/antismash/genome_a/region001.gbk", names)
             self.assertNotIn("data/results/demo/clinker/panel/inputs/raw.gbk", names)
             self.assertNotIn("data/results/demo/reproducibility/external_artifacts.tsv", names)
+
+    def test_partial_failure_outputs_use_the_same_manifest_archive_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            job_root = Path(tmp) / "job"
+            results_root = job_root / "data" / "results" / "partial"
+            files = {
+                "antismash/genome_a/index.html": "<html>antiSMASH</html>\n",
+                "antismash/genome_a/style.css": "body{}\n",
+                "antismash/genome_a/region001.gbk": "LOCUS raw\n",
+                "summary/family_atlas_shortlist.md": "# partial shortlist\n",
+                "summary_tables/ecofun_metadata_normalized.tsv": "accession\tgenome_id_current\n",
+                "clinker/panel/panel_manifest.tsv": "source_gbk_path\n/private/raw.gbk\n",
+            }
+            for rel, content in files.items():
+                target = results_root / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(content, encoding="utf-8")
+
+            job = Job(id="partialjob", name="partial")
+            layout = ProjectLayout(
+                project_name="partial",
+                repo_root=REPO_ROOT,
+                data_root=job_root / "data",
+                genome_root=job_root / "data" / "genomes" / "fungi" / "partial",
+                results_root=results_root,
+                software_root=job_root / "software",
+                work_root=job_root / "work",
+                downloads_root=job_root / "downloads",
+            )
+
+            _collect_result_files(job, job_root, layout)
+
+            expected_outputs = {
+                "data/results/partial/antismash/genome_a/index.html",
+                "data/results/partial/antismash/genome_a/style.css",
+                "data/results/partial/summary/family_atlas_shortlist.md",
+                "data/results/partial/summary_tables/ecofun_metadata_normalized.tsv",
+            }
+            self.assertEqual(self.manifest_paths(job_root), expected_outputs)
+            self.assertEqual(
+                set(job.result_files),
+                expected_outputs | {"downloads/partial_public_results.zip", "downloads/public_results_manifest.tsv"},
+            )
+            self.assertEqual(
+                self.archive_names(job_root / "downloads" / "partial_public_results.zip"),
+                expected_outputs | {"downloads/public_results_manifest.tsv"},
+            )
+            self.assertNotIn("data/results/partial/antismash/genome_a/region001.gbk", job.result_files)
+            self.assertNotIn("data/results/partial/clinker/panel/panel_manifest.tsv", job.result_files)
+
+    def test_collector_preserves_previous_result_index_if_refresh_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            job_root = Path(tmp) / "job"
+            results_root = job_root / "data" / "results" / "demo"
+            figure = results_root / "figures" / "old.svg"
+            figure.parent.mkdir(parents=True, exist_ok=True)
+            figure.write_text("<svg></svg>\n", encoding="utf-8")
+
+            previous_files = ["data/results/demo/figures/old.svg"]
+            job = Job(id="jobone", name="demo", result_files=list(previous_files))
+            layout = ProjectLayout(
+                project_name="demo",
+                repo_root=REPO_ROOT,
+                data_root=job_root / "data",
+                genome_root=job_root / "data" / "genomes" / "fungi" / "demo",
+                results_root=results_root,
+                software_root=job_root / "software",
+                work_root=job_root / "work",
+                downloads_root=job_root / "downloads",
+            )
+
+            original_writer = canonical_pipeline._write_public_manifest
+
+            def fail_manifest(*args, **kwargs):
+                raise RuntimeError("manifest refresh failed")
+
+            canonical_pipeline._write_public_manifest = fail_manifest
+            try:
+                with self.assertRaises(RuntimeError):
+                    _collect_result_files(job, job_root, layout)
+            finally:
+                canonical_pipeline._write_public_manifest = original_writer
+
+            self.assertEqual(job.result_files, previous_files)
 
 
 if __name__ == "__main__":
