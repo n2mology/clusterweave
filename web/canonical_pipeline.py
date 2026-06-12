@@ -456,6 +456,44 @@ def _has_genome_inputs(layout: ProjectLayout) -> bool:
     return any(path.is_file() for path in layout.genome_root.glob("*") if path.suffix.lower() in GENOME_EXTS)
 
 
+def _accession_versionless(value: str) -> str:
+    value = value.strip().upper()
+    if not re.match(r"^GC[AF]_", value):
+        return ""
+    return value.split(".", 1)[0]
+
+
+def _resolve_target_genome_alias(layout: ProjectLayout, target: str) -> str:
+    target = str(target or "").strip()
+    if not target:
+        return ""
+    mapping_path = layout.genome_root / "accessions_fungusID_taxonomyID.txt"
+    if not mapping_path.exists():
+        return target
+
+    target_lower = target.lower()
+    target_accession = _accession_versionless(target)
+    try:
+        with mapping_path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                accession, sep, rest = line.rstrip("\n").partition("\t")
+                if not sep:
+                    continue
+                fungus_id = rest.split("\t", 1)[0].strip()
+                accession = accession.strip()
+                if not accession or not fungus_id:
+                    continue
+                if target_lower == fungus_id.lower():
+                    return fungus_id
+                if target_lower == accession.lower():
+                    return fungus_id
+                if target_accession and target_accession == _accession_versionless(accession):
+                    return fungus_id
+    except OSError:
+        return target
+    return target
+
+
 PUBLIC_SUMMARY_FILENAMES = {
     "all_tools_shared_unshared_summary.csv",
     "family_atlas_shortlist.md",
@@ -470,6 +508,50 @@ PUBLIC_SUMMARY_TABLE_FILENAMES = {
     "ecofun_metadata_template.tsv",
 }
 PUBLIC_FIGURE_EXTENSIONS = {".svg", ".png", ".pdf", ".graphml", ".tsv"}
+PUBLIC_TOOL_WEB_EXTENSIONS = {
+    ".html",
+    ".htm",
+    ".css",
+    ".js",
+    ".mjs",
+    ".json",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".svg",
+    ".webp",
+    ".ico",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".eot",
+    ".map",
+}
+PUBLIC_BIGSCAPE_EXTENSIONS = PUBLIC_TOOL_WEB_EXTENSIONS | {".db", ".sqlite", ".sqlite3"}
+PUBLIC_TOOL_ROOTS = {"antismash", "funbgcex", "big_scape", "bigscape", "big-scape", "clinker", "clinker_shared_family"}
+PUBLIC_BIGSCAPE_ROOTS = {"big_scape", "bigscape", "big-scape"}
+PUBLIC_TOOL_PRIVATE_PARTS = {"inputs", "input_gbks", "logs", "tmp", "reproducibility", "funannotate", "braker3"}
+PUBLIC_TOOL_PRIVATE_FILENAMES = {
+    "external_artifacts.tsv",
+    "run_clusterweave_context.env",
+    "panel_manifest.tsv",
+    "panels_manifest.tsv",
+    "run_panel.sh",
+    "panel_notes.md",
+}
+
+
+def _is_public_tool_result_file(rel: str, suffix: str) -> bool:
+    parts = [part.lower() for part in rel.split("/") if part]
+    if not parts or parts[0] not in PUBLIC_TOOL_ROOTS:
+        return False
+    if any(part in PUBLIC_TOOL_PRIVATE_PARTS for part in parts):
+        return False
+    if parts[-1] in PUBLIC_TOOL_PRIVATE_FILENAMES:
+        return False
+    allowed = PUBLIC_BIGSCAPE_EXTENSIONS if parts[0] in PUBLIC_BIGSCAPE_ROOTS else PUBLIC_TOOL_WEB_EXTENSIONS
+    return suffix.lower() in allowed
 
 
 def _is_public_result_file(path: Path, layout: ProjectLayout) -> bool:
@@ -481,20 +563,21 @@ def _is_public_result_file(path: Path, layout: ProjectLayout) -> bool:
         return False
     lower = rel.lower()
     if any(marker in f"/{lower}" for marker in [
-        "/antismash/",
-        "/funbgcex/",
         "/funannotate/",
         "/braker3/",
-        "/big_scape/",
         "/input_gbks/",
         "/summary_tables/logs/",
         "/reproducibility/",
-        "/clinker/",
     ]):
         return False
     parts = rel.split("/")
     filename = parts[-1]
-    if len(parts) >= 2 and parts[0] == "figures" and path.suffix.lower() in PUBLIC_FIGURE_EXTENSIONS:
+    suffix = path.suffix.lower()
+    if _is_public_tool_result_file(rel, suffix):
+        return True
+    if filename.lower() in PUBLIC_TOOL_PRIVATE_FILENAMES:
+        return False
+    if len(parts) >= 2 and parts[0] == "figures" and suffix in PUBLIC_FIGURE_EXTENSIONS:
         return True
     if len(parts) == 2 and parts[0] == "summary" and filename in PUBLIC_SUMMARY_FILENAMES:
         return True
@@ -520,7 +603,6 @@ def _write_public_manifest(manifest_path: Path, job_dir: Path, public_paths: lis
 
 
 def _collect_result_files(job: Job, job_dir: Path, layout: ProjectLayout) -> None:
-    job.result_files = []
     downloads_dir = job_dir / "downloads"
     downloads_dir.mkdir(parents=True, exist_ok=True)
 
@@ -536,6 +618,7 @@ def _collect_result_files(job: Job, job_dir: Path, layout: ProjectLayout) -> Non
 
     archive_path = downloads_dir / f"{layout.project_name}_public_results.zip"
     with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.write(manifest_path, manifest_path.relative_to(job_dir).as_posix())
         for path in public_paths:
             archive.write(path, path.relative_to(job_dir).as_posix())
 
@@ -616,6 +699,15 @@ async def run_pipeline(
                 cwd=layout.repo_root,
                 env=env,
             )
+
+        target_before = _cfg_str(cfg, "target_genome")
+        target_after = _resolve_target_genome_alias(layout, target_before)
+        if target_after != target_before:
+            env["TARGET_GENOME"] = target_after
+            cfg["target_genome"] = target_after
+            if _cfg_str(cfg, "target_strain") == target_before:
+                cfg["target_strain"] = target_after
+            job.add_log(f"Resolved target genome/accession {target_before} to {target_after}.")
 
         if not _has_genome_inputs(layout):
             raise RuntimeError(

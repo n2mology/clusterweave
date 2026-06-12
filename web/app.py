@@ -12,6 +12,8 @@ import secrets
 import shutil
 from datetime import datetime
 import urllib.parse
+import urllib.error
+import urllib.request
 import uuid
 import zipfile
 from email.parser import BytesParser
@@ -121,6 +123,11 @@ PUBLIC_NUCLEOTIDE_CHARS = set("ACGTRYSWKMBDHVNU-.")
 PUBLIC_ECOLOGY_METADATA_FILENAME = "ecofun_metadata_normalized.tsv"
 MANUAL_ACCESSIONS_FILENAME = "manual_accessions.txt"
 NCBI_ASSEMBLY_ACCESSION_RE = re.compile(r"^(?:GCA|GCF)_\d{9}\.\d+$", re.IGNORECASE)
+NCBI_ACCESSION_EXAMPLES = "GCA_000011425.1 or GCA_030770425.1"
+NCBI_DATASETS_API_BASE = os.environ.get("CLUSTERWEAVE_NCBI_DATASETS_API_BASE", "https://api.ncbi.nlm.nih.gov/datasets/v2").rstrip("/")
+NCBI_ACCESSION_PREFLIGHT = env_bool("CLUSTERWEAVE_NCBI_ACCESSION_PREFLIGHT", True)
+NCBI_PREFLIGHT_TIMEOUT_SECONDS = env_int("CLUSTERWEAVE_NCBI_PREFLIGHT_TIMEOUT_SECONDS", 8, minimum=1)
+NCBI_FUNGAL_TAXON_ID = 4751
 PUBLIC_ACTIVITY_TOKEN_RE = re.compile(r"[^A-Za-z0-9._-]+")
 BYTES_PER_MB = 1024 * 1024
 WORKER_STATUS_PATH = Path(os.environ.get("DATA_DIR", "/data")) / "worker" / "status.json"
@@ -432,20 +439,16 @@ def result_path_forbidden(rel_path: str) -> bool:
     if lower.startswith(("inputs/", "work/", "data/genomes/")):
         return True
     private_markers = (
-        "/antismash/",
-        "/funbgcex/",
         "/funannotate/",
         "/braker3/",
-        "/big_scape/",
         "/input_gbks/",
         "/summary_tables/logs/",
         "/reproducibility/",
-        "/clinker/",
     )
     if any(marker in f"/{lower}" for marker in private_markers):
         return True
     filename = lower.rsplit("/", 1)[-1]
-    if filename in {"external_artifacts.tsv", "run_clusterweave_context.env", "panel_manifest.tsv", "run_panel.sh", "panel_notes.md"}:
+    if filename in PUBLIC_TOOL_PRIVATE_FILENAMES:
         return True
     return False
 
@@ -461,6 +464,55 @@ PUBLIC_SUMMARY_FILENAMES = {
 }
 PUBLIC_SUMMARY_TABLE_FILENAMES = {"ecofun_metadata_normalized.tsv", "ecofun_metadata_template.tsv"}
 PUBLIC_FIGURE_EXTENSIONS = {".svg", ".png", ".pdf", ".graphml", ".tsv"}
+PUBLIC_TOOL_WEB_EXTENSIONS = {
+    ".html",
+    ".htm",
+    ".css",
+    ".js",
+    ".mjs",
+    ".json",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".svg",
+    ".webp",
+    ".ico",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".eot",
+    ".map",
+}
+PUBLIC_BIGSCAPE_EXTENSIONS = PUBLIC_TOOL_WEB_EXTENSIONS | {".db", ".sqlite", ".sqlite3"}
+PUBLIC_TOOL_ROOTS = {"antismash", "funbgcex", "big_scape", "bigscape", "big-scape", "clinker", "clinker_shared_family"}
+PUBLIC_BIGSCAPE_ROOTS = {"big_scape", "bigscape", "big-scape"}
+PUBLIC_TOOL_PRIVATE_PARTS = {"inputs", "input_gbks", "logs", "tmp", "reproducibility", "funannotate", "braker3"}
+PUBLIC_TOOL_PRIVATE_FILENAMES = {
+    "external_artifacts.tsv",
+    "run_clusterweave_context.env",
+    "panel_manifest.tsv",
+    "panels_manifest.tsv",
+    "run_panel.sh",
+    "panel_notes.md",
+}
+PUBLIC_RESULTS_MANIFEST_PATH = "downloads/public_results_manifest.tsv"
+
+
+def result_is_public_archive(rel_path: str) -> bool:
+    lower = normalized_job_result_path(rel_path).lower()
+    return lower.startswith("downloads/") and lower.endswith("_public_results.zip")
+
+
+def result_tool_public_shape(subparts: list[str], suffix: str) -> bool:
+    if not subparts or subparts[0] not in PUBLIC_TOOL_ROOTS:
+        return False
+    if any(part in PUBLIC_TOOL_PRIVATE_PARTS for part in subparts):
+        return False
+    if subparts[-1] in PUBLIC_TOOL_PRIVATE_FILENAMES:
+        return False
+    allowed = PUBLIC_BIGSCAPE_EXTENSIONS if subparts[0] in PUBLIC_BIGSCAPE_ROOTS else PUBLIC_TOOL_WEB_EXTENSIONS
+    return suffix.lower() in allowed
 
 
 def result_path_public_shape(rel_path: str) -> bool:
@@ -469,9 +521,9 @@ def result_path_public_shape(rel_path: str) -> bool:
     lower = normalized_job_result_path(rel_path).lower()
     filename = lower.rsplit("/", 1)[-1]
     suffix = Path(filename).suffix.lower()
-    if lower == "downloads/public_results_manifest.tsv":
+    if lower == PUBLIC_RESULTS_MANIFEST_PATH:
         return True
-    if lower.startswith("downloads/") and lower.endswith("_public_results.zip"):
+    if result_is_public_archive(lower):
         return True
     if lower.startswith("results/") and suffix in PUBLIC_FIGURE_EXTENSIONS:
         return True
@@ -479,6 +531,8 @@ def result_path_public_shape(rel_path: str) -> bool:
     if len(parts) < 4 or parts[0] != "data" or parts[1] != "results":
         return False
     subparts = parts[3:]
+    if result_tool_public_shape(subparts, suffix):
+        return True
     if len(subparts) >= 2 and subparts[0] == "figures" and suffix in PUBLIC_FIGURE_EXTENSIONS:
         return True
     if len(subparts) == 2 and subparts[0] == "summary" and filename in PUBLIC_SUMMARY_FILENAMES:
@@ -488,16 +542,198 @@ def result_path_public_shape(rel_path: str) -> bool:
     return False
 
 
-def result_file_allowlist(job: dict[str, object]) -> list[str]:
+def result_file_exists(base_dir: Path, rel_path: str) -> bool:
+    full = (base_dir / rel_path).resolve()
+    try:
+        full.relative_to(base_dir)
+    except ValueError:
+        return False
+    return full.is_file()
+
+
+def append_unique_result_path(files: list[str], seen: set[str], rel_path: str) -> None:
+    if rel_path and rel_path not in seen:
+        seen.add(rel_path)
+        files.append(rel_path)
+
+
+def public_manifest_result_paths(base_dir: Path) -> list[str]:
+    manifest = (base_dir / PUBLIC_RESULTS_MANIFEST_PATH).resolve()
+    try:
+        manifest.relative_to(base_dir)
+    except ValueError:
+        return []
+    if not manifest.is_file():
+        return []
+
     files: list[str] = []
     seen: set[str] = set()
+    for index, line in enumerate(manifest.read_text(encoding="utf-8", errors="replace").splitlines()):
+        if index == 0 and line.lower().startswith("path\t"):
+            continue
+        rel_path = normalized_job_result_path(line.split("\t", 1)[0] if line else "")
+        lower = rel_path.lower()
+        if lower == PUBLIC_RESULTS_MANIFEST_PATH or result_is_public_archive(rel_path):
+            continue
+        if not result_path_public_shape(rel_path) or not result_file_exists(base_dir, rel_path):
+            continue
+        append_unique_result_path(files, seen, rel_path)
+    return files
+
+
+def result_file_allowlist(job: dict[str, object], *, base_dir: Path | None = None) -> list[str]:
+    files: list[str] = []
+    seen: set[str] = set()
+    stored_files: list[str] = []
     for item in job.get("result_files", []):
         rel_path = normalized_job_result_path(item)
         if not result_path_public_shape(rel_path) or rel_path in seen:
             continue
+        if base_dir is not None and not result_file_exists(base_dir, rel_path):
+            continue
         seen.add(rel_path)
-        files.append(rel_path)
+        stored_files.append(rel_path)
+
+    if base_dir is None or not result_file_exists(base_dir, PUBLIC_RESULTS_MANIFEST_PATH):
+        return stored_files
+
+    files_seen: set[str] = set()
+    for rel_path in stored_files:
+        if result_is_public_archive(rel_path):
+            append_unique_result_path(files, files_seen, rel_path)
+    append_unique_result_path(files, files_seen, PUBLIC_RESULTS_MANIFEST_PATH)
+    for rel_path in public_manifest_result_paths(base_dir):
+        append_unique_result_path(files, files_seen, rel_path)
     return files
+
+
+PUBLIC_SAFE_ARCHIVE_PRIVATE_DIRS = {"logs", "tmp", "reproducibility", "__pycache__"}
+PUBLIC_SAFE_ARCHIVE_PRIVATE_FILENAMES = PUBLIC_TOOL_PRIVATE_FILENAMES | {
+    "job.json",
+    "logs.txt",
+    ".done",
+    "provenance.json",
+    "provenance.tsv",
+}
+PUBLIC_SAFE_ARCHIVE_PRIVATE_SUFFIXES = {".env", ".log", ".pyc", ".zip"}
+
+
+def public_safe_archive_project_names(job: dict[str, object]) -> list[str]:
+    names: list[str] = []
+    seen: set[str] = set()
+
+    def add(value: object) -> None:
+        name = normalized_job_result_path(value)
+        if not name or len(Path(name).parts) != 1 or name in seen:
+            return
+        seen.add(name)
+        names.append(name)
+
+    add(job.get("project_name"))
+    add(job.get("name"))
+    for item in job.get("result_files", []):
+        parts = normalized_job_result_path(item).split("/")
+        if len(parts) >= 4 and parts[0].lower() == "data" and parts[1].lower() == "results":
+            add(parts[2])
+    return names
+
+
+def public_safe_archive_roots(job: dict[str, object], base_dir: Path) -> list[Path]:
+    roots: list[Path] = []
+    seen: set[Path] = set()
+
+    def add_root(root: Path) -> None:
+        resolved = root.resolve()
+        try:
+            resolved.relative_to(base_dir)
+        except ValueError:
+            return
+        if resolved.is_dir() and resolved not in seen:
+            seen.add(resolved)
+            roots.append(resolved)
+
+    for project_name in public_safe_archive_project_names(job):
+        add_root(base_dir / "data" / "results" / project_name)
+        add_root(base_dir / "Data" / "Results" / project_name)
+
+    if roots:
+        return roots
+
+    for parent_rel in (("data", "results"), ("Data", "Results")):
+        parent = (base_dir / Path(*parent_rel)).resolve()
+        try:
+            parent.relative_to(base_dir)
+        except ValueError:
+            continue
+        if not parent.is_dir():
+            continue
+        children = [child for child in parent.iterdir() if child.is_dir() and not child.is_symlink()]
+        if len(children) == 1:
+            add_root(children[0])
+    return roots
+
+
+def public_safe_archive_excluded(root: Path, full: Path) -> bool:
+    if full.is_symlink() or not full.is_file():
+        return True
+    resolved = full.resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError:
+        return True
+    rel_path = normalized_job_result_path(resolved.relative_to(root).as_posix())
+    if not rel_path:
+        return True
+    parts = [part.lower() for part in Path(rel_path).parts]
+    if any(part in PUBLIC_SAFE_ARCHIVE_PRIVATE_DIRS for part in parts):
+        return True
+    filename = parts[-1]
+    suffix = Path(filename).suffix.lower()
+    if filename.startswith(".") or filename in PUBLIC_SAFE_ARCHIVE_PRIVATE_FILENAMES:
+        return True
+    if suffix in PUBLIC_SAFE_ARCHIVE_PRIVATE_SUFFIXES:
+        return True
+    if suffix == ".sh" and "clinker" in parts:
+        return True
+    if "provenance" in filename or filename.endswith("_context.env"):
+        return True
+    return False
+
+
+def public_safe_archive_entries(job: dict[str, object], base_dir: Path) -> list[tuple[Path, str]]:
+    entries: list[tuple[Path, str]] = []
+    seen: set[str] = set()
+    for root in public_safe_archive_roots(job, base_dir):
+        files = sorted(
+            (path for path in root.rglob("*")),
+            key=lambda path: path.relative_to(root).as_posix().lower(),
+        )
+        for full in files:
+            if public_safe_archive_excluded(root, full):
+                continue
+            archive_name = normalized_job_result_path(full.resolve().relative_to(root).as_posix())
+            if not archive_name or archive_name in seen:
+                continue
+            seen.add(archive_name)
+            entries.append((full.resolve(), archive_name))
+
+    if entries:
+        return entries
+
+    for rel_path in result_file_allowlist(job, base_dir=base_dir):
+        lower = rel_path.lower()
+        if lower.startswith("downloads/") and lower.endswith(".zip"):
+            continue
+        full = (base_dir / rel_path).resolve()
+        try:
+            full.relative_to(base_dir)
+        except ValueError:
+            continue
+        if full.is_symlink() or not full.is_file() or rel_path in seen:
+            continue
+        seen.add(rel_path)
+        entries.append((full, rel_path))
+    return entries
 
 
 def public_error_summary(error: object) -> str:
@@ -881,7 +1117,8 @@ def job_payload(job: dict[str, object], *, admin: bool, include_public_events: b
             ]
             if key in job
         }
-        payload["result_files"] = result_file_allowlist(job)
+        public_result_base = job_dir(str(job.get("id", ""))).resolve() if job.get("id") else None
+        payload["result_files"] = result_file_allowlist(job, base_dir=public_result_base)
         if job.get("error") or str(job.get("status", "")).lower() == "failed":
             payload["error"] = public_error_summary(job.get("error"))
             payload["error_summary"] = payload["error"]
@@ -930,6 +1167,21 @@ def redacted_system_status() -> dict[str, object]:
 
 def full_system_status() -> dict[str, object]:
     payload = worker_status()
+    submissions_open = SUBMISSIONS_OPEN
+    active_ids = worker_active_job_ids(payload)
+    worker = payload.get("worker")
+    active_count = len(active_ids)
+    if active_count == 0 and isinstance(worker, dict):
+        try:
+            active_count = max(0, int(worker.get("active_count", 0) or 0))
+        except (TypeError, ValueError):
+            active_count = 0
+    payload["service"] = "online"
+    payload["submissions_open"] = submissions_open
+    payload["submissions"] = "open" if submissions_open else "paused"
+    payload["jobs_processed"] = jobs_processed_count()
+    payload["running_jobs"] = active_count
+    payload["queued_jobs"] = queued_job_count()
     payload["smtp_enabled"] = SMTP_ENABLED
     payload["public_quota"] = public_quota_payload()
     return payload
@@ -968,37 +1220,147 @@ def clamp_public_cpus(value: int) -> int:
     return max(1, min(value, public_cpu_limit()))
 
 
-def parse_accession_text(filename: str, content: bytes) -> tuple[str | None, int]:
+def parse_accession_list(filename: str, content: bytes) -> tuple[str | None, list[str]]:
     try:
         text = content.decode("utf-8")
     except UnicodeDecodeError:
-        return f"Accession list '{filename}' must be UTF-8 text", 0
+        return f"Accession list '{filename}' must be UTF-8 text", []
 
-    count = 0
+    accessions: list[str] = []
     for line_number, raw_line in enumerate(text.splitlines(), start=1):
         line = raw_line.strip()
         if not line:
             continue
         if re.search(r"[\s,;]+", line):
-            return f"Accession list '{filename}' must contain one accession per line; line {line_number} has multiple values", 0
+            return f"Accession list '{filename}' must contain one accession per line; line {line_number} has multiple values", []
         if line.lower() == "accession":
-            return f"Accession list '{filename}' must not include a header row", 0
+            return f"Accession list '{filename}' must not include a header row", []
         if not NCBI_ASSEMBLY_ACCESSION_RE.match(line):
             return (
                 f"Accession list '{filename}' line {line_number} has invalid accession '{line}'. "
-                "Use NCBI assembly accessions like GCA_000011425.1 or GCF_000001405.40",
-                0,
+                f"Use current fungal NCBI assembly accessions like {NCBI_ACCESSION_EXAMPLES}",
+                [],
             )
-        count += 1
-    return None, count
+        accessions.append(line.upper())
+    return None, accessions
+
+
+def parse_accession_text(filename: str, content: bytes) -> tuple[str | None, int]:
+    error, accessions = parse_accession_list(filename, content)
+    return error, len(accessions)
+
+
+def accession_text_upload_requires_validation(filename: str) -> bool:
+    lower = filename.lower()
+    return filename == MANUAL_ACCESSIONS_FILENAME or (lower.endswith(".txt") and "accession" in lower)
 
 
 def validate_manual_accession_uploads(uploads: list[dict[str, object]]) -> str | None:
     for item in uploads:
         filename = Path(str(item.get("filename") or "unknown")).name
-        if filename != MANUAL_ACCESSIONS_FILENAME:
+        if not accession_text_upload_requires_validation(filename):
             continue
         error, _ = parse_accession_text(filename, bytes(item.get("content") or b""))
+        if error:
+            return error
+    return None
+
+
+def fetch_ncbi_datasets_json(path: str) -> dict[str, object]:
+    url = f"{NCBI_DATASETS_API_BASE}/{path.lstrip('/')}"
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "ClusterWeave accession preflight",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=NCBI_PREFLIGHT_TIMEOUT_SECONDS) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def ncbi_preflight_unavailable(accession: str) -> str:
+    return (
+        f"NCBI Datasets could not verify accession '{accession}' before job creation. "
+        "Try again later, or upload a supported fungal genome FASTA/GenBank file instead."
+    )
+
+
+def ncbi_accession_acceptability_error(accession: str) -> str | None:
+    quoted_accession = urllib.parse.quote(accession, safe="")
+    try:
+        report_payload = fetch_ncbi_datasets_json(f"genome/accession/{quoted_accession}/dataset_report")
+    except (OSError, TimeoutError, urllib.error.URLError, json.JSONDecodeError):
+        return ncbi_preflight_unavailable(accession)
+
+    reports = report_payload.get("reports") if isinstance(report_payload, dict) else None
+    if not isinstance(reports, list) or not reports:
+        return (
+            f"NCBI Datasets did not find assembly accession '{accession}'. "
+            f"Use current fungal NCBI assembly accessions like {NCBI_ACCESSION_EXAMPLES}."
+        )
+
+    report = reports[0]
+    if not isinstance(report, dict):
+        return ncbi_preflight_unavailable(accession)
+
+    assembly_info = report.get("assembly_info")
+    assembly_status = ""
+    if isinstance(assembly_info, dict):
+        assembly_status = str(assembly_info.get("assembly_status") or "")
+    if assembly_status and assembly_status.lower() != "current":
+        return (
+            f"NCBI assembly accession '{accession}' is not current ({assembly_status}). "
+            f"Use a current fungal assembly accession like {NCBI_ACCESSION_EXAMPLES}."
+        )
+
+    organism = report.get("organism")
+    tax_id = None
+    organism_name = accession
+    if isinstance(organism, dict):
+        organism_name = str(organism.get("organism_name") or accession)
+        raw_tax_id = organism.get("tax_id")
+        try:
+            tax_id = int(raw_tax_id)
+        except (TypeError, ValueError):
+            tax_id = None
+    if tax_id is None:
+        return ncbi_preflight_unavailable(accession)
+
+    try:
+        taxonomy_payload = fetch_ncbi_datasets_json(f"taxonomy/taxon/{tax_id}")
+    except (OSError, TimeoutError, urllib.error.URLError, json.JSONDecodeError):
+        return ncbi_preflight_unavailable(accession)
+
+    taxonomy_nodes = taxonomy_payload.get("taxonomy_nodes") if isinstance(taxonomy_payload, dict) else None
+    taxonomy = None
+    if isinstance(taxonomy_nodes, list) and taxonomy_nodes and isinstance(taxonomy_nodes[0], dict):
+        taxonomy = taxonomy_nodes[0].get("taxonomy")
+    if not isinstance(taxonomy, dict):
+        return ncbi_preflight_unavailable(accession)
+
+    lineage = taxonomy.get("lineage")
+    lineage_ids = {int(item) for item in lineage if isinstance(item, int) or str(item).isdigit()} if isinstance(lineage, list) else set()
+    if tax_id != NCBI_FUNGAL_TAXON_ID and NCBI_FUNGAL_TAXON_ID not in lineage_ids:
+        display_name = str(taxonomy.get("organism_name") or organism_name or accession)
+        return (
+            f"NCBI accession '{accession}' is {display_name}, not a fungal assembly. "
+            f"ClusterWeave public runs accept fungal assemblies such as {NCBI_ACCESSION_EXAMPLES}."
+        )
+
+    return None
+
+
+def validate_ncbi_accession_preflight(accessions: list[str]) -> str | None:
+    if not NCBI_ACCESSION_PREFLIGHT:
+        return None
+    seen: set[str] = set()
+    for accession in accessions:
+        normalized = accession.strip().upper()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        error = ncbi_accession_acceptability_error(normalized)
         if error:
             return error
     return None
@@ -1110,6 +1472,8 @@ def classify_public_genome_upload(filename: str, ext: str, content: bytes) -> tu
 def validate_public_uploads(
     uploads: list[dict[str, object]],
     settings: dict[str, object],
+    *,
+    accession_preflight: bool = False,
 ) -> tuple[str | None, dict[str, object]]:
     readiness_records: list[dict[str, str]] = []
     summary: dict[str, object] = {
@@ -1124,6 +1488,8 @@ def validate_public_uploads(
     ecology_enabled = settings_bool(settings, "run_ecology_analysis")
     genome_stem_kinds: dict[str, set[str]] = {}
     genome_stem_labels: dict[str, str] = {}
+    accession_file_count = 0
+    accessions_for_preflight: list[str] = []
 
     for item in uploads:
         raw_filename = str(item.get("filename") or "unknown")
@@ -1173,12 +1539,16 @@ def validate_public_uploads(
             continue
 
         if ext in PUBLIC_ACCESSION_EXTENSIONS:
-            error, accession_count = parse_accession_text(filename, content)
+            accession_file_count += 1
+            if accession_file_count > 1:
+                return "Public jobs accept one accession list; combine NCBI assembly accessions into a single .txt file or the manual entry", summary
+            error, accessions = parse_accession_list(filename, content)
             if error:
                 return error, summary
-            summary["accession_count"] = int(summary["accession_count"]) + accession_count
+            summary["accession_count"] = int(summary["accession_count"]) + len(accessions)
             if int(summary["accession_count"]) > MAX_ACCESSIONS:
                 return f"Public jobs may include at most {MAX_ACCESSIONS} accessions", summary
+            accessions_for_preflight.extend(accessions)
             continue
 
         if filename == PUBLIC_ECOLOGY_METADATA_FILENAME:
@@ -1213,6 +1583,11 @@ def validate_public_uploads(
                 summary,
             )
 
+    if accession_preflight:
+        ncbi_error = validate_ncbi_accession_preflight(accessions_for_preflight)
+        if ncbi_error:
+            return ncbi_error, summary
+
     return None, summary
 
 
@@ -1236,7 +1611,7 @@ def apply_public_submission_policy(
     if not (request_is_admin(handler) and ALLOW_ENV_OVERRIDES):
         settings["env_overrides"] = ""
 
-    return validate_public_uploads(uploads, settings)
+    return validate_public_uploads(uploads, settings, accession_preflight=not request_is_admin(handler))
 
 
 def validate_runtime_request(settings: dict[str, object], status: dict[str, object]) -> str | None:
@@ -1283,7 +1658,7 @@ def base_job_settings(job: dict[str, object]) -> dict[str, object]:
 
 def rerun_settings(base_settings: dict[str, object], payload: dict[str, object]) -> dict[str, object]:
     settings = dict(base_settings)
-    bool_fields = [
+    stage_bool_fields = [
         "run_genome_prep",
         "run_annotation",
         "run_bigscape",
@@ -1293,12 +1668,11 @@ def rerun_settings(base_settings: dict[str, object], payload: dict[str, object])
         "execute_clinker",
         "run_figures",
         "run_nplinker",
-        "force",
     ]
-    for key in bool_fields:
-        if key in payload:
-            settings[key] = parse_payload_bool(payload, key, settings_bool(settings, key, False))
+    for key in stage_bool_fields:
+        settings[key] = parse_payload_bool(payload, key, False) if key in payload else False
 
+    settings["force"] = parse_payload_bool(payload, "force", False)
     settings["run_ncbi_install"] = parse_payload_bool(payload, "run_ncbi_install", False)
     settings["reuse_existing_layout"] = True
     if "run_summary" in payload and "run_crosswalk" not in payload:
@@ -1487,19 +1861,9 @@ class Handler(BaseHTTPRequestHandler):
                 base_dir = job_dir(job_id).resolve()
                 archive_buffer = io.BytesIO()
                 added = 0
-                with zipfile.ZipFile(archive_buffer, "w", zipfile.ZIP_DEFLATED) as archive:
-                    for rel_path in result_file_allowlist(job):
-                        lower = rel_path.lower()
-                        if lower.startswith("downloads/") and lower.endswith(".zip"):
-                            continue
-                        full = (base_dir / rel_path).resolve()
-                        try:
-                            full.relative_to(base_dir)
-                        except ValueError:
-                            continue
-                        if not full.exists() or not full.is_file():
-                            continue
-                        archive.write(full, rel_path)
+                with zipfile.ZipFile(archive_buffer, "w", zipfile.ZIP_DEFLATED, compresslevel=1) as archive:
+                    for full, archive_name in public_safe_archive_entries(job, base_dir):
+                        archive.write(full, archive_name)
                         added += 1
                     if not added:
                         archive.writestr("README.txt", "No public result files are available for this ClusterWeave run yet.\n")
@@ -1517,7 +1881,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             if len(parts) >= 5 and parts[4] == "files":
-                allowed_files = result_file_allowlist(job)
+                base_dir = job_dir(job_id).resolve()
+                allowed_files = result_file_allowlist(job, base_dir=base_dir)
                 if len(parts) == 5:
                     self._send_json(HTTPStatus.OK, {"files": allowed_files})
                     return
@@ -1529,7 +1894,6 @@ class Handler(BaseHTTPRequestHandler):
                 if rel_path not in set(allowed_files):
                     self._auth_failed("Result file is not available through the public manifest")
                     return
-                base_dir = job_dir(job_id).resolve()
                 full = (base_dir / rel_path).resolve()
                 try:
                     full.relative_to(base_dir)
@@ -1748,17 +2112,16 @@ class Handler(BaseHTTPRequestHandler):
 
         if PUBLIC_MODE and not request_is_admin(self):
             cpus = public_cpu_limit()
+            run_summary = settings_bool(settings, "run_summary")
+            run_clinker = settings_bool(settings, "run_clinker")
             settings.update(
                 {
                     "run_ncbi_install": False,
                     "run_genome_prep": True,
                     "run_annotation": True,
-                    "run_bigscape": True,
-                    "run_crosswalk": True,
-                    "run_summary": True,
-                    "run_clinker": True,
-                    "execute_clinker": True,
-                    "run_figures": True,
+                    "run_crosswalk": run_summary,
+                    "execute_clinker": run_clinker,
+                    "run_nplinker": False,
                     "figures_required": False,
                     "force": False,
                     "genefinding_mode": "auto",

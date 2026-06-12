@@ -48,6 +48,8 @@ demo
 web/STAN.md
 web/STYLE.md
 web/UI_SLICE_ARCHIVE.md
+web/GLOSSARY.md
+web/UPSTREAM_MAINTAINER_NOTE.md
 docker-compose.local-faces.yml
 
 # Editable manuscript/design source files not needed in the public source release.

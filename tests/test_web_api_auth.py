@@ -47,6 +47,7 @@ class WebApiAuthTests(unittest.TestCase):
             "CLUSTERWEAVE_MAX_UPLOAD_TOTAL_MB",
             "CLUSTERWEAVE_MAX_QUEUED_JOBS",
             "CLUSTERWEAVE_MAX_CPUS_PER_JOB",
+            "CLUSTERWEAVE_NCBI_ACCESSION_PREFLIGHT",
         ]
         self.old_env = {key: os.environ.get(key) for key in self.env_keys}
         os.environ.update(
@@ -60,6 +61,7 @@ class WebApiAuthTests(unittest.TestCase):
                 "CLUSTERWEAVE_ALLOW_ENV_OVERRIDES": "0",
                 "CLUSTERWEAVE_JOB_RETENTION_DAYS": "30",
                 "CLUSTERWEAVE_SMTP_ENABLED": "0",
+                "CLUSTERWEAVE_NCBI_ACCESSION_PREFLIGHT": "1",
             }
         )
         os.environ.pop("CLUSTERWEAVE_ALLOWED_ORIGINS", None)
@@ -73,6 +75,7 @@ class WebApiAuthTests(unittest.TestCase):
         self.job_store = importlib.import_module("job_store")
         self.notifications = importlib.import_module("notifications")
         self.app = importlib.import_module("app")
+        self.app.fetch_ncbi_datasets_json = self.fake_ncbi_datasets_json
         self.write_ready_worker_status()
 
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), self.app.Handler)
@@ -97,6 +100,42 @@ class WebApiAuthTests(unittest.TestCase):
             else:
                 os.environ[key] = value
         self.tmp.cleanup()
+
+    def fake_ncbi_datasets_json(self, path: str) -> dict[str, object]:
+        accession_reports = {
+            "GCA_000011425.1": {"tax_id": 227321, "name": "Aspergillus nidulans FGSC A4", "status": "current"},
+            "GCA_030770425.1": {"tax_id": 2704583, "name": "Darksidea phi", "status": "current"},
+            "GCF_000011425.1": {"tax_id": 227321, "name": "Aspergillus nidulans FGSC A4", "status": "current"},
+            "GCF_000001405.40": {"tax_id": 9606, "name": "Homo sapiens", "status": "current"},
+            "GCF_000005845.2": {"tax_id": 511145, "name": "Escherichia coli str. K-12 substr. MG1655", "status": "current"},
+            "GCF_000000001.1": {"tax_id": 227321, "name": "Aspergillus nidulans FGSC A4", "status": "current"},
+        }
+        taxonomy = {
+            227321: {"organism_name": "Aspergillus nidulans FGSC A4", "lineage": [1, 131567, 2759, 4751, 4890]},
+            2704583: {"organism_name": "Darksidea phi", "lineage": [1, 131567, 2759, 4751, 4890]},
+            9606: {"organism_name": "Homo sapiens", "lineage": [1, 131567, 2759, 33208, 7711, 9605]},
+            511145: {"organism_name": "Escherichia coli str. K-12 substr. MG1655", "lineage": [1, 131567, 2, 1224, 561]},
+        }
+        if path.startswith("genome/accession/") and path.endswith("/dataset_report"):
+            accession = path.split("/", 2)[2].rsplit("/", 1)[0]
+            record = accession_reports.get(accession)
+            if record is None:
+                return {"reports": [], "total_count": 0}
+            return {
+                "reports": [
+                    {
+                        "accession": accession,
+                        "organism": {"tax_id": record["tax_id"], "organism_name": record["name"]},
+                        "assembly_info": {"assembly_status": record["status"]},
+                    }
+                ],
+                "total_count": 1,
+            }
+        if path.startswith("taxonomy/taxon/"):
+            tax_id = int(path.rsplit("/", 1)[-1])
+            payload = taxonomy.get(tax_id)
+            return {"taxonomy_nodes": [{"taxonomy": {"tax_id": tax_id, **payload}}]} if payload else {"taxonomy_nodes": []}
+        raise AssertionError(f"Unexpected NCBI test path: {path}")
 
     def write_ready_worker_status(self) -> None:
         worker_dir = Path(self.tmp.name) / "worker"
@@ -146,7 +185,7 @@ class WebApiAuthTests(unittest.TestCase):
             merged_fields.update(fields)
         body, content_type = self.multipart_body(
             merged_fields,
-            files or [("files", "accessions.txt", b"GCF_000001405.40\n")],
+            files or [("files", "accessions.txt", b"GCA_000011425.1\n")],
         )
         headers = {"Content-Type": content_type}
         if token:
@@ -237,7 +276,7 @@ class WebApiAuthTests(unittest.TestCase):
     def test_submit_token_creates_job_and_returns_unstored_read_token(self) -> None:
         status, payload, _ = self.submit(
             {"project_name": "auth-case", "cpus": "2"},
-            [("files", "accessions.txt", b"GCF_000001405.40\n")],
+            [("files", "accessions.txt", b"GCA_000011425.1\n")],
         )
         self.assertEqual(status, 201)
         self.assertEqual(payload["status"], "pending")
@@ -394,6 +433,125 @@ class WebApiAuthTests(unittest.TestCase):
 
         status, _, _ = self.request("GET", "/api/jobs/jobtwo/archive", headers=self.auth("read-one"))
         self.assertEqual(status, 403)
+
+    def test_public_file_manifest_and_archive_omit_stale_paths(self) -> None:
+        created = self.job_store.now_iso()
+        result_files = [
+            "downloads/demo_public_results.zip",
+            "downloads/public_results_manifest.tsv",
+            "data/results/demo/figures/bgc_overlap.svg",
+            "data/results/demo/summary/family_atlas_shortlist.md",
+            "data/results/demo/antismash/genome_a/index.html",
+            "data/results/demo/antismash/genome_a/deleted.html",
+            "data/results/demo/antismash/genome_a/region001.gbk",
+        ]
+        job = {
+            "id": "manifestjob",
+            "name": "manifest-demo",
+            "status": "success",
+            "stage": "complete",
+            "created_at": created,
+            "updated_at": created,
+            "log_count": 0,
+            "result_files": result_files,
+            "error": None,
+            "cpus": 2,
+            "project_name": "demo",
+            "read_token_hash": self.app.job_token_hash("read-manifest"),
+            "read_token_created_at": created,
+        }
+        root = self.job_store.job_dir("manifestjob")
+        manifest_text = (
+            "path\tbytes\tsha256\n"
+            "data/results/demo/figures/bgc_overlap.svg\t12\tdemo-figure\n"
+            "data/results/demo/summary/family_atlas_shortlist.md\t12\tdemo-summary\n"
+            "data/results/demo/antismash/genome_a/index.html\t24\tdemo-html\n"
+        )
+        file_contents = {
+            "downloads/public_results_manifest.tsv": manifest_text,
+            "data/results/demo/figures/bgc_overlap.svg": "<svg></svg>\n",
+            "data/results/demo/summary/family_atlas_shortlist.md": "# shortlist\n",
+            "data/results/demo/antismash/genome_a/index.html": "<html>antiSMASH</html>\n",
+            "data/results/demo/antismash/genome_a/region001.gbk": "LOCUS raw\n",
+            "data/results/demo/clinker/panels/atlas/choline/panel.html": "<html>synteny</html>\n",
+            "data/results/demo/clinker/panels/atlas/choline/run_panel.sh": "docker run private\n",
+            "data/results/demo/tmp/scratch.txt": "temporary\n",
+            "data/results/demo/summary_tables/logs/raw.log": "SECRET=1\n",
+            "data/results/demo/reproducibility/provenance.tsv": "/private/path\n",
+            "data/results/demo/reproducibility/external_artifacts.tsv": "/private/path\n",
+            "data/results/demo/run_clusterweave_context.env": "SECRET=1\n",
+            "data/results/demo/downloads/nested.zip": "PK\n",
+        }
+        for rel_path, content in file_contents.items():
+            target = root / rel_path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
+        symlink = root / "data" / "results" / "demo" / "figures" / "leak.svg"
+        try:
+            symlink.symlink_to(root / "job.json")
+        except (NotImplementedError, OSError):
+            pass
+        package_path = root / "downloads" / "demo_public_results.zip"
+        with zipfile.ZipFile(package_path, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("downloads/public_results_manifest.tsv", file_contents["downloads/public_results_manifest.tsv"])
+            archive.writestr("data/results/demo/figures/bgc_overlap.svg", file_contents["data/results/demo/figures/bgc_overlap.svg"])
+        self.job_store.write_job(job)
+
+        expected_files = [
+            "downloads/demo_public_results.zip",
+            "downloads/public_results_manifest.tsv",
+            "data/results/demo/figures/bgc_overlap.svg",
+            "data/results/demo/summary/family_atlas_shortlist.md",
+            "data/results/demo/antismash/genome_a/index.html",
+        ]
+        status, payload, _ = self.request("GET", "/api/jobs/manifestjob/files", headers=self.auth("read-manifest"))
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["files"], expected_files)
+
+        status, job_payload, _ = self.request("GET", "/api/jobs/manifestjob", headers=self.auth("read-manifest"))
+        self.assertEqual(status, 200)
+        self.assertEqual(job_payload["result_files"], expected_files)
+
+        status, manifest_body, _ = self.request(
+            "GET",
+            "/api/jobs/manifestjob/files/downloads/public_results_manifest.tsv",
+            headers=self.auth("read-manifest"),
+        )
+        self.assertEqual(status, 200)
+        manifest_rows = {
+            line.split("\t", 1)[0]
+            for line in manifest_body.decode("utf-8").splitlines()[1:]
+            if line.strip()
+        }
+        self.assertEqual(manifest_rows, set(expected_files[2:]))
+
+        status, archive_body, _ = self.request("GET", "/api/jobs/manifestjob/archive", headers=self.auth("read-manifest"))
+        self.assertEqual(status, 200)
+        with zipfile.ZipFile(io.BytesIO(archive_body)) as archive:
+            names = set(archive.namelist())
+        self.assertEqual(
+            names,
+            {
+                "figures/bgc_overlap.svg",
+                "summary/family_atlas_shortlist.md",
+                "antismash/genome_a/index.html",
+                "antismash/genome_a/region001.gbk",
+                "clinker/panels/atlas/choline/panel.html",
+            },
+        )
+        for name in names:
+            self.assertFalse(name.startswith("data/results/demo/"), name)
+        self.assertNotIn("downloads/demo_public_results.zip", names)
+        self.assertNotIn("downloads/public_results_manifest.tsv", names)
+        self.assertNotIn("data/results/demo/antismash/genome_a/deleted.html", names)
+        self.assertNotIn("clinker/panels/atlas/choline/run_panel.sh", names)
+        self.assertNotIn("tmp/scratch.txt", names)
+        self.assertNotIn("summary_tables/logs/raw.log", names)
+        self.assertNotIn("reproducibility/provenance.tsv", names)
+        self.assertNotIn("reproducibility/external_artifacts.tsv", names)
+        self.assertNotIn("run_clusterweave_context.env", names)
+        self.assertNotIn("downloads/nested.zip", names)
+        self.assertNotIn("figures/leak.svg", names)
 
     def test_read_token_cannot_fetch_unmanifested_or_private_job_files(self) -> None:
         self.write_job("jobone", "read-one")
@@ -552,6 +710,9 @@ class WebApiAuthTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("runtime", payload)
         self.assertIn("capabilities", payload)
+        self.assertIn("jobs_processed", payload)
+        self.assertIn("running_jobs", payload)
+        self.assertIn("queued_jobs", payload)
 
         rerun_body = json.dumps({"run_summary": True, "cpus": 1}).encode("utf-8")
         headers = {"Content-Type": "application/json", **self.auth("admin-secret")}
@@ -562,6 +723,135 @@ class WebApiAuthTests(unittest.TestCase):
         status, _, _ = self.request("DELETE", "/api/jobs/jobone", headers=self.auth("admin-secret"))
         self.assertEqual(status, 204)
         self.assertIsNone(self.job_store.read_job("jobone"))
+
+    def test_rerun_preserves_partial_public_outputs_and_resume_settings(self) -> None:
+        created = self.job_store.now_iso()
+        result_files = [
+            "downloads/demo_public_results.zip",
+            "downloads/public_results_manifest.tsv",
+            "data/results/demo/antismash/genome_a/index.html",
+            "data/results/demo/antismash/genome_a/style.css",
+            "data/results/demo/antismash/genome_a/region001.gbk",
+            "data/results/demo/funbgcex/genome_a/index.html",
+            "data/results/demo/funbgcex/genome_a/raw.tsv",
+            "data/results/demo/big_scape/output_files/index.html",
+            "data/results/demo/big_scape/output_files/data_sqlite.db",
+            "data/results/demo/big_scape/output_files/network.gml",
+            "data/results/demo/clinker/panel/panel.html",
+            "data/results/demo/clinker/panel/panel.js",
+            "data/results/demo/clinker/panel/deleted.html",
+            "data/results/demo/clinker/panel/panel_manifest.tsv",
+            "data/results/demo/figures/bgc_overlap.svg",
+            "data/results/demo/summary/family_atlas_shortlist.tsv",
+        ]
+        job = {
+            "id": "partialjob",
+            "name": "partial-demo",
+            "status": "failed",
+            "stage": "Staging synteny panels",
+            "created_at": created,
+            "updated_at": created,
+            "log_count": 2,
+            "result_files": result_files,
+            "error": "clinker failed with exit code 1",
+            "cpus": 2,
+            "project_name": "demo",
+            "settings": {
+                "run_genome_prep": True,
+                "run_annotation": True,
+                "run_bigscape": True,
+                "run_summary": True,
+                "run_clinker": True,
+                "run_figures": True,
+            },
+            "submission_settings": {
+                "run_genome_prep": True,
+                "run_annotation": True,
+                "run_bigscape": True,
+                "run_summary": True,
+                "run_clinker": True,
+                "run_figures": True,
+                "env_overrides": "SECRET_TOKEN=1",
+            },
+            "read_token_hash": self.app.job_token_hash("read-partial"),
+            "read_token_created_at": created,
+        }
+        self.job_store.write_job(job)
+        for rel_path in result_files:
+            if rel_path.endswith("/") or rel_path.endswith("/deleted.html"):
+                continue
+            target = self.job_store.job_dir("partialjob") / rel_path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("partial output\n", encoding="utf-8")
+        manifest_rows = [
+            "path\tbytes\tsha256",
+            "data/results/demo/antismash/genome_a/index.html\t15\tpartial",
+            "data/results/demo/antismash/genome_a/style.css\t15\tpartial",
+            "data/results/demo/funbgcex/genome_a/index.html\t15\tpartial",
+            "data/results/demo/big_scape/output_files/index.html\t15\tpartial",
+            "data/results/demo/big_scape/output_files/data_sqlite.db\t15\tpartial",
+            "data/results/demo/clinker/panel/panel.html\t15\tpartial",
+            "data/results/demo/clinker/panel/panel.js\t15\tpartial",
+            "data/results/demo/figures/bgc_overlap.svg\t15\tpartial",
+            "data/results/demo/summary/family_atlas_shortlist.tsv\t15\tpartial",
+        ]
+        (self.job_store.job_dir("partialjob") / "downloads" / "public_results_manifest.tsv").write_text(
+            "\n".join(manifest_rows) + "\n",
+            encoding="utf-8",
+        )
+        self.job_store.append_log("partialjob", "Reusing existing staged ClusterWeave layout for rerun.")
+        self.job_store.append_log("partialjob", "Stage 4/4: running run_clinker.sh")
+
+        status, payload, _ = self.request("GET", "/api/jobs/partialjob/files", headers=self.auth("read-partial"))
+        self.assertEqual(status, 200)
+        files = payload["files"]
+        self.assertIn("data/results/demo/antismash/genome_a/index.html", files)
+        self.assertIn("data/results/demo/funbgcex/genome_a/index.html", files)
+        self.assertIn("data/results/demo/big_scape/output_files/index.html", files)
+        self.assertIn("data/results/demo/big_scape/output_files/data_sqlite.db", files)
+        self.assertIn("data/results/demo/clinker/panel/panel.html", files)
+        self.assertIn("data/results/demo/figures/bgc_overlap.svg", files)
+        self.assertNotIn("data/results/demo/clinker/panel/deleted.html", files)
+        self.assertNotIn("data/results/demo/antismash/genome_a/region001.gbk", files)
+        self.assertNotIn("data/results/demo/funbgcex/genome_a/raw.tsv", files)
+        self.assertNotIn("data/results/demo/big_scape/output_files/network.gml", files)
+        self.assertNotIn("data/results/demo/clinker/panel/panel_manifest.tsv", files)
+
+        rerun_body = json.dumps({"run_clinker": True, "run_figures": True, "cpus": 1}).encode("utf-8")
+        headers = {"Content-Type": "application/json", **self.auth("admin-secret")}
+        status, rerun_payload, _ = self.request("POST", "/api/jobs/partialjob/rerun", body=rerun_body, headers=headers)
+        self.assertEqual(status, 202)
+        self.assertEqual(rerun_payload["status"], "pending")
+
+        stored = self.job_store.read_job("partialjob")
+        self.assertIsNotNone(stored)
+        assert stored is not None
+        self.assertEqual(stored["status"], "pending")
+        self.assertEqual(stored["stage"], "queued")
+        self.assertEqual(stored["result_files"], result_files)
+        self.assertEqual(stored["submission_settings"], job["submission_settings"])
+        self.assertTrue(stored["last_rerun_settings"]["reuse_existing_layout"])
+        self.assertTrue(stored["last_rerun_settings"]["run_clinker"])
+        self.assertTrue(stored["last_rerun_settings"]["execute_clinker"])
+        self.assertTrue(stored["last_rerun_settings"]["run_figures"])
+        self.assertFalse(stored["last_rerun_settings"]["run_annotation"])
+        self.assertFalse(stored["last_rerun_settings"]["run_bigscape"])
+        self.assertFalse(stored["last_rerun_settings"]["run_summary"])
+        self.assertEqual(stored["rerun_count"], 1)
+
+        queue_payload = json.loads((Path(self.tmp.name) / "queue" / "partialjob.json").read_text(encoding="utf-8"))
+        self.assertEqual(queue_payload["job_id"], "partialjob")
+        self.assertTrue(queue_payload["settings"]["reuse_existing_layout"])
+        self.assertTrue(queue_payload["settings"]["run_clinker"])
+        self.assertTrue(queue_payload["settings"]["execute_clinker"])
+        self.assertTrue(queue_payload["settings"]["run_figures"])
+        self.assertFalse(queue_payload["settings"]["run_annotation"])
+        self.assertFalse(queue_payload["settings"]["run_bigscape"])
+        self.assertFalse(queue_payload["settings"]["run_summary"])
+
+        status, pending_files, _ = self.request("GET", "/api/jobs/partialjob/files", headers=self.auth("read-partial"))
+        self.assertEqual(status, 200)
+        self.assertEqual(pending_files["files"], files)
 
     def test_public_deployment_smoke_role_matrix_and_result_file_access(self) -> None:
         self.write_job("smokeone", "read-one")
@@ -589,7 +879,7 @@ class WebApiAuthTests(unittest.TestCase):
 
         status, submitted, _ = self.submit(
             fields={"project_name": "smoke-submit", "cpus": "1"},
-            files=[("files", "accessions.txt", b"GCF_000001405.40\n")],
+            files=[("files", "accessions.txt", b"GCA_000011425.1\n")],
         )
         self.assertEqual(status, 201)
         submitted_job_id = submitted["job_id"]
@@ -633,6 +923,9 @@ class WebApiAuthTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("runtime", admin_status)
         self.assertIn("worker", admin_status)
+        self.assertIn("jobs_processed", admin_status)
+        self.assertIn("running_jobs", admin_status)
+        self.assertIn("queued_jobs", admin_status)
 
         status, jobs, _ = self.request("GET", "/api/jobs", headers=self.auth("admin-secret"))
         self.assertEqual(status, 200)
@@ -673,8 +966,8 @@ class WebApiAuthTests(unittest.TestCase):
 
     def test_public_upload_policy_rejects_unsupported_inputs_before_job_creation(self) -> None:
         rejected_files = [
-            ("table.csv", b"accession\nGCF_000001405.40\n"),
-            ("table.tsv", b"accession\nGCF_000001405.40\n"),
+            ("table.csv", b"accession\nGCA_000011425.1\n"),
+            ("table.tsv", b"accession\nGCA_000011425.1\n"),
             ("proteins.faa", b">protein\nMADEUP\n"),
             ("network.json", b"{}"),
             ("archive.zip", b"PK"),
@@ -787,7 +1080,13 @@ ORIGIN
             ("accessions.txt", b"totally_random\n"),
             ("accessions.txt", b"GCF_123\n"),
             ("accessions.txt", b"ABC_000001405.1\n"),
-            ("accessions.txt", b"GCF_000001405\n"),
+            ("accessions.txt", b"GCA_000011425\n"),
+            ("accessions.txt", b"PRJNA31257\n"),
+            ("accessions.txt", b"SAMN02604091\n"),
+            ("accessions.txt", b"SRR123456\n"),
+            ("accessions.txt", b"NZ_CP000001.1\n"),
+            ("accessions.txt", b"NC_000001.11\n"),
+            ("accessions.txt", b"9606\n"),
             ("manual_accessions.txt", b"not_an_assembly\n"),
         ]
         for filename, content in rejected_files:
@@ -798,9 +1097,32 @@ ORIGIN
                 self.assertIn("GCA_000011425.1", payload["detail"])
                 self.assertEqual(list((Path(self.tmp.name) / "jobs").glob("*")), [])
 
+    def test_public_accession_lists_reject_non_fungal_assemblies_before_job_creation(self) -> None:
+        for accession, organism in [
+            ("GCF_000001405.40", "Homo sapiens"),
+            ("GCF_000005845.2", "Escherichia coli"),
+        ]:
+            with self.subTest(accession=accession):
+                status, payload, _ = self.submit(files=[("files", "accessions.txt", f"{accession}\n".encode("utf-8"))])
+                self.assertEqual(status, 400)
+                self.assertIn(organism, payload["detail"])
+                self.assertIn("not a fungal assembly", payload["detail"])
+                self.assertEqual(list((Path(self.tmp.name) / "jobs").glob("*")), [])
+
+    def test_public_submission_rejects_multiple_accession_lists_before_job_creation(self) -> None:
+        status, payload, _ = self.submit(
+            files=[
+                ("files", "accessions-one.txt", b"GCA_000011425.1\n"),
+                ("files", "accessions-two.txt", b"GCA_030770425.1\n"),
+            ]
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("one accession list", payload["detail"])
+        self.assertEqual(list((Path(self.tmp.name) / "jobs").glob("*")), [])
+
     def test_accession_lists_require_one_accession_per_line(self) -> None:
         status, payload, _ = self.submit(
-            files=[("files", "accessions.txt", b"GCF_000001405.40 GCA_000011425.1\n")]
+            files=[("files", "accessions.txt", b"GCA_030770425.1 GCA_000011425.1\n")]
         )
         self.assertEqual(status, 400)
         self.assertIn("one accession per line", payload["detail"])
@@ -897,7 +1219,7 @@ ORIGIN
         self.assertEqual(completed["completed_at"], "2026-01-01T00:00:00")
         self.assertEqual(completed["expires_at"], "2026-01-31T00:00:00")
 
-    def test_public_submission_uses_fixed_canonical_workflow(self) -> None:
+    def test_public_submission_locks_base_stages_but_honors_safe_downstream_toggles(self) -> None:
         fields = {
             "project_name": "canonical-case",
             "cpus": "1",
@@ -930,12 +1252,12 @@ ORIGIN
         self.assertFalse(settings["run_ncbi_install"])
         self.assertTrue(settings["run_genome_prep"])
         self.assertTrue(settings["run_annotation"])
-        self.assertTrue(settings["run_bigscape"])
-        self.assertTrue(settings["run_summary"])
-        self.assertTrue(settings["run_crosswalk"])
-        self.assertTrue(settings["run_clinker"])
-        self.assertTrue(settings["execute_clinker"])
-        self.assertTrue(settings["run_figures"])
+        self.assertFalse(settings["run_bigscape"])
+        self.assertFalse(settings["run_summary"])
+        self.assertFalse(settings["run_crosswalk"])
+        self.assertFalse(settings["run_clinker"])
+        self.assertFalse(settings["execute_clinker"])
+        self.assertFalse(settings["run_figures"])
         self.assertFalse(settings["figures_required"])
         self.assertFalse(settings["force"])
         self.assertEqual(settings["genefinding_mode"], "auto")
