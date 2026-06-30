@@ -3,6 +3,7 @@ __pycache__/
 *.log
 *.tmp
 *.bak
+.env
 .pytest_cache/
 .mypy_cache/
 .DS_Store
@@ -30,6 +31,16 @@ software/funbgcex/**
 !software/funbgcex/build_funbgcex_sif.sh
 !software/funbgcex/Dockerfile
 !software/funbgcex/Singularity.def
+!software/funannotate/
+software/funannotate/**
+!software/funannotate/build_funannotate_sif.sh
+!software/funannotate/install_busco_db.py
+!software/funannotate/Dockerfile
+!software/funannotate/Singularity.def
+!software/funannotate/README.md
+!software/funannotate/busco_cache/
+software/funannotate/busco_cache/**
+!software/funannotate/busco_cache/.gitkeep
 
 /results/
 /logs/
@@ -47,10 +58,18 @@ demo
 # Local web handoff boards and QA-only compose files.
 web/STAN.md
 web/STYLE.md
-web/UI_SLICE_ARCHIVE.md
+web/STYLE_ARCHIVE.md
+web/PRODUCTION_LAUNCH_SLICE_MAP.md
+web/PRODUCTION_LAUNCH_SLICE_ARCHIVE.md
 web/GLOSSARY.md
 web/UPSTREAM_MAINTAINER_NOTE.md
 docker-compose.local-faces.yml
 
-# Editable manuscript/design source files not needed in the public source release.
-manuscript/application_note/figures/logo_3D_1.ai
+# Editable publication/design source files not needed in the public source release.
+manuscript/
+visuals/*.ai
+visuals/*.blend
+visuals/*.mp4
+visuals/*.mov
+visuals/*.psd
+visuals/*.sketch

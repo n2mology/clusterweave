@@ -13,4 +13,4 @@ Unlike `tests/`, this directory is meant for human-facing example material such 
 
 - tiny walkthrough input bundles
 - public-safe example outputs or screenshots
-- manuscript/release companion files
+- publication/release companion files

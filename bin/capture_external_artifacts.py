@@ -6,7 +6,10 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import json
 import os
+import shutil
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -22,6 +25,9 @@ FIELDNAMES = [
     "size_bytes",
     "captured_at",
 ]
+
+DEFAULT_FUNANNOTATE_BASE_IMAGE_URI = "docker://nextgenusfs/funannotate:v1.8.17"
+DEFAULT_FUNANNOTATE_DOCKER_IMAGE_URI = "docker://clusterweave-funannotate:v1.8.17-busco"
 
 
 def clean(value: object) -> str:
@@ -52,6 +58,53 @@ def tag_from_source(source_uri: str) -> str:
         return "latest"
     name = Path(text).name
     return name or text
+
+
+def docker_image_from_uri(source_uri: str) -> str:
+    text = clean(source_uri)
+    if not text:
+        return ""
+    text = text.removeprefix("docker://")
+    return text.split("@", 1)[0]
+
+
+def docker_image_identifier(image_ref: str) -> str:
+    image_ref = clean(image_ref)
+    if not image_ref or shutil.which("docker") is None:
+        return ""
+    try:
+        proc = subprocess.run(
+            ["docker", "image", "inspect", image_ref],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    if proc.returncode != 0:
+        return ""
+    try:
+        metadata = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return ""
+    if not metadata:
+        return ""
+    repo_digests = metadata[0].get("RepoDigests") or []
+    for repo_digest in repo_digests:
+        digest = digest_from_source(repo_digest)
+        if digest:
+            return digest
+    return clean(metadata[0].get("Id", ""))
+
+
+def funannotate_uses_docker_runtime() -> bool:
+    engine = env("ENGINE").lower()
+    if engine == "docker":
+        return True
+    if engine in {"singularity", "apptainer"}:
+        return False
+    return "docker" in env("CLUSTERWEAVE_RUNTIME_MODE").lower()
 
 
 def sha256_file(path: Path) -> tuple[str, int]:
@@ -122,6 +175,69 @@ def add_row(
     )
 
 
+def add_virtual_row(
+    rows: list[dict[str, str]],
+    *,
+    stage: str,
+    artifact: str,
+    source_uri: str,
+    local_path: str = "",
+    version_or_tag: str = "",
+    resolved_digest: str = "",
+    captured_at: str,
+) -> None:
+    source_uri = clean(source_uri)
+    rows.append(
+        {
+            "stage": stage,
+            "artifact": artifact,
+            "source_uri": source_uri,
+            "local_path": clean(local_path),
+            "version_or_tag": clean(version_or_tag) or tag_from_source(source_uri),
+            "resolved_digest": clean(resolved_digest) or digest_from_source(source_uri),
+            "sha256": "",
+            "size_bytes": "",
+            "captured_at": captured_at,
+        }
+    )
+
+
+def add_funannotate_runtime_row(
+    rows: list[dict[str, str]],
+    *,
+    software_root: Path,
+    captured_at: str,
+) -> None:
+    if funannotate_uses_docker_runtime():
+        source_uri = env("FUNANNOTATE_IMAGE_URI", DEFAULT_FUNANNOTATE_DOCKER_IMAGE_URI)
+        image_ref = docker_image_from_uri(source_uri)
+        add_virtual_row(
+            rows,
+            stage="stage1_annotation_detection",
+            artifact="funannotate_docker_image",
+            source_uri=source_uri,
+            local_path=f"docker-image://{image_ref}" if image_ref else "",
+            resolved_digest=digest_from_source(source_uri) or docker_image_identifier(image_ref),
+            captured_at=captured_at,
+        )
+        return
+
+    funannotate_sif = Path(
+        env("FUNANNOTATE_SIF", str(software_root / "funannotate" / "funannotate_v1.8.17.sif"))
+    )
+    add_row(
+        rows,
+        stage="stage1_annotation_detection",
+        artifact="funannotate_sif",
+        source_uri=env(
+            "FUNANNOTATE_SIF_SOURCE",
+            env("FUNANNOTATE_BASE_IMAGE_URI", DEFAULT_FUNANNOTATE_BASE_IMAGE_URI),
+        ),
+        local_path=funannotate_sif,
+        captured_at=captured_at,
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Capture checksums and source hints for external ClusterWeave artifacts."
@@ -155,9 +271,6 @@ def main() -> None:
     antismash_sif = Path(env("ANTISMASH_SIF", str(software_root / "antismash" / "antismash_standalone.sif")))
     funbgcex_sif = Path(env("FUNBGCEX_SIF", str(software_root / "funbgcex" / "funbgcex_bundle.sif")))
     braker_sif = Path(env("BRAKER_SIF", str(software_root / "braker" / "braker3.sif")))
-    funannotate_sif = Path(
-        env("FUNANNOTATE_SIF", str(software_root / "funannotate" / "funannotate_v1.8.17.sif"))
-    )
     bigscape_softdir = Path(env("BIGSCAPE_SOFTDIR", str(software_root / "big_scape")))
     bigscape_sif = Path(
         env("BIGSCAPE_SIF_PATH", env("SIF_PATH", str(bigscape_softdir / "bigscape_2.0.0-beta.6.sif")))
@@ -192,14 +305,7 @@ def main() -> None:
         version_or_tag=env("FUNBGCEX_VERSION", "1.0.1"),
         captured_at=captured_at,
     )
-    add_row(
-        rows,
-        stage="stage1_annotation_detection",
-        artifact="funannotate_sif",
-        source_uri=env("FUNANNOTATE_IMAGE_URI", "docker://nextgenusfs/funannotate:v1.8.17"),
-        local_path=funannotate_sif,
-        captured_at=captured_at,
-    )
+    add_funannotate_runtime_row(rows, software_root=software_root, captured_at=captured_at)
     if braker_sif.exists() or env("BRAKER3_ENABLED", "0") == "1":
         add_row(
             rows,

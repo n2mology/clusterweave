@@ -4,16 +4,44 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
 try:
-    from job_store import DATA_DIR, QUEUE_DIR, append_log, list_jobs, now_iso, read_job, read_logs, write_job, write_logs
+    from job_store import (
+        DATA_DIR,
+        QUEUE_DIR,
+        append_log,
+        job_cancel_requested,
+        job_delete_path,
+        job_dir,
+        list_jobs,
+        now_iso,
+        read_job,
+        read_logs,
+        write_job,
+        write_logs,
+    )
     from canonical_pipeline import Job, JobStatus, run_pipeline
     from notifications import maybe_send_terminal_notification
     from runtime_capabilities import runtime_health
 except ImportError:  # pragma: no cover - package-style imports in local tests
-    from .job_store import DATA_DIR, QUEUE_DIR, append_log, list_jobs, now_iso, read_job, read_logs, write_job, write_logs
+    from .job_store import (
+        DATA_DIR,
+        QUEUE_DIR,
+        append_log,
+        job_cancel_requested,
+        job_delete_path,
+        job_dir,
+        list_jobs,
+        now_iso,
+        read_job,
+        read_logs,
+        write_job,
+        write_logs,
+    )
     from .canonical_pipeline import Job, JobStatus, run_pipeline
     from .notifications import maybe_send_terminal_notification
     from .runtime_capabilities import runtime_health
@@ -22,6 +50,67 @@ POLL_SECONDS = float(os.environ.get("WORKER_POLL_SECONDS", "1.0"))
 WORKER_CONCURRENCY = max(1, int(os.environ.get("WORKER_CONCURRENCY", "1")))
 WORKER_DIR = DATA_DIR / "worker"
 WORKER_STATUS_PATH = WORKER_DIR / "status.json"
+CANCELLED_ERROR = "Cancelled by administrator"
+
+
+def _docker(args: list[str], timeout: int = 20) -> subprocess.CompletedProcess[str] | None:
+    try:
+        return subprocess.run(
+            ["docker", *args],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except (FileNotFoundError, subprocess.SubprocessError, OSError):
+        return None
+
+
+def _running_container_ids_for_job(job_id: str) -> list[str]:
+    ids: set[str] = set()
+    labeled = _docker(["ps", "-q", "--filter", f"label=clusterweave.job_id={job_id}"])
+    if labeled and labeled.returncode == 0:
+        ids.update(line.strip() for line in labeled.stdout.splitlines() if line.strip())
+
+    all_running = _docker(["ps", "-q"])
+    running_ids = [line.strip() for line in (all_running.stdout if all_running else "").splitlines() if line.strip()]
+    if running_ids:
+        inspected = _docker(
+            [
+                "inspect",
+                "--format",
+                "{{.Id}}\t{{json .Config.Cmd}}\t{{json .Mounts}}\t{{json .Config.Labels}}",
+                *running_ids,
+            ],
+            timeout=30,
+        )
+        if inspected and inspected.returncode == 0:
+            for line in inspected.stdout.splitlines():
+                container_id, _, details = line.partition("\t")
+                if f"/data/jobs/{job_id}" in details or f"clusterweave.job_id\":\"{job_id}" in details:
+                    ids.add(container_id.strip())
+    return sorted(ids)
+
+
+def stop_job_containers(job_id: str) -> None:
+    ids = _running_container_ids_for_job(job_id)
+    if not ids:
+        return
+    append_log(job_id, f"Stopping {len(ids)} active tool container(s) for cancelled job.")
+    _docker(["stop", "--time", "10", *ids], timeout=60)
+
+
+def finalize_cancelled_job(job_id: str, cpus: int, settings: dict[str, Any], detail: str = CANCELLED_ERROR) -> None:
+    meta = read_job(job_id)
+    if meta is not None:
+        job = build_job_from_meta(meta)
+        job.status = JobStatus.FAILED
+        job.stage = "cancelled"
+        job.error = detail
+        job.add_log(f"Cancelled: {detail}.")
+        persist_job(job, cpus, settings)
+    if job_delete_path(job_id).exists():
+        shutil.rmtree(job_dir(job_id), ignore_errors=True)
 
 
 def state_progress(state: str) -> int:
@@ -83,7 +172,12 @@ def claim_next_job() -> tuple[str, int, dict[str, Any]] | None:
             settings = payload.get("settings") or {}
             if not isinstance(settings, dict):
                 settings = {}
-            return job_id, max(1, cpus), settings
+            cpus = max(1, cpus)
+            if job_cancel_requested(job_id):
+                append_log(job_id, "Cancelled queued job before worker start.")
+                finalize_cancelled_job(job_id, cpus, settings, "Cancelled before worker start")
+                continue
+            return job_id, cpus, settings
         finally:
             working.unlink(missing_ok=True)
     return None
@@ -135,6 +229,11 @@ def recover_orphaned_running_jobs() -> list[str]:
             cpus = max(1, int(meta.get("cpus", 4)))
         except (TypeError, ValueError):
             cpus = 4
+
+        if job_cancel_requested(job_id):
+            append_log(job_id, "Cancelled interrupted running job during worker recovery.")
+            finalize_cancelled_job(job_id, cpus, settings, "Cancelled during worker recovery")
+            continue
 
         append_log(job_id, "Recovered interrupted running job after worker restart; re-queued for worker slot.")
         if stage_has_passed_genome_prep(previous_stage):
@@ -198,6 +297,9 @@ async def process_one(job_id: str, cpus: int, queued_settings: dict[str, Any]) -
     settings = dict(meta.get("settings") or {})
     settings.update(queued_settings)
 
+    if job_cancel_requested(job_id):
+        raise asyncio.CancelledError(CANCELLED_ERROR)
+
     job = build_job_from_meta(meta)
 
     def on_change() -> None:
@@ -223,6 +325,10 @@ async def process_one(job_id: str, cpus: int, queued_settings: dict[str, Any]) -
 async def process_claim(job_id: str, cpus: int, settings: dict[str, Any]) -> None:
     try:
         await process_one(job_id, cpus, settings)
+    except asyncio.CancelledError:
+        stop_job_containers(job_id)
+        finalize_cancelled_job(job_id, cpus, settings)
+        return
     except Exception as exc:
         meta = read_job(job_id)
         if meta is not None:
@@ -243,13 +349,24 @@ async def worker_loop() -> None:
     else:
         write_worker_status("ready", f"Worker loop started (concurrency={WORKER_CONCURRENCY})")
     active: dict[str, asyncio.Task[None]] = {}
+    cancelling: set[str] = set()
     while True:
         for job_id, task in list(active.items()):
+            if job_cancel_requested(job_id) and not task.done():
+                if job_id not in cancelling:
+                    cancelling.add(job_id)
+                    append_log(job_id, "Worker observed cancellation marker; stopping active workflow task.")
+                    stop_job_containers(job_id)
+                    task.cancel()
+                continue
             if not task.done():
                 continue
             active.pop(job_id, None)
+            cancelling.discard(job_id)
             try:
                 task.result()
+            except asyncio.CancelledError:
+                pass
             except Exception as exc:
                 write_worker_status("error", str(exc), active_jobs=sorted(active))
 

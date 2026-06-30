@@ -12,6 +12,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from unittest import mock
 import zipfile
 
 
@@ -39,6 +40,8 @@ class WebApiAuthTests(unittest.TestCase):
             "CLUSTERWEAVE_SMTP_USERNAME",
             "CLUSTERWEAVE_SMTP_PASSWORD",
             "CLUSTERWEAVE_SMTP_FROM",
+            "CLUSTERWEAVE_SMTP_TLS",
+            "CLUSTERWEAVE_SMTP_SSL",
             "CLUSTERWEAVE_SMTP_OUTBOX_DIR",
             "CLUSTERWEAVE_PUBLIC_BASE_URL",
             "CLUSTERWEAVE_MAX_ACCESSIONS",
@@ -111,10 +114,42 @@ class WebApiAuthTests(unittest.TestCase):
             "GCF_000000001.1": {"tax_id": 227321, "name": "Aspergillus nidulans FGSC A4", "status": "current"},
         }
         taxonomy = {
-            227321: {"organism_name": "Aspergillus nidulans FGSC A4", "lineage": [1, 131567, 2759, 4751, 4890]},
-            2704583: {"organism_name": "Darksidea phi", "lineage": [1, 131567, 2759, 4751, 4890]},
-            9606: {"organism_name": "Homo sapiens", "lineage": [1, 131567, 2759, 33208, 7711, 9605]},
-            511145: {"organism_name": "Escherichia coli str. K-12 substr. MG1655", "lineage": [1, 131567, 2, 1224, 561]},
+            227321: {
+                "organism_name": "Aspergillus nidulans FGSC A4",
+                "lineage": [1, 131567, 2759, 4751, 4890],
+                "classification": {
+                    "class": {"id": 147545, "name": "Eurotiomycetes"},
+                    "order": {"id": 5042, "name": "Eurotiales"},
+                    "family": {"id": 1131492, "name": "Aspergillaceae"},
+                },
+            },
+            2704583: {
+                "organism_name": "Darksidea phi",
+                "lineage": [1, 131567, 2759, 4751, 4890],
+                "classification": {
+                    "class": {"id": 147541, "name": "Dothideomycetes"},
+                    "order": {"id": 501485, "name": "Pleosporales"},
+                    "family": {"id": 93133, "name": "Pleosporaceae"},
+                },
+            },
+            9606: {
+                "organism_name": "Homo sapiens",
+                "lineage": [1, 131567, 2759, 33208, 7711, 9605],
+                "classification": {
+                    "class": {"id": 40674, "name": "Mammalia"},
+                    "order": {"id": 9443, "name": "Primates"},
+                    "family": {"id": 9604, "name": "Hominidae"},
+                },
+            },
+            511145: {
+                "organism_name": "Escherichia coli str. K-12 substr. MG1655",
+                "lineage": [1, 131567, 2, 1224, 561],
+                "classification": {
+                    "class": {"id": 1236, "name": "Gammaproteobacteria"},
+                    "order": {"id": 91347, "name": "Enterobacterales"},
+                    "family": {"id": 543, "name": "Enterobacteriaceae"},
+                },
+            },
         }
         if path.startswith("genome/accession/") and path.endswith("/dataset_report"):
             accession = path.split("/", 2)[2].rsplit("/", 1)[0]
@@ -285,6 +320,15 @@ class WebApiAuthTests(unittest.TestCase):
         self.assertIsInstance(read_token, str)
         self.assertNotEqual(read_token, "")
         self.assertEqual(payload["result_url"], f"http://127.0.0.1:{self.base_port}/#/job/{payload['job_id']}/{read_token}")
+        accession_metadata = payload["input_summary"]["accession_metadata"]
+        self.assertEqual(accession_metadata[0]["accession"], "GCA_000011425.1")
+        self.assertEqual(accession_metadata[0]["organism_name"], "Aspergillus nidulans FGSC A4")
+        self.assertEqual(accession_metadata[0]["tax_id"], 227321)
+        self.assertEqual(accession_metadata[0]["taxa"], "NCBI taxon 227321 / fungi")
+        self.assertEqual(accession_metadata[0]["order_name"], "Eurotiales")
+        self.assertEqual(accession_metadata[0]["family_name"], "Aspergillaceae")
+        self.assertEqual(accession_metadata[0]["class_name"], "Eurotiomycetes")
+        self.assertEqual(accession_metadata[0]["order_family"], "Eurotiales:Aspergillaceae")
 
         job = self.job_store.read_job(payload["job_id"])
         self.assertIsNotNone(job)
@@ -292,6 +336,7 @@ class WebApiAuthTests(unittest.TestCase):
         self.assertNotIn("read_token", job)
         self.assertIn("read_token_hash", job)
         self.assertNotEqual(job["read_token_hash"], read_token)
+        self.assertEqual(job["input_summary"]["accession_metadata"], accession_metadata)
 
         status, _, _ = self.request("GET", "/api/jobs", headers=self.auth("submit-secret"))
         self.assertEqual(status, 403)
@@ -379,6 +424,11 @@ class WebApiAuthTests(unittest.TestCase):
         status, payload, _ = self.submit(fields={"data_use_ack": "0"})
         self.assertEqual(status, 400)
         self.assertIn("Data-use acknowledgment", payload["detail"])
+
+    def test_public_submission_requires_project_name(self) -> None:
+        status, payload, _ = self.submit(fields={"project_name": ""})
+        self.assertEqual(status, 400)
+        self.assertIn("Project name is required", payload["detail"])
 
     def test_notification_email_is_stored_only_when_smtp_enabled(self) -> None:
         fields = {"project_name": "email-case", "notify_email": "user@example.org"}
@@ -640,8 +690,16 @@ class WebApiAuthTests(unittest.TestCase):
                 "[08:04:20] Genomes to process (4): fungus_id1, fungus id2, /data/jobs/jobone/private/fungus_id3.fna, fungus_id4",
                 "[08:04:21] [1/4] genome=fungus_id1",
                 "[08:04:22] [2026-05-12 08:04:22] [INFO] fungus_id1: running antiSMASH (outdir=/data/jobs/jobone/private/secret)",
-                "[08:04:23] [2026-05-12 08:04:23] [INFO] fungus_id4: running FunBGCeX (outdir=/data/jobs/jobone/private/secret)",
-                "[08:04:24] Stage 2/4: running run_bigscape.sh",
+                '[08:04:23] [2026-05-12 08:04:23] [INFO] TOOL_PROGRESS genome=fungus_id1 tool=antismash phase=detect message="Scanning protein domains"',
+                "[08:04:24] [2026-05-12 08:04:24] [INFO] TOOL_RAW genome=fungus_id1 tool=antismash stream=stderr /data/jobs/jobone/private/secret raw ERROR",
+                "[08:04:25] [2026-05-12 08:04:25] [INFO] TOOL_HEARTBEAT genome=fungus_id1 tool=antismash phase=detect elapsed=1800s",
+                "[08:04:26] [2026-05-12 08:04:26] [INFO] TOOL_RAW genome=fungus_id1 tool=antismash stream=stderr INFO     28/06 08:04:26   Running whole-genome PFAM search",
+                '[08:04:27] [2026-05-12 08:04:27] [INFO] TOOL_PROGRESS genome=fungus_id1 tool=antismash phase=detect message="Scanning protein domains"',
+                "[08:04:28] [2026-05-12 08:04:28] [INFO] TOOL_HEARTBEAT genome=fungus_id1 tool=antismash phase=detect elapsed=3600s",
+                '[08:04:29] [2026-05-12 08:04:29] [INFO] TOOL_PROGRESS genome=fungus_id1 tool=funannotate phase=predict message="Training gene models"',
+                "[08:04:30] [2026-05-12 08:04:30] [INFO] fungus_id4: running FunBGCeX (outdir=/data/jobs/jobone/private/secret)",
+                "[08:04:31] [WARN] Rhizopus_delemar: funannotate could not train AUGUSTUS; validated_busco_models=153 required_training_models=200 busco_db=fungi policy=taxonomy:mucorales",
+                "[08:04:32] Stage 2/4: running run_bigscape.sh",
             ],
         )
 
@@ -650,10 +708,46 @@ class WebApiAuthTests(unittest.TestCase):
         events = payload["public_events"]
         rendered = json.dumps(events)
         self.assertIn("Running antiSMASH on fungus_id1", rendered)
+        self.assertIn("antiSMASH: Scanning protein domains", rendered)
+        self.assertIn("antiSMASH: Running whole-genome PFAM search", rendered)
+        self.assertIn("antiSMASH still running", rendered)
+        self.assertIn("1h active", rendered)
+        scanning_event = next(event for event in events if event.get("title") == "antiSMASH: Scanning protein domains")
+        self.assertEqual(scanning_event.get("time"), "08:04:27")
+        self.assertIn("funannotate: Training gene models", rendered)
         self.assertIn("Running FunBGCeX on fungus_id4", rendered)
+        self.assertIn("Annotation skipped for Rhizopus_delemar", rendered)
+        self.assertIn("BUSCO training had 153 of 200 required models", rendered)
         self.assertIn("Running BiG-SCAPE family graph", rendered)
+        self.assertNotIn("TOOL_RAW", rendered)
+        self.assertNotIn("raw ERROR", rendered)
         self.assertNotIn("/data/jobs", rendered)
         self.assertNotIn("secret", rendered)
+
+    def test_public_activity_heartbeat_refresh_preserves_tool_progress(self) -> None:
+        self.write_job("jobone", "read-one", status="running")
+        logs = [
+            "[08:04:16] Stage 1/4: running run_annotation_and_detection.sh",
+            "[08:04:20] Genomes to process (1): fungus_id1",
+            "[08:04:21] [1/1] genome=fungus_id1",
+            '[08:04:23] [INFO] TOOL_PROGRESS genome=fungus_id1 tool=antismash phase=detect message="Scanning protein domains"',
+        ]
+        for index in range(45):
+            elapsed = (index + 1) * 60
+            logs.append(
+                f"[08:05:{index % 60:02d}] [INFO] TOOL_HEARTBEAT genome=fungus_id1 tool=antismash phase=detect elapsed={elapsed}s"
+            )
+        self.job_store.write_logs("jobone", logs)
+
+        status, payload, _ = self.request("GET", "/api/jobs/jobone", headers=self.auth("read-one"))
+        self.assertEqual(status, 200)
+        events = payload["public_events"]
+        titles = [event.get("title") for event in events]
+        self.assertIn("antiSMASH: Scanning protein domains", titles)
+        heartbeats = [event for event in events if event.get("title") == "antiSMASH still running"]
+        self.assertEqual(len(heartbeats), 1)
+        self.assertEqual(heartbeats[0].get("meta"), "fungus_id1 / Genome 1 of 1 / 45 min active")
+
 
     def test_terminal_notification_email_is_sanitized_and_adds_read_token_hash(self) -> None:
         outbox = Path(self.tmp.name) / "outbox"
@@ -684,8 +778,8 @@ class WebApiAuthTests(unittest.TestCase):
         self.assertEqual(len(messages), 1)
         body = messages[0].read_text(encoding="utf-8")
         self.assertIn("https://clusterweave.example.org/app/#/job/failjob/", body)
-        self.assertIn("Recovery details:", body)
-        self.assertIn("ClusterWeave job ID: failjob", body)
+        self.assertIn("You can review logs and any partial results at", body)
+        self.assertIn("The ClusterWeave job failjob you submitted", body)
         self.assertIn("Result access code:", body)
         self.assertIn("Suggested fixes:", body)
         self.assertNotIn("/data/jobs", body)
@@ -697,6 +791,63 @@ class WebApiAuthTests(unittest.TestCase):
         status, payload, _ = self.request("GET", "/api/jobs/failjob", headers=self.auth(email_token))
         self.assertEqual(status, 200)
         self.assertEqual(payload["id"], "failjob")
+
+    def test_success_notification_email_is_concise_result_message(self) -> None:
+        job = {
+            "id": "donejob",
+            "status": "success",
+            "project_name": "done-project",
+            "created_at": "2026-06-28T01:03:29",
+            "expires_at": "2026-07-28T01:03:29",
+            "retention_days": 30,
+            "notify_email": "user@example.org",
+            "input_summary": {"accession_count": 2, "genome_file_count": 1},
+        }
+        message = self.notifications.build_job_email(job, "https://clusterweave.example.org/#/job/donejob/read", "read")
+        body = message.get_content()
+        self.assertEqual(message["Subject"], "ClusterWeave job donejob finished: complete")
+        self.assertIn("Dear ClusterWeave user,", body)
+        self.assertIn("The ClusterWeave job donejob you submitted on 2026-06-28 01:03:29", body)
+        self.assertIn("for project 'done-project' with 2 NCBI accessions and 1 uploaded genome file", body)
+        self.assertIn("has finished with status complete.", body)
+        self.assertIn("You can find the results at", body)
+        self.assertIn("https://clusterweave.example.org/#/job/donejob/read", body)
+        self.assertIn("Result access code: read", body)
+        self.assertIn("Results will be kept for one month and then deleted automatically on 2026-07-28 01:03:29.", body)
+        self.assertIn("https://github.com/n2mology/clusterweave", body)
+        self.assertIn("If you found ClusterWeave useful", body)
+        self.assertNotIn("Workflow summary:", body)
+        self.assertNotIn("Input summary:", body)
+
+    def test_smtp_ssl_uses_implicit_tls_without_starttls(self) -> None:
+        os.environ["CLUSTERWEAVE_SMTP_ENABLED"] = "1"
+        os.environ["CLUSTERWEAVE_SMTP_HOST"] = "smtp.example.org"
+        os.environ["CLUSTERWEAVE_SMTP_PORT"] = "465"
+        os.environ["CLUSTERWEAVE_SMTP_USERNAME"] = "smtp-user"
+        os.environ["CLUSTERWEAVE_SMTP_PASSWORD"] = "smtp-pass"
+        os.environ["CLUSTERWEAVE_SMTP_TLS"] = "1"
+        os.environ["CLUSTERWEAVE_SMTP_SSL"] = "1"
+        os.environ["CLUSTERWEAVE_SMTP_OUTBOX_DIR"] = ""
+        job = {
+            "id": "ssljob",
+            "status": "success",
+            "project_name": "ssl-project",
+            "notify_email": "user@example.org",
+            "retention_days": 30,
+        }
+        message = self.notifications.build_job_email(job, "https://clusterweave.example.org/#/job/ssljob/read", "read")
+        connection = mock.MagicMock()
+        smtp_context = mock.MagicMock()
+        smtp_context.__enter__.return_value = connection
+        with mock.patch.object(self.notifications.smtplib, "SMTP_SSL", return_value=smtp_context) as smtp_ssl, \
+             mock.patch.object(self.notifications.smtplib, "SMTP") as smtp_plain:
+            self.notifications.deliver_email(message)
+
+        smtp_ssl.assert_called_once_with("smtp.example.org", 465, timeout=10.0)
+        smtp_plain.assert_not_called()
+        connection.starttls.assert_not_called()
+        connection.login.assert_called_once_with("smtp-user", "smtp-pass")
+        connection.send_message.assert_called_once_with(message)
 
     def test_admin_token_unlocks_job_list_status_rerun_and_delete(self) -> None:
         self.write_job("jobone", "read-one")
@@ -723,6 +874,19 @@ class WebApiAuthTests(unittest.TestCase):
         status, _, _ = self.request("DELETE", "/api/jobs/jobone", headers=self.auth("admin-secret"))
         self.assertEqual(status, 204)
         self.assertIsNone(self.job_store.read_job("jobone"))
+
+    def test_admin_delete_running_job_requests_cancellation_before_removal(self) -> None:
+        self.write_job("activejob", "read-active", status="running")
+
+        status, payload, _ = self.request("DELETE", "/api/jobs/activejob", headers=self.auth("admin-secret"))
+
+        self.assertEqual(status, 202)
+        self.assertEqual(payload["status"], "cancel_requested")
+        self.assertIsNotNone(self.job_store.read_job("activejob"))
+        self.assertTrue(self.job_store.job_cancel_requested("activejob"))
+        self.assertTrue(self.job_store.job_delete_path("activejob").exists())
+        logs = self.job_store.read_logs("activejob")
+        self.assertTrue(any("stopping active workflow" in line for line in logs))
 
     def test_rerun_preserves_partial_public_outputs_and_resume_settings(self) -> None:
         created = self.job_store.now_iso()
@@ -1266,6 +1430,22 @@ ORIGIN
         self.assertEqual(settings["threads"], job["cpus"])
         self.assertEqual(settings["anno_cpus"], job["cpus"])
         self.assertEqual(settings["workers"], min(2, job["cpus"]))
+
+    def test_public_submission_uses_nonforgeable_automatic_funannotate_policy(self) -> None:
+        fields = {
+            "project_name": "forged-annotation-case",
+            "funannotate_busco_db": "ascomycota_odb10",
+            "funannotate_organism_name": "Homo sapiens",
+        }
+        status, payload, _ = self.submit(fields=fields)
+        self.assertEqual(status, 201)
+
+        job = self.job_store.read_job(payload["job_id"])
+        self.assertIsNotNone(job)
+        assert job is not None
+        settings = job["settings"]
+        self.assertEqual(settings["funannotate_busco_db"], "auto")
+        self.assertEqual(settings["funannotate_organism_name"], "auto")
 
     def test_web_submission_sanitizes_restricted_annotation_fallbacks_in_local_mode(self) -> None:
         self.app.PUBLIC_MODE = False

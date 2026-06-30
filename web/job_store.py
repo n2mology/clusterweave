@@ -107,6 +107,27 @@ def job_logs_path(job_id: str) -> Path:
     return job_dir(job_id) / "logs.txt"
 
 
+def job_cancel_path(job_id: str) -> Path:
+    return job_dir(job_id) / "cancel.requested"
+
+
+def job_delete_path(job_id: str) -> Path:
+    return job_dir(job_id) / "delete.requested"
+
+
+def job_cancel_requested(job_id: str) -> bool:
+    return job_cancel_path(job_id).exists()
+
+
+def request_job_cancel(job_id: str, reason: str = "Cancellation requested", *, delete_after_cancel: bool = False) -> None:
+    target = job_dir(job_id)
+    target.mkdir(parents=True, exist_ok=True)
+    payload = {"requested_at": now_iso(), "reason": reason, "delete_after_cancel": delete_after_cancel}
+    job_cancel_path(job_id).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    if delete_after_cancel:
+        job_delete_path(job_id).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def read_job(job_id: str) -> dict[str, Any] | None:
     path = job_meta_path(job_id)
     if not path.exists():

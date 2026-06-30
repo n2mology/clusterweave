@@ -715,7 +715,11 @@ if [[ "${RUN_CLINKER}" == "1" ]]; then
     export CLINKER_DOCKER_DATA_VOLUME
     export PREFER_CLINKER_CONTAINER=1
     log "Using clinker Docker image: ${CLINKER_DOCKER_IMAGE}"
-    docker run --rm -i --user 0:0 --entrypoint "" "${CLINKER_DOCKER_IMAGE}" clinker --help >/dev/null 2>&1 \
+    clinker_docker_args=(--rm -i --user 0:0 --entrypoint "")
+    if [[ -n "${CLUSTERWEAVE_JOB_ID:-}" ]]; then
+      clinker_docker_args+=(--label "clusterweave.job_id=${CLUSTERWEAVE_JOB_ID}" --label "clusterweave.project=${PROJECT_NAME:-}")
+    fi
+    docker run "${clinker_docker_args[@]}" "${CLINKER_DOCKER_IMAGE}" clinker --help >/dev/null 2>&1 \
       || die "Clinker Docker image sanity check failed"
   else
     ensure_clinker_sif

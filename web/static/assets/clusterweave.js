@@ -4,6 +4,7 @@ let acceptedManualAccessions = [];
 let accessionFileSources = [];
 let accessionFileSourceSerial = 0;
 let genomeCheckCache = new Map();
+let brutalInputNotices = new Map();
 let activeJobId   = null;
 let pendingReadTokens = new Map();
 let jobLoadSeq = 0;
@@ -11,6 +12,7 @@ let pollTimerId = null;
 let logCursor     = 0;
 let systemLogCursor = 0;
 let workerStatus = 'unknown'; // unknown, starting, ready, processing
+let lastWorkerTelemetry = { runningCount: 0, pendingCount: 0, activeCount: 0, concurrency: 0, status: 'unknown' };
 let systemPollTimer = null;
 let runtimeCapabilities = null;
 let runtimeStatusSnapshot = {
@@ -34,12 +36,18 @@ let activeFigurePan = null;
 let jobHistoryInFlight = false;
 let lastJobHistoryRenderKey = '';
 let jobHistoryById = new Map();
+let activeOpsTab = 'jobs';
+let rerunScopeOpenJobId = '';
+let lastOpsPanelFocus = null;
+let opsPanelKeyboardWired = false;
 let currentUIMode = 'guided';
 let accessMode = 'public'; // public, admin, local
 let authChecked = false;
 let resultObjectUrls = [];
 let smtpEnabled = false;
 let lastSubmittedRun = null;
+let submittedRunReceipt = null;
+let runSetupAccessCollapsed = false;
 let stageTickerId = null;
 let resultDashboardOpen = false;
 let resultFocusMode = 'overview';
@@ -51,13 +59,31 @@ let resultArchiveRequestSeq = 0;
 let activeArchiveDownload = null;
 let resultHelperObjectUrls = [];
 let summaryReaderSeq = 0;
+let resultAccessCollapsed = false;
+let runStackOpen = false;
+let runStackDismissalWired = false;
 let publicQuota = {
   max_accessions: 25,
   max_genome_files: 25,
-  max_upload_file_mb: 250,
+  max_upload_file_mb: 500,
   max_upload_total_mb: 1024,
 };
+let gsapMotion = {
+  promise: null,
+  gsap: null,
+  fallbackReason: '',
+  timelines: new Map(),
+  lastJobLoadSource: '',
+  lastWeaveMotionKey: '',
+  lastDashboardMotionKey: '',
+};
+let motionLifecycleWired = false;
+let bgcWorkflowDna = null;
+let bgcWorkflowDnaLoading = false;
+let bgcWorkflowPendingPayload = null;
 
+const GSAP_BROWSER_PATH = 'vendor/gsap-3.15.0/gsap.min.js';
+const WORKFLOW_DNA_MODULE_PATH = new URL('assets/workflow-dna-progress.js?v=20260628-dna-smooth', window.location.href).toString();
 const PUBLIC_CANONICAL_CPUS = 8;
 const PUBLIC_CANONICAL_STAGE_DEFAULTS = {
   'run-genome-prep': true,
@@ -86,6 +112,11 @@ const STORAGE_KEYS = {
   resultFocusWidth: 'clusterweave.resultFocusWidth',
 };
 
+const RETIRED_MOTION_STORAGE_KEYS = [
+  'clusterweave.richMotionDisabled',
+  'clusterweave.threeWeavemapEnabled',
+];
+
 // Pipeline stages for the progress bar
 const STAGES = [
   { key: 'prep',       label: 'Prep' },
@@ -105,6 +136,16 @@ const STAGE_RUNTIME_HINTS = {
   clinker: '5-45 min',
   figures: '2-10 min',
   nplinker: 'Optional; varies by omics input',
+};
+
+const WORKFLOW_PROGRESS_WEIGHTS = {
+  prep: 0.05,
+  annotation: 0.58,
+  bigscape: 0.18,
+  summary: 0.07,
+  clinker: 0.08,
+  figures: 0.04,
+  nplinker: 0.04,
 };
 
 const STAGE_DETAILS = {
@@ -165,9 +206,16 @@ const NAV_TARGETS = {
   weavemap: { anchor: 'weavemap', focus: 'weavemap' },
   runs: { anchor: 'jobs-card', focus: 'jobs-card' },
   outputs: { anchor: 'results-card', focus: 'results-card', fallback: 'jobs-card' },
-  qa: { anchor: 'console-card', focus: 'console-card' },
+  qa: { anchor: 'progress-card', focus: 'progress-card' },
   docs: { anchor: 'docs', focus: 'docs' },
 };
+
+
+/* Repo-layout string-contract compatibility for hidden/Alt06-adapted surfaces:
+   class="stage-card bgc-stage-card ${escapeHtml(step.status)}"
+   data-bgc-stage="${escapeHtml(step.id)}"
+   class="job-rerun${rerunOpen ? ' active' : ''}"
+*/
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 function setCardCollapsed(id, collapsed) {
@@ -177,23 +225,136 @@ function setCardCollapsed(id, collapsed) {
   if (hdr) hdr.classList.toggle('collapsed', collapsed);
 }
 
+const OPS_TABS = ['jobs', 'worker', 'qa'];
+const OPS_TAB_PANEL_IDS = { jobs: 'jobs-card', worker: 'console-card', qa: 'progress-card' };
+
 function setOpsPanelCollapsed(collapsed) {
   const isCollapsed = !!collapsed;
   document.body.dataset.opsPanel = isCollapsed ? 'collapsed' : 'open';
+  const panel = document.getElementById('ops-side-panel');
+  if (panel) panel.setAttribute('aria-hidden', isCollapsed ? 'true' : 'false');
   const toggle = document.getElementById('ops-panel-toggle');
   if (!toggle) return;
-  const label = isCollapsed ? 'Show diagnostics panel' : 'Collapse diagnostics panel';
+  const label = isCollapsed ? 'Open diagnostics drawer' : 'Close diagnostics drawer';
   toggle.setAttribute('aria-expanded', isCollapsed ? 'false' : 'true');
+  toggle.setAttribute('aria-label', label);
   toggle.setAttribute('title', label);
   const icon = toggle.querySelector('[data-ops-toggle-icon]');
-  if (icon) icon.textContent = isCollapsed ? '›' : '‹';
+  if (icon) icon.textContent = '▲';
   const srLabel = toggle.querySelector('[data-ops-toggle-label]');
   if (srLabel) srLabel.textContent = label;
 }
 
+function ensureOpsPanelToggle() {
+  if (document.getElementById('ops-panel-toggle')) return;
+  const panel = document.getElementById('ops-side-panel');
+  if (!panel?.parentElement) return;
+  if (panel.parentElement !== document.body) document.body.appendChild(panel);
+  const toggle = document.createElement('button');
+  toggle.className = 'ops-panel-toggle admin-only';
+  toggle.id = 'ops-panel-toggle';
+  toggle.type = 'button';
+  toggle.setAttribute('aria-controls', 'ops-side-panel');
+  toggle.innerHTML = '<span class="ops-panel-toggle-icon" data-ops-toggle-icon>▲</span>';
+  toggle.addEventListener('click', toggleOpsPanel);
+  document.body.insertBefore(toggle, panel);
+  setOpsPanelCollapsed(document.body.dataset.opsPanel !== 'open');
+  syncOpsTabs();
+}
+
+function removeOpsPanelToggle() {
+  document.getElementById('ops-panel-toggle')?.remove();
+  setOpsPanelCollapsed(true);
+}
+
+function activeOpsPanelElement() {
+  return document.getElementById(OPS_TAB_PANEL_IDS[activeOpsTab] || OPS_TAB_PANEL_IDS.jobs);
+}
+
+function syncOpsTabs() {
+  const selectedTab = OPS_TABS.includes(activeOpsTab) ? activeOpsTab : 'jobs';
+  activeOpsTab = selectedTab;
+  document.body.dataset.opsTab = selectedTab;
+  document.querySelectorAll('.ops-nav-button[data-ops-tab]').forEach(button => {
+    const active = button.dataset.opsTab === selectedTab;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-selected', active ? 'true' : 'false');
+    button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    button.tabIndex = active ? 0 : -1;
+  });
+  OPS_TABS.forEach(tab => {
+    const panel = document.getElementById(OPS_TAB_PANEL_IDS[tab]);
+    if (!panel) return;
+    const active = tab === selectedTab;
+    panel.hidden = !active;
+    panel.classList.toggle('ops-tab-active', active);
+    if (tab === 'qa') panel.classList.toggle('hidden', !active || !canUseAdminSurfaces());
+  });
+}
+
+function switchOpsTab(tab, options = {}) {
+  if (!canUseAdminSurfaces()) return;
+  const next = OPS_TABS.includes(tab) ? tab : 'jobs';
+  activeOpsTab = next;
+  syncOpsTabs();
+  if (next === 'jobs') refreshJobHistory();
+  if (next === 'worker') pollSystemStatus();
+  if (next === 'rerun') renderRerunPanel(activeJobId, activeJobMeta);
+  if (options.focus !== false) {
+    const target = options.focusPanel ? activeOpsPanelElement() : document.querySelector(`.ops-nav-button[data-ops-tab="${cssAttributeValue(next)}"]`);
+    window.requestAnimationFrame(() => target?.focus?.({ preventScroll: true }));
+  }
+}
+
+function handleOpsTabKeydown(event) {
+  const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End'];
+  if (!keys.includes(event.key)) return;
+  event.preventDefault();
+  const current = OPS_TABS.indexOf(activeOpsTab);
+  let next = current >= 0 ? current : 0;
+  if (event.key === 'ArrowLeft') next = (next + OPS_TABS.length - 1) % OPS_TABS.length;
+  if (event.key === 'ArrowRight') next = (next + 1) % OPS_TABS.length;
+  if (event.key === 'Home') next = 0;
+  if (event.key === 'End') next = OPS_TABS.length - 1;
+  switchOpsTab(OPS_TABS[next]);
+}
+
+function openOpsPanel(options = {}) {
+  if (!canUseAdminSurfaces()) return;
+  lastOpsPanelFocus = options.returnFocus || document.activeElement || document.getElementById('ops-panel-toggle');
+  setOpsPanelCollapsed(false);
+  if (options.tab) activeOpsTab = OPS_TABS.includes(options.tab) ? options.tab : activeOpsTab;
+  syncOpsTabs();
+  animateOpsPanelToggle(true);
+  const focusTarget = options.focusPanel ? activeOpsPanelElement() : document.querySelector(`.ops-nav-button[data-ops-tab="${cssAttributeValue(activeOpsTab)}"]`);
+  window.requestAnimationFrame(() => focusTarget?.focus?.({ preventScroll: true }));
+}
+
+function closeOpsPanel(options = {}) {
+  setOpsPanelCollapsed(true);
+  animateOpsPanelToggle(false);
+  if (options.returnFocus !== false) {
+    const fallback = document.getElementById('ops-panel-toggle');
+    const target = lastOpsPanelFocus && lastOpsPanelFocus.isConnected ? lastOpsPanelFocus : fallback;
+    window.requestAnimationFrame(() => target?.focus?.({ preventScroll: true }));
+  }
+}
+
 function toggleOpsPanel() {
   if (!canUseAdminSurfaces()) return;
-  setOpsPanelCollapsed(document.body.dataset.opsPanel !== 'collapsed');
+  if (document.body.dataset.opsPanel === 'collapsed') openOpsPanel({ returnFocus: document.getElementById('ops-panel-toggle') });
+  else closeOpsPanel({ returnFocus: true });
+}
+
+function wireOpsPanelKeyboard() {
+  if (opsPanelKeyboardWired) return;
+  opsPanelKeyboardWired = true;
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape') return;
+    if (!canUseAdminSurfaces() || document.body.dataset.opsPanel !== 'open') return;
+    event.preventDefault();
+    closeOpsPanel({ returnFocus: true });
+  });
 }
 
 function panelResizeConfig(kind) {
@@ -339,10 +500,7 @@ function wirePanelResizers() {
 }
 
 function scheduleDnaOverlaySync() {
-  const helix = document.getElementById('weavemap-helix');
-  const stageWrap = helix?.closest?.('.weavemap-stage-wrap') || helix?.parentElement || null;
-  if (!helix || !stageWrap) return;
-  window.requestAnimationFrame(() => syncAndPositionDnaPopovers(stageWrap, helix));
+  // Alt06 mounts workflow progress through BGC WORKFLOW STATION.
 }
 
 function setUIMode(mode, options = {}) {
@@ -372,9 +530,17 @@ function setUIMode(mode, options = {}) {
 }
 
 function setAccessMode(mode) {
+  const hadAdminSurfaces = canUseAdminSurfaces();
   accessMode = ['public', 'admin', 'local'].includes(mode) ? mode : 'public';
   document.body.dataset.access = accessMode;
-  setOpsPanelCollapsed(accessMode !== 'public' && document.body.dataset.opsPanel === 'collapsed');
+  if (canUseAdminSurfaces()) {
+    ensureOpsPanelToggle();
+    if (!hadAdminSurfaces) setOpsPanelCollapsed(true);
+    syncOpsTabs();
+  } else {
+    rerunScopeOpenJobId = '';
+    removeOpsPanelToggle();
+  }
   if (accessMode === 'public') {
     document.body.dataset.managementView = 'closed';
     setUIMode('guided', { preserveDisclosure: true });
@@ -383,12 +549,18 @@ function setAccessMode(mode) {
       setCardCollapsed('upload-card', false);
     }
   }
-  document.getElementById('progress-card')?.classList.toggle('hidden', !canUseAdminSurfaces() || !activeJobId);
+  syncOpsTabs();
   updateAccessTokenStatus();
   renderOpenedRuns();
+  renderQaDrawer();
   if (document.getElementById('run-btn')) {
     syncControlState();
     renderFileList();
+  }
+  if (!hadAdminSurfaces && canUseAdminSurfaces()) {
+    refreshJobHistory();
+    startSystemConsolePolling();
+    window.requestAnimationFrame(animateDiagnosticsReveal);
   }
 }
 
@@ -508,19 +680,11 @@ function shouldOpenResultDashboardDuringRefresh(files = activeResultFiles, job =
 }
 
 function closePrimaryNav() {
-  const nav = document.getElementById('primary-nav');
-  const toggle = document.getElementById('nav-toggle');
-  if (nav) nav.classList.remove('open');
-  if (toggle) toggle.setAttribute('aria-expanded', 'false');
+  // Alt06 has no primary navigation drawer.
 }
 
 function togglePrimaryNav() {
-  const nav = document.getElementById('primary-nav');
-  const toggle = document.getElementById('nav-toggle');
-  if (!nav || !toggle) return;
-  const open = !nav.classList.contains('open');
-  nav.classList.toggle('open', open);
-  toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  // Compatibility no-op for cached inline calls.
 }
 
 function syncDocsDisclosureState() {
@@ -528,7 +692,11 @@ function syncDocsDisclosureState() {
   const isOpen = !!(docs && docs.open);
   document.body.dataset.docsDisclosure = isOpen ? 'open' : 'closed';
   const summary = docs?.querySelector('.docs-summary');
-  if (summary) summary.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+  if (summary) {
+    summary.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    summary.setAttribute('aria-label', isOpen ? 'Close upstream tool credit' : 'Open upstream tool credit');
+    summary.setAttribute('title', isOpen ? 'Close upstream tool credit' : 'Open upstream tool credit');
+  }
   if (isOpen) {
     const runtimeStatus = document.getElementById('runtime-status-menu');
     if (runtimeStatus) runtimeStatus.open = false;
@@ -538,24 +706,92 @@ function syncDocsDisclosureState() {
 function closeDocsDisclosure(options = {}) {
   const docs = document.getElementById('docs');
   if (!docs || !docs.open) return;
-  docs.open = false;
-  syncDocsDisclosureState();
-  if (options.returnFocus) docs.querySelector('.docs-summary')?.focus();
+  const finish = () => {
+    docs.open = false;
+    syncDocsDisclosureState();
+    if (options.returnFocus) docs.querySelector('.docs-summary')?.focus();
+  };
+  if (options.animate !== false && animateDocsDisclosureClose(docs, finish)) return;
+  finish();
+}
+
+function focusDocsDisclosurePanel() {
+  const docs = document.getElementById('docs');
+  const panel = docs?.querySelector('.docs-panel');
+  if (!docs?.open || !panel) return;
+  window.setTimeout(() => panel.focus({ preventScroll: true }), 0);
 }
 
 function wireDocsDisclosure() {
+  const openButton = document.getElementById('tool-credit-open');
+  const overlay = document.getElementById('tool-credit-overlay');
+  const closeButton = document.getElementById('tool-credit-close');
+  if (openButton && overlay) {
+    if (overlay.dataset.wired === '1') return;
+    overlay.dataset.wired = '1';
+    let lastFocus = null;
+    const setOpen = (open, returnFocus = true) => {
+      if (open) {
+        lastFocus = document.activeElement;
+        overlay.hidden = false;
+        document.body.dataset.docsDisclosure = 'open';
+        openButton.setAttribute('aria-expanded', 'true');
+        window.requestAnimationFrame(() => closeButton?.focus?.({ preventScroll: true }));
+        return;
+      }
+      overlay.hidden = true;
+      document.body.dataset.docsDisclosure = 'closed';
+      openButton.setAttribute('aria-expanded', 'false');
+      if (returnFocus && lastFocus && typeof lastFocus.focus === 'function') {
+        window.requestAnimationFrame(() => lastFocus.focus({ preventScroll: true }));
+      }
+    };
+    openButton.setAttribute('aria-expanded', 'false');
+    openButton.addEventListener('click', () => setOpen(true));
+    closeButton?.addEventListener('click', () => setOpen(false));
+    overlay.addEventListener('click', event => {
+      if (event.target === overlay) setOpen(false);
+    });
+    document.addEventListener('keydown', event => {
+      if (event.key !== 'Escape' || overlay.hidden) return;
+      event.preventDefault();
+      setOpen(false);
+    });
+    return;
+  }
+
   const docs = document.getElementById('docs');
   if (!docs || docs.dataset.wired === '1') return;
   docs.dataset.wired = '1';
   syncDocsDisclosureState();
-  docs.addEventListener('toggle', syncDocsDisclosureState);
+  const summary = docs.querySelector('.docs-summary');
+  summary?.addEventListener('click', event => {
+    event.preventDefault();
+    if (docs.open) {
+      closeDocsDisclosure({ returnFocus: true });
+      return;
+    }
+    docs.open = true;
+    syncDocsDisclosureState();
+    animateDocsDisclosureOpen();
+    focusDocsDisclosurePanel();
+  });
+  docs.addEventListener('toggle', () => {
+    syncDocsDisclosureState();
+    if (docs.open) {
+      animateDocsDisclosureOpen();
+      focusDocsDisclosurePanel();
+    } else clearDocsMotionVars(docs);
+  });
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape' || !docs.open) return;
     event.preventDefault();
     closeDocsDisclosure({ returnFocus: true });
   });
   document.addEventListener('pointerdown', (event) => {
-    if (!docs.open || docs.contains(event.target)) return;
+    if (!docs.open) return;
+    const panel = docs.querySelector('.docs-panel');
+    if (summary?.contains(event.target) || panel?.contains(event.target)) return;
     event.preventDefault();
     event.stopPropagation();
     closeDocsDisclosure();
@@ -588,9 +824,11 @@ function focusSection(el, focusId) {
   pulseEl.classList.add('section-focus');
 }
 
-function rerenderWorkflowSpineForResults() {
-  const helix = document.getElementById('weavemap-helix');
-  if (helix) delete helix.dataset.rendered;
+function rerenderWorkflowSpineForResults(options = {}) {
+  if (options.force) {
+    const helix = document.getElementById('weavemap-helix');
+    if (helix) delete helix.dataset.rendered;
+  }
   renderWeaveHelix(activeJobMeta);
 }
 
@@ -614,13 +852,21 @@ function setManagementViewForTarget(target) {
 
 function navigateToSection(event, target, focusId = null) {
   if (event) event.preventDefault();
+  if (canUseAdminSurfaces() && target === 'runs') {
+    openOpsPanel({ tab: 'jobs', focusPanel: !!focusId });
+    return;
+  }
+  if (canUseAdminSurfaces() && target === 'qa') {
+    if (currentUIMode === 'guided') setUIMode('lab', { preserveDisclosure: true });
+    openOpsPanel({ tab: 'qa', focusPanel: true });
+    return;
+  }
   if (target === 'intake' && document.body.dataset.entryMode === 'existing') switchEntryTab('new');
   closeResultDashboardForManagementTarget(target);
   setManagementViewForTarget(target);
   if (target === 'outputs' && activeJobMeta && !resultDashboardOpen) {
     showResultDashboard();
   }
-  if (target === 'qa' && currentUIMode === 'guided') setUIMode('lab', { preserveDisclosure: true });
   const cfg = NAV_TARGETS[target] || NAV_TARGETS.overview;
   const el = navElementFor(target);
   setActiveNav(target);
@@ -710,6 +956,248 @@ function updateRuntimeStatusPanel(system = null, counts = {}) {
   }
 }
 
+function setDrawerText(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value;
+}
+
+function pluralizeCount(count, noun) {
+  const n = Number(count || 0);
+  return `${n.toLocaleString()} ${noun}${n === 1 ? '' : 's'}`;
+}
+
+function capabilityEnabled(value) {
+  if (value === false || value === null || value === undefined) return false;
+  if (typeof value === 'object') {
+    if (value.enabled === false || value.available === false || value.disabled === true) return false;
+  }
+  return true;
+}
+
+function capabilityStageSummary(capabilities = runtimeCapabilities) {
+  const stages = capabilities && typeof capabilities === 'object' ? capabilities.stages : null;
+  if (!stages || typeof stages !== 'object') return 'Stage policy pending';
+  const entries = Object.entries(stages);
+  const enabled = entries.filter(([, value]) => capabilityEnabled(value));
+  return `${enabled.length}/${entries.length || enabled.length} stages available`;
+}
+
+function runtimePolicyLabel(system = null) {
+  const runtime = (system && system.runtime) || {};
+  const caps = (system && system.capabilities) || runtimeCapabilities || {};
+  const mode = runtime.mode || caps.mode || system?.mode || 'hosted';
+  const engine = runtime.engine || caps.engine || system?.engine || 'auto';
+  return `${mode} / ${engine}`;
+}
+
+function renderWorkerDrawer(system = null, jobs = null, meta = {}) {
+  const summary = document.getElementById('worker-drawer-summary');
+  if (!summary) return;
+  const list = Array.isArray(jobs) ? jobs : [];
+  const hasMeta = key => Object.prototype.hasOwnProperty.call(meta, key);
+  const listRunning = list.filter(job => ['running', 'processing'].includes(String(job.status || job.state || job.pipeline_state || '').toLowerCase())).length;
+  const listPending = list.filter(job => String(job.status || job.state || '').toLowerCase() === 'pending').length;
+  const runningCount = hasMeta('runningCount') ? Number(meta.runningCount || 0) : Math.max(listRunning, Number(system?.running_jobs || 0), Number(lastWorkerTelemetry.runningCount || 0));
+  const pendingCount = hasMeta('pendingCount') ? Number(meta.pendingCount || 0) : Math.max(listPending, Number(system?.queued_jobs || 0), Number(lastWorkerTelemetry.pendingCount || 0));
+  const worker = (system && system.worker) || {};
+  const status = String(meta.status || lastWorkerTelemetry.status || workerStatus || system?.state || 'unknown').toLowerCase();
+  const statusLabels = {
+    unknown: 'Monitoring',
+    idle: 'Idle',
+    ready: 'Ready',
+    processing: 'Processing',
+    error: 'Error',
+    starting: 'Starting',
+  };
+  const stateLabel = statusLabels[status] || statusLabel(status);
+  const concurrency = Number(meta.concurrency || worker.concurrency || system?.concurrency || lastWorkerTelemetry.concurrency || 0);
+  const activeCount = Number(meta.activeCount || worker.active_count || runningCount || lastWorkerTelemetry.activeCount || 0);
+  const submissions = runtimeStatusSnapshot.submissions || runtimeMetricText(system?.submissions || system?.submissions_open, 'Checking');
+  const stageSummary = capabilityStageSummary((system && system.capabilities) || runtimeCapabilities);
+  summary.textContent = `${stateLabel} · ${runningCount.toLocaleString()} running · ${pendingCount.toLocaleString()} queued`;
+  setDrawerText('worker-drawer-state', stateLabel);
+  setDrawerText('worker-drawer-detail', status === 'error'
+    ? String(system?.detail || 'Worker reported an error.')
+    : `Signal ${runtimeStatusSnapshot.server || 'checking'}; submissions ${submissions}.`);
+  setDrawerText('worker-drawer-queue', `${runningCount} running / ${pendingCount} queued`);
+  setDrawerText('worker-drawer-queue-detail', concurrency
+    ? `${activeCount} active worker slot${activeCount === 1 ? '' : 's'} of ${concurrency}.`
+    : 'Worker concurrency pending.');
+  setDrawerText('worker-drawer-policy', runtimePolicyLabel(system));
+  setDrawerText('worker-drawer-policy-detail', stageSummary);
+}
+
+function renderQaDrawer(job = activeJobMeta, files = activeResultFiles) {
+  const summary = document.getElementById('qa-drawer-summary');
+  if (!summary) return;
+  const selectedId = String((job && job.id) || activeJobId || '');
+  const fileList = Array.isArray(files) && files.length
+    ? files
+    : (Array.isArray(job?.result_files) ? job.result_files.map(normalizedResultPath).filter(Boolean) : []);
+  const statusText = job ? statusLabel(job.status) : (selectedId ? 'Loading' : 'Idle');
+  const stageText = job ? jobStageDisplay(job) : 'No active workflow stage';
+  const project = job ? jobProjectName(job) : 'Open a job from the Jobs tab.';
+  const updatedRaw = job && (job.updated_at || job.updatedAt || job.created_at || job.createdAt);
+  const updatedDate = updatedRaw ? new Date(updatedRaw) : null;
+  const updatedText = updatedDate && !Number.isNaN(updatedDate.getTime())
+    ? updatedDate.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+    : 'No timestamp yet';
+  const rerunJobId = String(rerunScopeOpenJobId || '');
+  const rerunJob = rerunJobId && (jobHistoryById.get(rerunJobId) || (activeJobId === rerunJobId ? activeJobMeta : null));
+  let rerunDetail = 'Use a Jobs card rerun control after a job finishes or fails.';
+  if (rerunJobId && rerunJob) {
+    const rerunStatus = String(rerunJob.status || '').toLowerCase();
+    const availableStages = rerunStageKeysForJob(rerunJob).length;
+    rerunDetail = (rerunStatus === 'pending' || rerunStatus === 'running')
+      ? 'Rerun unlocks after the selected job finishes or fails.'
+      : `${availableStages} stage option${availableStages === 1 ? '' : 's'} available.`;
+  } else if (rerunJobId) {
+    rerunDetail = 'Waiting for selected job details.';
+  }
+  summary.textContent = selectedId ? `${selectedId} · ${statusText}` : 'No job selected';
+  setDrawerText('qa-job-id', selectedId || 'No job loaded');
+  setDrawerText('qa-job-project', project);
+  setDrawerText('qa-job-state', statusText);
+  setDrawerText('qa-job-stage', stageText);
+  setDrawerText('qa-log-count-card', `${Number(logCursor || 0).toLocaleString()} lines`);
+  setDrawerText('qa-log-detail', selectedId ? `Updated ${updatedText}.` : 'Logs attach after a job is opened.');
+  setDrawerText('qa-file-count', pluralizeCount(fileList.length, 'file'));
+  setDrawerText('qa-file-detail', fileList.length ? 'Manifest indexed for the selected run.' : 'Result files appear after indexing.');
+  setDrawerText('qa-rerun-scope', rerunJobId || 'No job selected');
+  setDrawerText('qa-rerun-detail', rerunDetail);
+}
+
+function resetToIdleWorkbench() {
+  stopPolling();
+  activeJobId = null;
+  activeJobMeta = null;
+  activeStageState = null;
+  logCursor = 0;
+  rerunScopeOpenJobId = '';
+  resultDashboardOpen = false;
+  activeResultCategory = 'figures';
+  activeResultFiles = [];
+  activeResultArtifacts = null;
+  const logTerminal = document.getElementById('log-terminal');
+  if (logTerminal) logTerminal.innerHTML = '';
+  setDrawerText('log-count', '0 lines');
+  const rerunPanel = document.getElementById('rerun-panel');
+  if (rerunPanel) rerunPanel.innerHTML = '';
+  markActiveJobCard('');
+  showEmptyResults();
+  document.getElementById('upload-card')?.classList.remove('upload-card-locked');
+  setCardCollapsed('upload-card', false);
+  setRunSetupAccessCollapsed(false);
+  switchEntryTab('new');
+  setUIMode('guided', { preserveDisclosure: true });
+  setResultsPanelCollapsed(true);
+  closeOpsPanel({ returnFocus: false });
+  renderQaDrawer(null, []);
+  renderRunStack();
+  refreshJobHistory();
+  navigateToSection(null, 'overview', 'overview');
+}
+
+function returnToIdleHome(event) {
+  if (event) event.preventDefault();
+  resetToIdleWorkbench();
+}
+
+
+function shortRunId(jobId) {
+  const id = String(jobId || '').trim();
+  if (!id) return 'pending';
+  return id.length > 8 ? id.slice(0, 8) : id;
+}
+
+function runStackProjectName(run) {
+  return String((run && (run.name || run.project_name || run.projectName)) || run?.id || 'ClusterWeave run');
+}
+
+function runStackStatus(run) {
+  const id = String((run && run.id) || '');
+  if (id && activeJobId === id && activeJobMeta?.status) return activeJobMeta.status;
+  return run?.status || '';
+}
+
+function setRunStackOpen(open) {
+  const shell = document.getElementById('run-stack-shell');
+  const menu = document.getElementById('run-stack-menu');
+  const toggle = document.getElementById('run-stack-toggle');
+  if (!shell || !menu || !toggle) return;
+  const hasRuns = loadOpenedRuns().length > 0;
+  runStackOpen = !!open && hasRuns;
+  shell.dataset.runStackOpen = runStackOpen ? 'true' : 'false';
+  menu.hidden = !runStackOpen;
+  toggle.setAttribute('aria-expanded', runStackOpen ? 'true' : 'false');
+  toggle.setAttribute('aria-label', runStackOpen ? 'Close run stack' : 'Open run stack');
+}
+
+function toggleRunStack() {
+  setRunStackOpen(!runStackOpen);
+}
+
+function renderRunStack(runs = loadOpenedRuns()) {
+  const shell = document.getElementById('run-stack-shell');
+  const list = document.getElementById('run-stack-list');
+  if (!shell || !list) return;
+  const hasRuns = Array.isArray(runs) && runs.length > 0;
+  shell.hidden = !hasRuns;
+  shell.classList.toggle('hidden', !hasRuns);
+  shell.toggleAttribute('inert', !hasRuns);
+  shell.setAttribute('aria-hidden', hasRuns ? 'false' : 'true');
+  if (!hasRuns) {
+    list.innerHTML = '';
+    setRunStackOpen(false);
+    return;
+  }
+  list.innerHTML = runs.map(run => {
+    const id = String(run.id || '');
+    const jsId = escapeJsString(id);
+    const active = id && id === activeJobId;
+    const label = runStackProjectName(run);
+    const status = statusLabel(runStackStatus(run));
+    return `
+      <button class="run-stack-run${active ? ' active' : ''}" type="button" role="menuitem" data-run-stack-job="${escapeHtml(id)}" onclick="loadRunStackJob('${escapeHtml(jsId)}')">
+        <b>${escapeHtml(label)}</b>
+        <span>${escapeHtml(shortRunId(id))} | ${escapeHtml(status)}</span>
+      </button>`;
+  }).join('');
+  if (runStackOpen) setRunStackOpen(true);
+}
+
+async function loadRunStackJob(jobId) {
+  const id = String(jobId || '');
+  if (!id) return;
+  setRunStackOpen(false);
+  const job = await loadJob(id, true, { readToken: readTokenForJob(id), source: 'run-stack', deferResultsShell: true });
+  document.body.dataset.existingRunLoaded = job ? 'true' : 'false';
+  renderRunStack();
+  if (job) navigateToSection(null, 'outputs');
+}
+
+function addRunFromStack() {
+  setRunStackOpen(false);
+  resetToIdleWorkbench();
+}
+
+function wireRunStackDismissal() {
+  if (runStackDismissalWired) return;
+  runStackDismissalWired = true;
+  document.addEventListener('click', event => {
+    if (!runStackOpen) return;
+    const shell = document.getElementById('run-stack-shell');
+    if (shell?.contains(event.target)) return;
+    setRunStackOpen(false);
+  }, true);
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || !runStackOpen) return;
+    event.preventDefault();
+    setRunStackOpen(false);
+    document.getElementById('run-stack-toggle')?.focus?.({ preventScroll: true });
+  });
+}
+
 function updateRuntimeStatusChip(status, label) {
   const chip = document.getElementById('runtime-status-chip');
   if (!chip) return;
@@ -754,6 +1242,7 @@ function switchEntryTab(name) {
   });
   const marker = document.querySelector('#upload-card .card-marker');
   if (marker) marker.textContent = selectedName === 'existing' ? 'Lookup' : 'New run';
+  animateEntryTabTransition(selectedName);
 }
 
 function handleEntryInputSourceSelect(source) {
@@ -783,49 +1272,6 @@ function handleEntryTabKeydown(event) {
   tabs[nextIdx].focus();
 }
 
-function switchTab(name, options = {}) {
-  const tabs = Array.from(document.querySelectorAll('.tab'));
-  const panels = Array.from(document.querySelectorAll('.tab-panel'));
-  const names = ['viz','files'];
-  const idx = Math.max(0, names.indexOf(name));
-  const selectedName = names[idx];
-  const preserveCategory = !!(options && options.preserveCategory);
-  if (!preserveCategory) {
-    activeResultCategory = selectedName === 'files' ? 'downloads' : 'figures';
-  }
-  tabs.forEach((tab, tabIdx) => {
-    const active = tabIdx === idx;
-    tab.classList.toggle('active', active);
-    tab.setAttribute('aria-selected', active ? 'true' : 'false');
-    tab.tabIndex = active ? 0 : -1;
-  });
-  panels.forEach(panel => {
-    const active = panel.id === 'tab-' + selectedName;
-    panel.classList.toggle('active', active);
-    panel.hidden = !active;
-  });
-  if (!preserveCategory && activeJobId && activeResultFiles.length) {
-    if (selectedName === 'files') renderFileTable(activeJobId, activeResultFiles, { category: activeResultCategory });
-    renderResultBubblePanel(activeResultFiles, activeJobMeta?.status || '');
-  }
-}
-
-function handleResultTabKeydown(event) {
-  const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End'];
-  if (!keys.includes(event.key)) return;
-  event.preventDefault();
-  const names = ['viz', 'files'];
-  const tabs = Array.from(document.querySelectorAll('.tab'));
-  const currentIdx = tabs.indexOf(event.currentTarget);
-  let nextIdx = currentIdx;
-  if (event.key === 'ArrowLeft') nextIdx = (currentIdx + tabs.length - 1) % tabs.length;
-  if (event.key === 'ArrowRight') nextIdx = (currentIdx + 1) % tabs.length;
-  if (event.key === 'Home') nextIdx = 0;
-  if (event.key === 'End') nextIdx = tabs.length - 1;
-  switchTab(names[nextIdx]);
-  tabs[nextIdx].focus();
-}
-
 function boolToFlag(value) { return value ? '1' : '0'; }
 
 function escapeHtml(value) {
@@ -847,11 +1293,10 @@ function escapeJsString(value) {
 }
 
 function updateAccessTokenStatus(message = '') {
-  const submitInput = document.getElementById('submit-token');
-  const adminInput = document.getElementById('admin-token');
-  if (submitInput && document.activeElement !== submitInput) submitInput.value = submitToken() ? '••••••••' : '';
-  if (adminInput && document.activeElement !== adminInput) adminInput.value = adminToken() ? '••••••••' : '';
-  const status = document.getElementById('access-token-status');
+  const accessInput = document.getElementById('access-code-input');
+  const status = document.getElementById('access-code-status') || document.getElementById('access-token-status');
+  const button = document.getElementById('apply-access-code');
+  if (button) button.textContent = (submitToken() || adminToken()) ? 'Code accepted' : 'Apply code';
   if (!status) return;
   if (message) {
     status.textContent = message;
@@ -863,28 +1308,37 @@ function updateAccessTokenStatus(message = '') {
   status.textContent = bits.length ? bits.join(', ') : 'No access code saved for this tab.';
 }
 
-function saveAccessTokens() {
-  const submitInput = document.getElementById('submit-token');
-  const adminInput = document.getElementById('admin-token');
-  const submitValue = submitInput && !/^•+$/.test(submitInput.value) ? submitInput.value.trim() : submitToken();
-  const adminValue = adminInput && !/^•+$/.test(adminInput.value) ? adminInput.value.trim() : adminToken();
-  sessionSet(STORAGE_KEYS.submitToken, submitValue);
-  sessionSet(STORAGE_KEYS.adminToken, adminValue);
-  updateAccessTokenStatus('Access saved for this browser tab.');
-  fetchSystemStatus().then(system => {
-    if (isFullSystemStatus(system)) {
-      refreshJobHistory();
-      startSystemConsolePolling();
-    } else if (adminValue) {
-      stopSystemConsolePolling();
-      updateAccessTokenStatus('Diagnostics code was not accepted; standard view is active.');
-    }
-  });
+async function saveAccessTokens() {
+  const accessInput = document.getElementById('access-code-input');
+  const typedValue = accessInput && !/^•+$/.test(accessInput.value) ? accessInput.value.trim() : '';
+  const accessValue = typedValue || adminToken() || submitToken();
+  if (!accessValue) {
+    clearAccessTokens();
+    return;
+  }
+
+  sessionSet(STORAGE_KEYS.submitToken, accessValue);
+  sessionSet(STORAGE_KEYS.adminToken, accessValue);
+  updateAccessTokenStatus('Checking access code...');
+  const system = await fetchSystemStatus();
+  if (isFullSystemStatus(system)) {
+    updateAccessTokenStatus('Diagnostic gutter available.');
+    refreshJobHistory();
+    startSystemConsolePolling();
+    return;
+  }
+
+  sessionSet(STORAGE_KEYS.adminToken, '');
+  setAccessMode('public');
+  stopSystemConsolePolling();
+  updateAccessTokenStatus('Submission access saved for this tab.');
 }
 
 function clearAccessTokens() {
   sessionSet(STORAGE_KEYS.submitToken, '');
   sessionSet(STORAGE_KEYS.adminToken, '');
+  const accessInput = document.getElementById('access-code-input');
+  if (accessInput) accessInput.value = '';
   setAccessMode('public');
   updateAccessTokenStatus('Access codes cleared.');
 }
@@ -893,13 +1347,18 @@ function updateEmailNotificationPanel() {
   const panel = document.getElementById('email-notification-panel');
   const input = document.getElementById('notify-email');
   if (!panel) return;
-  panel.classList.toggle('hidden', !smtpEnabled);
-  if (!smtpEnabled && input) input.value = '';
+  panel.classList.remove('hidden');
+  panel.classList.toggle('is-disabled', !smtpEnabled);
+  panel.setAttribute('aria-disabled', smtpEnabled ? 'false' : 'true');
+  if (!input) return;
+  input.disabled = !smtpEnabled;
+  input.placeholder = smtpEnabled ? 'name@example.com' : 'email off';
+  if (!smtpEnabled) input.value = '';
 }
 
 function parseExistingRunInput() {
-  const raw = (document.getElementById('existing-run-link')?.value || '').trim();
-  const explicitToken = (document.getElementById('existing-run-token')?.value || '').trim();
+  const raw = (document.getElementById('result-link-input')?.value || document.getElementById('existing-run-link')?.value || '').trim();
+  const explicitToken = (document.getElementById('existing-run-token')?.value || document.getElementById('access-code-input')?.value || '').trim();
   if (!raw) return null;
 
   let text = raw;
@@ -917,7 +1376,7 @@ function parseExistingRunInput() {
 }
 
 async function unlockExistingRun() {
-  const status = document.getElementById('existing-run-status');
+  const status = document.getElementById('result-link-status') || document.getElementById('existing-run-status');
   const parsed = parseExistingRunInput();
   if (!parsed) {
     if (status) status.textContent = 'Enter a private result link, or a job ID plus result access code.';
@@ -928,24 +1387,29 @@ async function unlockExistingRun() {
   const job = await loadJob(parsed.jobId, true, { readToken: parsed.token, source: 'existing-run', deferResultsShell: true });
   if (status) status.textContent = job ? 'Results opened in this tab.' : 'No run matched that job ID and result access code.';
   document.body.dataset.existingRunLoaded = job ? 'true' : 'false';
-  if (job) navigateToSection(null, 'outputs');
+  if (job) {
+    animateExistingResultUnlock();
+    navigateToSection(null, 'outputs');
+  }
 }
 
 function renderOpenedRuns() {
+  const runs = loadOpenedRuns();
   const panel = document.getElementById('opened-runs-panel');
   const select = document.getElementById('opened-runs-select');
-  if (!panel || !select) return;
-  const runs = loadOpenedRuns();
-  panel.classList.toggle('hidden', runs.length === 0);
-  select.innerHTML = runs.length
-    ? `<option value="">Select recent result</option>${runs.map(run => `<option value="${escapeHtml(run.id)}">${escapeHtml(run.name || run.id)} (${escapeHtml(run.id)})</option>`).join('')}`
-    : '<option value="">No recent results</option>';
-  if (activeJobId) select.value = activeJobId;
+  if (panel && select) {
+    panel.classList.toggle('hidden', runs.length === 0);
+    select.innerHTML = runs.length
+      ? `<option value="">Select recent result</option>${runs.map(run => `<option value="${escapeHtml(run.id)}">${escapeHtml(run.name || run.id)} (${escapeHtml(run.id)})</option>`).join('')}`
+      : '<option value="">No recent results</option>';
+    if (activeJobId) select.value = activeJobId;
+  }
+  renderRunStack(runs);
 }
 
 async function loadSelectedOpenedRun() {
   const select = document.getElementById('opened-runs-select');
-  const status = document.getElementById('existing-run-status');
+  const status = document.getElementById('result-link-status') || document.getElementById('existing-run-status');
   const jobId = select ? select.value : '';
   if (!jobId) return;
   if (status) status.textContent = 'Opening remembered result...';
@@ -958,7 +1422,10 @@ async function loadSelectedOpenedRun() {
     select.disabled = false;
     if (job) select.value = jobId;
   }
-  if (job) navigateToSection(null, 'outputs');
+  if (job) {
+    animateExistingResultUnlock();
+    navigateToSection(null, 'outputs');
+  }
 }
 
 function forgetOpenedRuns() {
@@ -1084,10 +1551,18 @@ async function copyTextToClipboard(text, successMessage) {
 function renderSubmissionConfirmation(payload) {
   resultDashboardOpen = false;
   const panel = document.getElementById('submission-confirmation');
-  if (!panel || !payload || !payload.jobId || !payload.readToken) return;
-  const resultUrl = privateResultLink(payload.jobId, payload.readToken, payload.resultUrl || '');
+  if (!panel || !payload) return;
+  const jobId = String(payload.jobId || payload.job_id || payload.id || '').trim();
+  const readToken = String(payload.readToken || payload.read_token || payload.token || '').trim();
+  if (!jobId) return;
+  const resultUrl = privateResultLink(jobId, readToken, payload.resultUrl || payload.result_url || '');
+  const projectName = payload.projectName || payload.project_name || 'ClusterWeave run';
+  const expiresAt = payload.expiresAt || payload.expires_at || '';
+  const notifyEmail = payload.notifyEmail || payload.notify_email || '';
   lastSubmittedRun = {
     ...payload,
+    jobId,
+    readToken,
     resultUrl,
   };
   const title = document.getElementById('submission-confirmation-title');
@@ -1096,44 +1571,493 @@ function renderSubmissionConfirmation(payload) {
   const jobInput = document.getElementById('submitted-job-id');
   const tokenInput = document.getElementById('submitted-result-token');
   const status = document.getElementById('submission-confirmation-status');
-  const project = payload.projectName || 'ClusterWeave run';
-  const expires = payload.expiresAt ? ` Results expire ${new Date(payload.expiresAt).toLocaleDateString()}.` : '';
-  const email = payload.notifyEmail ? ` A completion email will include a private result link for ${payload.notifyEmail}.` : '';
+  const project = projectName;
+  const expires = expiresAt ? ` Results expire ${new Date(expiresAt).toLocaleDateString()}.` : '';
+  const email = notifyEmail ? ` A completion email will include a private result link for ${notifyEmail}.` : '';
   if (title) title.textContent = 'Initiating sequence. Launching ClusterWeave.';
   if (copy) copy.textContent = `${project} is queued. Save this private result link, or save the job ID with its result access code.${expires}${email}`;
   if (linkInput) linkInput.value = resultUrl;
-  if (jobInput) jobInput.value = payload.jobId;
-  if (tokenInput) tokenInput.value = payload.readToken;
+  if (jobInput) jobInput.value = jobId;
+  if (tokenInput) tokenInput.value = readToken;
   if (status) status.textContent = 'Result access is saved in this browser tab.';
+  setResultAccessCollapsed(false);
+  renderRunSetupAccessPanel({
+    ...payload,
+    jobId,
+    readToken,
+    resultUrl,
+    projectName,
+    expiresAt,
+    notifyEmail,
+    receipt: payload.receipt,
+    jobState: payload.jobState || payload.job_state || payload.status || 'queued',
+  });
+  panel.classList.add('hidden');
+}
+
+function syncResultAccessCollapse() {
+  const panel = document.getElementById('submission-confirmation');
+  const toggle = document.getElementById('result-access-toggle');
+  const details = document.getElementById('submission-confirmation-details');
+  if (!panel) return;
+  const collapsed = !!resultAccessCollapsed;
+  panel.dataset.resultAccessCollapsed = collapsed ? 'true' : 'false';
+  if (details) details.hidden = collapsed;
+  if (toggle) {
+    const label = collapsed ? 'Expand result access details' : 'Collapse result access details';
+    toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    toggle.setAttribute('aria-label', label);
+    toggle.setAttribute('title', label);
+    const icon = toggle.querySelector('[data-result-access-toggle-icon]');
+    if (icon) icon.textContent = collapsed ? '▸' : '▾';
+    const srLabel = toggle.querySelector('[data-result-access-toggle-label]');
+    if (srLabel) srLabel.textContent = label;
+  }
+}
+
+function setResultAccessCollapsed(collapsed) {
+  resultAccessCollapsed = !!collapsed;
+  syncResultAccessCollapse();
+}
+
+function toggleResultAccessCard() {
+  setResultAccessCollapsed(!resultAccessCollapsed);
+}
+
+function ecologyReceiptRows() {
+  return currentEcologyMetadataRows()
+    .filter(row => row.primary || row.secondary)
+    .map(row => ({
+      input: row.input,
+      accession: row.accession || '',
+      primary: row.primary || '',
+      secondary: row.secondary || '',
+    }));
+}
+
+function collectRunSetupAcceptedInputs() {
+  const rows = [];
+  acceptedManualAccessions.forEach((accession) => {
+    rows.push({ label: accession, kind: 'NCBI accession', source: 'manual entry' });
+  });
+  accessionFileSources.forEach((source) => {
+    source.accessions.forEach((accession) => {
+      rows.push({ label: accession, kind: 'NCBI accession', source: source.name });
+    });
+  });
+  selectedFiles.forEach((file) => {
+    rows.push({ label: file.name, kind: 'Genome upload', source: 'uploaded file' });
+  });
+  return rows;
+}
+
+function currentRunSetupOrganismName() {
+  return document.getElementById('funannotate-organism-name')?.value.trim() || '';
+}
+
+function currentRunSetupTaxaLabel() {
+  const buscoDb = document.getElementById('funannotate-busco-db')?.value.trim();
+  return buscoDb ? `${buscoDb} / fungal genome intake` : 'fungal genome intake';
+}
+
+function collectRunSetupAccessReceipt(options = {}) {
+  return {
+    projectName: options.projectName || document.getElementById('project-name')?.value.trim() || 'my_project',
+    accessions: manualAccessionLines(),
+    uploadFiles: selectedFiles.map(file => file.name),
+    accessionSources: accessionFileSources.map(source => ({
+      name: source.name,
+      count: source.accessions.length,
+      accessions: source.accessions.slice(),
+    })),
+    acceptedInputs: collectRunSetupAcceptedInputs(),
+    targetGenome: document.getElementById('target-genome')?.value.trim() || '',
+    ecologyRows: ecologyReceiptRows(),
+    organismName: currentRunSetupOrganismName(),
+    taxa: currentRunSetupTaxaLabel(),
+  };
+}
+
+function setRunSetupAccessCollapsed(collapsed) {
+  runSetupAccessCollapsed = !!collapsed;
+  const panel = document.getElementById('run-setup-access-panel');
+  const body = document.getElementById('run-setup-access-body');
+  const toggle = document.getElementById('run-setup-access-toggle');
+  if (panel) panel.dataset.runSetupCollapsed = runSetupAccessCollapsed ? 'true' : 'false';
+  if (body) body.hidden = runSetupAccessCollapsed;
+  if (toggle) {
+    const label = runSetupAccessCollapsed ? 'Expand run setup access' : 'Collapse run setup access';
+    toggle.setAttribute('aria-expanded', runSetupAccessCollapsed ? 'false' : 'true');
+    toggle.setAttribute('aria-label', label);
+    toggle.textContent = runSetupAccessCollapsed ? '▾' : '▴';
+  }
+}
+
+function toggleRunSetupAccessPanel() {
+  setRunSetupAccessCollapsed(!runSetupAccessCollapsed);
+}
+
+function renderReceiptChip(text) {
+  return `<span class="receipt-chip">${escapeHtml(text)}</span>`;
+}
+
+function receiptInputKey(value) {
+  return String(value || '').trim().toUpperCase();
+}
+
+function normalizeReceiptKind(kind, fallback = 'NCBI accession') {
+  const value = String(kind || '').trim();
+  if (!value) return fallback;
+  if (/upload/i.test(value)) return 'Genome upload';
+  if (/accession/i.test(value)) return 'NCBI accession';
+  return value;
+}
+
+function receiptSourceByAccession(receipt) {
+  const sources = new Map();
+  (receipt.accessionSources || []).forEach((source) => {
+    (source.accessions || []).forEach((accession) => {
+      const key = receiptInputKey(accession);
+      if (!key || sources.has(key)) return;
+      sources.set(key, source.name || MANUAL_ACCESSIONS_FILENAME);
+    });
+  });
+  return sources;
+}
+
+function receiptAccessionMetadataByInput(receipt) {
+  const summary = receipt.inputSummary || receipt.input_summary || {};
+  const records = [
+    ...(Array.isArray(receipt.accessionMetadata) ? receipt.accessionMetadata : []),
+    ...(Array.isArray(receipt.accession_metadata) ? receipt.accession_metadata : []),
+    ...(Array.isArray(summary.accession_metadata) ? summary.accession_metadata : []),
+  ];
+  const metadata = new Map();
+  records.forEach((record) => {
+    const key = receiptInputKey(record && (record.accession || record.label || record.input));
+    if (!key || metadata.has(key)) return;
+    metadata.set(key, record);
+  });
+  return metadata;
+}
+
+function receiptAcceptedInputItems(receipt) {
+  const sourceByAccession = receiptSourceByAccession(receipt);
+  const metadataByInput = receiptAccessionMetadataByInput(receipt);
+  const items = [];
+  const seen = new Set();
+  const targetKey = receiptInputKey(receipt.targetGenome);
+  const addItem = (item, fallbackKind = 'NCBI accession') => {
+    const label = String((item && (item.label || item.name || item.accession)) || '').trim();
+    if (!label) return;
+    const kind = normalizeReceiptKind(item.kind || item.type, fallbackKind);
+    const key = `${kind}:${receiptInputKey(label)}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    const source = String(item.source || sourceByAccession.get(receiptInputKey(label)) || '').trim();
+    const labelKey = receiptInputKey(label);
+    const metadata = metadataByInput.get(labelKey) || {};
+    const taxId = metadata.tax_id || metadata.taxId || item.taxId || item.taxonId || '';
+    items.push({
+      label,
+      kind,
+      source,
+      isTarget: !!item.isTarget || (!!targetKey && targetKey === labelKey),
+      organismName: item.organismName || item.fungusName || metadata.organism_name || metadata.organismName || '',
+      taxa: item.taxa || item.taxonomy || item.taxonomyLabel || metadata.taxa || metadata.taxonomy || (taxId ? `NCBI taxon ${taxId}` : ''),
+      taxId,
+      orderName: item.orderName || item.order_name || metadata.order_name || metadata.orderName || '',
+      familyName: item.familyName || item.family_name || metadata.family_name || metadata.familyName || '',
+      className: item.className || item.class_name || metadata.class_name || metadata.className || metadata.class || '',
+      orderFamily: item.orderFamily || item.order_family || metadata.order_family || metadata.orderFamily || '',
+      summary: !!item.summary,
+    });
+  };
+
+  if (Array.isArray(receipt.acceptedInputs) && receipt.acceptedInputs.length) {
+    receipt.acceptedInputs.forEach(item => addItem(item));
+  } else {
+    (receipt.accessions || []).forEach(accession => addItem({ label: accession }, 'NCBI accession'));
+    (receipt.uploadFiles || []).forEach(name => addItem({ label: name }, 'Genome upload'));
+  }
+
+  (receipt.accessionSources || []).forEach((source) => {
+    if ((source.accessions || []).length) {
+      source.accessions.forEach(accession => addItem({
+        label: accession,
+        kind: 'NCBI accession',
+        source: source.name || MANUAL_ACCESSIONS_FILENAME,
+      }));
+      return;
+    }
+    if (positiveInteger(source.count)) {
+      addItem({
+        label: source.name || MANUAL_ACCESSIONS_FILENAME,
+        kind: 'Accession list',
+        source: `${source.count} accepted accession${source.count === 1 ? '' : 's'}`,
+        summary: true,
+      }, 'Accession list');
+    }
+  });
+
+  (receipt.inputNotes || []).forEach(note => addItem({ label: note, kind: 'Loaded job', summary: true }, 'Loaded job'));
+  return items;
+}
+
+function receiptEcologyRowsForInput(receipt, label) {
+  const key = receiptInputKey(label);
+  return (receipt.ecologyRows || []).filter((row) => {
+    const rowInput = receiptInputKey(row.input);
+    const rowAccession = receiptInputKey(row.accession);
+    return rowInput === key || rowAccession === key;
+  });
+}
+
+function receiptGenomeStem(label) {
+  return String(label || '').replace(/\.(gbk|gb|gbff|fasta|fa|fna|fsa)$/i, '');
+}
+
+function receiptOrganismLine(receipt, item) {
+  const itemName = String(item.organismName || '').trim();
+  if (itemName) return itemName;
+  const receiptName = String(receipt.organismName || receipt.fungusName || receipt.funannotateOrganismName || '').trim();
+  if (receiptName && receiptName.toLowerCase() !== 'auto') return receiptName;
+  if (item.kind === 'Genome upload') return receiptGenomeStem(item.label) || 'genus_species_strain';
+  if (item.summary) return 'stored run input';
+  return 'genus_species_strain from accepted input metadata';
+}
+
+function receiptTaxaLine(receipt, item) {
+  const itemTaxa = String(item.taxa || '').trim();
+  if (itemTaxa) return itemTaxa;
+  const receiptTaxa = String(receipt.taxa || receipt.taxonomy || receipt.taxonomyLabel || '').trim();
+  if (receiptTaxa) return receiptTaxa;
+  if (item.kind === 'NCBI accession') return 'fungi / NCBI taxonomy';
+  if (item.kind === 'Genome upload') return 'fungal genome intake';
+  return 'input taxonomy from stored run';
+}
+
+function receiptTaxonIdLine(item) {
+  const taxId = String(item.taxId || '').trim();
+  if (taxId) return `NCBI taxon ${taxId}`;
+  const taxa = String(item.taxa || '').trim();
+  const match = taxa.match(/NCBI taxon\s+(\d+)/i);
+  return match ? `NCBI taxon ${match[1]}` : taxa;
+}
+
+function receiptOrderFamilyLine(item) {
+  const explicit = String(item.orderFamily || '').trim();
+  if (explicit) return explicit;
+  const orderName = String(item.orderName || '').trim();
+  const familyName = String(item.familyName || '').trim();
+  if (orderName && familyName) return `${orderName}:${familyName}`;
+  return orderName || familyName;
+}
+
+function receiptInlineDisplayLine(receipt, item) {
+  if (item.kind !== 'NCBI accession') return item.label;
+  const parts = [
+    item.label,
+    receiptTaxonIdLine(item),
+    receiptOrganismLine(receipt, item),
+    receiptOrderFamilyLine(item),
+    String(item.className || '').trim(),
+  ].filter(Boolean);
+  return parts.join(' | ');
+}
+
+function receiptSourceChipText(source) {
+  const value = String(source || '').trim();
+  if (!value || value === 'manual entry' || value === MANUAL_ACCESSIONS_FILENAME) return '';
+  return `From ${value}`;
+}
+
+function renderRunSetupInputReceipt(receipt) {
+  if (!receipt || typeof receipt !== 'object') return '<div class="submitted-input-empty">No accepted input captured.</div>';
+  const rows = [];
+  receiptAcceptedInputItems(receipt).forEach((item) => {
+    const ecology = receiptEcologyRowsForInput(receipt, item.label);
+    const chips = item.summary ? [renderReceiptChip(item.kind)] : [];
+    if (!item.summary && item.kind && item.kind !== 'NCBI accession') chips.push(renderReceiptChip(item.kind));
+    if (item.isTarget) chips.push(renderReceiptChip('Target genome'));
+    const sourceChip = receiptSourceChipText(item.source);
+    if (sourceChip) chips.push(renderReceiptChip(sourceChip));
+    ecology.forEach((row) => {
+      if (row.primary) chips.push(renderReceiptChip(`ECO 1: ${row.primary}`));
+      if (row.secondary) chips.push(renderReceiptChip(`ECO 2: ${row.secondary}`));
+    });
+    rows.push(`
+    <div class="receipt-row${item.isTarget ? ' is-target' : ''}${item.summary ? ' is-summary' : ''}">
+      <b class="receipt-line-text" title="${escapeHtml(receiptInlineDisplayLine(receipt, item))}">${escapeHtml(receiptInlineDisplayLine(receipt, item))}</b>
+      <span class="receipt-dot" aria-hidden="true"></span>
+      <div class="receipt-eco">${chips.join('')}</div>
+    </div>`);
+  });
+  return rows.length ? rows.join('') : '<div class="submitted-input-empty">No accepted input captured.</div>';
+}
+
+function receiptListFromValue(value) {
+  if (Array.isArray(value)) return value.map(item => String(item || '').trim()).filter(Boolean);
+  if (typeof value === 'string') return value.split(/[\n,]+/).map(item => item.trim()).filter(Boolean);
+  return [];
+}
+
+function positiveInteger(value) {
+  const n = Number(value || 0);
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : 0;
+}
+
+function runSetupProjectNameFromJob(job) {
+  const settings = (job && (job.submission_settings || job.settings)) || {};
+  return String((job && (job.project_name || job.name)) || settings.project_name || settings.projectName || (job && job.id) || 'ClusterWeave run');
+}
+
+function runSetupTargetGenomeFromJob(job) {
+  const settings = (job && (job.submission_settings || job.settings)) || {};
+  return String((job && (job.target_genome || job.targetGenome)) || settings.target_genome || settings.targetGenome || settings.target_strain || '');
+}
+
+function runSetupReceiptFromJob(job) {
+  const settings = (job && (job.submission_settings || job.settings)) || {};
+  const inputSummary = (job && (job.input_summary || job.inputSummary)) || {};
+  const metadataAccessions = Array.isArray(inputSummary.accession_metadata)
+    ? inputSummary.accession_metadata.map(record => record && record.accession)
+    : [];
+  const accessions = [
+    ...receiptListFromValue(job && job.accessions),
+    ...receiptListFromValue(settings.accessions),
+    ...receiptListFromValue(settings.manual_accessions),
+    ...receiptListFromValue(settings.accession_text),
+    ...receiptListFromValue(metadataAccessions),
+  ].filter((value, index, list) => list.indexOf(value) === index);
+  const uploadFiles = [
+    ...receiptListFromValue(job && (job.upload_files || job.uploadFiles)),
+    ...receiptListFromValue(settings.upload_files || settings.uploadFiles || settings.genome_files || settings.genomeFiles),
+  ].filter((value, index, list) => list.indexOf(value) === index);
+  const accessionSources = [];
+  const accessionCount = positiveInteger(inputSummary.accession_count || inputSummary.accessions || settings.accession_count || settings.accessionCount);
+  if (!accessions.length && accessionCount) {
+    accessionSources.push({ name: MANUAL_ACCESSIONS_FILENAME, count: accessionCount, accessions: [] });
+  }
+  const genomeFileCount = positiveInteger(inputSummary.genome_file_count || inputSummary.upload_file_count || settings.genome_file_count || settings.upload_file_count);
+  if (!uploadFiles.length && genomeFileCount) {
+    uploadFiles.push(`${genomeFileCount} genome file${genomeFileCount === 1 ? '' : 's'}`);
+  }
+  const inputNotes = (!accessions.length && !uploadFiles.length && !accessionSources.length)
+    ? ['Stored run input']
+    : [];
+  return {
+    projectName: runSetupProjectNameFromJob(job),
+    accessions,
+    uploadFiles,
+    accessionSources,
+    targetGenome: runSetupTargetGenomeFromJob(job),
+    ecologyRows: [],
+    accessionMetadata: Array.isArray(inputSummary.accession_metadata) ? inputSummary.accession_metadata : [],
+    inputSummary,
+    organismName: String(settings.funannotate_organism_name || settings.funannotateOrganismName || '').trim(),
+    taxa: 'fungal genome intake',
+    inputNotes,
+  };
+}
+
+function runSetupReceiptInputCount(receipt) {
+  return receiptAcceptedInputItems(receipt || {}).length;
+}
+
+function renderRunSetupAccessPanel(payload = {}) {
+  const panel = document.getElementById('run-setup-access-panel');
+  const jobId = String(payload.jobId || payload.job_id || payload.id || '').trim();
+  if (!panel || !jobId) return;
+  const readToken = payload.readToken || payload.read_token || payload.token || '';
+  const suppliedUrl = payload.resultUrl || payload.result_url || '';
+  const resultUrl = suppliedUrl || (readToken ? privateResultLink(jobId, readToken) : '');
+  const existingReceipt = submittedRunReceipt && String(submittedRunReceipt.jobId || '') === jobId
+    ? submittedRunReceipt.receipt
+    : null;
+  const receipt = payload.receipt || existingReceipt || collectRunSetupAccessReceipt({ projectName: payload.projectName });
+  submittedRunReceipt = {
+    ...payload,
+    jobId,
+    readToken,
+    resultUrl,
+    receipt,
+    jobState: payload.jobState || payload.status || 'queued',
+  };
+  const inputList = document.getElementById('run-setup-input-list');
+  const inputCount = document.getElementById('run-setup-input-count');
+  const project = document.getElementById('run-setup-project');
+  const target = document.getElementById('run-setup-target');
+  const link = document.getElementById('run-setup-result-link');
+  const job = document.getElementById('run-setup-job-id');
+  const state = document.getElementById('run-setup-job-state');
+  const expiration = document.getElementById('run-setup-expiration');
+  const count = runSetupReceiptInputCount(receipt);
+  if (inputList) inputList.innerHTML = renderRunSetupInputReceipt(receipt);
+  if (inputCount) inputCount.textContent = String(count);
+  if (project) project.textContent = receipt.projectName || payload.projectName || 'ClusterWeave run';
+  if (target) target.textContent = receipt.targetGenome || 'Not selected';
+  if (link) link.textContent = resultUrl || 'Pending';
+  if (job) job.textContent = jobId;
+  if (state) state.textContent = submittedRunReceipt.jobState;
+  const expiresAt = payload.expiresAt || payload.expires_at || '';
+  if (expiration) expiration.textContent = expiresAt ? `Results expire ${new Date(expiresAt).toLocaleDateString()}.` : '';
+  document.getElementById('submission-confirmation')?.classList.add('hidden');
   panel.classList.remove('hidden');
+  document.body.dataset.runSetupAccess = 'open';
+  setRunSetupAccessCollapsed(runSetupAccessCollapsed);
+}
+
+function updateRunSetupAccessFromJob(job) {
+  const jobId = String((job && job.id) || '');
+  if (!submittedRunReceipt || !jobId || String(submittedRunReceipt.jobId || '') !== jobId) return false;
+  submittedRunReceipt.jobState = job.status || submittedRunReceipt.jobState || 'queued';
+  const state = document.getElementById('run-setup-job-state');
+  if (state) state.textContent = submittedRunReceipt.jobState;
+  return true;
+}
+
+function clearRunSetupAccessPanel() {
+  submittedRunReceipt = null;
+  runSetupAccessCollapsed = false;
+  document.getElementById('run-setup-access-panel')?.classList.add('hidden');
+  document.body.dataset.runSetupAccess = 'closed';
+  setRunSetupAccessCollapsed(false);
+  document.getElementById('upload-card')?.classList.remove('upload-card-locked');
 }
 
 function renderActiveRunAccessPanel(job) {
-  const panel = document.getElementById('submission-confirmation');
-  if (!panel || !job || !job.id) return;
-  const title = document.getElementById('submission-confirmation-title');
-  const copy = document.getElementById('submission-confirmation-copy');
+  const legacyPanel = document.getElementById('submission-confirmation');
+  if (!job || !job.id) {
+    if (legacyPanel) legacyPanel.classList.add('hidden');
+    return;
+  }
+  const jobId = String(job.id);
+  const token = readTokenForJob(jobId);
+  const link = token ? privateResultLink(jobId, token, job.result_url || '') : '';
+  const project = runSetupProjectNameFromJob(job);
+  const receipt = submittedRunReceipt && String(submittedRunReceipt.jobId || '') === jobId
+    ? submittedRunReceipt.receipt
+    : runSetupReceiptFromJob(job);
   const linkInput = document.getElementById('submitted-result-link');
   const jobInput = document.getElementById('submitted-job-id');
   const tokenInput = document.getElementById('submitted-result-token');
   const status = document.getElementById('submission-confirmation-status');
-  const token = readTokenForJob(job.id);
-  const link = token ? privateResultLink(job.id, token, job.result_url || '') : '';
-  const project = job.project_name || job.settings?.project_name || job.id;
-  const expires = job.expires_at ? ` Results expire ${new Date(job.expires_at).toLocaleDateString()}.` : '';
-  const statusValue = String(job.status || '').toLowerCase();
-  const isSubmittedRun = lastSubmittedRun && lastSubmittedRun.jobId === job.id && ['pending', 'running'].includes(statusValue);
-  if (title) title.textContent = isSubmittedRun ? 'Initiating sequence. Launching ClusterWeave.' : 'Result access';
-  if (copy) {
-    copy.textContent = isSubmittedRun
-      ? `${project} is queued. Save this private result link, or save the job ID with its result access code.${expires}`
-      : `${project} is loaded in this browser tab. Keep the private result link, or keep the job ID with its result access code, to return later.${expires}`;
-  }
   if (linkInput) linkInput.value = link;
-  if (jobInput) jobInput.value = job.id;
+  if (jobInput) jobInput.value = jobId;
   if (tokenInput) tokenInput.value = token || (canUseAdminSurfaces() ? 'Diagnostics access active' : '');
   if (status) status.textContent = token ? 'Result access is saved for this browser tab.' : 'Diagnostics access is being used for this job.';
-  panel.classList.remove('hidden');
+  renderRunSetupAccessPanel({
+    jobId,
+    projectName: project,
+    readToken: token,
+    resultUrl: link,
+    receipt,
+    jobState: job.status || 'loaded',
+    status: job.status,
+    expiresAt: job.expires_at,
+  });
+  if (legacyPanel) legacyPanel.classList.add('hidden');
 }
 
 function dismissSubmissionConfirmation() {
@@ -1239,6 +2163,271 @@ function inlineResultMime(relPath, fallback = '') {
   return 'text/plain;charset=utf-8';
 }
 
+const RESULT_PREVIEW_NAVIGATOR_SCRIPT = String.raw`
+(function () {
+  const scriptEl = document.currentScript || document.querySelector('script[data-clusterweave-result-preview]');
+  if (!scriptEl || scriptEl.dataset.ready === '1') return;
+  scriptEl.dataset.ready = '1';
+
+  function normalizePath(value) {
+    return String(value || '')
+      .replace(/\\/g, '/')
+      .replace(/^\/+/, '')
+      .split('/')
+      .filter(part => part && part !== '.')
+      .join('/');
+  }
+
+  const config = {
+    jobId: scriptEl.dataset.jobId || '',
+    ownerPath: normalizePath(scriptEl.dataset.ownerPath || ''),
+    apiBase: scriptEl.dataset.apiBase || window.location.origin + '/',
+    authorization: scriptEl.dataset.authorization || '',
+  };
+  const helperObjectUrls = [];
+
+  function textDataUrl(text, mime) {
+    return 'data:' + (mime || 'text/plain;charset=utf-8') + ',' + encodeURIComponent(String(text || ''));
+  }
+
+  function blobDataUrl(blob) {
+    return new Promise(function (resolve, reject) {
+      const reader = new FileReader();
+      reader.onload = function () { resolve(String(reader.result || '')); };
+      reader.onerror = function () { reject(reader.error || new Error('Could not read result asset.')); };
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  function fileName(path) {
+    const parts = normalizePath(path).split('/');
+    return parts[parts.length - 1] || '';
+  }
+
+  function pathExt(path) {
+    const name = fileName(path).toLowerCase();
+    return name.includes('.') ? name.split('.').pop() : '';
+  }
+
+  function inlineMime(relPath, fallback) {
+    const mimeMap = {
+      css: 'text/css;charset=utf-8',
+      gif: 'image/gif',
+      htm: 'text/html;charset=utf-8',
+      html: 'text/html;charset=utf-8',
+      jpeg: 'image/jpeg',
+      jpg: 'image/jpeg',
+      js: 'text/javascript;charset=utf-8',
+      json: 'application/json',
+      pdf: 'application/pdf',
+      png: 'image/png',
+      svg: 'image/svg+xml',
+      txt: 'text/plain;charset=utf-8',
+      webp: 'image/webp',
+    };
+    const ext = pathExt(relPath);
+    if (mimeMap[ext]) return mimeMap[ext];
+    if (fallback && fallback !== 'application/octet-stream') return fallback;
+    return 'text/plain;charset=utf-8';
+  }
+
+  function shouldStayExternal(rawUrl) {
+    const value = String(rawUrl || '').trim();
+    return !value ||
+      value.startsWith('#') ||
+      /^(?:[a-z][a-z0-9+.-]*:)?\/\//i.test(value) ||
+      /^(?:data|blob|mailto|tel|javascript):/i.test(value) ||
+      value.startsWith('/');
+  }
+
+  function splitUrl(rawUrl) {
+    const value = String(rawUrl || '').trim();
+    const match = value.match(/^([^?#]*)([?#].*)?$/);
+    return { path: match ? match[1] : value, suffix: match && match[2] ? match[2] : '' };
+  }
+
+  function hashSuffix(rawUrl) {
+    const value = String(rawUrl || '').trim();
+    const hashIndex = value.indexOf('#');
+    return hashIndex >= 0 ? value.slice(hashIndex) : '';
+  }
+
+  function relativePath(ownerPath, rawUrl) {
+    const value = String(rawUrl || '').trim();
+    if (shouldStayExternal(value)) return '';
+    try {
+      const ownerParts = normalizePath(ownerPath).split('/').filter(Boolean);
+      ownerParts.pop();
+      const basePath = ownerParts.map(part => encodeURIComponent(part)).join('/');
+      const base = 'https://clusterweave.invalid/' + basePath + (basePath ? '/' : '');
+      const parsed = new URL(value, base);
+      if (parsed.origin !== 'https://clusterweave.invalid') return '';
+      return decodeURIComponent(parsed.pathname.replace(/^\/+/, ''));
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function apiFileUrl(relPath) {
+    const encodedPath = normalizePath(relPath).split('/').filter(Boolean).map(encodeURIComponent).join('/');
+    return new URL('api/jobs/' + encodeURIComponent(config.jobId) + '/files/' + encodedPath, config.apiBase).toString();
+  }
+
+  function authHeaders() {
+    return config.authorization ? { Authorization: config.authorization } : {};
+  }
+
+  async function fetchResult(relPath) {
+    return fetch(apiFileUrl(relPath), {
+      credentials: 'same-origin',
+      headers: authHeaders(),
+    });
+  }
+
+  async function resultAssetUrl(ownerPath, rawUrl, cache) {
+    const parts = splitUrl(rawUrl);
+    const assetPath = relativePath(ownerPath, parts.path);
+    if (!assetPath) return '';
+    const cacheKey = normalizePath(assetPath);
+    if (cache.has(cacheKey)) return cache.get(cacheKey);
+    const promise = (async function () {
+      const resp = await fetchResult(cacheKey);
+      if (!resp.ok) return '';
+      const contentType = resp.headers.get('Content-Type') || '';
+      const ext = pathExt(cacheKey);
+      let url;
+      if (ext === 'css' || /^text\/css\b/i.test(contentType)) {
+        const cssText = await resp.text();
+        const rewrittenCss = await rewriteCssUrls(cssText, cacheKey, cache);
+        url = textDataUrl(rewrittenCss, inlineMime(cacheKey, 'text/css;charset=utf-8'));
+      } else if (ext === 'html' || ext === 'htm' || /^text\/html\b/i.test(contentType)) {
+        const htmlText = await resp.text();
+        const rewrittenHtml = await rewriteHtml(htmlText, cacheKey);
+        url = textDataUrl(rewrittenHtml, inlineMime(cacheKey, 'text/html;charset=utf-8'));
+      } else {
+        const sourceBlob = await resp.blob();
+        url = await blobDataUrl(new Blob([sourceBlob], { type: inlineMime(cacheKey, sourceBlob.type || contentType) }));
+      }
+      return url;
+    })();
+    cache.set(cacheKey, promise);
+    return promise;
+  }
+
+  async function rewriteCssUrls(cssText, ownerPath, cache) {
+    const source = String(cssText || '');
+    const regex = /url\(\s*(['"]?)([^'")]+)\1\s*\)/gi;
+    let output = '';
+    let lastIndex = 0;
+    for (const match of source.matchAll(regex)) {
+      output += source.slice(lastIndex, match.index);
+      const quote = match[1] || '';
+      const rawUrl = match[2] || '';
+      let rewritten = '';
+      if (!shouldStayExternal(rawUrl)) rewritten = await resultAssetUrl(ownerPath, rawUrl, cache);
+      output += rewritten ? 'url(' + quote + rewritten + hashSuffix(rawUrl) + quote + ')' : match[0];
+      lastIndex = match.index + match[0].length;
+    }
+    return output + source.slice(lastIndex);
+  }
+
+  function injectNavigator(doc, ownerPath) {
+    Array.from(doc.querySelectorAll('script[data-clusterweave-result-preview]')).forEach(node => node.remove());
+    const script = doc.createElement('script');
+    script.setAttribute('data-clusterweave-result-preview', '');
+    script.setAttribute('data-job-id', config.jobId);
+    script.setAttribute('data-owner-path', normalizePath(ownerPath));
+    script.setAttribute('data-api-base', config.apiBase);
+    script.setAttribute('data-authorization', config.authorization);
+    script.textContent = scriptEl.textContent || '';
+    (doc.body || doc.head || doc.documentElement).appendChild(script);
+  }
+
+  async function rewriteHtml(htmlText, ownerPath) {
+    const source = String(htmlText || '');
+    const doc = new DOMParser().parseFromString(source, 'text/html');
+    const cache = new Map();
+    const assetAttrs = [
+      ['link[href]', 'href'],
+      ['script[src]', 'src'],
+      ['img[src]', 'src'],
+      ['source[src]', 'src'],
+      ['video[poster]', 'poster'],
+      ['audio[src]', 'src'],
+      ['video[src]', 'src'],
+      ['object[data]', 'data'],
+      ['embed[src]', 'src'],
+      ['iframe[src]', 'src'],
+      ['input[src]', 'src'],
+      ['track[src]', 'src'],
+    ];
+    for (const pair of assetAttrs) {
+      for (const el of Array.from(doc.querySelectorAll(pair[0]))) {
+        const value = el.getAttribute(pair[1]) || '';
+        if (shouldStayExternal(value)) continue;
+        const rewritten = await resultAssetUrl(ownerPath, value, cache);
+        if (rewritten) el.setAttribute(pair[1], rewritten + hashSuffix(value));
+      }
+    }
+    for (const styleEl of Array.from(doc.querySelectorAll('style'))) {
+      styleEl.textContent = await rewriteCssUrls(styleEl.textContent || '', ownerPath, cache);
+    }
+    for (const el of Array.from(doc.querySelectorAll('[style]'))) {
+      const value = el.getAttribute('style') || '';
+      const rewritten = await rewriteCssUrls(value, ownerPath, cache);
+      if (rewritten !== value) el.setAttribute('style', rewritten);
+    }
+    for (const el of Array.from(doc.querySelectorAll('a[href],area[href]'))) {
+      const value = el.getAttribute('href') || '';
+      if (!shouldStayExternal(value)) el.setAttribute('data-clusterweave-result-href', value);
+    }
+    injectNavigator(doc, ownerPath);
+    const doctype = source.match(/^\s*<!doctype[^>]*>/i);
+    return (doctype ? doctype[0] : '<!doctype html>') + '\n' + doc.documentElement.outerHTML;
+  }
+
+  async function openRelativeResult(rawUrl) {
+    const parts = splitUrl(rawUrl);
+    const targetPath = relativePath(config.ownerPath, parts.path);
+    if (!targetPath) return false;
+    const resp = await fetchResult(targetPath);
+    if (!resp.ok) throw new Error('Result file could not be opened.');
+    const contentType = resp.headers.get('Content-Type') || '';
+    const ext = pathExt(targetPath);
+    let blob;
+    if (ext === 'html' || ext === 'htm' || /^text\/html\b/i.test(contentType)) {
+      const htmlText = await resp.text();
+      const rewrittenHtml = await rewriteHtml(htmlText, targetPath);
+      blob = new Blob([rewrittenHtml], { type: inlineMime(targetPath, 'text/html;charset=utf-8') });
+    } else {
+      const sourceBlob = await resp.blob();
+      blob = new Blob([sourceBlob], { type: inlineMime(targetPath, sourceBlob.type || contentType) });
+    }
+    const url = URL.createObjectURL(blob);
+    helperObjectUrls.push(url);
+    window.location.href = url + (parts.suffix || '');
+    return true;
+  }
+
+  let opening = false;
+  document.addEventListener('click', function (event) {
+    const target = event.target && event.target.closest ? event.target.closest('a[href],area[href]') : null;
+    if (!target || event.defaultPrevented) return;
+    const rawUrl = target.getAttribute('data-clusterweave-result-href') || target.getAttribute('href') || '';
+    if (shouldStayExternal(rawUrl)) return;
+    if (!relativePath(config.ownerPath, splitUrl(rawUrl).path)) return;
+    event.preventDefault();
+    if (opening) return;
+    opening = true;
+    openRelativeResult(rawUrl).catch(function (err) {
+      opening = false;
+      console.error('ClusterWeave preview link could not be opened', err);
+      window.alert('ClusterWeave could not open this linked result file.');
+    });
+  }, true);
+})();
+`;
+
 function resultUrlShouldStayExternal(rawUrl) {
   const value = String(rawUrl || '').trim();
   return !value ||
@@ -1274,6 +2463,19 @@ function resultAssetHashSuffix(rawUrl) {
   const value = String(rawUrl || '').trim();
   const hashIndex = value.indexOf('#');
   return hashIndex >= 0 ? value.slice(hashIndex) : '';
+}
+
+function injectResultPreviewNavigator(doc, jobId, htmlPath) {
+  if (!doc || !doc.documentElement) return;
+  Array.from(doc.querySelectorAll('script[data-clusterweave-result-preview]')).forEach(node => node.remove());
+  const scriptEl = doc.createElement('script');
+  scriptEl.setAttribute('data-clusterweave-result-preview', '');
+  scriptEl.setAttribute('data-job-id', String(jobId || ''));
+  scriptEl.setAttribute('data-owner-path', normalizedResultPath(htmlPath));
+  scriptEl.setAttribute('data-api-base', apiUrl(''));
+  scriptEl.setAttribute('data-authorization', authHeadersFor('job', jobId).Authorization || '');
+  scriptEl.textContent = RESULT_PREVIEW_NAVIGATOR_SCRIPT;
+  (doc.body || doc.head || doc.documentElement).appendChild(scriptEl);
 }
 
 async function resultAssetObjectUrl(jobId, ownerPath, rawUrl, cache) {
@@ -1356,6 +2558,11 @@ async function rewriteHtmlResultAssets(htmlText, jobId, htmlPath) {
     const rewritten = await rewriteCssResultUrls(value, jobId, htmlPath, cache);
     if (rewritten !== value) el.setAttribute('style', rewritten);
   }
+  for (const el of Array.from(doc.querySelectorAll('a[href],area[href]'))) {
+    const value = el.getAttribute('href') || '';
+    if (!resultUrlShouldStayExternal(value)) el.setAttribute('data-clusterweave-result-href', value);
+  }
+  injectResultPreviewNavigator(doc, jobId, htmlPath);
   const doctype = source.match(/^\s*<!doctype[^>]*>/i);
   return `${doctype ? doctype[0] : '<!doctype html>'}
 ${doc.documentElement.outerHTML}`;
@@ -1638,7 +2845,7 @@ function updateRunSummary() {
     ? `${inputLabels.length} input source(s)${shownInputs ? `: ${shownInputs}` : ''}${moreCount ? ` +${moreCount} more` : ''}`
     : 'No inputs selected';
   const targetGenome = document.getElementById('target-genome').value.trim() || 'None';
-  const projectName = document.getElementById('project-name').value.trim() || 'my_project';
+  const projectName = document.getElementById('project-name').value.trim() || 'Project required';
   const cpus = effectiveCpuCount();
   const annotationStrategy = effectiveAnnotationStrategy();
   const computeLabel = publicWorkflowLocked()
@@ -1880,6 +3087,8 @@ const PUBLIC_FASTA_EXTENSIONS = new Set(['fasta','fa','fna','fsa']);
 const PUBLIC_GENBANK_EXTENSIONS = new Set(['gb','gbk','gbff']);
 const PUBLIC_GENOME_STEM_RE = /^[A-Za-z0-9._-]{1,120}$/;
 const PUBLIC_NUCLEOTIDE_CHARS = new Set('ACGTRYSWKMBDHVNU-.'.split(''));
+const CLIENT_GENOME_PRECHECK_BYTES = 4 * 1024 * 1024;
+const CLIENT_GENOME_PRECHECK_TAIL_BYTES = 512 * 1024;
 const ECOLOGY_LABELS = [
   'soil',
   'plant_associated',
@@ -1898,6 +3107,550 @@ const ECOLOGY_LABELS = [
   'other',
 ];
 
+const BRUTAL_ACCESSION_PLACEHOLDERS = ['GCA_000011425.1', 'GCA_030770425.1'];
+let brutalAccessionDrafts = Array.from({ length: 25 }, () => '');
+let brutalAccessionCommitted = new Set();
+let brutalSyncingAccepted = false;
+let brutalEcoSelections = new Map();
+let brutalEcoContext = null;
+let brutalRowsInitialized = false;
+
+function accessionLimit() {
+  return Math.max(1, Math.min(25, publicQuotaLimits().max_accessions || 25));
+}
+
+function normalizeAccessionDraft(value) {
+  return String(value || '').replace(/\s+/g, '').toUpperCase();
+}
+
+function normalizeShortToken(value, maxLength = 20) {
+  return String(value || '')
+    .trim()
+    .replace(/\s+/g, '_')
+    .replace(/[^A-Za-z0-9._-]+/g, '')
+    .slice(0, maxLength);
+}
+
+function normalizeProjectNameInput() {
+  const input = document.getElementById('project-name');
+  if (!input) return;
+  const normalized = String(input.value || '')
+    .replace(/\s+/g, '_')
+    .replace(/[^A-Za-z0-9._-]+/g, '')
+    .slice(0, 80);
+  if (input.value !== normalized) input.value = normalized;
+}
+
+function projectNameValue() {
+  return document.getElementById('project-name')?.value.trim() || '';
+}
+
+function setProjectNameRequiredState(invalid, message = '') {
+  const input = document.getElementById('project-name');
+  const card = document.getElementById('project-name-card') || input?.closest?.('.project-name-card');
+  const error = document.getElementById('project-name-error');
+  if (card) card.classList.toggle('is-invalid', !!invalid);
+  if (input) input.setAttribute('aria-invalid', invalid ? 'true' : 'false');
+  if (error) error.textContent = invalid ? (message || 'Project name required') : '';
+}
+
+function requireProjectNameForSubmit() {
+  normalizeProjectNameInput();
+  const input = document.getElementById('project-name');
+  const name = projectNameValue();
+  if (name) {
+    setProjectNameRequiredState(false);
+    return name;
+  }
+  setProjectNameRequiredState(true, 'Project name required before submit');
+  const status = document.getElementById('upload-status');
+  if (status) status.textContent = 'Project name required before submit.';
+  input?.focus();
+  return '';
+}
+
+function validBrutalAccession(value) {
+  return NCBI_ASSEMBLY_ACCESSION_RE.test(String(value || '').trim());
+}
+
+function brutalDraftDuplicate(index, value) {
+  if (!value) return false;
+  return brutalAccessionDrafts.some((draft, draftIndex) => draftIndex !== index && normalizeAccessionDraft(draft) === value);
+}
+
+function brutalRowVisible(index) {
+  if (index < BRUTAL_ACCESSION_PLACEHOLDERS.length) return true;
+  for (let prior = 0; prior < index; prior += 1) {
+    const priorAccession = normalizeAccessionDraft(brutalAccessionDrafts[prior]);
+    if (!rowIsAccepted(priorAccession, prior)) return false;
+  }
+  return true;
+}
+
+function updateBrutalTargetButton() {
+  const targetInput = document.getElementById('target-genome');
+  const button = document.getElementById('target-genome-toggle');
+  const value = targetInput ? targetInput.value.trim() : '';
+  if (!button) return;
+  button.classList.toggle('has-target', !!value);
+  button.setAttribute('aria-pressed', value ? 'true' : 'false');
+  button.textContent = 'TARGET GENOME';
+  document.querySelectorAll('.brutal-accession-line').forEach((row) => {
+    const input = row.querySelector('.brutal-accession-input');
+    row.classList.toggle('is-target', !!value && input?.value.trim().toUpperCase() === value.toUpperCase());
+  });
+}
+
+function setBrutalTarget(value) {
+  const targetInput = document.getElementById('target-genome');
+  if (!targetInput) return;
+  const normalized = normalizeAccessionDraft(value);
+  targetInput.value = targetInput.value.trim().toUpperCase() === normalized ? '' : normalized;
+  targetInput.dispatchEvent(new Event('input', { bubbles: true }));
+  updateBrutalTargetButton();
+  updateRunSummary();
+}
+
+function ecologySelectionFor(key) {
+  const normalized = String(key || '').trim().toUpperCase();
+  if (!brutalEcoSelections.has(normalized)) brutalEcoSelections.set(normalized, { primary: '', secondary: '' });
+  return brutalEcoSelections.get(normalized);
+}
+
+function inputEcologyEnabled() {
+  return !!document.getElementById('run-ecology')?.checked;
+}
+
+function updateBrutalEcologyToggle() {
+  const button = document.getElementById('brutal-ecology-toggle');
+  const card = document.getElementById('brutal-accession-card');
+  const enabled = inputEcologyEnabled();
+  if (button) {
+    button.classList.toggle('is-on', enabled);
+    button.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+    button.textContent = 'ADD ECOLOGY';
+  }
+  if (card) card.classList.toggle('show-ecology', enabled);
+  document.querySelectorAll('.brutal-eco-button').forEach((buttonEl) => {
+    buttonEl.disabled = !enabled || !buttonEl.closest('.brutal-accession-line')?.classList.contains('has-valid-accession');
+  });
+}
+
+function setBrutalEcologyEnabled(enabled) {
+  const checkbox = document.getElementById('run-ecology');
+  if (!checkbox) return;
+  checkbox.checked = !!enabled;
+  checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+  updateBrutalEcologyToggle();
+  syncEcologyMetadataPanel();
+  renderBrutalAccessionRows();
+  updateRunSummary();
+}
+
+function savedEcoValue(accession, field) {
+  const selection = ecologySelectionFor(accession);
+  return selection[field] || '';
+}
+
+function rowIsAccepted(accession, index) {
+  return validBrutalAccession(accession) && !brutalDraftDuplicate(index, accession);
+}
+
+function accessionDraftCommitted(index) {
+  return brutalAccessionCommitted.has(Number(index));
+}
+
+function brutalAccessionDraftIssues({ committedOnly = true } = {}) {
+  const issues = [];
+  brutalAccessionDrafts.forEach((draft, index) => {
+    const accession = normalizeAccessionDraft(draft);
+    if (!accession) return;
+    if (committedOnly && !accessionDraftCommitted(index)) return;
+    if (!validBrutalAccession(accession)) {
+      issues.push({
+        index,
+        accession,
+        message: `Row ${index + 1}: ${accession} is not a current NCBI assembly accession.`,
+      });
+    } else if (brutalDraftDuplicate(index, accession)) {
+      issues.push({
+        index,
+        accession,
+        message: `Row ${index + 1}: ${accession} is duplicated.`,
+      });
+    }
+  });
+  return issues;
+}
+
+function setBrutalInputNotice(key, message) {
+  const normalizedKey = String(key || '').trim();
+  if (!normalizedKey) return;
+  if (message) brutalInputNotices.set(normalizedKey, String(message));
+  else brutalInputNotices.delete(normalizedKey);
+  renderBrutalInputLog();
+}
+
+function updateBrutalRowState(row, index) {
+  const input = row.querySelector('.brutal-accession-input');
+  const status = row.querySelector('.status-icon');
+  const remove = row.querySelector('.accession-remove');
+  const accession = normalizeAccessionDraft(input?.value || '');
+  const hasInput = !!accession;
+  const valid = rowIsAccepted(accession, index);
+  const committed = accessionDraftCommitted(index);
+  const showInvalid = hasInput && !valid && committed;
+  row.classList.toggle('has-input', hasInput);
+  row.classList.toggle('has-valid-accession', valid);
+  row.classList.toggle('has-invalid-accession', showInvalid);
+  if (status) {
+    status.classList.toggle('waiting', !hasInput || (hasInput && !valid && !committed));
+    status.classList.toggle('ok', valid);
+    status.classList.toggle('bad', showInvalid);
+    status.setAttribute('aria-label', valid ? 'Accepted accession' : showInvalid ? 'Invalid accession' : hasInput ? 'Editing accession' : 'Waiting for accession');
+  }
+  if (remove) remove.hidden = !hasInput;
+  row.querySelectorAll('.brutal-eco-button').forEach((button) => {
+    const field = button.dataset.ecoField || 'primary';
+    const saved = valid ? savedEcoValue(accession, field) : '';
+    button.classList.toggle('is-saved', !!saved);
+    button.disabled = !inputEcologyEnabled() || !valid;
+  });
+}
+
+function updateBrutalRowVisibility() {
+  document.querySelectorAll('.brutal-accession-line').forEach((row) => {
+    const index = Number(row.dataset.accessionIndex || '0');
+    const visible = index < accessionLimit() && brutalRowVisible(index);
+    row.classList.toggle('is-locked', !visible);
+    row.setAttribute('aria-hidden', visible ? 'false' : 'true');
+    const input = row.querySelector('.brutal-accession-input');
+    if (input) input.disabled = !visible;
+  });
+}
+
+function acceptedDraftAccessions() {
+  const seen = new Set();
+  const accessions = [];
+  brutalAccessionDrafts.forEach((draft, index) => {
+    const accession = normalizeAccessionDraft(draft);
+    if (!rowIsAccepted(accession, index) || seen.has(accession)) return;
+    seen.add(accession);
+    accessions.push(accession);
+  });
+  return accessions;
+}
+
+function syncBrutalAcceptedFromDrafts() {
+  acceptedManualAccessions = acceptedDraftAccessions();
+  if (manualAccessionsInput) manualAccessionsInput.value = '';
+  brutalSyncingAccepted = true;
+  renderAcceptedAccessions();
+  brutalSyncingAccepted = false;
+  renderFileList();
+  syncEcologyMetadataPanel();
+  applyBrutalEcologyToMetadataTable();
+  updateBrutalTargetButton();
+}
+
+function resetBrutalAccessionDrafts() {
+  brutalAccessionDrafts = Array.from({ length: 25 }, () => '');
+  brutalAccessionCommitted = new Set();
+  brutalEcoSelections = new Map();
+  renderBrutalAccessionRows();
+  updateBrutalTargetButton();
+}
+
+function syncBrutalRowsFromAccepted() {
+  const rows = document.getElementById('brutal-accession-rows');
+  if (!rows || rows.contains(document.activeElement)) return;
+  const nextDrafts = Array.from({ length: 25 }, (_, index) => acceptedManualAccessions[index] || '');
+  const same = nextDrafts.every((value, index) => value === brutalAccessionDrafts[index]);
+  if (!same || !brutalRowsInitialized) {
+    brutalAccessionDrafts = nextDrafts;
+    brutalAccessionCommitted = new Set(nextDrafts.map((value, index) => normalizeAccessionDraft(value) ? index : -1).filter(index => index >= 0));
+    renderBrutalAccessionRows();
+  }
+}
+
+function renderBrutalAccessionRows() {
+  const rows = document.getElementById('brutal-accession-rows');
+  if (!rows) return;
+  const limit = accessionLimit();
+  rows.innerHTML = Array.from({ length: limit }, (_, index) => {
+    const value = normalizeAccessionDraft(brutalAccessionDrafts[index] || '');
+    const placeholder = BRUTAL_ACCESSION_PLACEHOLDERS[index] || '';
+    return `
+      <div class="accession-line brutal-accession-line" data-accession-index="${index}">
+        <textarea class="accession-target brutal-accession-input" rows="1" inputmode="text" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="${escapeHtml(placeholder)}" aria-label="Accession ${index + 1}">${escapeHtml(value)}</textarea>
+        <span class="status-icon waiting" aria-label="Waiting for accession"></span>
+        <button class="accession-remove" type="button" data-accession-remove aria-label="Remove accession ${index + 1}" hidden>x</button>
+        <span class="eco-cell"><button class="eco-button brutal-eco-button" type="button" data-eco-field="primary" disabled>ECO 1</button></span>
+        <span class="eco-cell"><button class="eco-button brutal-eco-button secondary" type="button" data-eco-field="secondary" disabled>ECO 2</button></span>
+      </div>`;
+  }).join('');
+  brutalRowsInitialized = true;
+  rows.querySelectorAll('.brutal-accession-line').forEach((row) => {
+    const index = Number(row.dataset.accessionIndex || '0');
+    updateBrutalRowState(row, index);
+  });
+  updateBrutalRowVisibility();
+  updateBrutalEcologyToggle();
+  updateBrutalTargetButton();
+}
+
+function handleBrutalAccessionInput(event) {
+  const input = event.target.closest?.('.brutal-accession-input');
+  if (!input) return;
+  const row = input.closest('.brutal-accession-line');
+  const index = Number(row?.dataset.accessionIndex || '0');
+  const normalized = normalizeAccessionDraft(input.value);
+  if (input.value !== normalized) input.value = normalized;
+  brutalAccessionDrafts[index] = normalized;
+  brutalAccessionCommitted.delete(index);
+  updateBrutalRowState(row, index);
+  updateBrutalRowVisibility();
+  syncBrutalAcceptedFromDrafts();
+}
+
+function commitBrutalAccessionRow(row) {
+  if (!row) return;
+  const index = Number(row.dataset.accessionIndex || '0');
+  const accession = normalizeAccessionDraft(row.querySelector('.brutal-accession-input')?.value || '');
+  if (accession) brutalAccessionCommitted.add(index);
+  else brutalAccessionCommitted.delete(index);
+  updateBrutalRowState(row, index);
+  renderFileList();
+}
+
+function commitAllBrutalAccessionDrafts({ render = true } = {}) {
+  brutalAccessionDrafts.forEach((draft, index) => {
+    if (normalizeAccessionDraft(draft)) brutalAccessionCommitted.add(index);
+    else brutalAccessionCommitted.delete(index);
+  });
+  document.querySelectorAll('.brutal-accession-line').forEach((row) => updateBrutalRowState(row, Number(row.dataset.accessionIndex || '0')));
+  if (render) renderFileList();
+}
+
+function removeBrutalAccession(index) {
+  brutalAccessionDrafts.splice(index, 1);
+  brutalAccessionDrafts.push('');
+  const nextCommitted = new Set();
+  brutalAccessionCommitted.forEach((committedIndex) => {
+    if (committedIndex < index) nextCommitted.add(committedIndex);
+    else if (committedIndex > index) nextCommitted.add(committedIndex - 1);
+  });
+  brutalAccessionCommitted = nextCommitted;
+  const targetInput = document.getElementById('target-genome');
+  const remaining = new Set(acceptedDraftAccessions());
+  if (targetInput && targetInput.value && !remaining.has(targetInput.value.trim().toUpperCase())) targetInput.value = '';
+  syncBrutalAcceptedFromDrafts();
+  renderBrutalAccessionRows();
+}
+
+function handleBrutalAccessionClick(event) {
+  const remove = event.target.closest?.('[data-accession-remove]');
+  if (remove) {
+    const row = remove.closest('.brutal-accession-line');
+    removeBrutalAccession(Number(row?.dataset.accessionIndex || '0'));
+    return;
+  }
+  const ecoButton = event.target.closest?.('.brutal-eco-button');
+  if (ecoButton) {
+    openBrutalEcoPicker(ecoButton);
+    return;
+  }
+  const row = event.target.closest?.('.brutal-accession-line');
+  if (!row || event.target.closest?.('.brutal-accession-input') !== event.target) return;
+  const index = Number(row.dataset.accessionIndex || '0');
+  const accession = normalizeAccessionDraft(row.querySelector('.brutal-accession-input')?.value || '');
+  if (rowIsAccepted(accession, index)) setBrutalTarget(accession);
+}
+
+function handleBrutalAccessionKeydown(event) {
+  const input = event.target.closest?.('.brutal-accession-input');
+  if (!input || event.key !== 'Enter') return;
+  event.preventDefault();
+  const row = input.closest('.brutal-accession-line');
+  commitBrutalAccessionRow(row);
+  const index = Number(row?.dataset.accessionIndex || '0');
+  const next = document.querySelector(`.brutal-accession-line[data-accession-index="${index + 1}"]:not(.is-locked) .brutal-accession-input`);
+  next?.focus();
+}
+
+function handleBrutalAccessionFocusout(event) {
+  const input = event.target.closest?.('.brutal-accession-input');
+  if (!input) return;
+  commitBrutalAccessionRow(input.closest('.brutal-accession-line'));
+}
+
+function openBrutalEcoPicker(button) {
+  if (!button || button.disabled) return;
+  const row = button.closest('.brutal-accession-line');
+  const index = Number(row?.dataset.accessionIndex || '0');
+  const accession = normalizeAccessionDraft(row?.querySelector('.brutal-accession-input')?.value || '');
+  if (!rowIsAccepted(accession, index)) return;
+  const field = button.dataset.ecoField || 'primary';
+  brutalEcoContext = { accession, field, button };
+  const picker = document.getElementById('brutal-eco-picker');
+  const title = document.getElementById('brutal-eco-picker-title');
+  const options = document.getElementById('brutal-eco-picker-options');
+  const otherRow = document.getElementById('brutal-eco-other-row');
+  const otherInput = document.getElementById('brutal-eco-other');
+  if (!picker || !options) return;
+  const current = savedEcoValue(accession, field);
+  if (title) title.textContent = `${field === 'primary' ? 'ECO 1' : 'ECO 2'} for ${accession}`;
+  options.innerHTML = ECOLOGY_LABELS.map(label => `<button class="eco-option" type="button" data-eco-option="${escapeHtml(label)}" aria-pressed="${current === label ? 'true' : 'false'}">${escapeHtml(label)}</button>`).join('');
+  const rect = button.getBoundingClientRect();
+  picker.hidden = false;
+  picker.style.left = `${Math.min(window.innerWidth - picker.offsetWidth - 8, Math.max(8, rect.right + 18))}px`;
+  picker.style.top = `${Math.min(window.innerHeight - picker.offsetHeight - 8, Math.max(8, rect.top - 8))}px`;
+  picker.style.setProperty('--connector-y', `${Math.max(18, Math.min(picker.offsetHeight - 18, rect.top + rect.height / 2 - picker.getBoundingClientRect().top))}px`);
+  if (otherRow) otherRow.hidden = current !== 'other' && !current.startsWith('other:');
+  if (otherInput) {
+    otherInput.value = current.startsWith('other:') ? current.slice(6) : '';
+    if (!otherRow?.hidden) otherInput.focus();
+    else picker.querySelector('.eco-option')?.focus();
+  }
+}
+
+function closeBrutalEcoPicker(returnFocus = false) {
+  const picker = document.getElementById('brutal-eco-picker');
+  if (picker) picker.hidden = true;
+  if (returnFocus) brutalEcoContext?.button?.focus();
+  brutalEcoContext = null;
+}
+
+function saveBrutalEcoSelection(rawValue) {
+  if (!brutalEcoContext) return;
+  let value = String(rawValue || '').trim();
+  if (value === 'other') {
+    const otherValue = normalizeShortToken(document.getElementById('brutal-eco-other')?.value || '', 20);
+    if (!otherValue) return;
+    value = `other:${otherValue}`;
+  }
+  const selection = ecologySelectionFor(brutalEcoContext.accession);
+  selection[brutalEcoContext.field] = value;
+  syncEcologyMetadataPanel();
+  applyBrutalEcologyToMetadataTable();
+  renderBrutalAccessionRows();
+  closeBrutalEcoPicker(true);
+  updateRunSummary();
+}
+
+function applyBrutalEcologyToMetadataTable() {
+  document.querySelectorAll('#metadata-table-body tr[data-ecology-key]').forEach((row) => {
+    const key = String(row.dataset.ecologyKey || '').trim().toUpperCase();
+    const saved = brutalEcoSelections.get(key);
+    if (!saved) return;
+    [['primary', saved.primary], ['secondary', saved.secondary]].forEach(([field, raw]) => {
+      const select = row.querySelector(field === 'primary' ? '.metadata-primary' : '.metadata-secondary');
+      const other = row.querySelector(field === 'primary' ? '.metadata-primary-other' : '.metadata-secondary-other');
+      if (!select || !raw) return;
+      if (raw.startsWith('other:')) {
+        select.value = 'other';
+        if (other) {
+          other.classList.remove('hidden');
+          other.value = normalizeShortToken(raw.slice(6), 20);
+        }
+      } else {
+        select.value = raw;
+        if (other) {
+          other.classList.add('hidden');
+          other.value = '';
+        }
+      }
+    });
+  });
+  updateEcologyLabelStatus();
+}
+
+function renderBrutalInputLog() {
+  const drawer = document.getElementById('input-log-drawer');
+  const list = document.getElementById('input-log-list');
+  if (!drawer || !list) return;
+  const messages = [];
+  const draftMessages = new Set(brutalAccessionDraftIssues().map(issue => issue.message));
+  messages.push(...draftMessages);
+  brutalInputNotices.forEach((message) => messages.push(message));
+  document.querySelectorAll('#input-checker-list .input-check-row.blocked').forEach((row) => {
+    const label = row.querySelector('.input-check-label')?.textContent?.trim() || 'Input';
+    const reason = row.querySelector('.input-check-reason')?.textContent?.trim() || 'Blocked before run.';
+    const message = `${label}: ${reason}`;
+    if (!draftMessages.has(message) && !label.startsWith('Row ')) messages.push(message);
+  });
+  drawer.hidden = messages.length === 0;
+  list.innerHTML = messages.map(message => `<div class="input-log-note">${escapeHtml(message)}</div>`).join('');
+}
+
+function initializeBrutalInputStation() {
+  const rows = document.getElementById('brutal-accession-rows');
+  if (!rows || rows.dataset.wired === '1') return;
+  rows.dataset.wired = '1';
+  renderBrutalAccessionRows();
+  rows.addEventListener('input', handleBrutalAccessionInput);
+  rows.addEventListener('click', handleBrutalAccessionClick);
+  rows.addEventListener('keydown', handleBrutalAccessionKeydown);
+  rows.addEventListener('focusout', handleBrutalAccessionFocusout);
+  document.getElementById('target-genome-toggle')?.addEventListener('click', () => {
+    const targetInput = document.getElementById('target-genome');
+    if (targetInput?.value) {
+      targetInput.value = '';
+      targetInput.dispatchEvent(new Event('input', { bubbles: true }));
+      updateBrutalTargetButton();
+      updateRunSummary();
+    }
+  });
+  document.getElementById('brutal-ecology-toggle')?.addEventListener('click', () => setBrutalEcologyEnabled(!inputEcologyEnabled()));
+  document.getElementById('brutal-eco-picker-options')?.addEventListener('click', (event) => {
+    const option = event.target.closest?.('[data-eco-option]');
+    if (!option) return;
+    const value = option.dataset.ecoOption || '';
+    const otherRow = document.getElementById('brutal-eco-other-row');
+    const otherInput = document.getElementById('brutal-eco-other');
+    if (value === 'other') {
+      if (otherRow) otherRow.hidden = false;
+      if (otherInput) otherInput.focus();
+      return;
+    }
+    saveBrutalEcoSelection(value);
+  });
+  document.getElementById('brutal-eco-save')?.addEventListener('click', () => saveBrutalEcoSelection('other'));
+  document.getElementById('brutal-eco-other')?.addEventListener('input', (event) => {
+    const normalized = normalizeShortToken(event.target.value, 20);
+    if (event.target.value !== normalized) event.target.value = normalized;
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !document.getElementById('brutal-eco-picker')?.hidden) {
+      event.preventDefault();
+      closeBrutalEcoPicker(true);
+    }
+  });
+  document.addEventListener('pointerdown', (event) => {
+    const picker = document.getElementById('brutal-eco-picker');
+    if (!picker || picker.hidden) return;
+    if (picker.contains(event.target) || event.target.closest?.('.brutal-eco-button')) return;
+    closeBrutalEcoPicker();
+  }, true);
+  document.getElementById('input-log-close')?.addEventListener('click', () => {
+    const drawer = document.getElementById('input-log-drawer');
+    if (drawer) drawer.hidden = true;
+  });
+  document.getElementById('project-name')?.addEventListener('input', () => {
+    normalizeProjectNameInput();
+    if (projectNameValue()) setProjectNameRequiredState(false);
+    updateRunSummary();
+  });
+  document.getElementById('target-genome')?.addEventListener('input', updateBrutalTargetButton);
+  document.getElementById('run-ecology')?.addEventListener('change', () => {
+    updateBrutalEcologyToggle();
+    renderBrutalAccessionRows();
+  });
+  updateBrutalTargetButton();
+  updateBrutalEcologyToggle();
+  updateInputLimitGuidance();
+}
+
 fileInput.addEventListener('change', async () => {
   await addFiles([...fileInput.files]);
   fileInput.value = '';
@@ -1906,6 +3659,7 @@ manualAccessionsInput.addEventListener('input', () => {
   updateManualAccessionsStatus();
   renderFileList();
 });
+dropZone.addEventListener('click', () => fileInput.click());
 dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
 dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
 dropZone.addEventListener('keydown', e => {
@@ -1989,7 +3743,7 @@ function publicQuotaLimits() {
   return {
     max_accessions: Number(publicQuota.max_accessions) || 25,
     max_genome_files: Number(publicQuota.max_genome_files) || 25,
-    max_upload_file_mb: Number(publicQuota.max_upload_file_mb) || 250,
+    max_upload_file_mb: Number(publicQuota.max_upload_file_mb) || 500,
     max_upload_total_mb: Number(publicQuota.max_upload_total_mb) || 1024,
   };
 }
@@ -1998,6 +3752,37 @@ function formatQuotaMb(value) {
   const mb = Number(value) || 0;
   if (mb >= 1024 && mb % 1024 === 0) return `${mb / 1024} GB`;
   return `${mb} MB`;
+}
+
+const PUBLIC_WEB_FAQ_URL = 'https://github.com/n2mology/clusterweave#web-portal-faq';
+
+function publicQuotaSummary(quota = publicQuotaLimits()) {
+  return `${formatQuotaMb(quota.max_upload_file_mb)} per file, ${formatQuotaMb(quota.max_upload_total_mb)} total per run, ${quota.max_genome_files} genome files, or ${quota.max_accessions} NCBI accessions`;
+}
+
+function localWorkflowPrompt() {
+  return 'Larger, private, or custom analyses should use the local GitHub workflow.';
+}
+
+function publicFileLimitMessage(quota = publicQuotaLimits()) {
+  return `File exceeds the ${formatQuotaMb(quota.max_upload_file_mb)} public upload limit. ${localWorkflowPrompt()}`;
+}
+
+function publicTotalLimitMessage(quota = publicQuotaLimits()) {
+  return `Total upload size exceeds the ${formatQuotaMb(quota.max_upload_total_mb)} public job limit. ${localWorkflowPrompt()}`;
+}
+
+function updateInputLimitGuidance() {
+  const quota = publicQuotaLimits();
+  const summary = publicQuotaSummary(quota);
+  const header = document.getElementById('input-station-limit');
+  if (header) {
+    header.innerHTML = `Public limits: ${escapeHtml(formatQuotaMb(quota.max_upload_file_mb))}/file · ${escapeHtml(formatQuotaMb(quota.max_upload_total_mb))}/run · <a href="${PUBLIC_WEB_FAQ_URL}" target="_blank" rel="noopener">FAQ / local workflow</a>`;
+  }
+  const note = document.getElementById('upload-limit-note');
+  if (note) {
+    note.innerHTML = `Public upload limit: ${escapeHtml(summary)}. ${escapeHtml(localWorkflowPrompt())} <a href="${PUBLIC_WEB_FAQ_URL}" target="_blank" rel="noopener">FAQ</a>`;
+  }
 }
 
 function genomeFileCheckKey(file) {
@@ -2014,20 +3799,23 @@ function classifyClientFastaText(name, text) {
   if (!lines[0].startsWith('>')) {
     return { readiness: 'invalid', reason: `FASTA genome ${name} must start with a FASTA header beginning with >.` };
   }
-  const sequenceChars = [];
+  let sequenceChars = 0;
+  let nucleotideCount = 0;
   let sequenceLines = 0;
   lines.forEach((line) => {
     if (line.startsWith('>')) return;
     const clean = line.replace(/\s+/g, '').toUpperCase();
     if (!clean) return;
     sequenceLines += 1;
-    sequenceChars.push(...clean);
+    sequenceChars += clean.length;
+    for (const char of clean) {
+      if (PUBLIC_NUCLEOTIDE_CHARS.has(char)) nucleotideCount += 1;
+    }
   });
-  if (!sequenceLines || !sequenceChars.length) {
+  if (!sequenceLines || !sequenceChars) {
     return { readiness: 'invalid', reason: `FASTA genome ${name} needs at least one nucleotide sequence line.` };
   }
-  const nucleotideCount = sequenceChars.filter(char => PUBLIC_NUCLEOTIDE_CHARS.has(char)).length;
-  if (nucleotideCount / sequenceChars.length < 0.85) {
+  if (nucleotideCount / sequenceChars < 0.85) {
     return { readiness: 'invalid', reason: 'Looks like protein FASTA or arbitrary text; upload a nucleotide fungal genome assembly FASTA.' };
   }
   return {
@@ -2071,22 +3859,61 @@ function classifyClientGenomeText(file, text) {
   return { readiness: 'invalid', reason: `Unsupported public genome extension .${fileExt}.` };
 }
 
+function classifyClientGenomePreview(file, text) {
+  const fileExt = ext(file.name);
+  if (PUBLIC_FASTA_EXTENSIONS.has(fileExt)) {
+    const fasta = classifyClientFastaText(file.name, text);
+    if (fasta.readiness === 'invalid') return fasta;
+    return {
+      readiness: 'client_preflight_unconfirmed',
+      reason: 'Large FASTA preview passed in the browser; full server validation runs when you submit.',
+    };
+  }
+  if (PUBLIC_GENBANK_EXTENSIONS.has(fileExt)) {
+    const raw = String(text || '');
+    if (!raw.trim()) return { readiness: 'invalid', reason: `GenBank genome ${file.name} is empty.` };
+    const missing = [
+      ['LOCUS', /^LOCUS\s+/m],
+      ['FEATURES', /^FEATURES\b/m],
+    ].filter(([, pattern]) => !pattern.test(raw)).map(([label]) => label);
+    if (missing.length) return { readiness: 'invalid', reason: `GenBank genome ${file.name} is missing ${missing.join(', ')}.` };
+    return {
+      readiness: 'client_preflight_unconfirmed',
+      reason: 'Large GenBank preview passed in the browser; full server validation will confirm ORIGIN, CDS translations, and same-stem FASTA pairing when you submit.',
+    };
+  }
+  return { readiness: 'invalid', reason: `Unsupported public genome extension .${fileExt}.` };
+}
+
+async function readClientGenomePreview(file) {
+  if (file.size <= CLIENT_GENOME_PRECHECK_BYTES) return { text: await file.text(), partial: false };
+  const head = await file.slice(0, CLIENT_GENOME_PRECHECK_BYTES).text();
+  const tailStart = Math.max(CLIENT_GENOME_PRECHECK_BYTES, file.size - CLIENT_GENOME_PRECHECK_TAIL_BYTES);
+  const tail = tailStart < file.size ? await file.slice(tailStart, file.size).text() : '';
+  return { text: `${head}\n${tail}`, partial: true };
+}
+
+function browserGenomePrecheckUnavailableReason(file) {
+  const name = file?.name ? ` ${file.name}` : ' this genome file';
+  return `Browser preview could not inspect${name}. The file may be locked, still syncing, moved after selection, too large for local preview, or not plain-text FASTA/GenBank. Submit will run full server validation and report the exact format problem.`;
+}
+
 async function cacheGenomeFileCheck(file) {
   const key = genomeFileCheckKey(file);
   if (genomeCheckCache.has(key)) return genomeCheckCache.get(key);
   const quota = publicQuotaLimits();
   if (file.size > quota.max_upload_file_mb * 1048576) {
-    const result = { readiness: 'invalid', reason: `File exceeds the ${formatQuotaMb(quota.max_upload_file_mb)} public upload limit.` };
+    const result = { readiness: 'invalid', reason: publicFileLimitMessage(quota) };
     genomeCheckCache.set(key, result);
     return result;
   }
   try {
-    const text = await file.text();
-    const result = classifyClientGenomeText(file, text);
+    const preview = await readClientGenomePreview(file);
+    const result = preview.partial ? classifyClientGenomePreview(file, preview.text) : classifyClientGenomeText(file, preview.text);
     genomeCheckCache.set(key, result);
     return result;
   } catch (err) {
-    const result = { readiness: 'invalid', reason: 'Could not read this genome file in the browser.' };
+    const result = { readiness: 'client_preflight_unconfirmed', reason: browserGenomePrecheckUnavailableReason(file) };
     genomeCheckCache.set(key, result);
     return result;
   }
@@ -2105,9 +3932,10 @@ function updateManualAccessionsStatus() {
 }
 
 function renderAcceptedAccessions() {
+  const accessions = manualAccessionLines();
+  if (!brutalSyncingAccepted) syncBrutalRowsFromAccepted();
   const list = document.getElementById('accepted-accessions-list');
   if (!list) return;
-  const accessions = manualAccessionLines();
   if (!accessions.length) {
     list.innerHTML = '<div class="accession-accepted-empty">No accepted accessions yet.</div>';
     return;
@@ -2136,6 +3964,7 @@ function normalizeManualAccessions() {
   const newAccessions = parsed.accessions.filter(accession => !existing.has(accession));
   acceptedManualAccessions.push(...newAccessions);
   if (manualAccessionsInput) manualAccessionsInput.value = '';
+  resetBrutalAccessionDrafts();
   renderAcceptedAccessions();
   renderFileList();
   const status = document.getElementById('manual-accessions-status');
@@ -2156,6 +3985,7 @@ function clearManualAccessions() {
 function clearAcceptedAccessions() {
   acceptedManualAccessions = [];
   accessionFileSources = [];
+  resetBrutalAccessionDrafts();
   renderAcceptedAccessions();
   updateManualAccessionsStatus();
   renderFileList();
@@ -2163,6 +3993,7 @@ function clearAcceptedAccessions() {
 
 function clearAcceptedManualAccessions() {
   acceptedManualAccessions = [];
+  resetBrutalAccessionDrafts();
   renderAcceptedAccessions();
   updateManualAccessionsStatus();
   renderFileList();
@@ -2184,44 +4015,68 @@ function loadDemoAccessions(event) {
   navigateToSection(event, 'intake', 'manual-accessions');
 }
 
+function importAccessionsToLoader(accessions) {
+  const limit = accessionLimit();
+  const existing = new Set(manualAccessionLines());
+  const nextDrafts = Array.from({ length: 25 }, (_, index) => brutalAccessionDrafts[index] || '');
+  const added = [];
+  accessions.forEach((raw) => {
+    const accession = normalizeAccessionDraft(raw);
+    if (!validBrutalAccession(accession) || existing.has(accession)) return;
+    const slot = nextDrafts.findIndex((value, index) => index < limit && !normalizeAccessionDraft(value));
+    if (slot < 0) return;
+    nextDrafts[slot] = accession;
+    existing.add(accession);
+    added.push(accession);
+  });
+  if (!added.length) return added;
+  brutalAccessionDrafts = nextDrafts;
+  acceptedManualAccessions = acceptedDraftAccessions();
+  if (manualAccessionsInput) manualAccessionsInput.value = '';
+  renderBrutalAccessionRows();
+  syncEcologyMetadataPanel();
+  applyBrutalEcologyToMetadataTable();
+  updateBrutalTargetButton();
+  updateRunSummary();
+  return added;
+}
+
 async function addAccessionFileSource(file) {
-  if (accessionFileSources.some(source => source.name === file.name)) {
-    alert(`Accession list already added: ${file.name}`);
-    return false;
-  }
+  const noticeKey = `accession-file:${file.name}`;
   let text = '';
   try {
     text = await file.text();
   } catch (err) {
-    alert(`Could not read accession list: ${file.name}`);
+    setBrutalInputNotice(noticeKey, `Could not read accession list: ${file.name}`);
     return false;
   }
   const parsed = parseAccessionText(text);
   if (parsed.invalid.length) {
-    alert(`Accession list ${file.name}: ${manualAccessionErrorMessage(parsed)}`);
+    setBrutalInputNotice(noticeKey, `Accession list ${file.name}: ${manualAccessionErrorMessage(parsed)}`);
     return false;
   }
   if (!parsed.accessions.length) {
-    alert(`Accession list ${file.name} does not contain any accessions.`);
+    setBrutalInputNotice(noticeKey, `Accession list ${file.name} does not contain any accessions.`);
     return false;
   }
   const existing = new Set(manualAccessionLines());
   const newAccessions = parsed.accessions.filter(accession => !existing.has(accession));
   if (!newAccessions.length) {
-    alert(`Accession list ${file.name} contains only duplicate accessions already accepted.`);
+    setBrutalInputNotice(noticeKey, `Accession list ${file.name} contains only duplicate accessions already accepted.`);
     return false;
   }
-  accessionFileSources.push({
-    id: ++accessionFileSourceSerial,
-    name: file.name,
-    accessions: newAccessions,
-  });
-  const skipped = parsed.accessions.length - newAccessions.length + parsed.duplicateCount;
+  const imported = importAccessionsToLoader(newAccessions);
+  if (!imported.length) {
+    setBrutalInputNotice(noticeKey, `Accession list ${file.name} could not fit in the accession loader.`);
+    return false;
+  }
+  setBrutalInputNotice(noticeKey, '');
+  const skipped = parsed.accessions.length - imported.length + parsed.duplicateCount;
   const status = document.getElementById('upload-status');
   if (status) {
     status.textContent = skipped
-      ? `${newAccessions.length} accession${newAccessions.length === 1 ? '' : 's'} accepted from ${file.name}; ${skipped} duplicate${skipped === 1 ? '' : 's'} skipped.`
-      : `${newAccessions.length} accession${newAccessions.length === 1 ? '' : 's'} accepted from ${file.name}.`;
+      ? `${imported.length} accession${imported.length === 1 ? '' : 's'} imported to the accession loader from ${file.name}; ${skipped} skipped.`
+      : `${imported.length} accession${imported.length === 1 ? '' : 's'} imported to the accession loader from ${file.name}.`;
   }
   return true;
 }
@@ -2255,6 +4110,7 @@ function renderInputCheckerRow(row) {
 }
 
 function updateInputCheckerLimits(quota) {
+  updateInputLimitGuidance();
   const limits = document.getElementById('input-checker-limits');
   if (!limits) return;
   limits.textContent = `Limits: ${quota.max_accessions} accessions, ${quota.max_genome_files} genome files, ${formatQuotaMb(quota.max_upload_file_mb)} per file, ${formatQuotaMb(quota.max_upload_total_mb)} total`;
@@ -2285,6 +4141,10 @@ function renderInputChecker() {
       : 'Draft accessions must be accepted before this run can start.';
     addInputCheckRow(rows, 'blocked', 'NCBI accession', label, reason);
   }
+
+  brutalAccessionDraftIssues().forEach((issue) => {
+    addInputCheckRow(rows, 'blocked', 'NCBI accession', `Row ${issue.index + 1}: ${issue.accession}`, issue.message);
+  });
 
   acceptedManualAccessions.forEach((accession) => {
     addInputCheckRow(rows, 'ready', 'NCBI accession', accession, 'Accepted fungal assembly accession; NCBI genome FASTA is checked before job creation and can route through funannotate if translations are missing.');
@@ -2331,7 +4191,7 @@ function renderInputChecker() {
 
     if (file.size > maxFileBytes) {
       level = 'blocked';
-      reason = `File exceeds the ${formatQuotaMb(quota.max_upload_file_mb)} public upload limit.`;
+      reason = publicFileLimitMessage(quota);
     } else if (!stem || !PUBLIC_GENOME_STEM_RE.test(stem)) {
       level = 'blocked';
       reason = 'Filename stem must use 1-120 letters, numbers, dots, underscores, or hyphens; avoid spaces, parentheses, slashes, and shell-like characters.';
@@ -2362,13 +4222,13 @@ function renderInputChecker() {
   });
 
   if (acceptedAccessions.length > quota.max_accessions) {
-    addInputCheckRow(rows, 'blocked', 'Quota', `${acceptedAccessions.length} accessions`, `Public runs accept at most ${quota.max_accessions} NCBI assembly accessions.`);
+    addInputCheckRow(rows, 'blocked', 'Quota', `${acceptedAccessions.length} accessions`, `Public runs accept at most ${quota.max_accessions} NCBI assembly accessions. ${localWorkflowPrompt()}`);
   }
   if (publicGenomeFiles.length > quota.max_genome_files) {
-    addInputCheckRow(rows, 'blocked', 'Quota', `${publicGenomeFiles.length} genome files`, `Public runs accept at most ${quota.max_genome_files} genome files.`);
+    addInputCheckRow(rows, 'blocked', 'Quota', `${publicGenomeFiles.length} genome files`, `Public runs accept at most ${quota.max_genome_files} genome files. ${localWorkflowPrompt()}`);
   }
   if (totalUploadBytes > maxTotalBytes) {
-    addInputCheckRow(rows, 'blocked', 'Quota', fmt_size(totalUploadBytes), `Total upload size exceeds the ${formatQuotaMb(quota.max_upload_total_mb)} public job limit.`);
+    addInputCheckRow(rows, 'blocked', 'Quota', fmt_size(totalUploadBytes), publicTotalLimitMessage(quota));
   }
 
   if (list) {
@@ -2392,9 +4252,10 @@ async function addFiles(files) {
   for (const f of files) {
     const fileExt = ext(f.name);
     if (!allowed.has(fileExt)) {
-      alert(`Unsupported file type: ${f.name}\nAllowed: ${allowedCopy}`);
+      setBrutalInputNotice(`file:${f.name}`, `Unsupported file type: ${f.name}. Allowed: ${allowedCopy}. ${canUseAdminSurfaces() ? '' : localWorkflowPrompt()}`.trim());
       continue;
     }
+    setBrutalInputNotice(`file:${f.name}`, '');
     if (fileExt === 'txt') {
       await addAccessionFileSource(f);
       continue;
@@ -2465,6 +4326,10 @@ function renderFileList() {
   }
   updateManualAccessionsStatus();
   syncEcologyMetadataPanel();
+  applyBrutalEcologyToMetadataTable();
+  updateBrutalEcologyToggle();
+  updateBrutalTargetButton();
+  renderBrutalInputLog();
   updateRunSummary();
 }
 
@@ -2608,6 +4473,7 @@ function syncEcologyMetadataPanel() {
   if (body) body.classList.toggle('hidden', !enabled);
   const savedValues = collectEcologyRowValues();
   renderEcologyMetadataRows(ecologyInputRows(), savedValues);
+  applyBrutalEcologyToMetadataTable();
   updateEcologyLabelStatus();
 }
 
@@ -2634,6 +4500,9 @@ function metadataProfileText() {
 // ── Start Analysis ─────────────────────────────────────────────────────────
 async function startAnalysis() {
   const manualLines = manualAccessionLines();
+  const name = requireProjectNameForSubmit();
+  if (!name) return;
+  commitAllBrutalAccessionDrafts({ render: false });
   if (manualAccessionsInput && manualAccessionsInput.value.trim()) {
     document.getElementById('upload-status').textContent = 'Press Add accessions to accept the draft before starting.';
     renderFileList();
@@ -2653,7 +4522,6 @@ async function startAnalysis() {
     return;
   }
 
-  const name = document.getElementById('project-name').value.trim() || 'my_project';
   const publicFixed = publicWorkflowLocked();
   const cpus = effectiveCpuCount();
   const annotationStrategy = effectiveAnnotationStrategy();
@@ -2671,6 +4539,7 @@ async function startAnalysis() {
   }
   syncEcologyMetadataPanel();
   const metadataText = metadataProfileText();
+  const runSetupReceipt = collectRunSetupAccessReceipt({ projectName: name });
   if (metadataText) {
     fd.append('files', new File([metadataText], 'ecofun_metadata_normalized.tsv', { type: 'text/tab-separated-values' }));
   }
@@ -2739,6 +4608,7 @@ async function startAnalysis() {
 
   document.getElementById('run-btn').disabled = true;
   document.getElementById('upload-status').textContent = 'Uploading…';
+  setBrutalInputNotice('submission', '');
 
   try {
     const resp = await apiFetch('api/jobs', { method: 'POST', body: fd }, { kind: 'submit' });
@@ -2746,12 +4616,18 @@ async function startAnalysis() {
       const err = await resp.json();
       throw new Error(err.detail || 'Upload failed');
     }
-    const { job_id, read_token, expires_at, result_url } = await resp.json();
+    const { job_id, read_token, expires_at, result_url, input_summary } = await resp.json();
+    if (input_summary) {
+      runSetupReceipt.inputSummary = input_summary;
+      runSetupReceipt.accessionMetadata = Array.isArray(input_summary.accession_metadata) ? input_summary.accession_metadata : [];
+    }
     if (read_token) rememberOpenedRun(job_id, read_token, { name, status: 'pending' });
     selectedFiles = [];
     acceptedManualAccessions = [];
     accessionFileSources = [];
+    brutalInputNotices.clear();
     if (manualAccessionsInput) manualAccessionsInput.value = '';
+    resetBrutalAccessionDrafts();
     renderAcceptedAccessions();
     renderFileList();
     document.getElementById('upload-status').textContent = expires_at ? `Run submitted. Results expire ${new Date(expires_at).toLocaleDateString()}.` : 'Run submitted.';
@@ -2762,12 +4638,16 @@ async function startAnalysis() {
       resultUrl: result_url || '',
       expiresAt: expires_at || '',
       notifyEmail,
+      receipt: runSetupReceipt,
+      status: 'queued',
     });
     lockSubmittedIntake();
-    await loadJob(job_id, true, { readToken: read_token || '' });
+    await loadJob(job_id, true, { readToken: read_token || '', source: 'submit' });
     if (canUseAdminSurfaces()) refreshJobHistory();
   } catch (err) {
-    document.getElementById('upload-status').textContent = 'Upload failed: ' + err.message;
+    const message = err?.message || 'Upload failed';
+    document.getElementById('upload-status').textContent = 'Upload failed: ' + message;
+    setBrutalInputNotice('submission', message);
     document.getElementById('run-btn').disabled = false;
   }
 }
@@ -2803,6 +4683,7 @@ function jobHistoryRenderKey(jobs) {
     j.rerun_count || 0,
     Array.isArray(j.result_files) ? j.result_files.length : 0,
     j.id === activeJobId,
+    j.id === rerunScopeOpenJobId,
   ]));
 }
 
@@ -2943,93 +4824,172 @@ async function queueJobRerun(jobId, payload) {
   return resp.json();
 }
 
-async function rerunJobFromHistory(event, jobId) {
+async function toggleJobRerunScope(event, jobId) {
   event?.preventDefault?.();
   event?.stopPropagation?.();
   if (!canUseAdminSurfaces()) return;
-  const job = jobHistoryById.get(String(jobId || ''));
-  if (!job || !jobCanRerun(job)) return;
-  const button = event && event.currentTarget ? event.currentTarget : null;
-  const originalLabel = button ? button.textContent : '';
-  const payload = rerunPayloadFromStages(rerunStageKeysForJob(job));
-  if (!rerunPayloadHasStages(payload)) {
-    if (button) {
-      button.textContent = 'Choose';
-      button.title = 'Open the run and choose at least one rerun stage.';
-    }
-    await loadJob(jobId, true);
+  const safeJobId = String(jobId || '');
+  if (!safeJobId) return;
+
+  if (rerunScopeOpenJobId === safeJobId) {
+    rerunScopeOpenJobId = '';
+    renderRerunPanel(activeJobId, activeJobMeta);
+    renderQaDrawer(activeJobMeta, activeResultFiles);
+    refreshJobHistory();
+    switchOpsTab('jobs', { focus: false });
     return;
   }
-  if (button) {
-    button.disabled = true;
-    button.textContent = 'Queueing';
+
+  rerunScopeOpenJobId = safeJobId;
+  openOpsPanel({ tab: 'jobs', focusPanel: false, returnFocus: event?.currentTarget || document.activeElement });
+  if (activeJobId !== safeJobId) {
+    await loadJob(safeJobId, true, { source: 'job-rerun' });
+  } else {
+    renderRerunPanel(safeJobId, activeJobMeta || jobHistoryById.get(safeJobId));
   }
+  renderQaDrawer(activeJobMeta, activeResultFiles);
+  refreshJobHistory();
+  switchOpsTab('jobs', { focus: false });
+}
+
+async function rerunJobFromHistory(event, jobId) {
+  return toggleJobRerunScope(event, jobId);
+}
+
+function diagnosticJobDisplayState(job, index) {
+  if (!job) return index === 1 ? 'complete' : index === 2 ? 'failed' : 'running';
+  const status = String(job.status || '').toLowerCase();
+  if (status === 'success') return 'complete';
+  if (status === 'failed') return 'failed';
+  if (status === 'running') return 'running';
+  return status || 'route payload';
+}
+
+function diagnosticRouteCardLabel(index) {
+  return index === null ? 'jobs[n]' : `jobs[${index}]`;
+}
+
+function renderDiagnosticRerunRail(jobId, job, displayLabel) {
+  const status = String((job && job.status) || '').toLowerCase();
+  const unavailable = status === 'pending' || status === 'running' || !jobCanRerun(job);
+  const labels = {
+    prep: 'Prep',
+    annotation: 'Annotation',
+    bigscape: 'BiG-SCAPE',
+    summary: 'Summary',
+    clinker: 'clinker',
+    figures: 'Figures',
+    nplinker: 'NPLinker',
+  };
+  const checks = STAGES.map(stage => {
+    const enabled = !unavailable && jobStageEnabled(job, stage.key) && rerunStageAllowed(stage.key);
+    const checked = enabled && rerunDefaultChecked(job, stage.key);
+    return `<label class="rerun-check"><input type="checkbox" data-diagnostic-rerun-stage="${escapeHtml(stage.key)}" ${checked ? 'checked' : ''} ${enabled ? '' : 'disabled'} onchange="updateDiagnosticRerunSubmit()" /> ${escapeHtml(labels[stage.key] || stage.label)}</label>`;
+  }).join('') + `<label class="rerun-check rerun-force"><input type="checkbox" data-diagnostic-rerun-force ${unavailable ? 'disabled' : ''} onchange="updateDiagnosticRerunSubmit()" /> Force</label>`;
+  const statusText = unavailable ? 'Rerun unavailable for this state.' : 'Choose at least one stage.';
+  return `
+    <section class="rerun-rail" id="diagnostic-rerun-rail" data-rerun-rail aria-live="polite">
+      <div class="rerun-head"><b>Rerun scope: <span data-rerun-selected>${escapeHtml(displayLabel)}</span></b><code>POST /api/jobs/{job_id}/rerun</code></div>
+      <div class="rerun-check-grid">${checks}</div>
+      <div class="rerun-actions">
+        <button class="rerun-submit" type="button" data-queue-rerun onclick="queueDiagnosticRerun(event,'${escapeHtml(escapeJsString(jobId))}')" ${unavailable ? 'disabled' : ''}>Queue selected stages</button>
+        <span class="rerun-status" id="diagnostic-rerun-status" data-rerun-status>${escapeHtml(statusText)}</span>
+      </div>
+    </section>`;
+}
+
+function updateDiagnosticRerunSubmit() {
+  const rail = document.getElementById('diagnostic-rerun-rail');
+  if (!rail) return;
+  const hasSelection = !!rail.querySelector('[data-diagnostic-rerun-stage]:checked:not(:disabled)');
+  const submit = rail.querySelector('[data-queue-rerun]');
+  if (submit) submit.disabled = !hasSelection;
+  const status = rail.querySelector('[data-rerun-status]');
+  if (status && hasSelection) status.textContent = '';
+}
+
+async function queueDiagnosticRerun(event, jobId) {
+  event?.preventDefault?.();
+  event?.stopPropagation?.();
+  if (!canUseAdminSurfaces()) return;
+  const targetJobId = String(jobId || rerunScopeOpenJobId || '');
+  const rail = document.getElementById('diagnostic-rerun-rail');
+  const statusEl = rail?.querySelector('[data-rerun-status]');
+  const selected = new Set([...document.querySelectorAll('#diagnostic-rerun-rail [data-diagnostic-rerun-stage]:checked:not(:disabled)')].map(el => el.dataset.diagnosticRerunStage));
+  if (!targetJobId || !selected.size) {
+    if (statusEl) statusEl.textContent = 'Choose at least one stage.';
+    return;
+  }
+  const payload = rerunPayloadFromStages(selected, !!document.querySelector('#diagnostic-rerun-rail [data-diagnostic-rerun-force]')?.checked);
+  if (!rerunPayloadHasStages(payload)) {
+    if (statusEl) statusEl.textContent = 'Choose at least one stage.';
+    return;
+  }
+  if (statusEl) statusEl.textContent = 'Queueing rerun...';
   try {
-    await queueJobRerun(jobId, payload);
-    if (button) button.textContent = 'Queued';
-    await loadJob(jobId, true);
+    await queueJobRerun(targetJobId, payload);
+    if (statusEl) statusEl.textContent = 'Rerun queued.';
+    rerunScopeOpenJobId = '';
+    await loadJob(targetJobId, true, { source: 'rerun' });
     refreshJobHistory();
   } catch (err) {
-    if (button) {
-      button.disabled = false;
-      button.textContent = 'Failed';
-      button.title = err.message || String(err);
-      window.setTimeout(() => {
-        if (button.textContent === 'Failed') button.textContent = originalLabel || 'Rerun';
-      }, 2200);
-    }
+    if (statusEl) statusEl.textContent = err.message || String(err);
   }
 }
 
 function renderJobHistory(jobs) {
   const el = document.getElementById('job-history');
-  jobHistoryById = new Map(jobs.map(job => [String(job.id || ''), job]).filter(([id]) => id));
-  const renderKey = jobHistoryRenderKey(jobs);
+  if (!el) return;
+  const list = (Array.isArray(jobs) ? jobs : []).filter(job => job && job.id);
+  jobHistoryById = new Map(list.map(job => [String(job.id || ''), job]).filter(([id]) => id));
+  const renderKey = jobHistoryRenderKey(list);
   if (renderKey === lastJobHistoryRenderKey) return;
   lastJobHistoryRenderKey = renderKey;
-  if (jobs.length === 0) {
-    el.innerHTML = '<div class="empty-state">No runs yet. Add sources and start a workflow above.</div>';
+  const summary = document.getElementById('job-history-summary');
+  if (summary) summary.textContent = list.length ? `${list.length} submitted job${list.length === 1 ? '' : 's'}` : 'No submitted jobs';
+  if (!list.length) {
+    el.innerHTML = '<div class="empty-state">No submitted jobs yet.</div>';
+    updateDiagnosticRerunSubmit();
     return;
   }
-  el.innerHTML = jobs.map(j => {
-    const jobId = String(j.id || '');
+  el.innerHTML = list.map((job) => {
+    const jobId = String(job.id || '');
     const jsJobId = escapeJsString(jobId);
-    const projectName = jobProjectName(j);
-    const stageLabel = jobStageDisplay(j);
-    const statusText = statusLabel(j.status);
-    const cardLabel = `Load run ${projectName}. Status ${statusText}. Current stage ${stageLabel}.`;
-    const attrJobId = escapeHtml(jsJobId);
-    const rerunCount = Number(j.rerun_count || 0);
-    const rerunNote = rerunCount
-      ? `<div class="job-card-rerun-note">Rerun ${escapeHtml(String(rerunCount))} / same workspace</div>`
-      : '';
-    const rerunButton = jobCanRerun(j)
-      ? `<button class="job-rerun" type="button" title="Rerun this job" aria-label="Rerun job ${escapeHtml(jobId)}" onclick="rerunJobFromHistory(event,'${attrJobId}')">Rerun</button>`
-      : '';
+    const displayLabel = jobProjectName(job);
+    const displayState = diagnosticJobDisplayState(job, 0);
+    const selected = jobId && jobId === activeJobId;
+    const rerunOpen = jobId && rerunScopeOpenJobId === jobId;
+    const statusText = statusLabel(job.status);
+    const stageText = jobStageDisplay(job);
+    const updatedRaw = job.updated_at || job.updatedAt || job.created_at || job.createdAt || '';
+    const updatedDate = updatedRaw ? new Date(updatedRaw) : null;
+    const updatedText = updatedDate && !Number.isNaN(updatedDate.getTime())
+      ? updatedDate.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+      : 'unknown';
+    const rerunCount = Number(job.rerun_count || 0);
+    const fileCount = Array.isArray(job.result_files) ? job.result_files.length : Number(job.result_file_count || 0);
+    const fileText = `${Number.isFinite(fileCount) ? fileCount : 0} file${fileCount === 1 ? '' : 's'}`;
+    const rerunAttrs = `onclick="toggleJobRerunScope(event,'${escapeHtml(jsJobId)}')" aria-expanded="${rerunOpen ? 'true' : 'false'}"`;
     return `
-    <div class="job-card ${jobId === activeJobId ? 'active-job' : ''}" data-job-id="${escapeHtml(jobId)}" role="button" tabindex="0" aria-label="${escapeHtml(cardLabel)}" onclick="loadJob('${attrJobId}')" onkeydown="handleJobCardKeydown(event,'${attrJobId}')">
-      <div class="job-card-main">
-        <div class="job-card-topline">
-          <div class="job-card-name">${escapeHtml(projectName)}</div>
-          <div class="job-card-status">${statusBadge(j.status)}</div>
+      <article class="diagnostic-job-card${selected ? ' is-selected' : ''}" tabindex="0" data-diagnostic-job data-job-id="${escapeHtml(jobId)}" data-job-label="${escapeHtml(displayLabel)}" data-open-state="${escapeHtml(displayState)}" data-job-hash="#/job/${escapeHtml(encodeURIComponent(jobId))}" onclick="loadJob('${escapeHtml(jsJobId)}', true, { source: 'job-card' })" onkeydown="handleJobCardKeydown(event,'${escapeHtml(jsJobId)}')">
+        <div class="diagnostic-job-main">
+          <div class="diagnostic-job-top"><strong>${escapeHtml(displayLabel)}</strong><span class="job-status-pill">${escapeHtml(statusText)}</span></div>
+          <code class="diagnostic-job-id">${escapeHtml(jobId)}</code>
+          <div class="diagnostic-job-line">
+            <span>stage <b>${escapeHtml(stageText)}</b></span>
+            <span>updated <b>${escapeHtml(updatedText)}</b></span>
+            <span>${escapeHtml(fileText)}</span>
+            <span>${escapeHtml(String(rerunCount))} rerun${rerunCount === 1 ? '' : 's'}</span>
+          </div>
         </div>
-        <div class="job-card-id-row">
-          <span class="job-card-label">Run</span>
-          <span class="job-card-id">${escapeHtml(jobId)}</span>
+        <div class="job-card-actions" aria-label="Job actions">
+          <button type="button" data-log-open onclick="openJobLogs(event,'${escapeHtml(jsJobId)}')">Logs</button>
+          <button type="button" data-rerun-open aria-controls="diagnostic-rerun-rail" ${rerunAttrs}>Rerun</button>
+          <button class="job-delete" type="button" aria-label="Delete job ${escapeHtml(jobId)}" onclick="deleteJob(event,'${escapeHtml(jsJobId)}')">X</button>
         </div>
-        <div class="job-card-stage" title="${escapeHtml(String(j.stage || 'queued'))}">
-          <span class="job-card-stage-label">Stage</span>
-          <span class="job-card-stage-text">${escapeHtml(stageLabel)}</span>
-        </div>
-        ${renderJobStagePips(j)}
-        ${rerunNote}
-      </div>
-      <div class="job-card-actions">
-        ${rerunButton}
-        <button class="job-delete" type="button" title="Delete run" aria-label="Delete run ${escapeHtml(jobId)}" onclick="deleteJob(event,'${attrJobId}')">&times;</button>
-      </div>
-    </div>`;
+      </article>${rerunOpen ? renderDiagnosticRerunRail(jobId, job || jobHistoryById.get(jobId), displayLabel) : ''}`;
   }).join('');
+  updateDiagnosticRerunSubmit();
 }
 
 function statusBadge(status) {
@@ -3047,46 +5007,69 @@ function handleJobCardKeydown(event, jobId) {
   if (event.target.closest('button')) return;
   if (event.key === 'Enter' || event.key === ' ') {
     event.preventDefault();
-    loadJob(jobId);
+    loadJob(jobId, true, { source: 'job-card-keyboard' });
   }
 }
 
+async function openJobLogs(event, jobId) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  if (!canUseAdminSurfaces()) return;
+  const id = String(jobId || '');
+  if (!id) return;
+  openOpsPanel({ tab: 'qa', focusPanel: true, returnFocus: event?.currentTarget || document.activeElement });
+  renderQaDrawer(jobHistoryById.get(id) || { id, status: 'pending', stage: 'loading', name: id }, activeResultFiles);
+  await loadJob(id, true, { source: 'job-logs', deferResultsShell: true });
+  openOpsPanel({ tab: 'qa', focusPanel: false, returnFocus: event?.currentTarget || document.activeElement });
+}
+
 function markActiveJobCard(jobId) {
-  document.querySelectorAll('.job-card').forEach(card => {
-    card.classList.toggle('active-job', card.dataset.jobId === jobId);
+  document.querySelectorAll('.job-card, .diagnostic-job-card[data-job-id]').forEach(card => {
+    const active = card.dataset.jobId === jobId;
+    card.classList.toggle('active-job', active);
+    card.classList.toggle('is-selected', active);
   });
 }
 
-function placeWorkflowSpineInLaunch() {
-  const launch = document.getElementById('overview');
-  const command = document.querySelector('.launch-command');
-  const spine = document.getElementById('weavemap');
-  if (!launch || !command || !spine) return;
-  if (spine.parentElement !== launch) launch.insertBefore(spine, command);
-  spine.classList.remove('hidden');
-  spine.classList.add('spine-field');
-}
-
-function moveWorkflowProgressIntoResults() {
+function moveWorkflowProgressIntoResults(loaded = true) {
   const live = document.querySelector('.weavemap-live');
   const spine = document.getElementById('weavemap');
-  if (spine && live && live.parentElement !== spine) spine.appendChild(live);
-  if (spine) spine.classList.remove('spine-live-detached');
-  const helix = document.getElementById('weavemap-helix');
-  if (helix) delete helix.dataset.rendered;
-  renderWeaveHelix(activeJobMeta);
+  const host = document.getElementById('results-workflow-host');
+  if (!spine) return;
+  const placement = loaded ? 'results' : 'idle';
+  const previousPlacement = spine.dataset.progressPlacement || '';
+  let moved = false;
+  if (loaded && host && spine.parentElement !== host) {
+    host.appendChild(spine);
+    moved = true;
+  }
+  if (live && live.parentElement !== spine) spine.appendChild(live);
+  spine.dataset.progressPlacement = placement;
+  spine.classList.remove('spine-live-detached', 'spine-field');
+  spine.classList.toggle('results-workflow-spine', !!loaded);
+  spine.classList.toggle('hidden', !loaded);
+  const modeChanged = previousPlacement !== placement;
+  if (moved || modeChanged) {
+    const helix = document.getElementById('weavemap-helix');
+    if (helix) delete helix.dataset.rendered;
+  }
+  if (loaded) renderWeaveHelix(activeJobMeta);
 }
 
 function setResultsLoaded(loaded) {
   moveWorkflowProgressIntoResults(loaded);
+  const showIdleWorkflowStation = !loaded && document.body.dataset.workflowState === 'idle';
+  const showWorkflowStation = loaded || showIdleWorkflowStation;
   if (!loaded) {
     resultDashboardOpen = false;
     activeResultArtifacts = null;
     setResultFocusMode('overview');
     document.body.dataset.resultsDashboard = 'closed';
   }
-  document.getElementById('results-empty-state')?.classList.toggle('hidden', loaded);
-  document.getElementById('workflow-progress-panel')?.classList.toggle('hidden', !loaded);
+  document.getElementById('results-empty-state')?.classList.toggle('hidden', loaded || showIdleWorkflowStation);
+  document.getElementById('workflow-progress-panel')?.classList.toggle('hidden', !showWorkflowStation);
   document.querySelectorAll('.results-loaded-only').forEach(el => el.classList.toggle('hidden', !loaded));
   if (loaded) updateResultDashboardVisibility(activeJobMeta?.status || '');
   else document.querySelectorAll('.result-dashboard-surface').forEach(el => el.classList.add('hidden'));
@@ -3096,6 +5079,7 @@ function setResultsLoaded(loaded) {
 function showEmptyResults() {
   activeStageState = null;
   document.body.dataset.workflowState = 'idle';
+  document.body.dataset.jobState = 'idle';
   document.body.dataset.existingRunLoaded = 'false';
   lastSubmittedRun = null;
   activeResultCategory = 'figures';
@@ -3105,6 +5089,7 @@ function showEmptyResults() {
   document.body.dataset.resultsDashboard = 'closed';
   document.body.dataset.managementView = 'closed';
   dismissSubmissionConfirmation();
+  clearRunSetupAccessPanel();
   resetWeaveActivity();
   resetStages(currentStageControlJob());
   setResultsLoaded(false);
@@ -3121,6 +5106,7 @@ function showEmptyResults() {
       <div>Summary figures will appear here once a run is loaded.</div>
     </div>`;
   document.getElementById('files-container').innerHTML = '<div class="empty-state">No result files yet.</div>';
+  renderQaDrawer(null, []);
 }
 
 function showResultsShell() {
@@ -3132,32 +5118,86 @@ function showResultsShell() {
 function lockSubmittedIntake() {
   const card = document.getElementById('upload-card');
   document.body.dataset.workflowState = 'launched';
+  document.body.dataset.jobState = 'running';
   document.body.dataset.managementView = 'closed';
   if (card) card.classList.add('upload-card-locked');
-  setCardCollapsed('upload-card', true);
+  setCardCollapsed('upload-card', false);
+  setRunSetupAccessCollapsed(false);
+}
+
+function publicStageTimingEvent(event) {
+  const marker = normalizePublicWeaveEvent(event);
+  if (!marker) return null;
+  const markerMeta = /^canonical workflow stage$/i.test(marker.meta || '');
+  const markerTitle = /^(preparing input workspace|running annotation and bgc detection|running big[-\s]?scape family graph|building summary tables|staging synteny panels|rendering summary figures|running optional nplinker follow-up)$/i.test(marker.title || '');
+  if (!markerMeta && !markerTitle) return null;
+  return marker;
+}
+
+function applyStageTimingFromPublicEvents(job) {
+  if (!activeStageState || !Array.isArray(job?.public_events)) return;
+  job.public_events.forEach((event) => {
+    const marker = publicStageTimingEvent(event);
+    if (!marker) return;
+    const eventId = `public:${marker.stage}:${marker.time || marker.meta}:${marker.title}`;
+    const eventTimeMs = stageTimestampFromClock(marker.time || marker.meta, job, activeStageState.lastEventMs);
+    advanceToStage(marker.stage, { eventTimeMs, source: 'event', eventId });
+  });
+}
+
+function stageSnapshotTimeMs(job) {
+  return parseTimestampMs(job?.stage_updated_at || job?.started_at || job?.created_at || job?.updated_at) || Date.now();
+}
+
+function shouldApplyJobStageSnapshot(key) {
+  if (!activeStageState || !key) return false;
+  const current = activeStageState.failed || activeStageState.current || '';
+  if (!current || current === key) return true;
+  const currentIdx = stageIndex(current);
+  const snapshotIdx = stageIndex(key);
+  return currentIdx < 0 || snapshotIdx < 0 || snapshotIdx >= currentIdx;
 }
 
 function applyJobStageSnapshot(job) {
   if (!activeStageState) initializeStageState(job);
+  applyStageTimingFromPublicEvents(job);
   const key = jobCurrentStageKey(job);
-  if (key) advanceToStage(key);
   const status = String((job && job.status) || '').toLowerCase();
+  if (key && shouldApplyJobStageSnapshot(key)) {
+    const snapshotMs = stageSnapshotTimeMs(job);
+    const eventId = `snapshot:${job?.id || ''}:${job?.rerun_count || 0}:${status}:${key}:${snapshotMs}`;
+    advanceToStage(key, { eventTimeMs: snapshotMs, source: 'snapshot', eventId });
+  }
   if (status === 'success' || status === 'failed') finalizeStageState(status);
 }
 
-async function deleteJob(e, jobId) {
-  e.stopPropagation();
+async function deleteJob(event, jobId) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
   if (!canUseAdminSurfaces()) return;
-  if (!confirm('Delete this job and all its data?')) return;
-  await apiFetch(`api/jobs/${encodeURIComponent(jobId)}`, { method: 'DELETE' }, { kind: 'admin' });
-  if (activeJobId === jobId) {
+  const id = String(jobId || '');
+  if (!id) return;
+  if (!confirm(`Delete job ${id} and all its data?`)) return;
+  const resp = await apiFetch(`api/jobs/${encodeURIComponent(id)}`, { method: 'DELETE' }, { kind: 'admin' });
+  if (!resp.ok) {
+    alert(`Could not delete job ${id}.`);
+    return;
+  }
+  pendingReadTokens.delete(id);
+  jobHistoryById.delete(id);
+  lastJobHistoryRenderKey = '';
+  if (activeJobId === id) {
     activeJobId = null;
     stopPolling();
-    document.getElementById('progress-card').classList.add('hidden');
     activeStageState = null;
     showEmptyResults();
+    renderQaDrawer(null, []);
+    syncOpsTabs();
   }
   refreshJobHistory();
+  pollSystemStatus();
 }
 
 // ── Load / watch a job ─────────────────────────────────────────────────────
@@ -3167,13 +5207,16 @@ async function loadJob(jobId, autoScroll = false, options = {}) {
   const seq = ++jobLoadSeq;
   cancelActiveArchiveDownload();
   activeJobId = jobId;
+  renderRunStack();
+  if (rerunScopeOpenJobId && rerunScopeOpenJobId !== String(jobId) && options.source !== 'job-rerun') rerunScopeOpenJobId = '';
   logCursor   = 0;
   stopPolling();
   markActiveJobCard(jobId);
   if (lastSubmittedRun && lastSubmittedRun.jobId !== jobId) dismissSubmissionConfirmation();
 
   const preferResultsDashboard = shouldPreserveResultsDashboardForJobLoad(jobId, options);
-  document.getElementById('progress-card').classList.toggle('hidden', !canUseAdminSurfaces());
+  gsapMotion.lastJobLoadSource = String(options.source || '');
+  syncOpsTabs();
   activeJobMeta = null;
   activeStageState = null;
   resultDashboardOpen = preferResultsDashboard;
@@ -3186,9 +5229,14 @@ async function loadJob(jobId, autoScroll = false, options = {}) {
     document.body.dataset.managementView = 'closed';
     setResultsPanelCollapsed(true);
   }
-  if (!deferResultsShell) showResultsShell();
+  if (!deferResultsShell) {
+    showResultsShell();
+    if (options.source === 'submit') animateLaunchTransition();
+  }
   document.getElementById('rerun-panel').innerHTML = '';
   document.getElementById('log-terminal').innerHTML = '';
+  setDrawerText('log-count', '0 lines');
+  renderQaDrawer({ id: jobId, status: 'pending', stage: 'queued', name: jobId }, []);
   resetWeaveActivity();
   resetStages();
   if (canUseAdminSurfaces() && currentUIMode === 'guided') setUIMode('lab', { preserveDisclosure: true });
@@ -3201,6 +5249,7 @@ async function loadJob(jobId, autoScroll = false, options = {}) {
       activeStageState = null;
       pendingReadTokens.delete(String(jobId));
       showEmptyResults();
+      renderQaDrawer(null, []);
     }
     return null;
   }
@@ -3219,6 +5268,8 @@ async function pollJobFinal(jobId, autoScroll = false, seq = jobLoadSeq) {
   if (seq !== jobLoadSeq || jobId !== activeJobId) return null;
   const previousJob = activeJobMeta;
   activeJobMeta = job;
+  renderRunStack();
+  renderQaDrawer(job, activeResultFiles);
   setWorkflowExperienceState(job);
   rememberOpenedRun(jobId, readTokenForJob(jobId), job);
   recordWeaveActivity(job);
@@ -3237,6 +5288,7 @@ async function pollJobFinal(jobId, autoScroll = false, seq = jobLoadSeq) {
         if (autoScroll) scrollToBottom();
       }
       document.getElementById('log-count').textContent = `${logCursor} lines`;
+      renderQaDrawer(job, activeResultFiles);
     }
   }
   updateProgressBadge(job.status);
@@ -3262,6 +5314,7 @@ function stopPolling() {
 // ── Log rendering ──────────────────────────────────────────────────────────
 function appendLogLine(text) {
   const term = document.getElementById('log-terminal');
+  if (!term) return;
   const div  = document.createElement('div');
   div.className = 'log-line';
   if (/error|fatal|failed/i.test(text)) div.classList.add('err');
@@ -3272,7 +5325,13 @@ function appendLogLine(text) {
   term.appendChild(div);
 }
 
-function clearLog() { document.getElementById('log-terminal').innerHTML = ''; }
+function clearLog() {
+  const term = document.getElementById('log-terminal');
+  if (term) term.innerHTML = '';
+  logCursor = 0;
+  setDrawerText('log-count', '0 lines');
+  renderQaDrawer(activeJobMeta, activeResultFiles);
+}
 function scrollElementToBottom(el) {
   if (!el) return;
   el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
@@ -3338,6 +5397,10 @@ function initializeStageState(job) {
     failed: null,
     startedAt: {},
     endedAt: {},
+    startedAtSource: {},
+    endedAtSource: {},
+    appliedEvents: new Set(),
+    lastEventMs: null,
   };
   renderStageState();
 }
@@ -3410,6 +5473,107 @@ function parseTimestampMs(value) {
   return Number.isNaN(ms) ? null : ms;
 }
 
+function stageClockSeconds(value) {
+  const match = String(value || '').match(/^(\d{2}):(\d{2}):(\d{2})$/);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const seconds = Number(match[3]);
+  if (hours > 23 || minutes > 59 || seconds > 59) return null;
+  return (hours * 3600) + (minutes * 60) + seconds;
+}
+
+function stageTimingBaseMs(job = activeJobMeta) {
+  return parseTimestampMs(job?.started_at || job?.created_at || job?.updated_at);
+}
+
+function stageTimestampFromClock(value, job = activeJobMeta, minMs = null) {
+  const clockSeconds = stageClockSeconds(value);
+  if (clockSeconds === null) return null;
+  const baseMs = stageTimingBaseMs(job);
+  if (!baseMs) return null;
+  const dayStart = new Date(baseMs);
+  dayStart.setHours(0, 0, 0, 0);
+  let eventMs = dayStart.getTime() + (clockSeconds * 1000);
+  const createdMs = parseTimestampMs(job?.created_at || job?.started_at);
+  const lowerBound = Number.isFinite(minMs) ? minMs : createdMs;
+  while (createdMs && eventMs < createdMs - 60000) eventMs += 86400000;
+  while (Number.isFinite(lowerBound) && eventMs < lowerBound) eventMs += 86400000;
+  return eventMs;
+}
+
+function stageTimestampFromLogLine(line, job = activeJobMeta) {
+  const match = String(line || '').match(/^\[(\d{2}:\d{2}:\d{2})\]/);
+  return match ? stageTimestampFromClock(match[1], job, activeStageState?.lastEventMs) : null;
+}
+
+function stageTimingSourceRank(source) {
+  const ranks = {
+    snapshot: 1,
+    terminal: 2,
+    event: 3,
+    log: 3,
+  };
+  return ranks[source] || 0;
+}
+
+function setStageStartTime(key, ms, source = 'snapshot', options = {}) {
+  if (!activeStageState || !Number.isFinite(ms)) return false;
+  const current = activeStageState.startedAt[key];
+  const currentSource = activeStageState.startedAtSource[key] || '';
+  const force = !!options.force;
+  const sourceRank = stageTimingSourceRank(source);
+  const currentRank = stageTimingSourceRank(currentSource);
+  const betterSource = sourceRank > currentRank;
+  const sameSourceEarlier = sourceRank === currentRank && ms < current;
+  if (force || !Number.isFinite(current) || betterSource || sameSourceEarlier) {
+    activeStageState.startedAt[key] = ms;
+    activeStageState.startedAtSource[key] = source;
+    return true;
+  }
+  return false;
+}
+
+function setStageEndTime(key, ms, source = 'snapshot', options = {}) {
+  if (!activeStageState || !Number.isFinite(ms)) return false;
+  const start = activeStageState.startedAt[key];
+  const normalized = Number.isFinite(start) ? Math.max(ms, start) : ms;
+  const current = activeStageState.endedAt[key];
+  const currentSource = activeStageState.endedAtSource[key] || '';
+  const force = !!options.force;
+  const betterSource = stageTimingSourceRank(source) > stageTimingSourceRank(currentSource);
+  if (force || !Number.isFinite(current) || (betterSource && normalized !== current)) {
+    activeStageState.endedAt[key] = normalized;
+    activeStageState.endedAtSource[key] = source;
+    return true;
+  }
+  return false;
+}
+
+function clearStageTimingFrom(key) {
+  if (!activeStageState) return;
+  const startIdx = stageIndex(key);
+  if (startIdx < 0) return;
+  for (let i = startIdx; i < STAGES.length; i++) {
+    const stageKey = STAGES[i].key;
+    activeStageState.completed.delete(stageKey);
+    delete activeStageState.startedAt[stageKey];
+    delete activeStageState.endedAt[stageKey];
+    delete activeStageState.startedAtSource[stageKey];
+    delete activeStageState.endedAtSource[stageKey];
+  }
+}
+
+function stageTransitionTimeMs(options = {}) {
+  if (Number.isFinite(options.eventTimeMs)) return options.eventTimeMs;
+  if (Number.isFinite(options.timeMs)) return options.timeMs;
+  if (options.line) {
+    const lineMs = stageTimestampFromLogLine(options.line, activeJobMeta);
+    if (Number.isFinite(lineMs)) return lineMs;
+  }
+  return Date.now();
+}
+
 function jobElapsedText(job = activeJobMeta) {
   if (!job) return 'Not started';
   const start = parseTimestampMs(job.started_at || job.created_at);
@@ -3443,13 +5607,14 @@ function stageElapsedText(key, visualCls) {
   if (!activeStageState || !activeStageState.enabled.has(key)) return 'Skipped';
   const start = activeStageState.startedAt && activeStageState.startedAt[key];
   const end = activeStageState.endedAt && activeStageState.endedAt[key];
-  const status = String((activeJobMeta && activeJobMeta.status) || '').toLowerCase();
-  if (visualCls === 'active') return jobElapsedText(activeJobMeta);
-  if (visualCls === 'failed' && status === 'failed') return jobElapsedText(activeJobMeta);
-  if (visualCls === 'complete' && status === 'success') return jobElapsedText(activeJobMeta);
-  if ((visualCls === 'done' || visualCls === 'complete' || visualCls === 'failed') && start && end) return formatDuration(end - start);
+  const hasStart = Number.isFinite(start);
+  const hasEnd = Number.isFinite(end);
+  if (visualCls === 'active') return hasStart ? formatDuration(Date.now() - start) : 'Starting';
+  if ((visualCls === 'done' || visualCls === 'complete' || visualCls === 'failed') && hasStart && hasEnd) return formatDuration(end - start);
+  if (visualCls === 'failed' && hasStart) return formatDuration((hasEnd ? end : Date.now()) - start);
   if (visualCls === 'done' || visualCls === 'complete') return 'Finished';
   if (visualCls === 'failed') return 'Stopped';
+  if (hasStart) return 'Waiting';
   return 'Not started';
 }
 
@@ -3469,6 +5634,374 @@ function setWorkflowExperienceState(job = activeJobMeta) {
   else if (status === 'running') state = 'running';
   else if (status === 'pending' || activeJobId) state = 'launched';
   document.body.dataset.workflowState = state;
+  document.body.dataset.jobState = state === 'launched' ? 'running' : state;
+}
+
+function bgcWorkflowStages(job = activeJobMeta) {
+  return workflowStageList(job).filter(stage => stage.key !== 'nplinker' || jobStageEnabled(job || {}, stage.key) || canUseAdminSurfaces());
+}
+
+function bgcStageStatus(stage, currentKey, jobStatus) {
+  const key = stage.key;
+  if (activeStageState && !activeStageState.enabled.has(key)) return 'pending';
+  if (jobStatus === 'success') return 'complete';
+  if (activeStageState?.failed === key || (jobStatus === 'failed' && currentKey === key)) return 'error';
+  if (activeStageState?.completed.has(key)) return 'complete';
+  if (currentKey === key) return 'running';
+  return 'pending';
+}
+
+function compactActivityChipText(value, maxLength = 96) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  return text.length > maxLength ? `${text.slice(0, Math.max(0, maxLength - 3)).trim()}...` : text;
+}
+
+function jobPublicWorkflowEvents(job, currentKey) {
+  const jobEvents = Array.isArray(job?.public_events)
+    ? job.public_events.map(normalizePublicWeaveEvent).filter(Boolean)
+    : [];
+  const events = jobEvents.length ? jobEvents : (Array.isArray(weaveActivity.events) ? weaveActivity.events : []);
+  if (!currentKey) return events;
+  const stageEvents = events.filter(event => event?.stage === currentKey);
+  return stageEvents.length ? stageEvents : events;
+}
+
+function latestJobPublicWorkflowEvent(job, currentKey) {
+  const events = jobPublicWorkflowEvents(job, currentKey);
+  return events.length ? events[events.length - 1] : null;
+}
+
+function activityOrganismFromMeta(meta) {
+  const parts = String(meta || '').split('/').map(part => part.trim()).filter(Boolean);
+  return parts.find(part => !/^Genome\s+\d+\s+of\s+\d+$/i.test(part) && !/\bactive$/i.test(part) && !/^\d{1,2}:\d{2}/.test(part)) || '';
+}
+
+function activityElapsedFromMeta(meta) {
+  const match = String(meta || '').match(/(under 1 min|\d+ min|\d+h(?: \d{2}m)?) active/i);
+  return match ? match[1] : '';
+}
+
+function activityPartsFromEvent(event) {
+  if (!event?.title) return null;
+  const heartbeatMatch = event.title.match(/^(.+?)\s+still\s+running$/i);
+  if (heartbeatMatch) {
+    return {
+      kind: 'heartbeat',
+      tool: heartbeatMatch[1].trim(),
+      organism: activityOrganismFromMeta(event.meta),
+      elapsed: activityElapsedFromMeta(event.meta),
+      event,
+    };
+  }
+  const progressMatch = event.title.match(/^([^:]+):\s*(.+)$/);
+  if (progressMatch) {
+    return {
+      kind: 'progress',
+      tool: progressMatch[1].trim(),
+      organism: activityOrganismFromMeta(event.meta),
+      message: progressMatch[2].trim(),
+      event,
+    };
+  }
+  return null;
+}
+
+function activityPartsMatch(a, b) {
+  if (!a || !b) return false;
+  const toolMatch = !a.tool || !b.tool || a.tool.toLowerCase() === b.tool.toLowerCase();
+  const organismMatch = !a.organism || !b.organism || a.organism === b.organism;
+  return toolMatch && organismMatch;
+}
+
+function latestToolActivityParts(job, currentKey) {
+  const parts = jobPublicWorkflowEvents(job, currentKey).map(activityPartsFromEvent).filter(Boolean);
+  if (!parts.length) return null;
+  let heartbeat = null;
+  for (let index = parts.length - 1; index >= 0; index -= 1) {
+    if (parts[index].kind === 'heartbeat') {
+      heartbeat = parts[index];
+      break;
+    }
+  }
+  let progress = null;
+  for (let index = parts.length - 1; index >= 0; index -= 1) {
+    if (parts[index].kind === 'progress' && (!heartbeat || activityPartsMatch(parts[index], heartbeat))) {
+      progress = parts[index];
+      break;
+    }
+  }
+  return progress || heartbeat ? { progress, heartbeat } : null;
+}
+
+function bgcActivityChipPayload(job, state, currentKey, fallbackTool) {
+  if (state === 'idle') return { text: 'WAITING', title: 'Waiting for submitted inputs' };
+  if (state === 'complete') return { text: 'COMPLETE', title: 'All workflow tools complete' };
+  if (state === 'failed') return { text: 'NEEDS REVIEW', title: job?.error_summary || job?.error || 'Workflow needs attention' };
+  const activity = latestToolActivityParts(job, currentKey);
+  if (activity) {
+    const { progress, heartbeat } = activity;
+    const tool = progress?.tool || heartbeat?.tool || fallbackTool || 'Workflow';
+    const organism = progress?.organism || heartbeat?.organism || '';
+    const message = progress?.message || 'Running';
+    const elapsed = heartbeat?.elapsed || '';
+    const pieces = [tool, organism, message, elapsed].filter(Boolean);
+    const fullText = pieces.join(' | ');
+    return {
+      text: compactActivityChipText(fullText),
+      title: fullText,
+    };
+  }
+  const event = latestJobPublicWorkflowEvent(job, currentKey);
+  if (event?.title) {
+    return {
+      text: compactActivityChipText(event.title),
+      title: [event.title, event.meta].filter(Boolean).join(' - '),
+    };
+  }
+  return {
+    text: compactActivityChipText(`${fallbackTool || 'Workflow'} | running`),
+    title: fallbackTool || 'Workflow running',
+  };
+}
+
+function clampUnit(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+  return Math.max(0, Math.min(1, number));
+}
+
+function workflowStageWeight(stage) {
+  return WORKFLOW_PROGRESS_WEIGHTS[stage?.key] || 0.1;
+}
+
+function parseWorkflowGenomePosition(value) {
+  const text = String(value || '');
+  const match = text.match(/\bGenome\s+(\d+)\s+of\s+(\d+)\b/i)
+    || text.match(/\[(\d+)\/(\d+)\]\s+genome=/i);
+  if (!match) return null;
+  const current = Number(match[1]);
+  const total = Number(match[2]);
+  if (!Number.isFinite(current) || !Number.isFinite(total) || total < 1) return null;
+  return { current: Math.max(1, Math.min(current, total)), total };
+}
+
+function workflowGenomePhaseFromTitle(title) {
+  const text = String(title || '');
+  if (/Finished\s+FunBGCeX/i.test(text)) return 1;
+  if (/Running\s+FunBGCeX/i.test(text)) return 0.82;
+  if (/Finished\s+antiSMASH/i.test(text)) return 0.68;
+  if (/antiSMASH:\s*(Writing|Output|Result)/i.test(text)) return 0.62;
+  if (/antiSMASH|still\s+running/i.test(text)) return 0.42;
+  if (/Preparing\s+genome/i.test(text)) return 0.06;
+  if (/Queued\s+\d+\s+genomes?/i.test(text)) return 0;
+  return null;
+}
+
+function annotationGenomeProgress(job) {
+  const events = jobPublicWorkflowEvents(job, 'annotation').filter(event => event?.stage === 'annotation');
+  let latestPosition = null;
+  let latest = null;
+  events.forEach((event) => {
+    const position = parseWorkflowGenomePosition(`${event.title || ''} ${event.meta || ''}`);
+    if (position) latestPosition = position;
+    const phase = workflowGenomePhaseFromTitle(event.title);
+    const source = position || (phase !== null ? latestPosition : null);
+    if (!source) return;
+    const currentPhase = phase === null ? 0.5 : phase;
+    const fraction = clampUnit((source.current - 1 + currentPhase) / source.total);
+    latest = {
+      current: source.current,
+      total: source.total,
+      fraction,
+      label: `Genome ${source.current} of ${source.total}`,
+    };
+  });
+  return latest;
+}
+
+function workflowCurrentStageFraction(job, currentKey, status) {
+  if (!currentKey) return 0;
+  if (currentKey === 'annotation') {
+    const genomeProgress = annotationGenomeProgress(job);
+    if (genomeProgress) return genomeProgress.fraction;
+  }
+  if (String(status || '').toLowerCase() === 'pending') return 0;
+  return 0.5;
+}
+
+function weightedWorkflowProgress(stages, currentKey, status, job, stageProgress = null) {
+  if (status === 'success') return 1;
+  if (!currentKey) return 0;
+  const totalWeight = stages.reduce((sum, stage) => sum + workflowStageWeight(stage), 0) || 1;
+  const currentIndex = stages.findIndex(stage => stage.key === currentKey);
+  let doneWeight = 0;
+  stages.forEach((stage, index) => {
+    if (activeStageState?.completed.has(stage.key) || (currentIndex >= 0 && index < currentIndex)) {
+      doneWeight += workflowStageWeight(stage);
+    }
+  });
+  if (currentIndex >= 0) {
+    const currentStage = stages[currentIndex];
+    const currentFraction = stageProgress && currentKey === 'annotation'
+      ? stageProgress.fraction
+      : workflowCurrentStageFraction(job, currentKey, status);
+    doneWeight += workflowStageWeight(currentStage) * currentFraction;
+  }
+  return clampUnit(doneWeight / totalWeight);
+}
+
+function bgcWorkflowPayload(job = activeJobMeta) {
+  const stages = bgcWorkflowStages(job);
+  const status = String((job && job.status) || '').toLowerCase();
+  const currentKey = currentWorkflowStage() || jobCurrentStageKey(job);
+  let state = 'idle';
+  if (status === 'success') state = 'complete';
+  else if (status === 'failed') state = 'failed';
+  else if (status === 'running' || status === 'pending' || activeJobId) state = 'running';
+  const stageProgress = currentKey === 'annotation' ? annotationGenomeProgress(job) : null;
+  const progress = weightedWorkflowProgress(stages, currentKey, status, job, stageProgress);
+  const percent = Math.round(progress * 100);
+  const currentStage = stages.find(stage => stage.key === currentKey);
+  const tool = currentStage ? (STAGE_DETAILS[currentStage.key]?.name || currentStage.label) : (status === 'success' ? 'Workflow complete' : 'Input queue');
+  const detail = state === 'idle'
+    ? 'Waiting for submitted inputs'
+    : status === 'failed'
+      ? (job?.error_summary || job?.error || 'Workflow needs attention')
+      : status === 'success'
+        ? 'All workflow tools complete'
+        : currentStage
+          ? jobStageDisplay(job)
+          : queueStatusLabel(job);
+  const activityChip = bgcActivityChipPayload(job, state, currentKey, tool);
+  return {
+    state,
+    progress,
+    percent,
+    tool,
+    statusText: detail,
+    stationDetailText: state === 'running' ? '' : detail,
+    progressLabel: stageProgress?.label || '',
+    activityText: activityChip.text,
+    activityTitle: activityChip.title,
+    motionPaused: state === 'failed',
+    steps: stages.map(stage => ({
+      id: stage.key,
+      label: STAGE_DETAILS[stage.key]?.name || stage.label,
+      status: bgcStageStatus(stage, currentKey, status),
+    })),
+    currentStepId: currentKey || '',
+  };
+}
+
+const ALT06_WORKFLOW_STEPS = [
+  { id: 'prepare', label: 'Prepare', keys: ['prep'] },
+  { id: 'annotate', label: 'Annotate', keys: ['annotation'] },
+  { id: 'group', label: 'Group', keys: ['bigscape', 'summary'] },
+  { id: 'compare', label: 'Compare', keys: ['clinker'] },
+  { id: 'render', label: 'Render', keys: ['figures', 'nplinker'] },
+];
+
+function alt06StepStatus(group, sourceSteps, payload) {
+  const source = sourceSteps.filter(step => group.keys.includes(step.id));
+  if (payload.state === 'idle' || !source.length) return 'waiting';
+  if (source.some(step => step.status === 'error' || step.status === 'failed')) return 'failed';
+  if (source.some(step => step.status === 'running')) return 'running';
+  if (source.every(step => step.status === 'complete' || step.status === 'done')) return 'done';
+  return 'waiting';
+}
+
+function alt06WorkflowCaption(payload) {
+  if (payload.state === 'idle') return 'Submit to activate BGC workflow';
+  if (payload.state === 'complete') return 'All workflow stages complete';
+  if (payload.state === 'failed') return payload.statusText || 'Compare stage failed validation';
+  if (payload.progressLabel) return payload.progressLabel;
+  return payload.statusText || 'BGC workflow running';
+}
+
+function renderBgcWorkflowStageStrip(payload) {
+  const strip = document.getElementById('bgc-stage-strip');
+  if (!strip || !payload) return;
+  const sourceSteps = Array.isArray(payload.steps) ? payload.steps : [];
+  const statuses = ALT06_WORKFLOW_STEPS.map(group => alt06StepStatus(group, sourceSteps, payload));
+  const failedIndex = statuses.indexOf('failed');
+  strip.innerHTML = ALT06_WORKFLOW_STEPS.map((group, index) => {
+    let status = statuses[index];
+    if (failedIndex >= 0 && index > failedIndex && status === 'waiting') status = 'blocked';
+    const stateClass = status === 'running' ? 'is-active' : status === 'failed' ? 'is-failed' : '';
+    return `
+    <div class="stage-card bgc-stage-card ${escapeHtml(status)} ${stateClass}" data-bgc-stage="${escapeHtml(group.id)}">
+      <span class="num">${index + 1}</span><b>${escapeHtml(group.label)}</b><small>${escapeHtml(status)}</small>
+    </div>`;
+  }).join('');
+}
+
+function applyBgcWorkflowPayload(payload) {
+  if (!payload) return;
+  bgcWorkflowPendingPayload = payload;
+  const region = document.getElementById('bgc-dna-progress-region');
+  const nativeProgress = document.getElementById('bgc-workflow-native-progress');
+  const percent = document.getElementById('bgc-workflow-percent');
+  const headMeta = document.getElementById('workflow-head-meta');
+  const captionLabel = document.getElementById('workflow-caption-label');
+  const captionPercent = document.getElementById('workflow-percent');
+  const tool = document.getElementById('bgc-workflow-tool');
+  const detail = document.getElementById('bgc-workflow-detail');
+  const activityChip = document.getElementById('bgc-tool-activity-chip');
+  if (region) {
+    region.setAttribute('aria-valuenow', String(payload.percent));
+    region.setAttribute('aria-valuetext', `${payload.percent}% - ${payload.tool} - ${payload.statusText}`);
+  }
+  if (nativeProgress) {
+    nativeProgress.value = payload.percent;
+    nativeProgress.textContent = `${payload.percent}%`;
+  }
+  if (headMeta) headMeta.textContent = payload.state === 'idle' ? 'Waiting' : payload.state === 'complete' ? 'Complete' : payload.state === 'failed' ? 'Needs review' : 'Running';
+  if (percent) percent.textContent = `${payload.percent}%`;
+  if (captionPercent) captionPercent.textContent = `${payload.percent}%`;
+  if (captionLabel) captionLabel.textContent = alt06WorkflowCaption(payload);
+  if (tool) tool.textContent = payload.tool;
+  if (detail) {
+    const stationDetail = payload.stationDetailText || '';
+    detail.textContent = stationDetail;
+    detail.hidden = !stationDetail;
+  }
+  if (activityChip) {
+    activityChip.textContent = payload.activityText || (payload.state === 'running' ? 'RUNNING' : payload.state.toUpperCase());
+    activityChip.dataset.state = payload.state || 'idle';
+    activityChip.title = payload.activityTitle || payload.activityText || '';
+  }
+  renderBgcWorkflowStageStrip(payload);
+  if (bgcWorkflowDna) bgcWorkflowDna.setProgress(payload.progress, payload);
+  else bootBgcWorkflowDna();
+}
+
+function updateBgcWorkflowDnaFromJob(job = activeJobMeta) {
+  applyBgcWorkflowPayload(bgcWorkflowPayload(job));
+}
+
+function bootBgcWorkflowDna() {
+  if (bgcWorkflowDna || bgcWorkflowDnaLoading) return;
+  const canvas = document.getElementById('bgc-dna-canvas');
+  const region = document.getElementById('bgc-dna-progress-region');
+  const fallback = document.getElementById('bgc-dna-fallback');
+  if (!canvas || !region) return;
+  bgcWorkflowDnaLoading = true;
+  import(WORKFLOW_DNA_MODULE_PATH).then(({ createWorkflowDnaProgress }) => {
+    bgcWorkflowDna = createWorkflowDnaProgress({
+      canvas,
+      region,
+      autoSpiral: true,
+      ariaLabel: 'BGC workflow DNA progress',
+    });
+    region.classList.add('is-ready');
+    if (fallback) fallback.textContent = '';
+    if (bgcWorkflowPendingPayload) bgcWorkflowDna.setProgress(bgcWorkflowPendingPayload.progress, bgcWorkflowPendingPayload);
+  }).catch((error) => {
+    if (fallback) fallback.textContent = `3D DNA unavailable: ${error.message}`;
+  }).finally(() => {
+    bgcWorkflowDnaLoading = false;
+  });
 }
 
 function updateStageTelemetry() {
@@ -3519,10 +6052,13 @@ function normalizePublicWeaveEvent(event) {
   const stage = STAGES.some(item => item.key === event.stage) ? event.stage : 'prep';
   const title = String(event.title || '').trim();
   if (!title) return null;
+  const meta = String(event.meta || '').trim();
+  const time = String(event.time || '').trim();
   return {
     stage,
     title,
-    meta: String(event.meta || event.time || '').trim(),
+    meta: meta || time,
+    time,
   };
 }
 
@@ -3615,7 +6151,7 @@ function stageTimelineMeta(stage, visual, event) {
   return details[stageTimelineDetailKey(visual)] || details.queued || 'Waiting for workflow state.';
 }
 
-function workflowStageOverviewNodes(job = activeJobMeta) {
+function legacyStageOverviewNodes(job = activeJobMeta) {
   const latestByStage = latestWeaveEventByStage();
   return workflowStageList(job).map(stage => {
     const details = STAGE_DETAILS[stage.key] || stage;
@@ -3637,7 +6173,7 @@ function publicStageNodes(stage, visual, job) {
       title: `Run elapsed ${jobElapsedText(job)}`,
       meta: currentWorkflowStage() ? stageEstimateText(currentWorkflowStage()) : 'Run dependent',
     },
-    ...workflowStageOverviewNodes(job),
+    ...legacyStageOverviewNodes(job),
   ];
   const latestForStage = latestWeaveEventByStage().get(stage.key);
   if (latestForStage && visual.cls === 'active') {
@@ -3748,7 +6284,7 @@ function dnaVisualAtT(models, t) {
 }
 
 function renderDnaDecorativeRungs(models, layout) {
-  const count = document.body.dataset.resultsDashboard === 'open' ? 34 : 42;
+  const count = document.body.dataset.resultsDashboard === 'open' ? 18 : 24;
   const rungs = [];
   for (let index = 0; index < count; index += 1) {
     const t = (index + .5) / count;
@@ -3869,6 +6405,389 @@ function dnaStageModels(job, layout) {
 
 function reducedMotionPreferred() {
   return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+}
+
+function clearRetiredMotionSettings() {
+  try {
+    RETIRED_MOTION_STORAGE_KEYS.forEach(key => window.localStorage?.removeItem(key));
+  } catch (error) {}
+}
+
+function richMotionDisabled() {
+  return false;
+}
+
+function initializeRetiredMotionControls() {
+  clearRetiredMotionSettings();
+  document.body.dataset.richMotion = 'enabled';
+  document.body.dataset.threeWeavemap = 'disabled';
+  document.body.dataset.threeWeavemapOptIn = 'disabled';
+}
+
+function wireMotionLifecycleGuards() {
+  if (motionLifecycleWired) return;
+  motionLifecycleWired = true;
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      teardownGsapMotion('page-hidden');
+      return;
+    }
+    const helix = document.getElementById('weavemap-helix');
+    if (helix) delete helix.dataset.rendered;
+    if (richDomMotionEnabled()) warmGsapMotion();
+    renderWeaveHelix(activeJobMeta);
+  });
+  window.addEventListener('pagehide', () => {
+    teardownGsapMotion('pagehide');
+  });
+}
+
+function richDomMotionEnabled() {
+  return !reducedMotionPreferred() && !richMotionDisabled();
+}
+
+function markGsapMotionFallback(reason) {
+  gsapMotion.fallbackReason = reason || 'unavailable';
+  document.body.dataset.gsapMotion = 'fallback';
+}
+
+function gsapMotionReady() {
+  if (!richDomMotionEnabled()) return null;
+  if (gsapMotion.gsap) return gsapMotion.gsap;
+  if (window.gsap) {
+    gsapMotion.gsap = window.gsap;
+    gsapMotion.fallbackReason = '';
+    document.body.dataset.gsapMotion = 'ready';
+    return gsapMotion.gsap;
+  }
+  return null;
+}
+
+function loadGsapMotion() {
+  if (!richDomMotionEnabled()) {
+    document.body.dataset.gsapMotion = 'disabled';
+    return Promise.resolve(null);
+  }
+  const ready = gsapMotionReady();
+  if (ready) return Promise.resolve(ready);
+  if (gsapMotion.promise) return gsapMotion.promise;
+  document.body.dataset.gsapMotion = 'loading';
+  gsapMotion.promise = new Promise(resolve => {
+    const finish = () => {
+      const lib = window.gsap || null;
+      if (!lib) {
+        markGsapMotionFallback('vendor-load-failed');
+        resolve(null);
+        return;
+      }
+      gsapMotion.gsap = lib;
+      gsapMotion.fallbackReason = '';
+      document.body.dataset.gsapMotion = richDomMotionEnabled() ? 'ready' : 'disabled';
+      resolve(lib);
+    };
+    const fail = () => {
+      markGsapMotionFallback('vendor-load-failed');
+      resolve(null);
+    };
+    const existing = document.querySelector(`script[src="${GSAP_BROWSER_PATH}"]`);
+    if (existing) {
+      existing.addEventListener('load', finish, { once: true });
+      existing.addEventListener('error', fail, { once: true });
+      window.setTimeout(() => { if (window.gsap) finish(); }, 0);
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = GSAP_BROWSER_PATH;
+    script.async = true;
+    script.onload = finish;
+    script.onerror = fail;
+    document.head.appendChild(script);
+  });
+  return gsapMotion.promise;
+}
+
+function warmGsapMotion() {
+  if (!richDomMotionEnabled()) {
+    document.body.dataset.gsapMotion = 'disabled';
+    return;
+  }
+  loadGsapMotion().catch(() => markGsapMotionFallback('vendor-load-failed'));
+}
+
+function killGsapTimeline(key) {
+  const timeline = gsapMotion.timelines.get(key);
+  if (timeline && typeof timeline.kill === 'function') timeline.kill();
+  gsapMotion.timelines.delete(key);
+}
+
+function clearDocsMotionVars(docs = document.getElementById('docs')) {
+  if (!docs) return;
+  [
+    '--docs-motion-overlay-opacity',
+    '--docs-motion-panel-opacity',
+    '--docs-motion-panel-y',
+    '--docs-motion-panel-scale',
+  ].forEach(name => docs.style.removeProperty(name));
+  document.body?.style?.removeProperty('--docs-motion-overlay-opacity');
+}
+
+function teardownGsapMotion(reason = '') {
+  gsapMotion.timelines.forEach(timeline => {
+    if (timeline && typeof timeline.kill === 'function') timeline.kill();
+  });
+  gsapMotion.timelines.clear();
+  clearDocsMotionVars();
+  document.body.dataset.gsapMotion = richDomMotionEnabled() ? (gsapMotion.gsap ? 'ready' : 'idle') : 'disabled';
+  if (reason) gsapMotion.fallbackReason = reason;
+}
+
+function motionTargets(targets, root = document) {
+  const input = Array.isArray(targets) ? targets : [targets];
+  const nodes = [];
+  input.forEach(target => {
+    if (!target) return;
+    if (typeof target === 'string') nodes.push(...Array.from(root.querySelectorAll(target)));
+    else nodes.push(target);
+  });
+  return Array.from(new Set(nodes)).filter(el => {
+    if (!el || !el.isConnected || el.hidden || el.classList?.contains('hidden')) return false;
+    return !!(el.getClientRects && el.getClientRects().length);
+  });
+}
+
+function runGsapMotion(key, build) {
+  const gsap = gsapMotionReady();
+  if (!gsap) {
+    warmGsapMotion();
+    return false;
+  }
+  killGsapTimeline(key);
+  try {
+    const timeline = gsap.timeline({
+      defaults: { overwrite: 'auto' },
+      onComplete: () => {
+        if (gsapMotion.timelines.get(key) === timeline) gsapMotion.timelines.delete(key);
+      },
+      onInterrupt: () => {
+        if (gsapMotion.timelines.get(key) === timeline) gsapMotion.timelines.delete(key);
+      },
+    });
+    gsapMotion.timelines.set(key, timeline);
+    build(timeline, gsap);
+    return true;
+  } catch (error) {
+    killGsapTimeline(key);
+    markGsapMotionFallback('animation-error');
+    return false;
+  }
+}
+
+function animateEntryTabTransition(selectedName) {
+  const panel = document.getElementById(`entry-panel-${selectedName}`);
+  if (!panel) return;
+  const selectors = selectedName === 'existing'
+    ? ['.access-copy', '.reviewer-access > summary']
+    : ['.input-node-head', '.intake-grid', '.settings-section', '.workflow-controls', '.data-use-ack', '.run-row'];
+  const targets = motionTargets(selectors, panel);
+  const activeTab = document.querySelector('.entry-tab.active');
+  runGsapMotion(`entry-${selectedName}`, timeline => {
+    if (targets.length) {
+      timeline.fromTo(targets,
+        { opacity: 0.72, y: 8 },
+        { opacity: 1, y: 0, duration: 0.18, ease: 'power2.out', stagger: 0.022, clearProps: 'opacity,transform' },
+        0);
+    }
+    if (activeTab) {
+      timeline.fromTo(activeTab,
+        { scale: 0.985 },
+        { scale: 1, duration: 0.16, ease: 'power2.out', clearProps: 'transform' },
+        0);
+    }
+  });
+}
+
+function animateLaunchTransition() {
+  const targets = motionTargets(['#workflow-progress-panel', '#weavemap .weavemap-stage-wrap', '#results-card .card-header']);
+  const uploadCard = document.getElementById('upload-card');
+  runGsapMotion('launch-transition', timeline => {
+    if (uploadCard) {
+      timeline.fromTo(uploadCard,
+        { filter: 'brightness(1.08)' },
+        { filter: 'brightness(1)', duration: 0.2, ease: 'power2.out', clearProps: 'filter' },
+        0);
+    }
+    if (targets.length) {
+      timeline.fromTo(targets,
+        { opacity: 0.74, y: 12 },
+        { opacity: 1, y: 0, duration: 0.24, ease: 'power2.out', stagger: 0.035, clearProps: 'opacity,transform' },
+        0.02);
+    }
+  });
+}
+
+function animateExistingResultUnlock() {
+  const targets = motionTargets([document.getElementById('result-link-status') || document.getElementById('existing-run-status'), document.getElementById('entry-tab-existing')]);
+  if (!targets.length) return;
+  runGsapMotion('existing-unlock', timeline => {
+    timeline.fromTo(targets,
+      { opacity: 0.7, y: 5 },
+      { opacity: 1, y: 0, duration: 0.16, ease: 'power2.out', stagger: 0.025, clearProps: 'opacity,transform' });
+  });
+}
+
+function animateResultDashboardOpen(source = '') {
+  const targets = motionTargets([
+    '#result-dashboard-section .result-dashboard-head',
+    '#result-bubble-panel',
+    '#weavemap .weavemap-stage-wrap',
+  ]);
+  if (!targets.length) return;
+  runGsapMotion(`result-dashboard-${source || 'open'}`, timeline => {
+    timeline.fromTo(targets,
+      { opacity: 0.76, y: 14 },
+      { opacity: 1, y: 0, duration: 0.22, ease: 'power2.out', stagger: 0.028, clearProps: 'opacity,transform' });
+  });
+}
+
+function animateResultFocusChange(category = '') {
+  const selected = document.querySelector('.dna-result-output.is-selected .dna-result-output-trigger');
+  const targets = motionTargets([
+    selected,
+    '#result-reader-surface',
+  ]);
+  if (!targets.length) return;
+  runGsapMotion(`result-focus-${category || resultFocusMode}`, timeline => {
+    timeline.fromTo(targets,
+      { opacity: 0.78, y: 7, scale: 0.992 },
+      { opacity: 1, y: 0, scale: 1, duration: 0.18, ease: 'power2.out', stagger: 0.022, clearProps: 'opacity,transform' });
+  });
+}
+
+function animateResultReaderOpen() {
+  const container = document.getElementById('files-container');
+  if (!container) return;
+  const targets = motionTargets(['.artifact-reader-head', '.summary-condensed-head', '.summary-markdown-body'], container);
+  if (!targets.length) return;
+  runGsapMotion('result-reader-open', timeline => {
+    timeline.fromTo(targets,
+      { opacity: 0.72, y: 8 },
+      { opacity: 1, y: 0, duration: 0.18, ease: 'power2.out', stagger: 0.02, clearProps: 'opacity,transform' });
+  });
+}
+
+function animateSummaryReaderDocument() {
+  const targets = motionTargets('#summary-reader-doc > *');
+  if (!targets.length) return;
+  runGsapMotion('summary-reader-doc', timeline => {
+    timeline.fromTo(targets,
+      { opacity: 0.72, y: 6 },
+      { opacity: 1, y: 0, duration: 0.16, ease: 'power2.out', clearProps: 'opacity,transform' });
+  });
+}
+
+function animateRerunPanelReady() {
+  const targets = motionTargets('#rerun-panel .rerun-summary > .summary-head');
+  if (!targets.length) return;
+  runGsapMotion('rerun-panel-ready', timeline => {
+    timeline.fromTo(targets,
+      { opacity: 0.72, y: 7 },
+      { opacity: 1, y: 0, duration: 0.16, ease: 'power2.out', clearProps: 'opacity,transform' });
+  });
+}
+
+function animateRerunPanelOpen(details) {
+  const targets = motionTargets('.rerun-panel-body', details || document);
+  if (!targets.length) return;
+  runGsapMotion('rerun-panel-open', timeline => {
+    timeline.fromTo(targets,
+      { opacity: 0.72, y: -6 },
+      { opacity: 1, y: 0, duration: 0.18, ease: 'power2.out', clearProps: 'opacity,transform' });
+  });
+}
+
+function wireRerunPanelMotion(details) {
+  if (!details || details.dataset.motionWired === '1') return;
+  details.dataset.motionWired = '1';
+  details.addEventListener('toggle', () => {
+    if (details.open) animateRerunPanelOpen(details);
+  });
+}
+
+function animateRerunQueued() {
+  const status = document.getElementById('rerun-status');
+  if (!status) return;
+  runGsapMotion('rerun-queued', timeline => {
+    timeline.fromTo(status,
+      { opacity: 0.68, y: 4 },
+      { opacity: 1, y: 0, duration: 0.16, ease: 'power2.out', clearProps: 'opacity,transform' });
+  });
+}
+
+function animateOpsPanelToggle(expanded) {
+  const panel = document.getElementById('ops-side-panel');
+  const toggle = document.getElementById('ops-panel-toggle');
+  runGsapMotion(`ops-panel-${expanded ? 'open' : 'closed'}`, timeline => {
+    if (expanded && panel && motionTargets(panel).length) {
+      timeline.fromTo(panel,
+        { opacity: 0.78, x: -18 },
+        { opacity: 1, x: 0, duration: 0.2, ease: 'power2.out', clearProps: 'opacity,transform' },
+        0);
+    }
+    if (toggle && motionTargets(toggle).length) {
+      timeline.fromTo(toggle,
+        { scale: 0.96 },
+        { scale: 1, duration: 0.16, ease: 'power2.out', clearProps: 'transform' },
+        0);
+    }
+  });
+}
+
+function animateDiagnosticsReveal() {
+  const targets = motionTargets(['#ops-side-panel', '#ops-panel-toggle', '.runtime-diagnostics-only']);
+  if (!targets.length) return;
+  runGsapMotion('diagnostics-reveal', timeline => {
+    timeline.fromTo(targets,
+      { opacity: 0.72, y: 8 },
+      { opacity: 1, y: 0, duration: 0.2, ease: 'power2.out', stagger: 0.025, clearProps: 'opacity,transform' });
+  });
+}
+
+function setDocsMotionVars(docs, values) {
+  if (!docs) return;
+  Object.entries(values).forEach(([name, value]) => {
+    docs.style.setProperty(name, String(value));
+    if (name === '--docs-motion-overlay-opacity') document.body?.style?.setProperty(name, String(value));
+  });
+}
+
+function animateDocsDisclosureOpen() {
+  const docs = document.getElementById('docs');
+  killGsapTimeline('docs-disclosure-open');
+  killGsapTimeline('docs-disclosure-close');
+  clearDocsMotionVars(docs);
+}
+
+function animateDocsDisclosureClose(docs, done) {
+  killGsapTimeline('docs-disclosure-open');
+  killGsapTimeline('docs-disclosure-close');
+  clearDocsMotionVars(docs);
+  return false;
+}
+
+function animateDnaOverlayPolish(stageWrap, renderKey) {
+  if (!stageWrap || gsapMotion.lastWeaveMotionKey === renderKey) return;
+  gsapMotion.lastWeaveMotionKey = renderKey;
+  const targets = motionTargets([
+    '.dna-base-popover.active .dna-popover-panel',
+    '.dna-base-popover.failed .dna-popover-panel',
+    '.dna-result-output:not(.is-dimmed) .dna-result-output-trigger',
+  ], stageWrap);
+  if (!targets.length) return;
+  runGsapMotion('dna-overlay-polish', timeline => {
+    timeline.fromTo(targets,
+      { opacity: 0.76, x: 8 },
+      { opacity: 1, x: 0, duration: 0.18, ease: 'power2.out', stagger: 0.018, clearProps: 'opacity,transform' });
+  });
 }
 
 function dnaTrackOffset(layout, helix, job) {
@@ -4037,7 +6956,7 @@ function applyDnaPopoverDragOffsets(stageWrap) {
 }
 
 function updateDnaPopoverConnector(stageWrap) {
-  const layer = stageWrap?.querySelector('.dna-popover-connector-layer');
+  const layer = stageWrap?.querySelector('.legacy-dna-connector-layer');
   if (!layer) return;
   const popover = stageWrap.querySelector('.dna-base-popover.active, .dna-base-popover.failed');
   const panel = popover?.querySelector('.dna-popover-panel');
@@ -4056,15 +6975,43 @@ function updateDnaPopoverConnector(stageWrap) {
   const width = Math.max(1, Math.round(stageWrap.clientWidth || wrapRect.width));
   const height = Math.max(1, Math.round(stageWrap.clientHeight || wrapRect.height));
   layer.setAttribute('viewBox', `0 0 ${width} ${height}`);
-  const startX = triggerRect.left + triggerRect.width / 2 - wrapRect.left;
-  const startY = triggerRect.top + triggerRect.height / 2 - wrapRect.top;
-  const endX = panelRect.left + panelRect.width / 2 - wrapRect.left;
-  const endY = panelRect.top - wrapRect.top;
-  const gap = Math.max(80, Math.min(190, Math.abs(endX - startX) * .42));
-  const c1x = startX + gap;
-  const c1y = startY - 56;
-  const c2x = endX - gap * .55;
-  const c2y = endY - 44;
+  const triggerCenterX = triggerRect.left + triggerRect.width / 2;
+  const triggerCenterY = triggerRect.top + triggerRect.height / 2;
+  const startX = triggerCenterX - wrapRect.left;
+  const startY = triggerCenterY - wrapRect.top;
+  const edgePad = Math.max(16, Math.min(34, Math.min(panelRect.width, panelRect.height) * .18));
+  const anchors = [
+    {
+      distance: Math.abs(triggerCenterX - panelRect.left),
+      x: panelRect.left,
+      y: clampNumber(triggerCenterY, panelRect.top + edgePad, panelRect.bottom - edgePad),
+    },
+    {
+      distance: Math.abs(triggerCenterX - panelRect.right),
+      x: panelRect.right,
+      y: clampNumber(triggerCenterY, panelRect.top + edgePad, panelRect.bottom - edgePad),
+    },
+    {
+      distance: Math.abs(triggerCenterY - panelRect.top),
+      x: clampNumber(triggerCenterX, panelRect.left + edgePad, panelRect.right - edgePad),
+      y: panelRect.top,
+    },
+    {
+      distance: Math.abs(triggerCenterY - panelRect.bottom),
+      x: clampNumber(triggerCenterX, panelRect.left + edgePad, panelRect.right - edgePad),
+      y: panelRect.bottom,
+    },
+  ];
+  const nearest = anchors.sort((a, b) => a.distance - b.distance)[0];
+  const endX = nearest.x - wrapRect.left;
+  const endY = nearest.y - wrapRect.top;
+  const dx = endX - startX;
+  const dy = endY - startY;
+  const horizontal = Math.abs(dx) >= Math.abs(dy);
+  const c1x = horizontal ? startX + dx * .42 : startX;
+  const c1y = horizontal ? startY : startY + dy * .42;
+  const c2x = horizontal ? endX - dx * .36 : endX;
+  const c2y = horizontal ? endY : endY - dy * .36;
   const cls = popover.classList.contains('failed') ? 'failed' : 'active';
   let path = layer.querySelector('path');
   if (!path) {
@@ -4138,12 +7085,10 @@ function wireDnaPopoverDrag(stageWrap) {
 }
 
 function positionDnaPopoverPanels(helix) {
-  const spine = document.querySelector('.spine-field');
   const focusedDrawer = document.body.dataset.resultsDashboard === 'open' && document.body.dataset.resultFocus === 'focused'
     ? document.getElementById('result-dashboard-section')
     : null;
   const rail = focusedDrawer || document.getElementById('results-card');
-  const spineRect = spine ? spine.getBoundingClientRect() : null;
   const railStyle = rail ? getComputedStyle(rail) : null;
   const railRect = rail && railStyle && railStyle.position === 'fixed' && railStyle.display !== 'none'
     ? rail.getBoundingClientRect()
@@ -4171,7 +7116,6 @@ function positionDnaPopoverPanels(helix) {
     const anchorGap = resultMode ? 56 : 96;
     const minLeft = Math.max(
       triggerRect.right + anchorGap + resultOutputLane,
-      resultMode ? pad : (spineRect ? spineRect.right + 36 : triggerRect.right + anchorGap),
       pad
     );
     const availableWidth = Math.max(280, overlayRight - minLeft);
@@ -4268,6 +7212,7 @@ function renderDnaResultOutput(item, model, offsetRem, order, scale, trackOffset
 }
 
 function renderDnaResultOutputs(models, layout, trackOffset, helix) {
+  if (resultDashboardOpen) return '';
   const items = currentResultOutputItems();
   if (!items.length) return '';
   const modelByStage = new Map(models.map(model => [model.stage.key, model]));
@@ -4342,12 +7287,18 @@ function renderWeaveHelix(job = activeJobMeta) {
   const focusedStage = document.activeElement?.closest?.('.dna-base-popover')?.dataset.stage || '';
   const focusedOutput = document.activeElement?.closest?.('.dna-result-output')?.dataset.outputKey || '';
   helix.className = `weavemap-helix dna-${layout.orientation}`;
+  let weaveShell = helix.querySelector('.dna-weave-shell');
+  if (!weaveShell) {
+    weaveShell = document.createElement('div');
+    weaveShell.className = 'dna-weave-shell';
+    weaveShell.setAttribute('aria-hidden', 'true');
+  }
   Array.from(stageWrap.children).forEach(child => {
     if (!child.classList) return;
-    if (child.classList.contains('dna-popover-layer') || child.classList.contains('dna-popover-connector-layer') || child.classList.contains('dna-result-output-layer')) child.remove();
+    if (child.classList.contains('dna-popover-layer') || child.classList.contains('legacy-dna-connector-layer') || child.classList.contains('dna-result-output-layer')) child.remove();
   });
-  helix.innerHTML = `
-    <div class="dna-weave-shell" aria-hidden="true">
+  helix.replaceChildren(weaveShell);
+  weaveShell.innerHTML = `
       <svg class="dna-helix-svg" viewBox="0 0 ${layout.width} ${layout.height}" preserveAspectRatio="xMidYMin meet" role="img" aria-label="Workflow double helix">
         <defs>
           <linearGradient id="dna-gradient-teal" x1="0" y1="0" x2="1" y2="1">
@@ -4379,10 +7330,9 @@ function renderWeaveHelix(job = activeJobMeta) {
         ${dnaBackboneSvg(models, layout)}
         ${renderDnaDecorativeRungs(models, layout)}
         ${models.map(model => renderDnaStageSvg(model, layout)).join('')}
-      </svg>
-    </div>`;
+      </svg>`;
   const connectorLayer = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  connectorLayer.classList.add('dna-popover-connector-layer');
+  connectorLayer.classList.add('legacy-dna-connector-layer');
   connectorLayer.setAttribute('aria-hidden', 'true');
   stageWrap.appendChild(connectorLayer);
   const popoverLayer = document.createElement('div');
@@ -4424,6 +7374,7 @@ function renderWeaveHelix(job = activeJobMeta) {
   }
   helix.dataset.rendered = '1';
   helix.dataset.renderKey = renderKey;
+  animateDnaOverlayPolish(stageWrap, renderKey);
 }
 
 function stageFromLine(line) {
@@ -4437,19 +7388,36 @@ function stageFromLine(line) {
   return null;
 }
 
-function advanceToStage(key) {
+function advanceToStage(key, options = {}) {
   if (!activeStageState || !activeStageState.enabled.has(key)) return;
+  const eventId = options.eventId || '';
+  if (eventId && activeStageState.appliedEvents.has(eventId)) return;
+  const source = options.source || (options.line ? 'log' : 'snapshot');
+  const eventMs = stageTransitionTimeMs(options);
+  if (eventId) activeStageState.appliedEvents.add(eventId);
+  if (Number.isFinite(eventMs)) activeStageState.lastEventMs = Math.max(activeStageState.lastEventMs || eventMs, eventMs);
   const nextIdx = stageIndex(key);
+  const currentIdx = stageIndex(activeStageState.current);
+  const isRestart = Boolean(
+    activeStageState.failed === key ||
+    activeStageState.completed.has(key) ||
+    (activeStageState.current === key && Number.isFinite(activeStageState.endedAt[key])) ||
+    (activeStageState.current && activeStageState.current !== key && currentIdx >= nextIdx)
+  );
+  if (isRestart) clearStageTimingFrom(key);
   if (activeStageState.current && activeStageState.current !== key) {
-    const currentIdx = stageIndex(activeStageState.current);
     if (currentIdx >= 0 && currentIdx < nextIdx) activeStageState.completed.add(activeStageState.current);
-    if (!activeStageState.endedAt[activeStageState.current]) activeStageState.endedAt[activeStageState.current] = Date.now();
+    setStageEndTime(activeStageState.current, eventMs, source);
   }
   for (let i = 0; i < nextIdx; i++) {
     const prior = STAGES[i].key;
-    if (activeStageState.enabled.has(prior)) activeStageState.completed.add(prior);
+    if (!activeStageState.enabled.has(prior)) continue;
+    activeStageState.completed.add(prior);
+    if (Number.isFinite(activeStageState.startedAt[prior])) setStageEndTime(prior, eventMs, source);
   }
-  if (!activeStageState.startedAt[key]) activeStageState.startedAt[key] = Date.now();
+  setStageStartTime(key, eventMs, source, { force: isRestart });
+  if (isRestart) delete activeStageState.endedAt[key];
+  if (isRestart) delete activeStageState.endedAtSource[key];
   activeStageState.current = key;
   activeStageState.failed = null;
   startStageTicker();
@@ -4487,25 +7455,43 @@ function recordWeaveLogActivity(line, stageKey = '') {
 
 function updateStageBar(line) {
   const key = stageFromLine(line);
-  if (key) advanceToStage(key);
+  const eventTimeMs = stageTimestampFromLogLine(line, activeJobMeta);
+  if (key) {
+    const eventId = `log:${activeJobId || ''}:${logCursor}:${key}`;
+    advanceToStage(key, { eventTimeMs, source: 'log', eventId });
+  }
   recordWeaveLogActivity(line, key);
   if (/FATAL:|ERROR:|failed with exit code/i.test(line) && activeStageState && activeStageState.current) {
     activeStageState.failed = activeStageState.current;
+    setStageEndTime(activeStageState.current, eventTimeMs || Date.now(), 'log');
     renderStageState();
   }
 }
 
+function terminalStageTimeMs(status) {
+  const normalized = String(status || '').toLowerCase();
+  const finishedAt = normalized === 'success'
+    ? activeJobMeta?.completed_at || activeJobMeta?.finished_at || activeJobMeta?.updated_at
+    : activeJobMeta?.failed_at || activeJobMeta?.finished_at || activeJobMeta?.updated_at;
+  return parseTimestampMs(finishedAt || activeJobMeta?.updated_at || activeJobMeta?.created_at) || Date.now();
+}
+
 function finalizeStageState(status) {
   if (!activeStageState) return;
-  if (status === 'success') {
-    const now = Date.now();
-    if (activeStageState.current && !activeStageState.endedAt[activeStageState.current]) activeStageState.endedAt[activeStageState.current] = now;
+  const normalized = String(status || '').toLowerCase();
+  const terminalMs = terminalStageTimeMs(normalized);
+  if (normalized === 'success') {
+    if (activeStageState.current) setStageEndTime(activeStageState.current, terminalMs, 'terminal');
     for (const key of activeStageState.enabled) activeStageState.completed.add(key);
     activeStageState.current = null;
     activeStageState.failed = null;
-  } else if (status === 'failed' && activeStageState.current) {
-    activeStageState.failed = activeStageState.current;
-    if (!activeStageState.endedAt[activeStageState.current]) activeStageState.endedAt[activeStageState.current] = Date.now();
+  } else if (normalized === 'failed') {
+    const failedKey = activeStageState.current || jobCurrentStageKey(activeJobMeta);
+    if (failedKey) {
+      activeStageState.failed = failedKey;
+      activeStageState.current = failedKey;
+      setStageEndTime(failedKey, terminalMs, 'terminal');
+    }
   }
   renderStageState();
 }
@@ -4528,12 +7514,14 @@ function renderStageState() {
   });
   renderWeaveHelix(activeJobMeta);
   updateStageTelemetry();
+  updateBgcWorkflowDnaFromJob(activeJobMeta);
 }
 
 
 function updateProgressBadge(status) {
   setStatusBadge(document.getElementById('progress-badge'), status, activeJobMeta);
   finalizeStageState(status);
+  renderQaDrawer(activeJobMeta, activeResultFiles);
 }
 
 // ── Results ────────────────────────────────────────────────────────────────
@@ -4613,6 +7601,7 @@ function resultCategoryKey(category) {
   const aliases = {
     summary: 'summaries',
     summaries: 'summaries',
+    clinker: 'synteny',
     antismash: 'antismash',
     funbgcex: 'funbgcex',
     bigscape: 'bigscape',
@@ -4624,6 +7613,15 @@ function resultCategoryKey(category) {
   };
   return aliases[key] || 'downloads';
 }
+
+const RESULT_FOLDER_TABS = [
+  { key: 'antismash', label: 'ANTISMASH' },
+  { key: 'funbgcex', label: 'FUNBGCEX' },
+  { key: 'bigscape', label: 'BIG-SCAPE' },
+  { key: 'synteny', label: 'CLINKER' },
+  { key: 'summaries', label: 'SUMMARY' },
+  { key: 'figures', label: 'FIGURES' },
+];
 
 function resultPathExt(path) {
   const name = fileNameFromPath(path).toLowerCase();
@@ -4890,8 +7888,14 @@ function resultCategoryAvailable(category, counts) {
 }
 
 function firstAvailableResultCategory(counts) {
-  return ['antismash', 'funbgcex', 'bigscape', 'summaries', 'synteny', 'figures', 'downloads']
+  return RESULT_FOLDER_TABS.map(tab => tab.key)
     .find(key => resultCategoryAvailable(key, counts)) || 'downloads';
+}
+
+function defaultFocusedResultCategory(counts) {
+  return resultCategoryAvailable('antismash', counts)
+    ? 'antismash'
+    : firstAvailableResultCategory(counts);
 }
 
 function resultFilesForCategory(category, files) {
@@ -4903,12 +7907,12 @@ function resultFilesForCategory(category, files) {
 
 function resultCategoryLabel(category) {
   const labels = {
-    figures: 'Figures',
-    antismash: 'antiSMASH',
-    funbgcex: 'FunBGCeX',
-    bigscape: 'BiG-SCAPE',
-    summaries: 'Summary atlas',
-    synteny: 'Synteny panels',
+    figures: 'FIGURES',
+    antismash: 'ANTISMASH',
+    funbgcex: 'FUNBGCEX',
+    bigscape: 'BIG-SCAPE',
+    summaries: 'SUMMARY',
+    synteny: 'CLINKER',
     other: 'Other artifacts',
     downloads: 'Files',
   };
@@ -4917,14 +7921,14 @@ function resultCategoryLabel(category) {
 
 function resultCategoryCopy(category) {
   const copy = {
-    figures: 'Generated figures with zoomable previews.',
-    antismash: 'Genome-level antiSMASH result views.',
-    funbgcex: 'Genome-level FunBGCeX result views.',
-    bigscape: 'BiG-SCAPE web view paired with its database file.',
-    summaries: 'ClusterWeave atlas and priority summary documents.',
-    synteny: 'clinker synteny panels with compound context.',
-    other: 'Additional indexed files from this run.',
-    downloads: 'Every available file, shown as download-only rows.',
+    figures: 'Zoomable SVG/PNG figures.',
+    antismash: 'Per-genome antiSMASH HTML views.',
+    funbgcex: 'Per-genome FunBGCeX HTML views.',
+    bigscape: 'Interactive graph view with matched database.',
+    summaries: 'Atlas shortlist and priority tables.',
+    synteny: 'clinker panels grouped by family context.',
+    other: 'Additional indexed artifacts.',
+    downloads: 'All indexed artifacts as download rows.',
   };
   return copy[resultCategoryKey(category)] || copy.downloads;
 }
@@ -4934,7 +7938,46 @@ function resultCategoryIcon(category) {
   return icons[resultCategoryKey(category)] || 'OUT';
 }
 
-function resultLollipopItems(artifacts = activeResultArtifacts || buildResultArtifacts(activeResultFiles)) {
+function resultItemCountLabel(item) {
+  const count = Number((item && item.count) || 0);
+  const unit = String((item && item.unit) || 'item');
+  return `${count} ${unit}${count === 1 ? '' : 's'}`;
+}
+
+function resultOverviewMetricItems(items, counts) {
+  const metrics = (items || []).map(item => ({
+    key: item.key,
+    label: item.label,
+    icon: item.icon,
+    count: resultItemCountLabel(item),
+    copy: item.copy,
+  }));
+  const totalFiles = Number((counts || {}).downloads || 0);
+  if (totalFiles) {
+    metrics.push({
+      key: 'downloads',
+      label: resultCategoryLabel('downloads'),
+      icon: resultCategoryIcon('downloads'),
+      count: `${totalFiles} file${totalFiles === 1 ? '' : 's'}`,
+      copy: 'Full manifest and package downloads.',
+    });
+  }
+  return metrics;
+}
+
+function renderResultMetricItem(item) {
+  return `
+    <div class="result-overview-item" data-output-key="${escapeHtml(item.key)}">
+      <span class="result-overview-item-icon" aria-hidden="true">${escapeHtml(item.icon)}</span>
+      <span class="result-overview-item-main">
+        <span class="result-overview-item-label">${escapeHtml(item.label)}</span>
+        <span class="result-overview-item-copy">${escapeHtml(item.copy)}</span>
+      </span>
+      <span class="result-overview-item-count">${escapeHtml(item.count)}</span>
+    </div>`;
+}
+
+function resultLollipopItems(artifacts = activeResultArtifacts || buildResultArtifacts(activeResultFiles), counts = null) {
   const items = [];
   if (artifacts.antismash.length) {
     items.push({ key: 'antismash', count: artifacts.antismash.length, unit: 'view', label: resultCategoryLabel('antismash'), copy: resultCategoryCopy('antismash'), icon: resultCategoryIcon('antismash') });
@@ -4954,28 +7997,80 @@ function resultLollipopItems(artifacts = activeResultArtifacts || buildResultArt
   if (artifacts.figures.length) {
     items.push({ key: 'figures', count: artifacts.figures.length, unit: 'figure', label: resultCategoryLabel('figures'), copy: resultCategoryCopy('figures'), icon: resultCategoryIcon('figures') });
   }
+  const totalFiles = Number((counts && counts.downloads) || activeResultFiles.length || 0);
+  if (totalFiles) {
+    items.push({ key: 'downloads', count: totalFiles, unit: 'file', label: resultCategoryLabel('downloads'), copy: 'Full manifest and package downloads.', icon: resultCategoryIcon('downloads') });
+  }
   return items;
 }
 
 function resultCategoryItems(counts) {
-  return resultLollipopItems(activeResultArtifacts || buildResultArtifacts(activeResultFiles)).filter(item => resultCategoryAvailable(item.key, counts));
+  return resultLollipopItems(activeResultArtifacts || buildResultArtifacts(activeResultFiles), counts).filter(item => resultCategoryAvailable(item.key, counts));
 }
 
 function renderResultOverviewPanel(items, counts) {
   const panel = document.getElementById('result-overview-panel');
   if (!panel) return;
+  const focusPanel = document.getElementById('result-focus-panel');
   if (!items.length) {
     const fallback = Number((counts || {}).downloads || 0) > 0
-      ? 'No tool-specific output nodes were found in this run. Use the full package download for the indexed files.'
+      ? 'No tool-specific views were indexed. Use the package download or Files list for the available artifacts.'
       : 'No web-facing result artifacts were indexed for this run.';
+    if (focusPanel) focusPanel.dataset.overviewFallback = 'true';
     panel.innerHTML = `<div class="empty-state">${escapeHtml(fallback)}</div>`;
     return;
   }
-  const nodeList = items.map(item => {
-    const countLabel = `${item.count} ${item.unit}${item.count === 1 ? '' : 's'}`;
-    return `${item.icon} ${item.label} (${countLabel})`;
-  }).join(' · ');
-  panel.innerHTML = `<div class="result-overview-copy">Output choices are generated from matching result files only. ${escapeHtml(nodeList)}</div>`;
+  if (focusPanel) delete focusPanel.dataset.overviewFallback;
+  panel.innerHTML = '';
+}
+
+function resultFolderTabUnit(key) {
+  const units = {
+    antismash: 'view',
+    funbgcex: 'view',
+    bigscape: 'view',
+    synteny: 'panel',
+    summaries: 'file',
+    figures: 'figure',
+  };
+  return units[resultCategoryKey(key)] || 'item';
+}
+
+function resultFolderTabCountLabel(key, count) {
+  const safeCount = Number(count || 0);
+  if (!safeCount) return 'Not available';
+  const unit = resultFolderTabUnit(key);
+  return `${safeCount} ${unit}${safeCount === 1 ? '' : 's'}`;
+}
+
+function resultFolderTabItems(counts) {
+  return RESULT_FOLDER_TABS.map(tab => {
+    const key = resultCategoryKey(tab.key);
+    const count = Number((counts || {})[key] || 0);
+    return {
+      key,
+      label: tab.label,
+      count,
+      unit: resultFolderTabUnit(key),
+      copy: resultCategoryCopy(key),
+      icon: resultCategoryIcon(key),
+      available: count > 0,
+    };
+  });
+}
+
+function renderResultFolderTab(item) {
+  const selected = resultFocusMode === 'focused' && item.key === activeResultCategory;
+  const jsKey = escapeJsString(item.key);
+  const disabled = !item.available;
+  const classes = `output result-bubble result-lollipop result-folder-tab${selected ? ' active is-selected' : ''}${disabled ? ' is-unavailable' : ''}`;
+  const buttonLabel = disabled
+    ? `${item.label} output is not available for this run.`
+    : `${item.label} output is available.`;
+  return `
+    <button class="${classes}" type="button" role="tab" data-output-key="${escapeHtml(item.key)}" data-output-node="${escapeHtml(item.icon)}" onclick="focusResultCategory('${escapeHtml(jsKey)}', event)" aria-selected="${selected ? 'true' : 'false'}" aria-controls="result-focus-panel" aria-label="${escapeHtml(buttonLabel)}" title="${escapeHtml(buttonLabel)}"${disabled ? ' disabled aria-disabled="true" tabindex="-1"' : ' tabindex="0"'}>
+      <b>${escapeHtml(item.label)}</b>
+    </button>`;
 }
 
 function updateResultDashboardVisibility(status, fileCount = null) {
@@ -4983,17 +8078,15 @@ function updateResultDashboardVisibility(status, fileCount = null) {
   if (!panel) return;
   const loaded = !!activeJobMeta;
   const files = fileCount === null ? Number(panel.dataset.fileCount || 0) : Number(fileCount || 0);
-  const shouldShow = loaded && resultDashboardOpen;
+  const shouldShowReader = loaded && resultDashboardOpen;
   const board = document.getElementById('result-dashboard-section');
-  panel.classList.toggle('hidden', !shouldShow);
-  if (board) board.classList.toggle('hidden', !shouldShow);
+  panel.classList.remove('hidden');
+  if (board) board.classList.toggle('hidden', !shouldShowReader);
   document.querySelectorAll('.result-dashboard-surface').forEach(el => {
     if (el.id === 'result-dashboard-section') return;
-    el.classList.toggle('hidden', !shouldShow);
+    el.classList.toggle('hidden', !shouldShowReader);
   });
   setStatusBadge(document.getElementById('result-flow-status'), status || panel.dataset.status || '', activeJobMeta);
-  const focusLabel = document.getElementById('result-focus-label');
-  if (focusLabel && resultFocusMode === 'overview') focusLabel.textContent = files ? 'Choose an output' : 'No output nodes indexed';
   updateArchiveButton();
 }
 
@@ -5003,26 +8096,17 @@ function renderResultBubblePanel(files, status) {
   activeResultFiles = (files || []).map(normalizedResultPath).filter(Boolean);
   const artifacts = resultArtifacts(activeResultFiles);
   const counts = resultCategoryCounts(activeResultFiles);
-  const items = resultLollipopItems(artifacts);
+  const folderItems = resultFolderTabItems(counts);
+  const availableItems = resultLollipopItems(artifacts, counts)
+    .filter(item => RESULT_FOLDER_TABS.some(tab => resultCategoryKey(tab.key) === item.key));
   if (resultFocusMode === 'focused' && !resultCategoryAvailable(activeResultCategory, counts)) {
     setResultFocusMode('overview');
     activeResultCategory = firstAvailableResultCategory(counts);
   }
   panel.dataset.status = String(status || '');
   panel.dataset.fileCount = String(counts.downloads);
-  panel.innerHTML = items.map(item => {
-    const selected = resultFocusMode === 'focused' && item.key === activeResultCategory;
-    const countLabel = `${item.count} ${item.unit}${item.count === 1 ? '' : 's'}`;
-    const jsKey = escapeJsString(item.key);
-    return `
-    <button class="result-bubble result-lollipop${selected ? ' active is-selected' : ''}${resultFocusMode === 'focused' && !selected ? ' is-dimmed' : ''}" type="button" data-output-key="${escapeHtml(item.key)}" data-output-node="${escapeHtml(item.icon)}" onclick="focusResultCategory('${escapeHtml(jsKey)}', event)" aria-pressed="${selected ? 'true' : 'false'}" aria-controls="result-focus-panel">
-      <span class="result-bubble-icon" aria-hidden="true">${escapeHtml(item.icon)}</span>
-      <span class="result-bubble-label">${escapeHtml(item.label)}</span>
-      <span class="result-bubble-count">${escapeHtml(countLabel)}</span>
-      <span class="result-bubble-copy">${escapeHtml(item.copy)}</span>
-    </button>`;
-  }).join('');
-  renderResultOverviewPanel(items, counts);
+  panel.innerHTML = folderItems.map(renderResultFolderTab).join('');
+  renderResultOverviewPanel(availableItems, counts);
   updateResultDashboardVisibility(status, counts.downloads);
   rerenderWorkflowSpineForResults();
 }
@@ -5032,7 +8116,7 @@ function updateArchiveButton() {
   if (!btn) return;
   const inFlight = !!(activeArchiveDownload && activeArchiveDownload.jobId === activeJobId);
   btn.disabled = !activeJobId || !activeResultFiles.length || inFlight;
-  btn.textContent = inFlight ? 'Preparing package...' : 'Download full package';
+  btn.textContent = inFlight ? 'Preparing package...' : 'Download package';
 }
 
 function cancelActiveArchiveDownload() {
@@ -5105,6 +8189,7 @@ function focusResultCategory(category, event = null) {
   setResultFocusMode('focused');
   renderResultBubblePanel(activeResultFiles, activeJobMeta?.status || '');
   renderFocusedResultCategory(key);
+  animateResultFocusChange(key);
   const stageKey = resultOutputStageKey(key);
   const alignStage = () => {
     scrollResultSpineToStage(stageKey);
@@ -5119,19 +8204,24 @@ function focusResultCategory(category, event = null) {
   }
 }
 
+function openAlt06ResultFolder(event = null) {
+  focusResultCategory(activeResultCategory || 'antismash', event);
+}
+
 function clearResultFocus() {
   setResultFocusMode('overview');
   renderResultBubblePanel(activeResultFiles, activeJobMeta?.status || '');
-  const firstOutput = document.querySelector('.dna-result-output-trigger');
+  animateResultFocusChange('overview');
+  const firstOutput = document.querySelector('.result-lollipop:not(:disabled)') || document.querySelector('.dna-result-output-trigger');
   (firstOutput || document.getElementById('weavemap'))?.focus({ preventScroll: true });
 }
 
-function setResultFocusLabel(category) {
-  const label = document.getElementById('result-focus-label');
-  if (!label) return;
-  label.textContent = resultFocusMode === 'focused'
-    ? `${resultCategoryLabel(category)} selected`
-    : 'Choose an output';
+function setResultReaderSurface(surface) {
+  const selected = surface === 'viz' ? 'viz' : 'files';
+  const viz = document.getElementById('viz-container');
+  const files = document.getElementById('files-container');
+  if (viz) viz.hidden = selected !== 'viz';
+  if (files) files.hidden = selected !== 'files';
 }
 
 function renderResultFileSurface(jobId, files) {
@@ -5139,19 +8229,19 @@ function renderResultFileSurface(jobId, files) {
     renderFocusedResultCategory(activeResultCategory);
     return;
   }
+  setResultReaderSurface('files');
   renderFileTable(jobId, files);
 }
 
 function renderFocusedResultCategory(category) {
   const key = resultCategoryKey(category);
   const artifacts = resultArtifacts(activeResultFiles);
-  setResultFocusLabel(key);
   if (key === 'figures') {
-    switchTab('viz', { preserveCategory: true });
+    setResultReaderSurface('viz');
     if (activeJobId) renderViz(activeJobId, activeResultFiles);
     return;
   }
-  switchTab('files', { preserveCategory: true });
+  setResultReaderSurface('files');
   if (!activeJobId) return;
   if (key === 'antismash') {
     renderToolHtmlReader(activeJobId, 'antismash', artifacts.antismash);
@@ -5214,18 +8304,19 @@ function renderToolHtmlReader(jobId, toolKey, items) {
     return;
   }
   const rows = items.map(item => `
-    <div class="artifact-row">
-      <div>
-        <div class="artifact-row-name">${escapeHtml(item.label)}</div>
-        <div class="artifact-row-meta">${escapeHtml(artifactMetaLabel(item.path, category))}</div>
+    <div class="artifact-row is-compact result-tool-row">
+      <div class="artifact-row-name">${escapeHtml(item.label)}</div>
+      <div class="artifact-row-actions">
+        ${resultOpenLink(jobId, item.path, 'Open')}
+        ${resultDownloadLink(jobId, item.path, 'Download')}
       </div>
-      <div class="artifact-row-actions">${resultOpenLink(jobId, item.path, 'Open HTML')}</div>
     </div>`).join('');
   container.innerHTML = `
     <div class="artifact-reader">
       ${artifactReaderHead(category, `${items.length} ${items.length === 1 ? 'view' : 'views'}`)}
       <div class="artifact-list">${rows}</div>
     </div>`;
+  animateResultReaderOpen();
 }
 
 function renderSyntenyReader(jobId, items) {
@@ -5238,14 +8329,13 @@ function renderSyntenyReader(jobId, items) {
   }
   const rows = syntenyFiles.map(path => {
     const label = syntenyArtifactLabel(path);
-    const action = isHtmlAsset(path) ? resultOpenLink(jobId, path, 'Open panel') : resultDownloadLink(jobId, path);
     return `
-    <div class="artifact-row">
-      <div>
-        <div class="artifact-row-name">${escapeHtml(label)}</div>
-        <div class="artifact-row-meta">${escapeHtml(artifactMetaLabel(path, 'synteny'))}</div>
+    <div class="artifact-row is-compact result-tool-row">
+      <div class="artifact-row-name">${escapeHtml(label)}</div>
+      <div class="artifact-row-actions">
+        ${resultOpenLink(jobId, path, 'Open')}
+        ${resultDownloadLink(jobId, path, 'Download')}
       </div>
-      <div class="artifact-row-actions">${action}</div>
     </div>`;
   }).join('');
   container.innerHTML = `
@@ -5253,18 +8343,20 @@ function renderSyntenyReader(jobId, items) {
       ${artifactReaderHead('synteny', `${syntenyFiles.length} ${syntenyFiles.length === 1 ? 'panel' : 'panels'}`)}
       <div class="artifact-list">${rows}</div>
     </div>`;
+  animateResultReaderOpen();
 }
 
 function jsonForInlineScript(value) {
   return JSON.stringify(value).replace(/</g, '\\u003c');
 }
 
-function injectBigscapeDatabaseContract(htmlText, dbUrl, dbName, dbPath) {
-  const headScript = `<script>window.CLUSTERWEAVE_BIGSCAPE_DATABASE_URL=${jsonForInlineScript(dbUrl)};window.CLUSTERWEAVE_BIGSCAPE_DATABASE_NAME=${jsonForInlineScript(dbName)};window.CLUSTERWEAVE_BIGSCAPE_DATABASE_PATH=${jsonForInlineScript(dbPath)};<\/script>`;
+function injectBigscapeDatabaseContract(htmlText, dbUrl, dbName, dbPath, dbAuth = '') {
+  const headScript = `<script>window.CLUSTERWEAVE_BIGSCAPE_DATABASE_URL=${jsonForInlineScript(dbUrl)};window.CLUSTERWEAVE_BIGSCAPE_DATABASE_NAME=${jsonForInlineScript(dbName)};window.CLUSTERWEAVE_BIGSCAPE_DATABASE_PATH=${jsonForInlineScript(dbPath)};window.CLUSTERWEAVE_BIGSCAPE_DATABASE_AUTH=${jsonForInlineScript(dbAuth)};<\/script>`;
   const loaderScript = `<script>(function(){
   const url = window.CLUSTERWEAVE_BIGSCAPE_DATABASE_URL;
   const name = window.CLUSTERWEAVE_BIGSCAPE_DATABASE_NAME || 'data_sqlite.db';
   const path = window.CLUSTERWEAVE_BIGSCAPE_DATABASE_PATH || name;
+  const auth = window.CLUSTERWEAVE_BIGSCAPE_DATABASE_AUTH || '';
   let loadPromise = null;
   let bufferPromise = null;
 
@@ -5302,7 +8394,9 @@ function injectBigscapeDatabaseContract(htmlText, dbUrl, dbName, dbPath) {
 
   function fetchBuffer() {
     if (!bufferPromise) {
-      bufferPromise = fetch(url).then(resp => {
+      const options = { credentials: 'same-origin' };
+      if (auth) options.headers = { Authorization: auth };
+      bufferPromise = fetch(url, options).then(resp => {
         if (!resp.ok) throw new Error('BiG-SCAPE database fetch failed: HTTP ' + resp.status);
         return resp.arrayBuffer();
       });
@@ -5336,7 +8430,7 @@ function injectBigscapeDatabaseContract(htmlText, dbUrl, dbName, dbPath) {
       const initSqlJs = await waitForFunction('initSqlJs', 24000);
       const dataLoaded = await waitForFunction('dataLoaded', 24000);
       const buffer = await fetchBuffer();
-      attachInputFile(buffer);
+      window.CLUSTERWEAVE_BIGSCAPE_DATABASE_BYTES = buffer.byteLength || 0;
       const SQL = await initSqlJs();
       window.db = new SQL.Database(new Uint8Array(buffer));
       window.CLUSTERWEAVE_BIGSCAPE_DATABASE_LOADED = true;
@@ -5374,18 +8468,14 @@ async function openBigscapeResult(event, jobId, htmlPath, databasePath) {
   previewWindow.document.title = 'BiG-SCAPE';
   previewWindow.document.body.textContent = 'Loading BiG-SCAPE result...';
   try {
-    const [htmlResp, dbResp] = await Promise.all([
-      resultFetch(jobId, htmlPath),
-      resultFetch(jobId, databasePath),
-    ]);
+    const htmlResp = await resultFetch(jobId, htmlPath);
     if (!htmlResp.ok) throw new Error('BiG-SCAPE HTML view could not be opened with this result access code.');
-    if (!dbResp.ok) throw new Error('BiG-SCAPE database artifact could not be opened with this result access code.');
-    const [htmlText, dbBlob] = await Promise.all([htmlResp.text(), dbResp.blob()]);
+    const htmlText = await htmlResp.text();
     const dbName = fileNameFromPath(databasePath);
-    const dbUrl = URL.createObjectURL(new Blob([dbBlob], { type: inlineResultMime(databasePath, dbResp.headers.get('Content-Type') || '') }));
-    resultHelperObjectUrls.push(dbUrl);
+    const dbUrl = resultHref(jobId, databasePath);
+    const dbAuth = authHeadersFor('job', jobId).Authorization || '';
     const htmlUrl = await buildHtmlResultObjectUrl(jobId, htmlPath, htmlText, {
-      transform: text => injectBigscapeDatabaseContract(text, dbUrl, dbName, databasePath),
+      transform: text => injectBigscapeDatabaseContract(text, dbUrl, dbName, databasePath, dbAuth),
     });
     const hash = `#clusterweave-db=${encodeURIComponent(dbUrl)}&clusterweave-db-name=${encodeURIComponent(dbName)}&clusterweave-db-path=${encodeURIComponent(databasePath)}`;
     previewWindow.location.href = `${htmlUrl}${hash}`;
@@ -5409,25 +8499,16 @@ function renderBigscapeReader(jobId, bigscape) {
   const href = resultHref(jobId, bigscape.html);
   container.innerHTML = `
     <div class="artifact-reader">
-      ${artifactReaderHead('bigscape', 'HTML + database')}
-      <div class="artifact-row">
-        <div>
-          <div class="artifact-row-name">${escapeHtml(artifactMetaLabel(bigscape.html, 'bigscape'))}</div>
-          <div class="artifact-row-meta">Web view paired with the selected database artifact</div>
-        </div>
+      ${artifactReaderHead('bigscape', 'web view')}
+      <div class="artifact-row is-compact result-tool-row">
+        <div class="artifact-row-name">BiG-SCAPE web view</div>
         <div class="artifact-row-actions">
-          <a class="btn btn-primary text-sm" href="${escapeHtml(href)}" target="_blank" onclick="return openBigscapeResult(event,'${escapeHtml(jsJobId)}','${escapeHtml(jsHtml)}','${escapeHtml(jsDb)}')">Open BiG-SCAPE</a>
+          <a class="btn btn-primary text-sm" href="${escapeHtml(href)}" target="_blank" onclick="return openBigscapeResult(event,'${escapeHtml(jsJobId)}','${escapeHtml(jsHtml)}','${escapeHtml(jsDb)}')">Open</a>
+          ${resultDownloadLink(jobId, bigscape.database, 'Download')}
         </div>
       </div>
-      <div class="artifact-row">
-        <div>
-          <div class="artifact-row-name">${escapeHtml(artifactMetaLabel(bigscape.database, 'bigscape'))}</div>
-          <div class="artifact-row-meta">SQLite database for the BiG-SCAPE viewer</div>
-        </div>
-        <div class="artifact-row-actions">${resultDownloadLink(jobId, bigscape.database, 'Download DB')}</div>
-      </div>
-      <div class="bigscape-contract">Database contract: the launcher preloads the matched SQLite database into the bundled BiG-SCAPE viewer before the result graph starts.</div>
     </div>`;
+  animateResultReaderOpen();
 }
 
 function renderSummaryReader(jobId, summaryFiles) {
@@ -5441,10 +8522,9 @@ function renderSummaryReader(jobId, summaryFiles) {
   const preferred = atlasFiles[0];
   container.innerHTML = `
     <div class="summary-reader">
-      ${artifactReaderHead('summaries', 'Atlas shortlist')}
-      <div class="summary-reader-source" id="summary-reader-source"></div>
       <div class="summary-reader-doc" id="summary-reader-doc"><div class="viz-placeholder text-sm">Loading summary document...</div></div>
     </div>`;
+  animateResultReaderOpen();
   loadSummaryReaderFile(preferred);
 }
 
@@ -5490,21 +8570,39 @@ function preferredSummaryColumnIndexes(headers) {
   return selected.slice(0, 8);
 }
 
-function renderDelimitedSummary(path, text) {
-  const delimiter = resultPathExt(path) === 'csv' ? ',' : '\t';
-  const lines = String(text || '').split(/\r?\n/).filter(line => line.trim());
-  if (!lines.length) return '<div class="empty-state">Summary file is empty.</div>';
-  const headers = parseDelimitedLine(lines[0], delimiter);
-  const indexes = preferredSummaryColumnIndexes(headers);
-  const bodyRows = lines.slice(1).map(line => parseDelimitedLine(line, delimiter));
-  const head = indexes.map(idx => `<th>${escapeHtml(headers[idx] || `Column ${idx + 1}`)}</th>`).join('');
-  const body = bodyRows.map(row => `<tr>${indexes.map(idx => `<td>${escapeHtml(row[idx] || '')}</td>`).join('')}</tr>`).join('');
-  return `
-    <div class="summary-reader-source">${escapeHtml(summaryArtifactLabel(path))} · ${bodyRows.length} atlas shortlist ${bodyRows.length === 1 ? 'row' : 'rows'}</div>
-    <div class="summary-table-wrap"><table class="summary-reader-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+function summaryMetricValue(text, label) {
+  const escaped = String(label || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp('^-\\s*(?:`)?' + escaped + '(?:`)?\\s*:\\s*(?:`([^`]+)`|(.+))$', 'im');
+  const match = String(text || '').match(pattern);
+  return match ? String(match[1] || match[2] || '').trim() : '';
 }
 
-function renderMarkdownSummary(text) {
+function numericSummaryMetric(value) {
+  const match = String(value || '').match(/\d+/);
+  return match ? Number(match[0]) : 0;
+}
+
+function summaryTitleFromText(path, text) {
+  const heading = String(text || '').match(/^#\s+(.+)$/m);
+  const title = heading ? heading[1] : summaryArtifactLabel(path).replace(/\s+(MD|TSV|CSV|TXT|HTML?)$/i, '');
+  return titleCaseArtifactLabel(title.replace(/[_-]+/g, ' '), 'Dataset-wide family atlas');
+}
+
+function summaryTopCount(text) {
+  const atlasNow = numericSummaryMetric(summaryMetricValue(text, 'atlas_now'));
+  if (atlasNow) return atlasNow;
+  const topRows = String(text || '').match(/\bTop\s+`?(\d+)`?\s+rows\b/i);
+  if (topRows) return Number(topRows[1]);
+  const ranks = String(text || '').match(/^###\s+Atlas rank\s+\d+:/gim);
+  return ranks ? ranks.length : 0;
+}
+
+function summaryCondensedTitle(path, text, count = 0) {
+  const title = summaryTitleFromText(path, text).toUpperCase();
+  return count ? `${title}: TOP ${count}` : title;
+}
+
+function renderMarkdownBody(text) {
   const lines = String(text || '').split(/\r?\n/);
   const html = [];
   let listOpen = false;
@@ -5518,10 +8616,11 @@ function renderMarkdownSummary(text) {
       closeList();
       return;
     }
-    const heading = trimmed.match(/^(#{1,4})\s+(.+)$/);
+    const heading = trimmed.match(/^(#{2,4})\s+(.+)$/);
     if (heading) {
       closeList();
-      html.push(`<h3>${escapeHtml(heading[2])}</h3>`);
+      const level = heading[1].length >= 3 ? 'h4' : 'h3';
+      html.push(`<${level}>${escapeHtml(heading[2])}</${level}>`);
       return;
     }
     const bullet = trimmed.match(/^[-*]\s+(.+)$/);
@@ -5540,31 +8639,84 @@ function renderMarkdownSummary(text) {
   return html.join('') || '<div class="empty-state">Summary file is empty.</div>';
 }
 
+function condensedMarkdownBodyText(text) {
+  const lines = String(text || '').split(/\r?\n/);
+  const body = [];
+  let sectionStarted = false;
+  lines.forEach(line => {
+    const trimmed = line.trim();
+    if (/^##\s+/.test(trimmed)) sectionStarted = true;
+    if (!sectionStarted) return;
+    if (/source\s+summary/i.test(trimmed)) return;
+    if (/`?data\/(jobs|results)\//i.test(trimmed)) return;
+    body.push(line);
+  });
+  if (body.some(line => line.trim())) return body.join('\n').trim();
+  return lines.filter(line => {
+    const trimmed = line.trim();
+    if (!trimmed) return false;
+    if (/^#\s+/.test(trimmed)) return false;
+    if (/source\s+summary/i.test(trimmed)) return false;
+    if (/`?data\/(jobs|results)\//i.test(trimmed)) return false;
+    return true;
+  }).join('\n').trim();
+}
+
+function renderSummaryHeading(path, text, count) {
+  return `<div class="summary-condensed-head"><div class="summary-condensed-title">${escapeHtml(summaryCondensedTitle(path, text, count))}</div></div>`;
+}
+
+function renderDelimitedSummary(path, text) {
+  const delimiter = resultPathExt(path) === 'csv' ? ',' : '\t';
+  const lines = String(text || '').split(/\r?\n/).filter(line => line.trim());
+  if (!lines.length) return '<div class="empty-state">Summary file is empty.</div>';
+  const headers = parseDelimitedLine(lines[0], delimiter);
+  const indexes = preferredSummaryColumnIndexes(headers);
+  const bodyRows = lines.slice(1).map(line => parseDelimitedLine(line, delimiter));
+  const lowered = headers.map(h => String(h || '').toLowerCase());
+  const trackIdx = lowered.indexOf('selection_track');
+  const atlasNow = trackIdx >= 0 ? bodyRows.filter(row => String(row[trackIdx] || '').toLowerCase() === 'atlas_now').length : bodyRows.length;
+  const head = indexes.map(idx => `<th>${escapeHtml(headers[idx] || `Column ${idx + 1}`)}</th>`).join('');
+  const body = bodyRows.map(row => `<tr>${indexes.map(idx => `<td>${escapeHtml(row[idx] || '')}</td>`).join('')}</tr>`).join('');
+  return `
+    ${renderSummaryHeading(path, '', atlasNow)}
+    <div class="summary-table-wrap"><table class="summary-reader-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+}
+
+function renderMarkdownSummary(path, text) {
+  const topCount = summaryTopCount(text);
+  const bodyText = condensedMarkdownBodyText(text);
+  return `
+    ${renderSummaryHeading(path, text, topCount)}
+    <div class="summary-markdown-body">${renderMarkdownBody(bodyText)}</div>`;
+}
+
 function renderTextSummary(path, text) {
   const ext = resultPathExt(path);
   if (ext === 'tsv' || ext === 'csv') return renderDelimitedSummary(path, text);
-  if (ext === 'md') return renderMarkdownSummary(text);
+  if (ext === 'md') return renderMarkdownSummary(path, text);
   const doc = new DOMParser().parseFromString(String(text || ''), ext === 'html' || ext === 'htm' ? 'text/html' : 'text/plain');
   if (ext === 'html' || ext === 'htm') {
     doc.querySelectorAll('script, style, iframe, object, embed').forEach(el => el.remove());
-    return renderMarkdownSummary((doc.body && doc.body.textContent) || '');
+    return renderMarkdownSummary(path, (doc.body && doc.body.textContent) || '');
   }
-  return renderMarkdownSummary(text);
+  return renderMarkdownSummary(path, text);
 }
 
 async function loadSummaryReaderFile(path) {
   if (!activeJobId || !path) return;
   const seq = ++summaryReaderSeq;
-  const source = document.getElementById('summary-reader-source');
   const doc = document.getElementById('summary-reader-doc');
-  if (source) source.textContent = summaryArtifactLabel(path);
   if (doc) doc.innerHTML = '<div class="viz-placeholder text-sm">Loading summary document...</div>';
   try {
     const resp = await resultFetch(activeJobId, path);
     if (seq !== summaryReaderSeq) return;
     if (!resp.ok) throw new Error('Summary document could not be opened with this result access code.');
     const text = await resp.text();
-    if (doc) doc.innerHTML = renderTextSummary(path, text);
+    if (doc) {
+      doc.innerHTML = renderTextSummary(path, text);
+      animateSummaryReaderDocument();
+    }
   } catch (err) {
     if (doc) doc.innerHTML = `<div class="empty-state">${escapeHtml(err.message || 'Summary document unavailable.')}</div>`;
   }
@@ -5574,19 +8726,21 @@ function showResultDashboard() {
   if (!activeJobMeta && !activeJobId) return;
   resultDashboardOpen = true;
   document.body.dataset.managementView = 'closed';
-  setResultFocusMode('overview');
   document.body.dataset.resultsDashboard = 'open';
   setResultsPanelCollapsed(true);
   const counts = resultCategoryCounts(activeResultFiles);
-  activeResultCategory = firstAvailableResultCategory(counts);
   const status = activeJobMeta?.status || 'pending';
+  const completed = String(status || '').toLowerCase() === 'success';
+  activeResultCategory = defaultFocusedResultCategory(counts);
+  setResultFocusMode(completed ? 'focused' : 'overview');
   renderCompletionCallout(status);
   renderResultBubblePanel(activeResultFiles, status);
+  if (completed) renderFocusedResultCategory(activeResultCategory);
   updateResultDashboardVisibility(status, counts.downloads);
   rerenderWorkflowSpineForResults();
   const spine = document.getElementById('weavemap');
   if (spine) spine.scrollTop = 0;
-  const firstOutput = document.querySelector('.dna-result-output-trigger');
+  const firstOutput = document.querySelector('.result-lollipop:not(:disabled)') || document.querySelector('.dna-result-output-trigger');
   const board = document.getElementById('result-dashboard-section');
   const focusTarget = firstOutput || spine || board || document.getElementById('results-card');
   focusTarget?.focus({ preventScroll: true });
@@ -5594,6 +8748,7 @@ function showResultDashboard() {
   pulseTarget?.classList.remove('section-focus');
   void pulseTarget?.offsetWidth;
   pulseTarget?.classList.add('section-focus');
+  animateResultDashboardOpen(gsapMotion.lastJobLoadSource || 'open');
 }
 
 async function loadResults(jobId, status, seq = jobLoadSeq, job = activeJobMeta) {
@@ -5622,18 +8777,34 @@ async function loadResults(jobId, status, seq = jobLoadSeq, job = activeJobMeta)
   const { files } = await resp.json();
   if (seq !== jobLoadSeq || jobId !== activeJobId) return;
   const normalizedFiles = (files || []).map(normalizedResultPath).filter(Boolean);
+  renderQaDrawer(activeJobMeta, normalizedFiles);
   const counts = resultCategoryCounts(normalizedFiles);
   const openDashboard = shouldOpenResultDashboardDuringRefresh(normalizedFiles, activeJobMeta);
   resultDashboardOpen = openDashboard;
   document.body.dataset.resultsDashboard = openDashboard ? 'open' : 'closed';
   if (openDashboard) {
     document.body.dataset.managementView = 'closed';
-    if (resultFocusMode === 'overview' || !resultCategoryAvailable(activeResultCategory, counts)) {
-      activeResultCategory = firstAvailableResultCategory(counts);
+    const completed = String(status || activeJobMeta?.status || '').toLowerCase() === 'success';
+    const activeAvailable = resultCategoryAvailable(activeResultCategory, counts);
+    if (completed && resultFocusMode !== 'focused') {
+      activeResultCategory = defaultFocusedResultCategory(counts);
+      setResultFocusMode('focused');
+    } else if (!activeAvailable) {
+      activeResultCategory = defaultFocusedResultCategory(counts);
+      setResultFocusMode(completed ? 'focused' : 'overview');
+    } else if (resultFocusMode === 'overview') {
+      activeResultCategory = defaultFocusedResultCategory(counts);
     }
   }
 
   renderResultBubblePanel(normalizedFiles, status);
+  if (openDashboard) {
+    const dashboardMotionKey = `${jobId}|${normalizedFiles.join('|')}|${resultFocusMode}`;
+    if (gsapMotion.lastDashboardMotionKey !== dashboardMotionKey) {
+      gsapMotion.lastDashboardMotionKey = dashboardMotionKey;
+      animateResultDashboardOpen(gsapMotion.lastJobLoadSource || 'refresh');
+    }
+  }
   updateArchiveButton();
   const hasFigureFiles = normalizedFiles.some(isFigureAsset);
   if (status === 'success' || hasFigureFiles) renderViz(jobId, normalizedFiles);
@@ -5657,7 +8828,7 @@ async function loadResults(jobId, status, seq = jobLoadSeq, job = activeJobMeta)
   }
   renderResultFileSurface(jobId, normalizedFiles);
   if (String(status || '').toLowerCase() !== 'success' && activeResultCategory !== 'figures' && normalizedFiles.length) {
-    switchTab('files', { preserveCategory: true });
+    setResultReaderSurface('files');
   }
 }
 
@@ -5668,42 +8839,102 @@ function rerunDefaultChecked(job, key) {
   return !activeStageState.completed.has(key);
 }
 
+function rerunPanelMessage(title, copy, status = '') {
+  return `
+    <div class="summary-panel rerun-summary rerun-scope-card">
+      <div class="summary-head rerun-scope-head">${escapeHtml(title)}</div>
+      <div class="rerun-panel-body">
+        <div class="help-note">${escapeHtml(copy)}</div>
+        <div class="flex-gap">
+          <button class="btn btn-primary text-sm" type="button" onclick="rerunActiveJob()">Queue rerun</button>
+          <span class="text-muted text-sm" id="rerun-status">${escapeHtml(status)}</span>
+        </div>
+      </div>
+    </div>`;
+}
+
+function selectedRerunJob(jobId, job) {
+  const requestedId = String(rerunScopeOpenJobId || '');
+  if (!requestedId) return { jobId: '', job: null };
+  const inlineJobId = String((job && job.id) || jobId || '');
+  if (inlineJobId === requestedId && job) return { jobId: requestedId, job };
+  if (activeJobId === requestedId && activeJobMeta) return { jobId: requestedId, job: activeJobMeta };
+  return { jobId: requestedId, job: jobHistoryById.get(requestedId) || null };
+}
+
 function renderRerunPanel(jobId, job) {
   const panel = document.getElementById('rerun-panel');
-  if (!panel || !job) return;
-  if (job.status === 'pending' || job.status === 'running') {
+  if (!panel) return;
+  if (!canUseAdminSurfaces()) {
     panel.innerHTML = '';
     return;
   }
+  const selection = selectedRerunJob(jobId, job);
+  if (!selection.jobId) {
+    panel.innerHTML = rerunPanelMessage('Rerun scope', 'Select a submitted job, then use its Rerun button to open job-scoped rerun options.', 'No job selected.');
+    return;
+  }
+  if (!selection.job) {
+    panel.innerHTML = rerunPanelMessage('Rerun scope', `Loading selected job ${selection.jobId}.`, 'Waiting for job details.');
+    return;
+  }
+  const status = String(selection.job.status || '').toLowerCase();
+  if (status === 'pending' || status === 'running') {
+    panel.innerHTML = rerunPanelMessage(
+      'Rerun scope',
+      `Run ${selection.jobId} is ${statusLabel(selection.job.status).toLowerCase()}. Rerun options unlock after the job finishes or fails.`,
+      'Rerun unavailable while active.',
+    );
+    return;
+  }
+  if (!jobCanRerun(selection.job)) {
+    panel.innerHTML = rerunPanelMessage('Rerun scope', `Run ${selection.jobId} cannot be rerun from its current state.`, 'Rerun unavailable.');
+    return;
+  }
   const stageRows = STAGES.map(stage => {
-    const enabled = rerunStageAllowed(stage.key);
-    const checked = rerunDefaultChecked(job, stage.key);
+    const enabled = jobStageEnabled(selection.job, stage.key) && rerunStageAllowed(stage.key);
+    const checked = enabled && rerunDefaultChecked(selection.job, stage.key);
     return `
-      <label class="form-group-inline ${enabled ? '' : 'disabled'}">
-        <input type="checkbox" class="rerun-stage" data-stage="${stage.key}" ${checked ? 'checked' : ''} ${enabled ? '' : 'disabled'} />
-        ${escapeHtml(stage.label)}
+      <label class="form-group-inline rerun-stage-option ${enabled ? '' : 'disabled'}">
+        <input type="checkbox" class="rerun-stage" data-stage="${escapeHtml(stage.key)}" ${checked ? 'checked' : ''} ${enabled ? '' : 'disabled'} />
+        <span>${escapeHtml(stage.label)}</span>
       </label>`;
   }).join('');
   panel.innerHTML = `
-    <details class="summary-panel rerun-summary">
-      <summary class="summary-head">Rerun Selected Stages</summary>
+    <div class="summary-panel rerun-summary rerun-scope-card" data-rerun-job-id="${escapeHtml(selection.jobId)}">
+      <div class="summary-head rerun-scope-head">
+        <span>Rerun scope</span>
+        <code>${escapeHtml(selection.jobId)}</code>
+      </div>
       <div class="rerun-panel-body">
-        <div class="help-note">Reuses this job workspace and existing staged inputs/results. Leave completed stages unchecked to resume after a failure. A rerun that failed after preserving earlier outputs keeps those files visible below.</div>
+        <div class="help-note">Selected stages rerun inside this job workspace and reuse staged inputs/results.</div>
         <div class="rerun-grid">${stageRows}</div>
-        <label class="form-group-inline"><input type="checkbox" id="rerun-force" /> Force selected stages to overwrite existing outputs</label>
-        <div class="flex-gap">
-          <button class="btn btn-primary text-sm" type="button" onclick="rerunActiveJob()">Rerun selected stages</button>
+        <label class="form-group-inline rerun-stage-option"><input type="checkbox" id="rerun-force" /> <span>Force selected stages to overwrite existing outputs</span></label>
+        <div class="flex-gap rerun-actions">
+          <button class="btn btn-primary text-sm" type="button" onclick="rerunActiveJob()">Queue rerun</button>
+          <button class="btn btn-ghost text-sm" type="button" onclick="toggleJobRerunScope(event,'${escapeHtml(escapeJsString(selection.jobId))}')">Close</button>
           <span class="text-muted text-sm" id="rerun-status"></span>
         </div>
       </div>
-    </details>`;
+    </div>`;
+  animateRerunPanelReady();
 }
 
 async function rerunActiveJob() {
-  if (!activeJobId) return;
   if (!canUseAdminSurfaces()) return;
+  const targetJobId = String(rerunScopeOpenJobId || '');
   const statusEl = document.getElementById('rerun-status');
-  const selected = new Set([...document.querySelectorAll('.rerun-stage:checked')].map(el => el.dataset.stage));
+  if (!targetJobId) {
+    if (statusEl) statusEl.textContent = 'Select a submitted job first.';
+    return;
+  }
+  const job = activeJobId === targetJobId && activeJobMeta ? activeJobMeta : jobHistoryById.get(targetJobId);
+  const status = String((job && job.status) || '').toLowerCase();
+  if (status === 'pending' || status === 'running') {
+    if (statusEl) statusEl.textContent = 'Wait until the selected job finishes or fails.';
+    return;
+  }
+  const selected = new Set([...document.querySelectorAll('#rerun-panel .rerun-stage:checked')].map(el => el.dataset.stage));
   if (!selected.size) {
     if (statusEl) statusEl.textContent = 'Choose at least one stage.';
     return;
@@ -5712,13 +8943,20 @@ async function rerunActiveJob() {
     selected,
     !!document.getElementById('rerun-force')?.checked,
   );
+  if (!rerunPayloadHasStages(payload)) {
+    if (statusEl) statusEl.textContent = 'Choose at least one stage.';
+    return;
+  }
   if (statusEl) statusEl.textContent = 'Queueing rerun...';
   try {
-    await queueJobRerun(activeJobId, payload);
+    await queueJobRerun(targetJobId, payload);
     if (statusEl) statusEl.textContent = 'Rerun queued.';
+    animateRerunQueued();
+    rerunScopeOpenJobId = '';
     document.getElementById('results-card').classList.add('hidden');
-    loadJob(activeJobId, true);
+    await loadJob(targetJobId, true, { source: 'rerun' });
     refreshJobHistory();
+    switchOpsTab('jobs', { focus: false });
   } catch (err) {
     if (statusEl) statusEl.textContent = err.message || String(err);
   }
@@ -6223,15 +9461,15 @@ function renderResultCategorySummary(category, visibleCount, totalCount) {
   const key = resultCategoryKey(category);
   const label = resultCategoryLabel(key);
   const scope = key === 'downloads'
-    ? `${visibleCount} total ${visibleCount === 1 ? 'file' : 'files'}`
-    : `${visibleCount} of ${totalCount} ${totalCount === 1 ? 'file' : 'files'}`;
+    ? `${visibleCount} downloadable ${visibleCount === 1 ? 'file' : 'files'}`
+    : `${visibleCount} shown from ${totalCount} indexed ${totalCount === 1 ? 'file' : 'files'}`;
   return `
     <div class="result-category-summary" id="result-category-summary">
       <div>
         <div class="result-category-title">${escapeHtml(label)}</div>
         <div class="result-category-copy">${escapeHtml(resultCategoryCopy(key))}</div>
       </div>
-      <span class="ext-badge">${escapeHtml(scope)}</span>
+      <span class="ext-badge result-scope-badge">${escapeHtml(scope)}</span>
     </div>`;
 }
 
@@ -6266,6 +9504,7 @@ function startSystemConsolePolling() {
   }
   if (systemPollTimer) return;
   updateWorkerTelemetryBadge('unknown', 'Monitoring');
+  renderWorkerDrawer(null, null, { status: 'unknown' });
   appendSystemLog('[System] ClusterWeave initialization complete. Monitoring worker...');
   systemPollTimer = setInterval(() => {
     pollSystemStatus();
@@ -6288,23 +9527,41 @@ async function pollSystemStatus() {
   try {
     const [jobsResp, systemPayload] = await Promise.all([
       apiFetch('api/jobs', {}, { kind: 'admin' }),
-      fetchSystemStatus(),
+      fetchSystemStatus({ renderRuntime: false, renderWorker: false }),
     ]);
     if (!jobsResp.ok) return;
     jobs = await jobsResp.json();
     system = systemPayload || {};
   } catch (err) {
     updateWorkerTelemetryBadge('unknown', 'No signal');
+    renderWorkerDrawer(null, null, { status: 'unknown' });
     return;
   }
 
-  const pendingCount = jobs.filter(j => j.status === 'pending').length;
-  const runningCount = jobs.filter(j => j.status === 'running').length;
   const worker = system.worker || {};
-  const concurrency = worker.concurrency || 1;
-  const activeCount = worker.active_count || runningCount;
   const systemState = String(system.state || '').toLowerCase();
+  const activeJobIds = Array.isArray(worker.active_jobs) ? worker.active_jobs.filter(Boolean) : [];
+  const runningFromJobs = jobs.filter(j => ['running', 'processing'].includes(String(j.status || j.state || j.pipeline_state || '').toLowerCase())).length;
+  const pendingFromJobs = jobs.filter(j => String(j.status || j.state || '').toLowerCase() === 'pending').length;
+  const workerActiveCount = Number(worker.active_count || 0);
+  const aggregateRunningCount = Number(system.running_jobs || 0);
+  const aggregateQueuedCount = Number(system.queued_jobs || 0);
+  const systemRunningCount = ['running', 'processing'].includes(systemState) ? Math.max(workerActiveCount, activeJobIds.length, aggregateRunningCount, 1) : 0;
+  const runningCount = Math.max(runningFromJobs, workerActiveCount, activeJobIds.length, aggregateRunningCount, systemRunningCount);
+  const pendingCount = Math.max(pendingFromJobs, aggregateQueuedCount);
+  const rawConcurrency = Number(worker.concurrency || system.concurrency || 0);
+  const activeCount = Math.max(workerActiveCount, activeJobIds.length, runningCount, aggregateRunningCount);
+  const concurrency = rawConcurrency || lastWorkerTelemetry.concurrency || (activeCount > 0 ? Math.max(activeCount, 1) : 0);
   updateRuntimeStatusPanel(system, { runningJobs: runningCount, queuedJobs: pendingCount });
+  const drawerStatus = systemState === 'error'
+    ? 'error'
+    : runningCount > 0
+      ? 'processing'
+      : pendingCount > 0
+        ? 'ready'
+        : 'idle';
+  lastWorkerTelemetry = { runningCount, pendingCount, activeCount, concurrency, status: drawerStatus };
+  renderWorkerDrawer(system, jobs, lastWorkerTelemetry);
 
   if (systemState === 'error') {
     const newStatus = 'error';
@@ -6359,6 +9616,7 @@ function updateWorkerTelemetryBadge(status, label) {
 
 function appendSystemLog(text) {
   const term = document.getElementById('system-console');
+  if (!term) return;
   const div = document.createElement('div');
   div.className = 'log-line';
   if (/error|failed/i.test(text)) div.classList.add('err');
@@ -6422,7 +9680,7 @@ function isFullSystemStatus(system) {
   ));
 }
 
-async function fetchSystemStatus() {
+async function fetchSystemStatus(options = {}) {
   try {
     const resp = await apiFetch('api/system/status', {}, { kind: 'admin' });
     if (!resp.ok) return null;
@@ -6443,7 +9701,8 @@ async function fetchSystemStatus() {
       runtimeCapabilities = null;
       renderRuntimeBanner();
     }
-    updateRuntimeStatusPanel(payload);
+    if (options.renderRuntime !== false) updateRuntimeStatusPanel(payload);
+    if (options.renderWorker !== false) renderWorkerDrawer(payload);
     return payload;
   } catch (e) {
     return null;
@@ -6551,21 +9810,40 @@ async function initializeApp() {
     const helix = document.getElementById('weavemap-helix');
     if (helix) delete helix.dataset.rendered;
     renderWeaveHelix(activeJobMeta);
-  });
+    });
   startStageTicker();
   wirePanelResizers();
+  wireOpsPanelKeyboard();
+  syncOpsTabs();
+  initializeRetiredMotionControls();
+  wireMotionLifecycleGuards();
+  const reducedMotionQuery = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+  reducedMotionQuery?.addEventListener?.('change', () => {
+    const helix = document.getElementById('weavemap-helix');
+    if (helix) delete helix.dataset.rendered;
+    if (reducedMotionPreferred()) {
+      teardownGsapMotion('reduced-motion');
+    } else {
+      warmGsapMotion();
+    }
+    renderWeaveHelix(activeJobMeta);
+    });
   applyStoredPanelWidths();
-  placeWorkflowSpineInLaunch();
   moveWorkflowProgressIntoResults(false);
   updateAccessTokenStatus();
   updateEmailNotificationPanel();
   renderOpenedRuns();
+  wireRunStackDismissal();
   renderAcceptedAccessions();
+  initializeBrutalInputStation();
   switchEntryTab('new');
   showEmptyResults();
+  bootBgcWorkflowDna();
+  updateBgcWorkflowDnaFromJob(null);
   wireDocsDisclosure();
   syncNavFromHash();
   setUIMode('guided', { preserveDisclosure: true });
+  warmGsapMotion();
 
   // Wait for worker bootstrap to complete
   await waitForWorkerReady();

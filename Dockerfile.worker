@@ -28,8 +28,9 @@ COPY bin/ /clusterweave/bin/
 COPY config/ /clusterweave/config/
 COPY scripts/ /clusterweave/scripts/
 COPY software/funbgcex/ /clusterweave/software/funbgcex/
+COPY software/funannotate/ /clusterweave/software/funannotate/
 
-RUN chmod +x /clusterweave/*.sh /clusterweave/scripts/ncbi/*.sh /clusterweave/software/funbgcex/*.sh || true
+RUN chmod +x /clusterweave/*.sh /clusterweave/scripts/ncbi/*.sh /clusterweave/software/funbgcex/*.sh /clusterweave/software/funannotate/*.sh || true
 
 RUN mkdir -p /data/uploads /data/jobs /databases/antismash /databases/pfam
 

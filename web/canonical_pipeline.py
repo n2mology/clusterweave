@@ -6,6 +6,7 @@ import hashlib
 import os
 import re
 import shutil
+import signal
 import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -90,9 +91,25 @@ class ProjectLayout:
     genome_inputs: list[Path] = field(default_factory=list)
 
 
+def _job_cancel_path(job: Job) -> Path:
+    return DATA_DIR / "jobs" / job.id / "cancel.requested"
+
+
+def _job_cancel_requested(job: Job) -> bool:
+    return _job_cancel_path(job).exists()
+
+
+def _raise_if_cancelled(job: Job) -> None:
+    if _job_cancel_requested(job):
+        job.add_log("Cancellation marker found; stopping before the next workflow step.")
+        raise asyncio.CancelledError("Cancelled by administrator")
+
+
 async def _stream_cmd(cmd: list[str], cwd: Path, job: Job, env: dict[str, str]) -> int:
+    _raise_if_cancelled(job)
     job.add_log(f"$ {' '.join(str(item) for item in cmd)}")
     proc_env = {**os.environ, **env}
+    proc = None
     try:
         proc = await asyncio.create_subprocess_exec(
             *[str(item) for item in cmd],
@@ -100,16 +117,37 @@ async def _stream_cmd(cmd: list[str], cwd: Path, job: Job, env: dict[str, str]) 
             stderr=asyncio.subprocess.STDOUT,
             cwd=str(cwd),
             env=proc_env,
+            start_new_session=True,
         )
         assert proc.stdout is not None
         async for raw_line in proc.stdout:
+            _raise_if_cancelled(job)
             line = raw_line.decode("utf-8", errors="replace").rstrip()
             if line:
                 public_stage = _public_stage_from_stream_line(line)
                 if public_stage:
                     job.stage = public_stage
                 job.add_log(line)
-        return await proc.wait()
+        rc = await proc.wait()
+        _raise_if_cancelled(job)
+        return rc
+    except asyncio.CancelledError:
+        if proc is not None and proc.returncode is None:
+            job.add_log("Cancellation requested; terminating active workflow process group.")
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=15)
+            except asyncio.TimeoutError:
+                job.add_log("Cancellation timeout; killing active workflow process group.")
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                await proc.wait()
+        raise
     except FileNotFoundError as exc:
         job.add_log(f"ERROR: command not found: {exc}")
         return 127
@@ -129,15 +167,19 @@ def _public_stage_from_stream_line(line: str) -> str | None:
 
 
 async def _run_required_stage(job: Job, stage: str, cmd: list[str], cwd: Path, env: dict[str, str]) -> None:
+    _raise_if_cancelled(job)
     job.set_stage(stage)
     rc = await _stream_cmd(cmd, cwd=cwd, job=job, env=env)
+    _raise_if_cancelled(job)
     if rc != 0:
         raise RuntimeError(f"{stage} failed with exit code {rc}")
 
 
 async def _run_optional_stage(job: Job, stage: str, cmd: list[str], cwd: Path, env: dict[str, str]) -> bool:
+    _raise_if_cancelled(job)
     job.set_stage(stage)
     rc = await _stream_cmd(cmd, cwd=cwd, job=job, env=env)
+    _raise_if_cancelled(job)
     if rc != 0:
         job.add_log(f"WARN: optional stage '{stage}' failed with exit code {rc}; continuing.")
         return False
@@ -674,6 +716,9 @@ async def run_pipeline(
         else:
             _stage_uploaded_inputs(input_files, layout, cfg, job)
         env = _base_env(layout, cfg, cpus)
+        env["CLUSTERWEAVE_JOB_ID"] = job.id
+        env["CLUSTERWEAVE_CANCEL_FILE"] = str(_job_cancel_path(job))
+        _raise_if_cancelled(job)
         notify()
 
         run_genome_prep = _cfg_bool(cfg, "run_genome_prep", layout.accession_file is not None)
@@ -758,6 +803,12 @@ async def run_pipeline(
         job.stage = "complete"
         job.add_log("Canonical ClusterWeave workflow finished successfully.")
 
+    except asyncio.CancelledError:
+        job.status = JobStatus.FAILED
+        job.stage = "cancelled"
+        job.error = "Cancelled by administrator"
+        job.add_log("Cancelled: administrator requested stop before downstream stages.")
+        raise
     except Exception as exc:
         job.status = JobStatus.FAILED
         job.error = str(exc)

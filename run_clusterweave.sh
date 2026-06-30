@@ -130,6 +130,74 @@ write_external_artifacts_manifest() {
     warn "External artifact capture failed; continuing because workflow outputs are complete."
   fi
 }
+annotation_manifest_path() {
+  printf '%s\n' "${RESULTS_ROOT}/summary_tables/run_manifest.tsv"
+}
+annotation_manifest_total_count() {
+  local manifest="$1"
+  [[ -s "${manifest}" ]] || { printf '0\n'; return 0; }
+  awk -F '\t' 'NR > 1 && $1 != "" { count++ } END { print count + 0 }' "${manifest}"
+}
+annotation_manifest_usable_count() {
+  local manifest="$1"
+  [[ -s "${manifest}" ]] || { printf '0\n'; return 0; }
+  awk -F '\t' '
+    NR == 1 { for (i = 1; i <= NF; i++) h[$i] = i; next }
+    NR > 1 {
+      gbk = $(h["gbk_used"])
+      gbk_status = $(h["gbk_status"])
+      antismash_status = $(h["antismash_status"])
+      if (gbk != "" && gbk_status != "annotation_fallbacks_failed" && antismash_status != "skipped") count++
+    }
+    END { print count + 0 }
+  ' "${manifest}"
+}
+annotation_manifest_status_summary() {
+  local manifest="$1"
+  [[ -s "${manifest}" ]] || { printf '%s\n' 'manifest missing'; return 0; }
+  awk -F '\t' '
+    NR == 1 { for (i = 1; i <= NF; i++) h[$i] = i; next }
+    NR > 1 {
+      gbk_status = $(h["gbk_status"])
+      antismash_status = $(h["antismash_status"])
+      if (gbk_status == "") gbk_status = "unknown"
+      if (antismash_status == "") antismash_status = "unknown"
+      gbk_counts[gbk_status]++
+      antismash_counts[antismash_status]++
+    }
+    END {
+      first = 1
+      printf "gbk_status="
+      for (status in gbk_counts) {
+        if (!first) printf ","
+        printf "%s:%d", status, gbk_counts[status]
+        first = 0
+      }
+      first = 1
+      printf "; antismash_status="
+      for (status in antismash_counts) {
+        if (!first) printf ","
+        printf "%s:%d", status, antismash_counts[status]
+        first = 0
+      }
+      printf "\n"
+    }
+  ' "${manifest}"
+}
+require_annotation_stage_outputs() {
+  local manifest=""
+  local total="0"
+  local usable="0"
+  local summary=""
+  manifest="$(annotation_manifest_path)"
+  [[ -s "${manifest}" ]] || die "Annotation stage did not write ${manifest}; stopping before grouping."
+  total="$(annotation_manifest_total_count "${manifest}")"
+  usable="$(annotation_manifest_usable_count "${manifest}")"
+  if [[ "${total}" -gt 0 && "${usable}" -eq 0 ]]; then
+    summary="$(annotation_manifest_status_summary "${manifest}")"
+    die "Annotation stage produced zero usable genomes (${summary}); stopping before grouping. See ${manifest} and ${RESULTS_ROOT}/summary_tables/logs."
+  fi
+}
 
 [[ -x "${RUN_ANNOTATION_STAGE}" ]] || die "Missing executable stage runner: ${RUN_ANNOTATION_STAGE}"
 [[ -x "${RUN_BIGSCAPE}" ]] || die "Missing executable stage runner: ${RUN_BIGSCAPE}"
@@ -168,6 +236,7 @@ write_provenance_manifest
 if [[ "${RUN_STAGE_ANNOTATION}" == "1" ]]; then
   log "Stage 1/4: running run_annotation_and_detection.sh"
   bash "${RUN_ANNOTATION_STAGE}"
+  require_annotation_stage_outputs
 else
   log "Stage 1/4: skipped"
 fi

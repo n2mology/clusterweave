@@ -7,6 +7,7 @@ PROJECT_ROOT="${PROJECT_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd -P)}"
 PROJECT_NAME="${PROJECT_NAME:-$(basename "${PROJECT_ROOT}")}"
 GENOME_ROOT="${GENOME_ROOT:-${PROJECT_ROOT}/data/genomes/fungi/${PROJECT_NAME}}"
 MAPPING_FILE="${MAPPING_FILE:-${GENOME_ROOT}/accessions_fungusID_taxonomyID.txt}"
+NCBI_CLI_ROOT="${NCBI_CLI_ROOT:-${PROJECT_ROOT}/software/ncbi_cli}"
 
 die(){ echo "ERROR: $*" >&2; exit 1; }
 
@@ -49,19 +50,44 @@ resolve_python() {
   die "No usable Python interpreter found. Install python3 or set PYTHON_BIN to a real interpreter."
 }
 
+detect_datasets() {
+  if [[ -n "${DATASETS_CMD:-}" ]]; then
+    command -v "${DATASETS_CMD}" >/dev/null 2>&1 && printf '%s\n' "${DATASETS_CMD}" && return 0
+    [[ -x "${DATASETS_CMD}" ]] && printf '%s\n' "${DATASETS_CMD}" && return 0
+    return 1
+  fi
+  if command -v datasets >/dev/null 2>&1; then
+    printf '%s\n' "datasets"
+    return 0
+  fi
+  if [[ -x "${NCBI_CLI_ROOT}/datasets" ]]; then
+    printf '%s\n' "${NCBI_CLI_ROOT}/datasets"
+    return 0
+  fi
+  if [[ -f "${NCBI_CLI_ROOT}/datasets.exe" ]]; then
+    printf '%s\n' "${NCBI_CLI_ROOT}/datasets.exe"
+    return 0
+  fi
+  return 1
+}
+
 [[ -d "${GENOME_ROOT}" ]] || die "GENOME_ROOT not found: ${GENOME_ROOT}"
 mkdir -p "$(dirname "${MAPPING_FILE}")"
 PYTHON_CMD="$(resolve_python)"
+DATASETS_CMD_RESOLVED="$(detect_datasets || true)"
 
-"${PYTHON_CMD}" - "${GENOME_ROOT}" "${MAPPING_FILE}" <<'PY'
+"${PYTHON_CMD}" - "${GENOME_ROOT}" "${MAPPING_FILE}" "${DATASETS_CMD_RESOLVED}" <<'PY'
 import glob
 import json
 import os
 import re
+import subprocess
 import sys
 
 root = sys.argv[1]
 outp = sys.argv[2]
+datasets_cmd = sys.argv[3] if len(sys.argv) >= 4 else ""
+taxonomy_cache = {}
 
 def deep_find_first(obj, key_substr):
     target = key_substr.lower()
@@ -115,6 +141,72 @@ def derive_genome_size_mb(rec, acc_dir):
         if total_bp > 0:
             return f"{total_bp / 1_000_000:.2f}"
     return fasta_size_mb(acc_dir)
+
+def clean_tsv(value):
+    return re.sub(r"[\t\r\n]+", " ", str(value or "")).strip()
+
+
+def taxonomy_summary(taxid):
+    taxid = str(taxid or "").strip()
+    if not taxid or not datasets_cmd:
+        return {}
+    if taxid in taxonomy_cache:
+        return taxonomy_cache[taxid]
+    try:
+        proc = subprocess.run(
+            [datasets_cmd, "summary", "taxonomy", "taxon", taxid],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=30,
+        )
+        payload = json.loads(proc.stdout or "{}")
+        reports = payload.get("reports") if isinstance(payload, dict) else None
+        taxonomy = reports[0].get("taxonomy") if isinstance(reports, list) and reports and isinstance(reports[0], dict) else {}
+        if not isinstance(taxonomy, dict):
+            taxonomy = {}
+    except Exception:
+        taxonomy = {}
+    taxonomy_cache[taxid] = taxonomy
+    return taxonomy
+
+
+def taxonomy_lineage_fields(taxid):
+    taxonomy = taxonomy_summary(taxid)
+    if not taxonomy:
+        return "", ""
+    ids = []
+    for value in taxonomy.get("parents") or []:
+        try:
+            ids.append(str(int(value)))
+        except (TypeError, ValueError):
+            continue
+    current = taxonomy.get("tax_id") or taxid
+    try:
+        current = str(int(current))
+    except (TypeError, ValueError):
+        current = str(current or "").strip()
+    if current and current not in ids:
+        ids.append(current)
+
+    names = []
+    classification = taxonomy.get("classification") or {}
+    if isinstance(classification, dict):
+        ordered = ["domain", "kingdom", "phylum", "class", "order", "family", "genus", "species"]
+        for rank in ordered:
+            item = classification.get(rank)
+            if isinstance(item, dict):
+                name = clean_tsv(item.get("name"))
+                if name and name not in names:
+                    names.append(name)
+    current_name = taxonomy.get("current_scientific_name") or {}
+    if isinstance(current_name, dict):
+        name = clean_tsv(current_name.get("name"))
+        if name and name not in names:
+            names.append(name)
+    return ",".join(ids), "|".join(names)
+
 
 def try_infraspecific(rec):
     strain = ""
@@ -189,6 +281,8 @@ for name in sorted(os.listdir(root)):
     strain = ""
     isolate = ""
     genome_size_mb = ""
+    lineage_ids = ""
+    lineage_names = ""
     try:
         with open(report, "r", encoding="utf-8") as fh:
             for line in fh:
@@ -207,21 +301,22 @@ for name in sorted(os.listdir(root)):
                 strain = s1 or s2 or s3 or ""
                 isolate = i1 or i2 or i3 or ""
                 genome_size_mb = derive_genome_size_mb(rec, acc_dir)
+                lineage_ids, lineage_names = taxonomy_lineage_fields(taxid)
                 break
     except Exception:
         continue
 
     fid = fungus_id_from(org, strain, isolate)
-    rows.append((acc, fid, taxid, genome_size_mb))
+    rows.append((acc, fid, taxid, genome_size_mb, clean_tsv(org), lineage_ids, lineage_names))
 
 with open(outp, "w", encoding="utf-8") as out:
-    for acc, fid, taxid, genome_size_mb in rows:
-        out.write(f"{acc}\t{fid}\t{taxid}\t{genome_size_mb}\n")
+    for acc, fid, taxid, genome_size_mb, org, lineage_ids, lineage_names in rows:
+        out.write(f"{acc}\t{fid}\t{taxid}\t{genome_size_mb}\t{org}\t{lineage_ids}\t{lineage_names}\n")
 PY
 
 [[ -f "${MAPPING_FILE}" ]] || die "Failed to create mapping file: ${MAPPING_FILE}"
 
-while IFS=$'\t' read -r acc fungus_id taxid genome_size_mb || [[ -n "${acc:-}" ]]; do
+while IFS=$'\t' read -r acc fungus_id taxid genome_size_mb _mapping_rest || [[ -n "${acc:-}" ]]; do
   [[ -z "${acc:-}" || -z "${fungus_id:-}" ]] && continue
 
   old_dir="${GENOME_ROOT}/${acc}"

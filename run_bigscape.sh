@@ -292,6 +292,9 @@ fi
 
 docker_run_args() {
   local -a args=(--rm -i --user 0:0 --entrypoint "")
+  if [[ -n "${CLUSTERWEAVE_JOB_ID:-}" ]]; then
+    args+=(--label "clusterweave.job_id=${CLUSTERWEAVE_JOB_ID}" --label "clusterweave.project=${PROJECT_NAME:-}")
+  fi
   if [[ -n "${BIGSCAPE_DOCKER_DATA_VOLUME}" ]]; then
     args+=(-v "${BIGSCAPE_DOCKER_DATA_VOLUME}:/data")
   else

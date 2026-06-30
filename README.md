@@ -1,105 +1,150 @@
-# `ClusterWeave`: a workflow for biosynthetic target discovery and prioritization
+<p align="center">
+  <img src="visuals/logo.svg" alt="ClusterWeave logo" width="360">
+</p>
 
-`ClusterWeave` is a workflow for biosynthetic target discovery and prioritization. It assembles annotation, BGC detection, BiG-SCAPE family context, shortlist generation, and clinker-ready panel staging into one reproducible workflow.
+<p align="center">
+  <img src="visuals/ClusterWeave.svg" alt="ClusterWeave workflow overview" width="900">
+</p>
 
-The repository is organized as a standalone workflow so it can be versioned and shared.
+# `ClusterWeave`: an accessible workbench for fungal biosynthetic discovery
 
-## Manuscript Details
+ClusterWeave connects genome preparation, annotation, antiSMASH, FunBGCeX, BiG-SCAPE, summary tables, clinker synteny panels, and figures into one reproducible run.
 
-- Title: `ClusterWeave`: a workflow for biosynthetic target discovery and prioritization
+The repository contains the reusable workflow, web UI/API, worker orchestration, build recipes, tests, public-safe examples, and release documentation. It does not retain draft publication text or private runtime data.
+
+## Manuscript
+- Title: ClusterWeave: a workflow for biosynthetic target discovery and prioritization
 - Authors: Julian B. Cosner, Stanton Martin, and Tomás A. Rush
-- Keywords: bioinformatics, biosynthetic gene clusters, secondary metabolism, fungal genomics
-- Description: `ClusterWeave` is a workflow for biosynthetic target discovery and prioritization. It assembles annotation, BGC detection, BiG-SCAPE family context, shortlist generation, and clinker-ready panel staging into one reproducible workflow.
+- Keywords: genome mining, biosynthetic gene clusters, gene cluster families, natural products, workflow automation
+- DOI: pending
 
-## Scope
+## Submit A Web Job
+
+Starting a [new job](clusterweave.org) is easy. In the web UI:
+
+1. Open `INPUT STATION`.
+2. Enter a required project name.
+3. Optionally enter an email address for result links.
+4. Add NCBI assembly accessions manually, paste a one-accession-per-line list, upload a `.txt` accession list, or upload supported genome files.
+5. Optionally choose a target genome and ecology labels.
+6. Submit the run.
+
+Supported public inputs:
+
+- NCBI assembly accessions
+- `.txt` accession list, one accession per line
+- `.fasta`, `.fa`, `.fna`, `.fsa`, `.gb`, `.gbk`, `.gbff`
+
+Use public or releasable data only on a public service. Sensitive data should be run locally or on approved internal infrastructure.
+
+## Track And Load Runs
+
+After submission, ClusterWeave shows:
+
+- project name
+- ClusterWeave job ID
+- result access code
+- private result link
+- expiration date
+- current workflow state
+
+The run stack lets one browser tab switch between submitted or loaded jobs. `ADD RUN` returns to the input station without discarding the existing run stack.
+
+To reopen a job later, use `NEW RUN / EXISTING RESULTS` and paste either:
+
+- a full private result link, or
+- the job ID plus result access code
+
+## View And Download Results
+
+When a job completes, open `RESULT BLOCKS`.
+
+Tabs:
+
+- `ANTISMASH`: per-genome antiSMASH views
+- `FUNBGCEX`: FunBGCeX output rows
+- `BIG-SCAPE`: BiG-SCAPE web viewer and database download
+- `CLINKER`: synteny panels
+- `SUMMARY`: markdown and table summaries
+- `FIGURES`: rendered SVG/PNG figures
+
+Use the top-strip `Download package` button to download the full result package. Individual output rows also provide `Open` and `Download` actions when those artifacts exist.
+
+## Web Portal FAQ
+
+### What if my genome file is larger than the public upload limit?
+
+The hosted portal has public-use limits so shared compute stays responsive. If your genome file is larger than the portal limit, or if the data is sensitive/private, use the local GitHub workflow instead of uploading it to the public service.
+
+The web UI shows the current public limits before file selection. Typical launch limits are `500 MB` per file and `1 GB` total per run, but the live portal may change those values.
+
+### When should I use the local workflow instead of the hosted portal?
+
+Use the local workflow for large datasets, private genomes, custom runtime settings, heavy reruns, or analyses that need institutional compute resources. Start with the command-line workflow below.
+
+## Command-Line Workflow
+
+Normal users should use the hosted web portal mentioned above. Advanced users can clone the repository and run the same canonical workflow locally on Linux or WSL.
+
+### Scope
+
+The canonical workflow stages are:
 
 - Stage 1: annotation plus antiSMASH and FunBGCeX via `run_annotation_and_detection.sh`
 - Stage 2: BiG-SCAPE family inference via `run_bigscape.sh`
-- Stage 3: core summary-table generation via `summarize_clusterweave.sh`
-- Optional within Stage 3: ecology-aware ranking and reviewer shortlist generation with `RUN_ECOLOGY_ANALYSIS=1`
-- Stage 4: dataset-wide clinker family-atlas staging and clinker execution by default, with optional target-aware synteny panels via `run_clinker.sh`
+- Stage 3: summary-table generation via `summarize_clusterweave.sh`
+- Optional within Stage 3: ecology-aware ranking with `RUN_ECOLOGY_ANALYSIS=1`
+- Stage 4: dataset-wide clinker family-atlas staging and execution via `run_clinker.sh`
 - Optional: NPLinker exploratory paired-omics follow-up via `run_nplinker.sh`
 
-## Repository Layout
+### Default Local Layout
 
-- `bin/`: Python helpers used by the shell entrypoints
-- `config/`: default templates and env examples
-- `profiles/`: example profiles and overrides
-- `docs/`: install, release, and reproducibility notes
-- `examples/`: public-safe example context or example-output bundles for docs and releases
-- `manuscript/application_note/`: publication-facing notes and outline assets
-- `tests/`: automated repo validation; these are software checks, not biological example data
-- `data/`: expected input and output layout for a standalone clone
-- `software/`: location for local containers, caches, and optional third-party tools
-- `docs/REPRODUCIBILITY.md`: run provenance and figure-rendering notes
+ClusterWeave assumes the repository root is the project root:
 
-## Default Standalone Layout
+```text
+data/genomes/fungi/<project-name>/
+data/results/<project-name>/
+software/
+```
 
-`ClusterWeave` now assumes the repository root itself is the default project root:
+The default generated layout is lowercase. If an older local checkout used `Data/` or `Software/`, move those directories to `data/` and `software/` or set `DATA_ROOT`, `RESULTS_ROOT`, and `SOFTWARE_ROOT` explicitly for that legacy run.
 
-- `data/genomes/fungi/<project-name>/`
-- `data/results/<project-name>/`
-- `software/`
+### CLI Quick Start
 
-If you prefer a larger shared monorepo, override paths with env vars such as `PROJECTS_ROOT`, `DATA_ROOT`, `RESULTS_ROOT`, and `SOFTWARE_ROOT`.
-
-The default source and generated layout is intentionally lowercase. If you are rerunning an older checkout that still has `Data/` or `Software/`, move those directories to `data/` and `software/` or set `DATA_ROOT`, `RESULTS_ROOT`, and `SOFTWARE_ROOT` explicitly for that legacy run.
-
-## Quick Start
-
-1. Edit [accessions.txt](accessions.txt). This is the intended first manual input.
-2. If you are new to GitHub, WSL, or the command line, start with [BEGINNER_SETUP.md](BEGINNER_SETUP.md).
-3. Review [docs/INSTALL.md](docs/INSTALL.md).
-4. Optionally install the NCBI CLI binaries into `software/ncbi_cli/`:
+Start with an accession list. The default file is [accessions.txt](accessions.txt), but project-specific accession files are recommended.
 
 ```bash
 bash install_ncbi_cli.sh
+PROJECT_NAME=my_project ACCESSIONS_FILE=$PWD/accessions.txt bash prepare_genomes_from_accessions.sh
+PROJECT_NAME=my_project bash run_clusterweave.sh
 ```
 
-5. Populate the genome root from NCBI:
+`prepare_genomes_from_accessions.sh` writes:
 
-```bash
-bash prepare_genomes_from_accessions.sh
+```text
+data/genomes/fungi/<project-name>/accessions_fungusID_taxonomyID.txt
 ```
 
-This step writes `data/genomes/fungi/<project-name>/accessions_fungusID_taxonomyID.txt`.
-The mapping now includes:
-
-- accession
-- normalized genome ID
-- taxonomy ID
-- genome size in Mb
-
-6. Run the canonical workflow:
-
-```bash
-bash run_clusterweave.sh
-```
+The mapping includes accession, normalized genome ID, taxonomy ID, and genome size in Mb when available.
 
 `run_clusterweave.sh` runs annotation/detection, BiG-SCAPE, summary generation, clinker staging, and clinker execution in one pass. The default clinker behavior is a dataset-wide atlas run.
 
-If you also set `TARGET_GENOME`, the same stage adds targeted clinker tracks for that genome:
+Set `TARGET_GENOME` when you want target-aware summary or synteny outputs:
 
 ```bash
-TARGET_GENOME=Your_Target_Genome_ID bash run_clusterweave.sh
+TARGET_GENOME=Your_Target_Genome_ID PROJECT_NAME=my_project bash run_clusterweave.sh
 ```
 
 ## Running More Than One Project
 
-Yes. `PROJECT_NAME` is the main switch that separates one `ClusterWeave` run from another.
+`PROJECT_NAME` separates one ClusterWeave run from another.
 
-When you set a new `PROJECT_NAME`, `ClusterWeave` writes to a different project-specific genome root and results root:
+Each project writes to its own local genome and result roots:
 
 - `data/genomes/fungi/<project-name>/`
 - `data/results/<project-name>/`
 
-In practice, a separate project usually means:
-
-- a different `PROJECT_NAME`
-- a different accession list, passed through `ACCESSIONS_FILE`
-- optionally a different `TARGET_GENOME`
-
-Example:
+A separate project usually means a different `PROJECT_NAME`, a different accession list through `ACCESSIONS_FILE`, and optionally a different `TARGET_GENOME`.
 
 ```bash
 PROJECT_NAME=project_alpha ACCESSIONS_FILE=$PWD/accessions_project_alpha.txt bash prepare_genomes_from_accessions.sh
@@ -109,15 +154,13 @@ PROJECT_NAME=project_beta ACCESSIONS_FILE=$PWD/accessions_project_beta.txt bash 
 PROJECT_NAME=project_beta bash run_clusterweave.sh
 ```
 
-If you reuse the same repository for several studies, this is the recommended pattern.
-
 ## Optional Configuration
 
 You do not need to copy an env file to get started.
 
-- [config/defaults.env](config/defaults.env) is a reference sheet of supported knobs.
-- [profiles/example_project.env](profiles/example_project.env) is a generic example profile, not a required starting point.
-- Use env files or inline vars only when you need to override paths, resources, or analysis behavior.
+- [config/defaults.env](config/defaults.env) is the reference sheet of supported knobs.
+- [profiles/example_project.env](profiles/example_project.env) is a generic profile example.
+- Use env files or inline variables only when overriding paths, resources, or analysis behavior.
 
 Common examples:
 
@@ -129,48 +172,39 @@ CLINKER_MODE=targeted TARGET_GENOME=Your_Target_Genome_ID bash run_clinker.sh
 
 ## Common Follow-Ups
 
-Run the summary stage directly when you want to regenerate tables without rerunning earlier stages. By default, this keeps the focus on tool outputs and writes the core BGC comparison tables plus the BiG-SCAPE crosswalk:
+Regenerate summary tables without rerunning earlier stages:
 
 ```bash
 bash summarize_clusterweave.sh
 ```
 
-If you want ecology-aware prioritization and reviewer-facing shortlist outputs, set `RUN_ECOLOGY_ANALYSIS=1` and `TARGET_GENOME`:
+Enable ecology-aware prioritization and shortlist outputs:
 
 ```bash
 RUN_ECOLOGY_ANALYSIS=1 TARGET_GENOME=Your_Target_Genome_ID bash summarize_clusterweave.sh
 ```
 
-If ecology metadata has not been normalized yet, `summarize_clusterweave.sh` scaffolds
-`summary_tables/ecofun_metadata_normalized.tsv` automatically from the accession mapping so the
-ecology-aware step can still complete. Any genomes without legacy ecology labels will be marked
-blank in that TSV until you curate them.
+If ecology metadata has not been normalized yet, the summary stage scaffolds `summary_tables/ecofun_metadata_normalized.tsv` from the accession mapping. Genomes without curated labels remain blank until edited.
 
-If you want ecology-aware prioritization around a specific label, set `FOCUS_ECOLOGY_LABEL`:
+Focus ecology-aware prioritization around a specific label:
 
 ```bash
 RUN_ECOLOGY_ANALYSIS=1 TARGET_GENOME=Your_Target_Genome_ID FOCUS_ECOLOGY_LABEL=Your_Ecology_Label bash summarize_clusterweave.sh
 ```
 
-Stage and execute clinker panels directly when you want to restage or rerender them. By default this creates and runs a dataset-wide family atlas:
+Stage and execute clinker panels directly:
 
 ```bash
 bash run_clinker.sh
 ```
 
-Set `RUN_CLINKER=0` when you want to stage panel inputs and scripts without executing clinker:
+Stage clinker panel inputs and scripts without executing clinker:
 
 ```bash
 RUN_CLINKER=0 bash run_clinker.sh
 ```
 
-If you want targeted synteny around one genome of interest, set `TARGET_GENOME`:
-
-```bash
-TARGET_GENOME=Your_Target_Genome_ID bash run_clinker.sh
-```
-
-If you want atlas-only or targeted-only behavior explicitly, set `CLINKER_MODE`:
+Choose atlas-only, targeted-only, or both:
 
 ```bash
 CLINKER_MODE=atlas bash run_clinker.sh
@@ -178,15 +212,15 @@ CLINKER_MODE=targeted TARGET_GENOME=Your_Target_Genome_ID bash run_clinker.sh
 CLINKER_MODE=both TARGET_GENOME=Your_Target_Genome_ID bash run_clinker.sh
 ```
 
-Optionally render the final BiG-SCAPE multipanel figure and its graph-ready
-attribute exports from the generated tables:
+## Figures And Network Exports
+
+Render final figures and graph-ready exports from generated tables:
 
 ```bash
 bash run_figures.sh
 ```
 
-When BiG-SCAPE outputs are present, the command writes the publication-facing
-multipanel figure plus machine-readable network exports by default:
+When BiG-SCAPE outputs are present, the figure stage writes:
 
 - `data/results/<project-name>/figures/big_scape_multipanel.svg`
 - `data/results/<project-name>/figures/big_scape_multipanel.png`
@@ -196,7 +230,9 @@ multipanel figure plus machine-readable network exports by default:
 - `data/results/<project-name>/figures/bigscape_network_node_attributes.tsv`
 - `data/results/<project-name>/figures/bigscape_network_edge_attributes.tsv`
 
-The network uses numbered node labels for fungal/sample IDs, node fill for BGC class, ecology-colored borders from metadata, a blue outer ring for MiBIG reference GBKs, and a small blue dot for the best representative dataset record with a MiBIG-style BGC accession hit in each accession/family group. Connected components are labeled with concise putative product names above antiSMASH ClusterCompare confidence percentages when ClusterWeave summary annotations provide them. The default metadata table is `summary_tables/ecofun_metadata_normalized.tsv`; generic user metadata with `sample_id` or `fungal_id` plus `ecology_category` is also accepted. If all ecology labels are blank, unknown, or unlabeled, the ecology border channel is omitted instead of drawing a redundant gray ring.
+The network renderer uses numbered fungal/sample IDs, BGC-class node fill, ecology-colored borders when informative metadata exists, a blue outer ring for MiBIG reference GBKs, and a small blue dot for representative dataset records with MiBIG-style BGC accession hits.
+
+Run the network renderer directly:
 
 ```bash
 python bin/render_bigscape_network.py \
@@ -207,9 +243,19 @@ python bin/render_bigscape_network.py \
   --formats svg,graphml,png
 ```
 
-PNG/PDF export is optional and uses `cairosvg` when it is installed; SVG and GraphML do not require extra Python plotting packages. Set `RUN_BIGSCAPE_NETWORK_FIGURE=0` to skip the graph-ready exports from `run_figures.sh`, `RUN_BGC_OVERLAP_FIGURE=0` to skip the overlap figure, or use `FORCE=1` to refresh existing outputs. `BIGSCAPE_NETWORK_FORMATS`, `BGC_OVERLAP_FORMATS`, `BIGSCAPE_NETWORK_DISTANCE_THRESHOLD`, `BIGSCAPE_NETWORK_SIMILARITY_THRESHOLD`, `BIGSCAPE_NETWORK_MAX_NODES`, `BIGSCAPE_NETWORK_MAX_COMPONENTS`, and `BIGSCAPE_NETWORK_CANVAS_WIDTH` support readability-focused runs. `RUN_SUMMARY_FIGURES=1` and `KEEP_REDUNDANT_FIGURE_OUTPUTS=1` opt back into the older standalone summary/network side-products. `BIGSCAPE_NETWORK_ANNOTATION_TABLE` can point to a custom table with `bigscape_record`, MiBIG BGC accession annotations, and product labels. MiBIG-only reference families are omitted by default; set `BIGSCAPE_NETWORK_INCLUDE_MIBIG_ONLY=1` only when you intentionally want the full MiBIG reference context.
+Useful figure controls:
 
-The summary bar-chart layer is driven by the condensed BGC categories used in the summary tables:
+```bash
+RUN_BIGSCAPE_NETWORK_FIGURE=0 bash run_figures.sh
+RUN_BGC_OVERLAP_FIGURE=0 bash run_figures.sh
+FORCE=1 bash run_figures.sh
+BIGSCAPE_NETWORK_MAX_NODES=250 bash run_figures.sh
+BIGSCAPE_NETWORK_INCLUDE_MIBIG_ONLY=1 bash run_figures.sh
+```
+
+PNG/PDF export uses `cairosvg` when installed. SVG and GraphML do not require extra plotting packages.
+
+The summary bar-chart layer uses condensed BGC categories:
 
 - `NRP`
 - `PKS`
@@ -218,35 +264,39 @@ The summary bar-chart layer is driven by the condensed BGC categories used in th
 - `Hybrid`
 - `Other`
 
-Isolated labels such as `indole`, `alkaloid`, `saccharide`, `ICS`, and other non-core categories are grouped into `Other`, while terpene cyclases and terpene synthases are grouped under `Terpene`.
+Isolated labels such as `indole`, `alkaloid`, `saccharide`, `ICS`, and other non-core categories are grouped into `Other`. Terpene cyclases and terpene synthases are grouped under `Terpene`.
 
 ## Ecology Metadata
 
-Ecology is optional in `ClusterWeave`. The main BGC outputs do not require it.
+Ecology is optional. The main BGC outputs do not require it.
 
-- The user-facing ecology TSV lives at `data/results/<project-name>/summary_tables/ecofun_metadata_normalized.tsv` once generated for a project.
-- The static repo template is [config/metadata_template.tsv](config/metadata_template.tsv), and it is intentionally header-only.
-- The generated project-local editable scaffold is `data/results/<project-name>/summary_tables/ecofun_metadata_template.tsv`.
-- The key columns are `accession`, `genome_id_current`, `taxonomy_id`, `genome_size_mb`, `genome_id_original_if_different`, `ecofun_primary`, and `ecofun_secondary`.
-- Leave ecology blank if you only want core BGC summaries.
-- Set `RUN_ECOLOGY_ANALYSIS=1` only when you want ecology-aware grouping and ranking.
+- User-facing ecology TSV: `data/results/<project-name>/summary_tables/ecofun_metadata_normalized.tsv`
+- Static header template: [config/metadata_template.tsv](config/metadata_template.tsv)
+- Project-local editable scaffold: `data/results/<project-name>/summary_tables/ecofun_metadata_template.tsv`
 
-## Examples vs Tests
+Important columns:
 
-- `examples/example_project/` is for public-safe walkthrough material, small example bundles, or manuscript/release companion assets meant for humans to browse.
-- `tests/` is for automated software validation and regression checks. It is not intended to represent a biological analysis project.
+- `accession`
+- `genome_id_current`
+- `taxonomy_id`
+- `genome_size_mb`
+- `genome_id_original_if_different`
+- `ecofun_primary`
+- `ecofun_secondary`
 
-## Skipping Tools
+Leave ecology blank for core BGC summaries. Set `RUN_ECOLOGY_ANALYSIS=1` only when you want ecology-aware grouping and ranking.
 
-The default behavior is beginner-friendly: if a required container or resource is missing, `ClusterWeave` will try to pull or download it automatically.
+## Skipping Or Rerunning Stages
 
-For stage 1 specifically, `run_annotation_and_detection.sh` now tries to:
-- pull the official antiSMASH image automatically if `ANTISMASH_SIF` is missing
+The default behavior is beginner-friendly: if a required container or resource is missing, ClusterWeave tries to pull or build it automatically.
+
+Stage 1 can:
+
+- pull the official antiSMASH image if `ANTISMASH_SIF` is missing
 - build a repo-local FunBGCeX SIF in `software/funbgcex/` if `FUNBGCEX_SIF` is missing
-- use that local FunBGCeX SIF for both the detection run and the helper Python calls
-- only use the local FunBGCeX Python bootstrap if you explicitly enable it as an advanced fallback
+- use a repo-local funannotate runtime from `software/funannotate/`
 
-If you want a lighter run or only care about certain stages, disable stages from the wrapper instead of editing the scripts:
+Disable stages from the wrapper instead of editing scripts:
 
 ```bash
 RUN_STAGE_BIGSCAPE=0 bash run_clusterweave.sh
@@ -256,77 +306,7 @@ RUN_STAGE_CLINKER=0 bash run_clusterweave.sh
 RUN_CLINKER=0 bash run_clusterweave.sh
 ```
 
-## Container Publishing
-
-This repository includes a GitHub Actions workflow to publish container images to GitHub Container Registry (GHCR):
-
-- Workflow file: `.github/workflows/publish-ghcr.yml`
-- Trigger: git tags matching `v*` (for example `v0.2.0`) and GitHub release publish events
-- Manual trigger: `workflow_dispatch`
-
-Published images:
-
-- `ghcr.io/<owner>/clusterweave-web`
-- `ghcr.io/<owner>/clusterweave-worker`
-
-Tagged releases also publish `latest`. The end-user compose file defaults to that tag; set `CLUSTERWEAVE_IMAGE_TAG=v0.2.0` to pin a specific release.
-
-The web and worker services share the same Docker build context but use separate Dockerfiles:
-
-- `Dockerfile.web` builds the lightweight public web/API service.
-- `Dockerfile.worker` builds the job worker with the canonical ClusterWeave shell entrypoints and helper scripts available under `/clusterweave`.
-
-The worker now treats the web app as a controller around the canonical shell workflow instead of maintaining a second implementation of the scientific pipeline in the UI layer.
-Long term, heavy stages such as BiG-SCAPE, clinker, and NPLinker can be split into dedicated worker images while keeping the web/API service as the controller and the canonical shell scripts as the source of truth.
-
-Runtime profiles:
-
-- `docker-compose.yml` is the dev/lab QA profile. It sets `ENGINE=docker` and mounts the host Docker socket so the worker can launch stage containers against shared named volumes.
-- `clusterweave.yml` is socket-free. It is the safer baseline for public demos; stages that still need socket-backed workers are reported as unavailable through the UI/API until stage-specific queue workers are deployed.
-- `WORKER_CONCURRENCY` defaults to `1`. Increase it only on lab machines with enough resources for simultaneous antiSMASH/BiG-SCAPE jobs.
-- The web UI can re-queue a completed or failed job in place with selected stage toggles, preserving expensive completed outputs such as antiSMASH.
-- See [docs/WEB_RUNTIME.md](docs/WEB_RUNTIME.md) for the runtime plan, DAG boundary, and public deployment safety model.
-
-Example release publish flow:
-
-```bash
-git tag v0.2.0
-git push origin v0.2.0
-```
-
-After the workflow completes, pull with:
-
-```bash
-docker pull ghcr.io/<owner>/clusterweave-web:v0.2.0
-docker pull ghcr.io/<owner>/clusterweave-worker:v0.2.0
-```
-
-Then run the published web and worker images together using the end-user compose file:
-
-```bash
-docker compose -f clusterweave.yml up -d
-```
-
-Useful follow-ups:
-
-```bash
-docker compose -f clusterweave.yml logs -f
-docker compose -f clusterweave.yml down
-```
-
-You can also run individual stages directly:
-
-```bash
-bash run_annotation_and_detection.sh
-bash run_bigscape.sh
-bash summarize_clusterweave.sh
-RUN_ECOLOGY_ANALYSIS=1 TARGET_GENOME=Your_Target_Genome_ID bash summarize_clusterweave.sh
-TARGET_GENOME=Your_Target_Genome_ID bash run_clinker.sh
-CLINKER_MODE=atlas bash run_clinker.sh
-CLINKER_MODE=targeted TARGET_GENOME=Your_Target_Genome_ID bash run_clinker.sh
-```
-
-For reproducibility-focused or offline use, switch the auto-fetch toggles back off in your env file:
+For stricter offline or reproducibility-focused runs, prepopulate runtime artifacts and disable auto-fetch behavior in your environment:
 
 ```bash
 AUTO_PULL_IMAGES=never
@@ -339,24 +319,94 @@ AUTO_PULL_NPLINKER_SIF=0
 NPLINKER_BOOTSTRAP_ENV=0
 ```
 
-## Public-Release Notes
+## Container Images
 
-- `ClusterWeave` is currently a Linux/WSL-oriented Bash workflow.
-- Container and network-backed modules are configured to auto-fetch or auto-build missing assets by default so a fresh clone is easier to run.
-- The repository license covers `ClusterWeave` source files and build recipes only. Pulled images, SIFs, databases, and other third-party artifacts remain under their upstream terms and are intentionally not committed here.
-- For the current third-party matrix, citations, and redistribution caveats, especially the separate GeneMark restriction that affects the BRAKER path, see [THIRD_PARTY.md](THIRD_PARTY.md).
-- Public or institution-facing web operators should also review [web/OPERATOR_AGREEMENT.md](web/OPERATOR_AGREEMENT.md); the hosted web portal disables restricted GeneMark-dependent annotation paths.
-- The first FunBGCeX-enabled run can take a while because `ClusterWeave` builds `software/funbgcex/funbgcex_bundle.sif` locally.
-- The canonical wrapper now carries the run through clinker staging automatically unless `RUN_STAGE_CLINKER=0`.
-- The default clinker behavior is atlas-first across the whole dataset; set `TARGET_GENOME` to add targeted priority and shared-family panels.
-- Clinker HTML panels now open with readability-first defaults: scale factor `12`, vertical spacing `70`, hidden locus coordinates, visible gene labels, similarity-group colors, and visible link labels.
-- NPLinker remains exploratory as an evidence layer for putative product claims. Project submission to the Paired Omics Data Platform (PODP) is required to utilize this workflow.
-- Ecology prioritization is optional and user-configurable through `RUN_ECOLOGY_ANALYSIS`, `ECOLOGY_FIELD`, and `FOCUS_ECOLOGY_LABEL`.
-- `run_clusterweave.sh` writes a small provenance bundle under `data/results/<project-name>/reproducibility/`.
-- Canonical runs also write `reproducibility/external_artifacts.tsv`, a checksum manifest for local SIFs, Pfam, FastTree, MiBIG, and other runtime artifacts.
-- For a stricter manuscript-style rerun of the smoke project, source `profiles/release_v0.1.0.env` before running `run_clusterweave.sh`; it disables automatic artifact fetching and relies on prepopulated, checksum-comparable local artifacts.
+GitHub Actions can publish web and worker images to GitHub Container Registry from version tags and GitHub releases.
 
-## Included Release Metadata
+Published image names:
+
+- `ghcr.io/<owner>/clusterweave-web`
+- `ghcr.io/<owner>/clusterweave-worker`
+
+Build roles:
+
+- `Dockerfile.web` builds the lightweight web/API service.
+- `Dockerfile.worker` builds the worker with canonical ClusterWeave shell entrypoints and helper scripts under `/clusterweave`.
+
+Release example:
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+Pull pinned images:
+
+```bash
+docker pull ghcr.io/<owner>/clusterweave-web:v0.2.0
+docker pull ghcr.io/<owner>/clusterweave-worker:v0.2.0
+```
+
+For local advanced deployments, review [docs/WEB_RUNTIME.md](docs/WEB_RUNTIME.md) before exposing a service beyond localhost.
+
+## Repository Layout
+
+- `bin/`: Python helpers used by shell stages
+- `scripts/ncbi/`: NCBI download, rename, and flatten helpers
+- `config/`: default templates and metadata schema
+- `profiles/`: example runtime profiles
+- `docs/`: install, runtime, release, and reproducibility notes
+- `examples/`: public-safe example outputs
+- `visuals/`: public logo and workflow image assets
+- `tests/`: software regression tests
+- `data/`: ignored local runtime data root
+- `software/`: local tool/cache root with selected build recipes tracked
+- `web/`: web UI, API, worker, notifications, and runtime helpers
+
+## Examples Vs Tests
+
+- `examples/example_project/` is for public-safe walkthrough material and small example-output bundles.
+- `tests/` is for automated software validation and regression checks. It is not intended to represent a biological analysis project.
+
+## Public Repository Hygiene
+
+Tracked source should stay free of:
+
+- `.env` files and secrets
+- private job data, raw logs, and full result archives
+- downloaded databases and container/SIF artifacts
+- local work directories and caches
+- draft publication text or editable design sources
+
+Public-safe visuals retained in this repo:
+
+- [visuals/logo.svg](visuals/logo.svg)
+- [visuals/logo_black.svg](visuals/logo_black.svg)
+- [visuals/ClusterWeave.svg](visuals/ClusterWeave.svg)
+
+## Validation
+
+Common checks:
+
+```bash
+python3 -m unittest discover -s tests -p "test_*.py"
+bash -n run_clusterweave.sh
+bash -n run_annotation_and_detection.sh
+bash -n run_bigscape.sh
+bash -n summarize_clusterweave.sh
+bash -n run_clinker.sh
+git diff --check
+```
+
+Web source checks:
+
+```bash
+node --check web/static/assets/clusterweave.js
+node --input-type=module --check < web/static/assets/workflow-dna-progress.js
+python3 -m unittest tests.test_repo_layout tests.test_web_api_auth
+```
+
+## Release And Citation Files
 
 - [LICENSE](LICENSE)
 - [CITATION.cff](CITATION.cff)
@@ -364,17 +414,12 @@ NPLINKER_BOOTSTRAP_ENV=0
 - [DATA_SOURCES.md](DATA_SOURCES.md)
 - [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)
 - [docs/REPRODUCIBILITY.md](docs/REPRODUCIBILITY.md)
+- [docs/WEB_RUNTIME.md](docs/WEB_RUNTIME.md)
 - [web/OPERATOR_AGREEMENT.md](web/OPERATOR_AGREEMENT.md)
 - [BEGINNER_SETUP.md](BEGINNER_SETUP.md)
+
+Software DOI: https://doi.org/10.11578/PMI/dc.20260608.2.
 
 ## Funding Acknowledgement
 
 This research was funded by the Genomic System Sciences Program, U.S. Department of Energy, Office of Science, Biological and Environmental Research, as part of the Plant-Microbe Interfaces Scientific Focus Area at Oak Ridge National Laboratory (https://pmiweb.ornl.gov/). Oak Ridge National Laboratory is managed by UT-Battelle, LLC, for the U.S. Department of Energy under contract DE-AC05-00OR22725.
-
-## Publication Readiness
-
-This repository is prepared as a public source release for the reusable `ClusterWeave` workflow, including command-line entrypoints, Python helpers, hosted web portal UI/API code, build recipes, documentation, and public-safe example outputs. Reserved DOI: https://doi.org/10.11578/PMI/dc.20260608.2 (pending activation as of 2026-06-09). Until the resolver is live, cite the repository URL and [CITATION.cff](CITATION.cff). Runtime data, uploaded inputs, raw logs, local databases, generated full-result archives, container images, SIFs, caches, and restricted third-party assets are not part of the public source distribution.
-
-Public examples are curated, path-sanitized derived outputs. Full run provenance remains available to local operators under `data/results/<project-name>/reproducibility/`, including `external_artifacts.tsv`; treat that manifest as internal provenance unless regenerated as a public-safe table without local paths.
-
-For manuscript and release use, cite the software repository with [CITATION.cff](CITATION.cff), review upstream redistribution terms in [THIRD_PARTY.md](THIRD_PARTY.md), and describe data availability using [DATA_SOURCES.md](DATA_SOURCES.md).

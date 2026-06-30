@@ -10,7 +10,7 @@
 
 ## Recommended Release Practice
 
-1. Tag the GitHub release used for the manuscript.
+1. Tag the GitHub release used for the publication-linked run.
 2. Use the reserved software DOI `https://doi.org/10.11578/PMI/dc.20260608.2` once it is active; until then, cite the repository URL and `CITATION.cff`.
 3. Record the exact `accessions.txt` used for the analysis.
 4. Keep the generated `data/results/<project-name>/reproducibility/` directory with the release outputs.
@@ -47,7 +47,7 @@ It records the source URI, local path, version/tag, optional digest pin, SHA256 
 - MiBIG GBK cache
 - optional NPLinker base SIF when present
 
-This keeps everyday defaults flexible while preserving the exact bytes used in a manuscript or reviewer run.
+This keeps everyday defaults flexible while preserving the exact bytes used in a publication or reviewer run.
 
 For stricter reruns, source `profiles/release_v0.1.0.env` from the repository root before running `run_clusterweave.sh`. That profile keeps the smoke-run tool URIs visible for provenance but disables automatic pulls/downloads so a rerun uses prepopulated local artifacts that can be compared against `external_artifacts.tsv`.
 

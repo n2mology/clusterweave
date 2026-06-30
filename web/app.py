@@ -2,6 +2,11 @@
 from __future__ import annotations
 
 import io
+import warnings
+
+with warnings.catch_warnings():
+    warnings.filterwarnings("ignore", category=DeprecationWarning, message=".*cgi.*")
+    import cgi
 import json
 import hashlib
 import hmac
@@ -16,8 +21,6 @@ import urllib.error
 import urllib.request
 import uuid
 import zipfile
-from email.parser import BytesParser
-from email.policy import default
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -30,6 +33,7 @@ from job_store import (
     now_iso,
     read_job,
     read_logs,
+    request_job_cancel,
     write_job,
 )
 from notifications import validate_email
@@ -63,7 +67,7 @@ JOB_TOKEN_SECRET = os.environ.get("CLUSTERWEAVE_JOB_TOKEN_SECRET", "")
 ALLOW_ENV_OVERRIDES = env_bool("CLUSTERWEAVE_ALLOW_ENV_OVERRIDES", False)
 MAX_ACCESSIONS = env_int("CLUSTERWEAVE_MAX_ACCESSIONS", 25, minimum=1)
 MAX_GENOME_FILES = env_int("CLUSTERWEAVE_MAX_GENOME_FILES", 25, minimum=1)
-MAX_UPLOAD_FILE_MB = env_int("CLUSTERWEAVE_MAX_UPLOAD_FILE_MB", 250, minimum=1)
+MAX_UPLOAD_FILE_MB = env_int("CLUSTERWEAVE_MAX_UPLOAD_FILE_MB", 500, minimum=1)
 MAX_UPLOAD_TOTAL_MB = env_int("CLUSTERWEAVE_MAX_UPLOAD_TOTAL_MB", 1024, minimum=1)
 MAX_QUEUED_JOBS = env_int("CLUSTERWEAVE_MAX_QUEUED_JOBS", 50, minimum=0)
 MAX_CPUS_PER_JOB = env_int("CLUSTERWEAVE_MAX_CPUS_PER_JOB", 8, minimum=1)
@@ -74,6 +78,8 @@ ALLOWED_CORS_ORIGINS = {
     if origin.strip()
 }
 WEB_DISABLED_ANNOTATION_FALLBACKS = {"braker3", "braker"}
+WEB_PUBLIC_FUNANNOTATE_BUSCO_DB = "auto"
+WEB_PUBLIC_FUNANNOTATE_ORGANISM_NAME = "auto"
 WEB_DISABLED_RUNTIME_ENV_KEYS = {
     "BRAKER3_ENABLED",
     "BRAKER_BAM",
@@ -133,6 +139,7 @@ BYTES_PER_MB = 1024 * 1024
 WORKER_STATUS_PATH = Path(os.environ.get("DATA_DIR", "/data")) / "worker" / "status.json"
 STATIC_DIR = Path(__file__).parent / "static"
 STATIC_ASSET_DIR = STATIC_DIR / "assets"
+STATIC_VENDOR_DIR = STATIC_DIR / "vendor"
 INLINE_MIME_OVERRIDES = {
     ".svg": "image/svg+xml; charset=utf-8",
     ".svgz": "image/svg+xml",
@@ -800,6 +807,113 @@ def public_activity_stage_from_marker(message: str) -> str | None:
     return None
 
 
+def public_tool_activity_tool_name(value: object) -> str:
+    tool = public_activity_label(value).lower().replace("_", "-")
+    if tool in {"antismash", "anti-smash"}:
+        return "antiSMASH"
+    if tool == "funannotate":
+        return "funannotate"
+    if tool == "funbgcex":
+        return "FunBGCeX"
+    return public_activity_label(value)
+
+
+def public_tool_activity_message(value: object) -> str:
+    text = normalize_public_activity_message(str(value or ""))
+    text = text.replace("\\", "/")
+    text = re.sub(r"(?:^|\s)/(?:[^\s]+)", " ", text)
+    text = re.sub(r"[^A-Za-z0-9 ._:+/%()-]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip(" .:_-")
+    return text[:90] or "Running"
+
+
+def public_tool_activity_elapsed_text(value: object) -> str:
+    try:
+        seconds = max(0, int(value))
+    except (TypeError, ValueError):
+        seconds = 0
+    if seconds < 60:
+        return "under 1 min"
+    if seconds < 3600:
+        minutes = max(1, (seconds + 59) // 60)
+        return f"{minutes} min"
+    hours = seconds // 3600
+    minutes = (seconds % 3600) // 60
+    if minutes:
+        return f"{hours}h {minutes:02d}m"
+    return f"{hours}h"
+
+
+def public_tool_raw_activity_message(tool: object, raw: object) -> str:
+    text = normalize_public_activity_message(str(raw or ""))
+    if re.search(r"\bTOOL_(?:RAW|PROGRESS|HEARTBEAT)\b", text, re.IGNORECASE):
+        return ""
+    lower = text.lower()
+    tool_name = public_activity_label(tool).lower()
+    if tool_name in {"antismash", "anti-smash"}:
+        patterns = [
+            (r"running whole-genome pfam search", "Running whole-genome PFAM search"),
+            (r"detecting secondary metabolite clusters", "Detecting secondary metabolite clusters"),
+            (r"running cluster pfam search", "Running cluster PFAM search"),
+            (r"running clusterblast", "Running ClusterBlast"),
+            (r"comparing regions to reference database", "Comparing regions to reference database"),
+            (r"running tigrfam search", "Running TIGRFam search"),
+            (r"running antismash\.detection\.full_hmmer", "Running full HMMER detection"),
+            (r"running antismash\.detection\.hmm_detection", "Running HMM detection"),
+            (r"running antismash\.detection\.cluster_hmmer", "Running cluster HMMER search"),
+            (r"running antismash\.detection\.nrps_pks_domains", "Scanning NRPS/PKS domains"),
+            (r"writing|output|result", "Writing antiSMASH outputs"),
+        ]
+    elif tool_name == "funannotate":
+        patterns = [
+            (r"busco|augustus|train|training", "Training gene models"),
+            (r"predict|gene model|protein", "Predicting genes"),
+            (r"gff|gbk|tbl|annotation|write|output|result", "Writing annotation outputs"),
+            (r"sort|clean|prepare|assembly|contig|fasta", "Preparing assembly"),
+        ]
+    else:
+        return ""
+    for pattern, activity in patterns:
+        if re.search(pattern, lower, re.IGNORECASE):
+            return activity
+    return ""
+
+
+def public_tool_activity_marker(message: str) -> dict[str, str] | None:
+    progress_match = re.match(
+        r'^TOOL_PROGRESS\s+genome=(?P<genome>\S+)\s+tool=(?P<tool>\S+)\s+phase=(?P<phase>\S+)\s+message="(?P<message>.*)"\s*$',
+        message,
+        re.IGNORECASE,
+    )
+    if progress_match:
+        payload = progress_match.groupdict()
+        payload["kind"] = "progress"
+        return payload
+    heartbeat_match = re.match(
+        r"^TOOL_HEARTBEAT\s+genome=(?P<genome>\S+)\s+tool=(?P<tool>\S+)\s+phase=(?P<phase>\S+)\s+elapsed=(?P<elapsed>\d+)s\b",
+        message,
+        re.IGNORECASE,
+    )
+    if heartbeat_match:
+        payload = heartbeat_match.groupdict()
+        payload["kind"] = "heartbeat"
+        return payload
+    raw_match = re.match(
+        r"^TOOL_RAW\s+genome=(?P<genome>\S+)\s+tool=(?P<tool>\S+)\s+stream=(?P<stream>\S+)\s+(?P<raw>.*)$",
+        message,
+        re.IGNORECASE,
+    )
+    if raw_match:
+        payload = raw_match.groupdict()
+        activity = public_tool_raw_activity_message(payload.get("tool"), payload.get("raw"))
+        if not activity:
+            return None
+        payload["kind"] = "raw_progress"
+        payload["message"] = activity
+        return payload
+    return None
+
+
 def add_public_activity_event(
     events: list[dict[str, str]],
     seen: set[tuple[str, str, str]],
@@ -807,6 +921,8 @@ def add_public_activity_event(
     title: str,
     meta: str = "",
     observed_at: str = "",
+    *,
+    refresh: bool = False,
 ) -> None:
     safe_title = str(title or "").strip()
     safe_meta = str(meta or "").strip()
@@ -814,14 +930,56 @@ def add_public_activity_event(
         return
     key = (stage, safe_title, safe_meta)
     if key in seen:
-        return
-    seen.add(key)
+        if not refresh:
+            return
+        events[:] = [
+            event for event in events
+            if (event.get("stage"), event.get("title"), event.get("meta", "")) != key
+        ]
+    else:
+        seen.add(key)
     event = {"stage": stage, "title": safe_title}
     if safe_meta:
         event["meta"] = safe_meta
     if observed_at:
         event["time"] = observed_at
     events.append(event)
+
+
+def public_activity_active_meta_prefix(meta: object) -> str:
+    text = str(meta or "").strip()
+    text = re.sub(
+        r"\s*/\s*(?:under 1 min|\d+ min|\d+h(?: \d{2}m)?) active$",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return text.strip(" /")
+
+
+def prune_public_activity_heartbeat(
+    events: list[dict[str, str]],
+    seen: set[tuple[str, str, str]],
+    stage: str,
+    title: str,
+    meta_prefix: str,
+) -> None:
+    if not meta_prefix:
+        return
+    events[:] = [
+        event for event in events
+        if not (
+            event.get("stage") == stage
+            and event.get("title") == title
+            and public_activity_active_meta_prefix(event.get("meta", "")) == meta_prefix
+        )
+    ]
+    seen.difference_update(
+        key for key in set(seen)
+        if key[0] == stage
+        and key[1] == title
+        and public_activity_active_meta_prefix(key[2]) == meta_prefix
+    )
 
 
 def public_activity_from_logs(job_id: str, lines: list[str]) -> list[dict[str, str]]:
@@ -834,6 +992,48 @@ def public_activity_from_logs(job_id: str, lines: list[str]) -> list[dict[str, s
     for line in lines:
         observed_at, message = public_activity_parts(line)
         if not message:
+            continue
+
+        tool_marker = public_tool_activity_marker(message)
+        if tool_marker:
+            tool = public_tool_activity_tool_name(tool_marker.get("tool"))
+            genome_label = public_activity_label(tool_marker.get("genome"))
+            position = genome_position.get(genome_label)
+            if tool_marker.get("kind") == "heartbeat":
+                elapsed = public_tool_activity_elapsed_text(tool_marker.get("elapsed"))
+                meta_prefix_parts = [genome_label]
+                if position:
+                    meta_prefix_parts.append(f"Genome {position}")
+                meta_prefix = " / ".join(part for part in meta_prefix_parts if part)
+                title = f"{tool} still running"
+                prune_public_activity_heartbeat(events, seen, "annotation", title, meta_prefix)
+                meta_parts = [meta_prefix, f"{elapsed} active"]
+                add_public_activity_event(
+                    events,
+                    seen,
+                    "annotation",
+                    title,
+                    " / ".join(part for part in meta_parts if part),
+                    observed_at,
+                    refresh=True,
+                )
+            else:
+                activity = public_tool_activity_message(tool_marker.get("message"))
+                meta_parts = [genome_label]
+                if position:
+                    meta_parts.append(f"Genome {position}")
+                add_public_activity_event(
+                    events,
+                    seen,
+                    "annotation",
+                    f"{tool}: {activity}",
+                    " / ".join(part for part in meta_parts if part),
+                    observed_at,
+                    refresh=True,
+                )
+            continue
+
+        if re.match(r"^TOOL_", message, re.IGNORECASE):
             continue
 
         marker_stage = public_activity_stage_from_marker(message)
@@ -953,6 +1153,32 @@ def public_activity_from_logs(job_id: str, lines: list[str]) -> list[dict[str, s
                 "annotation",
                 f"Finished {tool} on {genome_label}",
                 "BGC detection",
+                observed_at,
+            )
+            continue
+
+        training_match = re.search(
+            r"^([^:\s]+):\s+funannotate could not train AUGUSTUS;\s+(.+)$",
+            message,
+            re.IGNORECASE,
+        )
+        if training_match:
+            genome_label = public_activity_label(training_match.group(1))
+            detail = training_match.group(2)
+            count_match = re.search(
+                r"validated_busco_models=(\d+)\s+required_training_models=(\d+)",
+                detail,
+                re.IGNORECASE,
+            )
+            meta = "Insufficient BUSCO training models"
+            if count_match:
+                meta = f"BUSCO training had {count_match.group(1)} of {count_match.group(2)} required models"
+            add_public_activity_event(
+                events,
+                seen,
+                "annotation",
+                f"Annotation skipped for {genome_label}",
+                meta,
                 observed_at,
             )
             continue
@@ -1286,23 +1512,44 @@ def ncbi_preflight_unavailable(accession: str) -> str:
     )
 
 
-def ncbi_accession_acceptability_error(accession: str) -> str | None:
+def taxonomy_rank_name(taxonomy: dict[str, object], rank: str) -> str:
+    classification = taxonomy.get("classification")
+    if isinstance(classification, dict):
+        node = classification.get(rank)
+        if isinstance(node, dict):
+            return str(node.get("name") or node.get("scientific_name") or "").strip()
+        if isinstance(node, str):
+            return node.strip()
+
+    lineage = taxonomy.get("lineage")
+    if isinstance(lineage, list):
+        for node in lineage:
+            if not isinstance(node, dict):
+                continue
+            if str(node.get("rank") or "").lower() != rank:
+                continue
+            return str(node.get("name") or node.get("scientific_name") or "").strip()
+    return ""
+
+
+def ncbi_accession_acceptability_details(accession: str) -> tuple[str | None, dict[str, object] | None]:
     quoted_accession = urllib.parse.quote(accession, safe="")
     try:
         report_payload = fetch_ncbi_datasets_json(f"genome/accession/{quoted_accession}/dataset_report")
     except (OSError, TimeoutError, urllib.error.URLError, json.JSONDecodeError):
-        return ncbi_preflight_unavailable(accession)
+        return ncbi_preflight_unavailable(accession), None
 
     reports = report_payload.get("reports") if isinstance(report_payload, dict) else None
     if not isinstance(reports, list) or not reports:
         return (
             f"NCBI Datasets did not find assembly accession '{accession}'. "
-            f"Use current fungal NCBI assembly accessions like {NCBI_ACCESSION_EXAMPLES}."
+            f"Use current fungal NCBI assembly accessions like {NCBI_ACCESSION_EXAMPLES}.",
+            None,
         )
 
     report = reports[0]
     if not isinstance(report, dict):
-        return ncbi_preflight_unavailable(accession)
+        return ncbi_preflight_unavailable(accession), None
 
     assembly_info = report.get("assembly_info")
     assembly_status = ""
@@ -1311,7 +1558,8 @@ def ncbi_accession_acceptability_error(accession: str) -> str | None:
     if assembly_status and assembly_status.lower() != "current":
         return (
             f"NCBI assembly accession '{accession}' is not current ({assembly_status}). "
-            f"Use a current fungal assembly accession like {NCBI_ACCESSION_EXAMPLES}."
+            f"Use a current fungal assembly accession like {NCBI_ACCESSION_EXAMPLES}.",
+            None,
         )
 
     organism = report.get("organism")
@@ -1325,45 +1573,73 @@ def ncbi_accession_acceptability_error(accession: str) -> str | None:
         except (TypeError, ValueError):
             tax_id = None
     if tax_id is None:
-        return ncbi_preflight_unavailable(accession)
+        return ncbi_preflight_unavailable(accession), None
 
     try:
         taxonomy_payload = fetch_ncbi_datasets_json(f"taxonomy/taxon/{tax_id}")
     except (OSError, TimeoutError, urllib.error.URLError, json.JSONDecodeError):
-        return ncbi_preflight_unavailable(accession)
+        return ncbi_preflight_unavailable(accession), None
 
     taxonomy_nodes = taxonomy_payload.get("taxonomy_nodes") if isinstance(taxonomy_payload, dict) else None
     taxonomy = None
     if isinstance(taxonomy_nodes, list) and taxonomy_nodes and isinstance(taxonomy_nodes[0], dict):
         taxonomy = taxonomy_nodes[0].get("taxonomy")
     if not isinstance(taxonomy, dict):
-        return ncbi_preflight_unavailable(accession)
+        return ncbi_preflight_unavailable(accession), None
 
     lineage = taxonomy.get("lineage")
     lineage_ids = {int(item) for item in lineage if isinstance(item, int) or str(item).isdigit()} if isinstance(lineage, list) else set()
+    taxonomy_name = str(taxonomy.get("organism_name") or organism_name or accession)
     if tax_id != NCBI_FUNGAL_TAXON_ID and NCBI_FUNGAL_TAXON_ID not in lineage_ids:
-        display_name = str(taxonomy.get("organism_name") or organism_name or accession)
         return (
-            f"NCBI accession '{accession}' is {display_name}, not a fungal assembly. "
-            f"ClusterWeave public runs accept fungal assemblies such as {NCBI_ACCESSION_EXAMPLES}."
+            f"NCBI accession '{accession}' is {taxonomy_name}, not a fungal assembly. "
+            f"ClusterWeave public runs accept fungal assemblies such as {NCBI_ACCESSION_EXAMPLES}.",
+            None,
         )
 
-    return None
+    order_name = taxonomy_rank_name(taxonomy, "order")
+    family_name = taxonomy_rank_name(taxonomy, "family")
+    class_name = taxonomy_rank_name(taxonomy, "class")
+
+    return None, {
+        "accession": accession,
+        "assembly_status": assembly_status or "current",
+        "organism_name": taxonomy_name,
+        "tax_id": tax_id,
+        "taxa": f"NCBI taxon {tax_id} / fungi",
+        "order_name": order_name,
+        "family_name": family_name,
+        "class_name": class_name,
+        "order_family": ":".join(part for part in [order_name, family_name] if part),
+    }
 
 
-def validate_ncbi_accession_preflight(accessions: list[str]) -> str | None:
+def ncbi_accession_acceptability_error(accession: str) -> str | None:
+    error, _ = ncbi_accession_acceptability_details(accession)
+    return error
+
+
+def validate_ncbi_accession_preflight_details(accessions: list[str]) -> tuple[str | None, list[dict[str, object]]]:
     if not NCBI_ACCESSION_PREFLIGHT:
-        return None
+        return None, []
     seen: set[str] = set()
+    metadata: list[dict[str, object]] = []
     for accession in accessions:
         normalized = accession.strip().upper()
         if not normalized or normalized in seen:
             continue
         seen.add(normalized)
-        error = ncbi_accession_acceptability_error(normalized)
+        error, record = ncbi_accession_acceptability_details(normalized)
         if error:
-            return error
-    return None
+            return error, []
+        if record:
+            metadata.append(record)
+    return None, metadata
+
+
+def validate_ncbi_accession_preflight(accessions: list[str]) -> str | None:
+    error, _ = validate_ncbi_accession_preflight_details(accessions)
+    return error
 
 
 def public_genome_stem(filename: str) -> str:
@@ -1388,33 +1664,45 @@ def validate_public_genome_stem(filename: str, seen_stems: set[str]) -> tuple[st
 
 
 def classify_public_fasta(filename: str, content: bytes) -> tuple[str, str]:
-    try:
-        text = content.decode("utf-8")
-    except UnicodeDecodeError:
-        return "invalid", f"FASTA genome '{filename}' must be UTF-8 compatible text"
-
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    if not lines:
-        return "invalid", f"FASTA genome '{filename}' is empty"
-    if not lines[0].startswith(">"):
-        return "invalid", f"FASTA genome '{filename}' must start with a FASTA header line beginning with >"
-
-    sequence_chars: list[str] = []
+    first_content_seen = False
     sequence_lines = 0
-    for line in lines:
-        if line.startswith(">"):
-            continue
-        clean = re.sub(r"\s+", "", line).upper()
-        if not clean:
-            continue
-        sequence_lines += 1
-        sequence_chars.extend(clean)
+    sequence_char_count = 0
+    nucleotide_count = 0
 
-    if sequence_lines == 0 or not sequence_chars:
+    for raw_line in io.BytesIO(content):
+        try:
+            line = raw_line.decode("utf-8")
+        except UnicodeDecodeError:
+            return "invalid", f"FASTA genome '{filename}' must be UTF-8 compatible text"
+
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if not first_content_seen:
+            first_content_seen = True
+            if not stripped.startswith(">"):
+                return "invalid", f"FASTA genome '{filename}' must start with a FASTA header line beginning with >"
+        if stripped.startswith(">"):
+            continue
+
+        line_has_sequence = False
+        for char in stripped:
+            if char.isspace():
+                continue
+            line_has_sequence = True
+            sequence_char_count += 1
+            if char.upper() in PUBLIC_NUCLEOTIDE_CHARS:
+                nucleotide_count += 1
+        if line_has_sequence:
+            sequence_lines += 1
+
+    if not first_content_seen:
+        return "invalid", f"FASTA genome '{filename}' is empty"
+
+    if sequence_lines == 0 or sequence_char_count == 0:
         return "invalid", f"FASTA genome '{filename}' must include at least one nucleotide sequence line"
 
-    nucleotide_count = sum(1 for char in sequence_chars if char in PUBLIC_NUCLEOTIDE_CHARS)
-    nucleotide_ratio = nucleotide_count / len(sequence_chars)
+    nucleotide_ratio = nucleotide_count / sequence_char_count
     if nucleotide_ratio < 0.85:
         return (
             "invalid",
@@ -1584,9 +1872,11 @@ def validate_public_uploads(
             )
 
     if accession_preflight:
-        ncbi_error = validate_ncbi_accession_preflight(accessions_for_preflight)
+        ncbi_error, accession_metadata = validate_ncbi_accession_preflight_details(accessions_for_preflight)
         if ncbi_error:
             return ncbi_error, summary
+        if accession_metadata:
+            summary["accession_metadata"] = accession_metadata
 
     return None, summary
 
@@ -1683,38 +1973,50 @@ def rerun_settings(base_settings: dict[str, object], payload: dict[str, object])
     return settings
 
 
-def parse_multipart_form_data(content_type: str, body: bytes) -> tuple[dict[str, list[str]], list[dict[str, object]]]:
-    """Parse multipart/form-data using the stdlib email package."""
-    message = BytesParser(policy=default).parsebytes(
-        f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode("utf-8") + body
+def parse_multipart_form_data(
+    content_type: str,
+    stream: object,
+    *,
+    content_length: int,
+) -> tuple[dict[str, list[str]], list[dict[str, object]]]:
+    """Parse multipart/form-data without reading the full request body into memory."""
+    environ = {
+        "REQUEST_METHOD": "POST",
+        "CONTENT_TYPE": content_type,
+        "CONTENT_LENGTH": str(content_length),
+    }
+    form = cgi.FieldStorage(
+        fp=stream,
+        headers=None,
+        environ=environ,
+        keep_blank_values=True,
     )
 
     fields: dict[str, list[str]] = {}
     files: list[dict[str, object]] = []
 
-    for part in message.iter_parts():
-        disposition = part.get_content_disposition()
-        if disposition != "form-data":
-            continue
-
-        name = part.get_param("name", header="content-disposition")
-        filename = part.get_filename()
-        payload = part.get_payload(decode=True) or b""
-
+    for part in form.list or []:
+        name = str(part.name or "").strip()
         if not name:
             continue
 
-        if filename is not None:
-            files.append({
-                "field": name,
-                "filename": filename,
-                "content": payload,
-            })
+        if part.filename is not None:
+            uploaded = part.file.read() if part.file is not None else b""
+            if isinstance(uploaded, str):
+                uploaded = uploaded.encode("utf-8")
+            files.append(
+                {
+                    "field": name,
+                    "filename": str(part.filename),
+                    "content": uploaded or b"",
+                }
+            )
             continue
 
-        charset = part.get_content_charset() or "utf-8"
-        value = payload.decode(charset, errors="replace")
-        fields.setdefault(name, []).append(value)
+        value = part.value
+        if isinstance(value, bytes):
+            value = value.decode("utf-8", errors="replace")
+        fields.setdefault(name, []).append(str(value))
 
     return fields, files
 
@@ -1755,6 +2057,23 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_file(
+        self,
+        status: int,
+        full: Path,
+        content_type: str,
+        extra_headers: dict[str, str] | None = None,
+    ) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(full.stat().st_size))
+        self._send_cors_headers()
+        for key, value in (extra_headers or {}).items():
+            self.send_header(key, value)
+        self.end_headers()
+        with full.open("rb") as handle:
+            shutil.copyfileobj(handle, self.wfile, length=1024 * 1024)
+
     def _not_found(self, message: str = "Not found") -> None:
         self._send_json(HTTPStatus.NOT_FOUND, {"detail": message})
 
@@ -1792,6 +2111,22 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
 
+        if route == "/favicon.ico":
+            favicon = STATIC_DIR / "favicon.ico"
+            if not favicon.exists():
+                self._not_found("Favicon not found")
+                return
+            self._send_file(
+                HTTPStatus.OK,
+                favicon,
+                result_file_mime(favicon),
+                {
+                    "Cache-Control": "public, max-age=86400",
+                    "X-Content-Type-Options": "nosniff",
+                },
+            )
+            return
+
         if route.startswith("/assets/"):
             asset_root = STATIC_ASSET_DIR.resolve()
             rel_path = urllib.parse.unquote(route.removeprefix("/assets/"))
@@ -1803,6 +2138,29 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if not full.exists() or not full.is_file():
                 self._not_found("Asset not found")
+                return
+            self._send_text(
+                HTTPStatus.OK,
+                result_file_mime(full),
+                full.read_bytes(),
+                {
+                    "Cache-Control": "public, max-age=86400",
+                    "X-Content-Type-Options": "nosniff",
+                },
+            )
+            return
+
+        if route.startswith("/vendor/"):
+            vendor_root = STATIC_VENDOR_DIR.resolve()
+            rel_path = urllib.parse.unquote(route.removeprefix("/vendor/"))
+            full = (vendor_root / rel_path).resolve()
+            try:
+                full.relative_to(vendor_root)
+            except ValueError:
+                self._bad_request("Invalid vendor path")
+                return
+            if not full.exists() or not full.is_file():
+                self._not_found("Vendor asset not found")
                 return
             self._send_text(
                 HTTPStatus.OK,
@@ -1909,7 +2267,7 @@ class Handler(BaseHTTPRequestHandler):
                     "Content-Disposition": content_disposition(disposition, full.name),
                     "X-Content-Type-Options": "nosniff",
                 }
-                self._send_text(HTTPStatus.OK, result_file_mime(full), full.read_bytes(), headers)
+                self._send_file(HTTPStatus.OK, full, result_file_mime(full), headers)
                 return
 
         self._not_found()
@@ -1994,8 +2352,15 @@ class Handler(BaseHTTPRequestHandler):
             self._bad_request("Missing or invalid Content-Length")
             return
 
-        body = self.rfile.read(content_length)
-        fields, files = parse_multipart_form_data(content_type, body)
+        try:
+            fields, files = parse_multipart_form_data(
+                content_type,
+                self.rfile,
+                content_length=content_length,
+            )
+        except Exception:
+            self._bad_request("Could not parse multipart upload")
+            return
 
         if PUBLIC_MODE and not request_is_admin(self):
             data_use_ack = parse_bool(fields.get("data_use_ack", ["0"])[0], False)
@@ -2003,7 +2368,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._bad_request("Data-use acknowledgment is required")
                 return
 
-        project_name = str(fields.get("project_name", ["my_project"])[0])
+        project_name = str(fields.get("project_name", [""])[0]).strip()
+        if not project_name:
+            self._bad_request("Project name is required")
+            return
         cpus = clamp_public_cpus(parse_int(fields.get("cpus", ["4"])[0], 4))
         notify_email = str(fields.get("notify_email", [""])[0]).strip()
         if notify_email and not SMTP_ENABLED:
@@ -2127,6 +2495,8 @@ class Handler(BaseHTTPRequestHandler):
                     "genefinding_mode": "auto",
                     "annotation_fallback_order": "funannotate",
                     "braker3_enabled": False,
+                    "funannotate_busco_db": WEB_PUBLIC_FUNANNOTATE_BUSCO_DB,
+                    "funannotate_organism_name": WEB_PUBLIC_FUNANNOTATE_ORGANISM_NAME,
                     "threads": cpus,
                     "anno_cpus": cpus,
                 }
@@ -2208,6 +2578,7 @@ class Handler(BaseHTTPRequestHandler):
                 "read_token": read_token,
                 "result_url": result_url,
                 "expires_at": job.get("expires_at"),
+                "input_summary": input_summary,
             },
         )
 
@@ -2230,14 +2601,28 @@ class Handler(BaseHTTPRequestHandler):
             self._not_found(f"Job '{job_id}' not found")
             return
 
-        target = job_dir(job_id)
-        if target.exists():
-            shutil.rmtree(target, ignore_errors=True)
-
         for q in QUEUE_DIR.glob(f"{job_id}*.json"):
             q.unlink(missing_ok=True)
         for q in QUEUE_DIR.glob(f"{job_id}*.working"):
             q.unlink(missing_ok=True)
+
+        if str(job.get("status") or "").lower() == "running":
+            request_job_cancel(job_id, "Admin delete requested", delete_after_cancel=True)
+            append_log(job_id, "Cancel requested by administrator; stopping active workflow before deleting job data.")
+            job["stage"] = "cancel requested"
+            job["error"] = "Cancel requested by administrator"
+            job["log_count"] = len(read_logs(job_id))
+            job["updated_at"] = now_iso()
+            write_job(job)
+            self._send_json(
+                HTTPStatus.ACCEPTED,
+                {"job_id": job_id, "status": "cancel_requested", "message": "Active job cancellation requested"},
+            )
+            return
+
+        target = job_dir(job_id)
+        if target.exists():
+            shutil.rmtree(target, ignore_errors=True)
 
         self.send_response(HTTPStatus.NO_CONTENT)
         self._send_cors_headers()

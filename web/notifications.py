@@ -78,7 +78,14 @@ def retention_phrase(job: dict[str, Any]) -> str:
 
 
 def docs_link() -> str:
-    return os.environ.get("CLUSTERWEAVE_CITATION_URL", "https://github.com/clusterweave/clusterweave").strip()
+    return os.environ.get("CLUSTERWEAVE_CITATION_URL", "").strip() or "https://github.com/n2mology/clusterweave"
+
+
+def display_timestamp(value: Any, fallback: str = "unknown") -> str:
+    text = str(value or "").strip()
+    if not text:
+        return fallback
+    return text.replace("T", " ", 1)
 
 
 def public_stage_name(stage: str) -> str:
@@ -132,6 +139,43 @@ def input_summary_lines(job: dict[str, Any]) -> list[str]:
     ]
 
 
+def result_status_label(status: str) -> str:
+    normalized = str(status or "").lower()
+    if normalized == "success":
+        return "complete"
+    if normalized == "failed":
+        return "failed"
+    return normalized or "unknown"
+
+
+def plural_count(count: int, singular: str, plural: str | None = None) -> str:
+    return f"{count} {singular if count == 1 else (plural or singular + 's')}"
+
+
+def submission_input_phrase(job: dict[str, Any]) -> str:
+    summary = job.get("input_summary") if isinstance(job.get("input_summary"), dict) else {}
+    accessions = int(summary.get("accession_count") or 0)
+    genomes = int(summary.get("genome_file_count") or 0)
+    parts: list[str] = []
+    if accessions:
+        parts.append(plural_count(accessions, "NCBI accession"))
+    if genomes:
+        parts.append(plural_count(genomes, "uploaded genome file"))
+    if not parts:
+        return "with the submitted input"
+    if len(parts) == 1:
+        return f"with {parts[0]}"
+    return f"with {' and '.join(parts)}"
+
+
+def result_retention_line(job: dict[str, Any]) -> str:
+    phrase = retention_phrase(job)
+    expires = str(job.get("expires_at") or "").strip()
+    if expires:
+        return f"Results will be kept {phrase} and then deleted automatically on {display_timestamp(expires)}."
+    return f"Results will be kept {phrase}."
+
+
 def sanitized_failure_reason(job: dict[str, Any]) -> str:
     text = str(job.get("error") or job.get("stage") or "").lower()
     if "accession" in text or "ncbi" in text:
@@ -145,38 +189,34 @@ def sanitized_failure_reason(job: dict[str, Any]) -> str:
 
 def build_job_email(job: dict[str, Any], link: str, access_code: str = "") -> EmailMessage:
     status = str(job.get("status") or "unknown")
+    status_label = result_status_label(status)
     job_id = str(job.get("id") or "unknown")
     project = str(job.get("project_name") or job.get("name") or "ClusterWeave project")
-    submitted = str(job.get("created_at") or "unknown")
-    expires = str(job.get("expires_at") or "no automatic expiration date")
-    phrase = retention_phrase(job)
+    submitted = display_timestamp(job.get("created_at"))
     result_access_code = access_code or link.rsplit("/", 1)[-1]
-    recovery_lines = [
-        "Recovery details:",
-        f"- ClusterWeave job ID: {job_id}",
-        f"- Result access code: {result_access_code}",
-        "",
-        "Private result link:",
+    result_lines = [
+        "You can find the results at" if status == "success" else "You can review logs and any partial results at",
         link,
+        "",
+        f"Result access code: {result_access_code}",
     ]
+
+    lead = (
+        f"The ClusterWeave job {job_id} you submitted on {submitted} for project '{project}' "
+        f"{submission_input_phrase(job)} has finished with status {status_label}."
+    )
 
     if status == "success":
         body = [
             "Dear ClusterWeave user,",
             "",
-            f"The ClusterWeave job {job_id} submitted on {submitted} for project {project} has finished with status {status}.",
+            lead,
             "",
-            "Input summary:",
-            *input_summary_lines(job),
+            *result_lines,
             "",
-            "Workflow summary:",
-            *workflow_summary_lines(job),
+            result_retention_line(job),
             "",
-            *recovery_lines,
-            "",
-            f"Results will be kept {phrase} and then deleted automatically on {expires}.",
-            "",
-            "If you found ClusterWeave useful, please cite the project using the citation instructions here:",
+            "If you found ClusterWeave useful, please cite the project using",
             docs_link(),
             "",
         ]
@@ -184,9 +224,9 @@ def build_job_email(job: dict[str, Any], link: str, access_code: str = "") -> Em
         body = [
             "Dear ClusterWeave user,",
             "",
-            f"The ClusterWeave job {job_id} submitted on {submitted} for project {project} has finished with status {status}.",
+            lead,
             "",
-            "The job did not complete successfully.",
+            "ClusterWeave could not complete this job.",
             "",
             f"Failed stage: {public_stage_name(str(job.get('stage') or ''))}",
             f"Likely issue: {sanitized_failure_reason(job)}",
@@ -195,19 +235,17 @@ def build_job_email(job: dict[str, Any], link: str, access_code: str = "") -> Em
             "- Check that uploaded genomes use supported extensions: .fasta, .fa, .fna, .fsa, .gb, .gbk, .gbff.",
             "- Submit only public or releasable data; for sensitive or advanced troubleshooting, run ClusterWeave locally with Docker.",
             "",
-            "The private result link below may include partial outputs and the public failure summary.",
+            *result_lines,
             "",
-            *recovery_lines,
+            result_retention_line(job),
             "",
-            f"Results will be kept {phrase} and then deleted automatically on {expires}.",
-            "",
-            "For help and citation instructions, see:",
+            "For help and citation instructions, see",
             docs_link(),
             "",
         ]
 
     message = EmailMessage()
-    message["Subject"] = f"ClusterWeave job {job_id} finished: {status}"
+    message["Subject"] = f"ClusterWeave job {job_id} finished: {status_label}"
     message["To"] = str(job.get("notify_email") or "")
     message["From"] = (
         os.environ.get("CLUSTERWEAVE_SMTP_FROM")
@@ -235,10 +273,12 @@ def deliver_email(message: EmailMessage) -> None:
     username = os.environ.get("CLUSTERWEAVE_SMTP_USERNAME", "").strip()
     password = os.environ.get("CLUSTERWEAVE_SMTP_PASSWORD", "")
     timeout = float(os.environ.get("CLUSTERWEAVE_SMTP_TIMEOUT", "10"))
+    use_ssl = env_bool("CLUSTERWEAVE_SMTP_SSL", False)
     use_tls = env_bool("CLUSTERWEAVE_SMTP_TLS", True)
+    smtp_factory = smtplib.SMTP_SSL if use_ssl else smtplib.SMTP
 
-    with smtplib.SMTP(host, port, timeout=timeout) as smtp:
-        if use_tls:
+    with smtp_factory(host, port, timeout=timeout) as smtp:
+        if use_tls and not use_ssl:
             smtp.starttls()
         if username:
             smtp.login(username, password)

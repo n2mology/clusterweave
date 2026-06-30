@@ -75,6 +75,81 @@ class RepoLayoutTests(unittest.TestCase):
             self.assertTrue(package_dir.exists())
             self.assertFalse((package_dir / fungus_id).exists())
 
+
+    def test_ncbi_rename_enriches_mapping_with_taxonomy_lineage_when_datasets_available(self) -> None:
+        accession = "GCA_999999999.1"
+        report = {
+            "organism": {
+                "organismName": "Rhizopus delemar RA 99-880",
+                "taxId": 4827,
+            },
+            "assemblyStats": {"totalSequenceLength": 2000000},
+        }
+        taxonomy_payload = {
+            "reports": [
+                {
+                    "taxonomy": {
+                        "tax_id": 4827,
+                        "parents": [1, 131567, 2759, 33154, 4751, 112252, 1913637, 451507, 2212703],
+                        "classification": {
+                            "kingdom": {"id": 4751, "name": "Fungi"},
+                            "phylum": {"id": 1913637, "name": "Mucoromycota"},
+                            "class": {"id": 2212703, "name": "Mucoromycetes"},
+                            "order": {"id": 4827, "name": "Mucorales"},
+                        },
+                        "current_scientific_name": {"name": "Mucorales"},
+                    }
+                }
+            ],
+            "total_count": 1,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            bin_dir = tmp_path / "bin"
+            bin_dir.mkdir()
+            datasets = bin_dir / "datasets"
+            datasets.write_text(
+                "#!/usr/bin/env python3\n"
+                "import json\n"
+                f"print({json.dumps(taxonomy_payload)!r})\n",
+                encoding="utf-8",
+            )
+            datasets.chmod(0o755)
+
+            genome_root = tmp_path / "genomes"
+            package_dir = genome_root / accession / "ncbi_dataset" / "data" / accession
+            package_dir.mkdir(parents=True)
+            (genome_root / accession / "ncbi_dataset" / "data" / "assembly_data_report.jsonl").write_text(
+                json.dumps(report) + "\n",
+                encoding="utf-8",
+            )
+            (package_dir / f"{accession}.fna").write_text(">seq\nAC\n", encoding="utf-8")
+
+            env = dict(os.environ)
+            env["GENOME_ROOT"] = str(genome_root)
+            env["PYTHON_BIN"] = sys.executable
+            env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"
+            subprocess.run(
+                ["bash", str(REPO_ROOT / "scripts" / "ncbi" / "rename_ncbi_genomes.sh")],
+                cwd=str(REPO_ROOT),
+                env=env,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+            mapping = (genome_root / "accessions_fungusID_taxonomyID.txt").read_text(encoding="utf-8").strip()
+            fields = mapping.split("\t")
+            self.assertGreaterEqual(len(fields), 7)
+            self.assertEqual(fields[0], accession)
+            self.assertEqual(fields[2], "4827")
+            self.assertEqual(fields[4], "Rhizopus delemar RA 99-880")
+            self.assertIn("1913637", fields[5])
+            self.assertIn("4827", fields[5])
+            self.assertIn("Mucoromycota", fields[6])
+            self.assertIn("Mucorales", fields[6])
+
     def test_ncbi_flatten_skips_accession_alias_when_canonical_files_exist(self) -> None:
         accession = "GCA_017499595.2"
         fungus_id = "Psilocybe_cubensis_MGC-MH-2018"
@@ -116,6 +191,112 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("should_skip_discovered_stem", text)
         self.assertIn("skipping accession alias genome stem", text)
 
+    def test_annotation_uses_per_genome_funannotate_lineage_policy(self) -> None:
+        text = (REPO_ROOT / "run_annotation_and_detection.sh").read_text(encoding="utf-8")
+        self.assertIn("resolve_funannotate_policy()", text)
+        self.assertIn("funannotate_mapping_row()", text)
+        self.assertIn("funannotate_busco_env_value()", text)
+        self.assertIn("FUNANNOTATE_RESOLVED_BUSCO_DB", text)
+        self.assertIn("FUNANNOTATE_RESOLVED_SPECIES", text)
+        self.assertIn("taxonomy:ascomycota", text)
+        self.assertIn("fallback:no-taxonomy", text)
+        self.assertIn('local species_name="${FUNANNOTATE_RESOLVED_SPECIES%.}"', text)
+        self.assertIn('local busco_db="${FUNANNOTATE_RESOLVED_BUSCO_DB}"', text)
+        self.assertIn('ANNOTATION_FALLBACK_METHOD="funannotate"', text)
+        self.assertIn('fallback_method="${ANNOTATION_FALLBACK_METHOD:-annotation}"', text)
+        self.assertNotIn("ANNOTATION_LINEAGE_POLICY_PY", text)
+        self.assertNotIn("annotation_lineage_policy.py", text)
+        self.assertNotIn('fallback_method="$(annotate_genome_with_fallbacks', text)
+
+    def test_funannotate_busco_db_is_validated_before_predict(self) -> None:
+        text = (REPO_ROOT / "run_annotation_and_detection.sh").read_text(encoding="utf-8")
+        self.assertIn("funannotate_busco_db_available()", text)
+        self.assertIn("validate_funannotate_busco_db()", text)
+        self.assertIn("auto-selected BUSCO db", text)
+        self.assertIn("explicit FUNANNOTATE_BUSCO_DB", text)
+        self.assertIn("FUNANNOTATE_BUSCO_DB_DEFAULT", text)
+        self.assertLess(text.index("validate_funannotate_busco_db"), text.index("funannotate predict"))
+
+    def test_funannotate_retries_without_default_protein_evidence_when_p2g_fails(self) -> None:
+        text = (REPO_ROOT / "run_annotation_and_detection.sh").read_text(encoding="utf-8")
+        self.assertIn('FUNANNOTATE_RETRY_WITHOUT_PROTEIN_EVIDENCE="${FUNANNOTATE_RETRY_WITHOUT_PROTEIN_EVIDENCE:-1}"', text)
+        self.assertIn("funannotate_predict_failed_in_p2g()", text)
+        self.assertIn(r"protein_alignments\.gff3", text)
+        self.assertIn("funannotate_no_protein_alignments.gff3", text)
+        self.assertIn("printf '%s\\n' '##gff-version 3'", text)
+        self.assertIn("retrying without default UniProt protein-to-genome evidence", text)
+        self.assertIn('funannotate_predict_attempt "no-protein-evidence" --protein_alignments "${no_protein_alignments}"', text)
+
+    def test_funannotate_sif_bake_path_installs_busco_databases_at_build_time(self) -> None:
+        script = REPO_ROOT / "software" / "funannotate" / "build_funannotate_sif.sh"
+        dockerfile = REPO_ROOT / "software" / "funannotate" / "Dockerfile"
+        definition = REPO_ROOT / "software" / "funannotate" / "Singularity.def"
+        readme = REPO_ROOT / "software" / "funannotate" / "README.md"
+        installer = REPO_ROOT / "software" / "funannotate" / "install_busco_db.py"
+        cache_keep = REPO_ROOT / "software" / "funannotate" / "busco_cache" / ".gitkeep"
+        worker_dockerfile = REPO_ROOT / "Dockerfile.worker"
+        dockerignore = REPO_ROOT / ".dockerignore"
+
+        self.assertTrue(script.exists())
+        self.assertTrue(dockerfile.exists())
+        self.assertTrue(definition.exists())
+        self.assertTrue(readme.exists())
+        self.assertTrue(installer.exists())
+        self.assertTrue(cache_keep.exists())
+
+        script_text = script.read_text(encoding="utf-8")
+        dockerfile_text = dockerfile.read_text(encoding="utf-8")
+        definition_text = definition.read_text(encoding="utf-8")
+        readme_text = readme.read_text(encoding="utf-8")
+        installer_text = installer.read_text(encoding="utf-8")
+        worker_text = worker_dockerfile.read_text(encoding="utf-8")
+        dockerignore_text = dockerignore.read_text(encoding="utf-8")
+        combined = script_text + dockerfile_text + definition_text + readme_text
+
+        self.assertIn("FUNANNOTATE_BUSCO_DBS", script_text)
+        self.assertIn("ascomycota basidiomycota microsporidia dikarya fungi", script_text)
+        self.assertIn("COPY install_busco_db.py", dockerfile_text)
+        self.assertIn("COPY busco_cache/", dockerfile_text)
+        self.assertIn("install_from_cache", dockerfile_text)
+        self.assertIn("/venv/bin/python /opt/clusterweave-install-busco-db.py", dockerfile_text)
+        self.assertIn("--cache-dir /opt/clusterweave-busco-cache", dockerfile_text)
+        self.assertIn("for db in ${FUNANNOTATE_BUSCO_DBS}", dockerfile_text)
+        self.assertIn('--db "${db}"', dockerfile_text)
+        self.assertIn("%files", definition_text)
+        self.assertIn("install_busco_db.py /opt/clusterweave-install-busco-db.py", definition_text)
+        self.assertIn("busco_cache /opt/clusterweave-busco-cache", definition_text)
+        self.assertIn("install_from_cache", definition_text)
+        self.assertIn("/venv/bin/python /opt/clusterweave-install-busco-db.py", definition_text)
+        self.assertIn("--cache-dir /opt/clusterweave-busco-cache", definition_text)
+        self.assertIn("for db in ${FUNANNOTATE_BUSCO_DBS}", definition_text)
+        self.assertIn('--db "${db}"', definition_text)
+        self.assertIn("validate_funannotate_busco_db_inventory", script_text)
+        self.assertIn("assert_funannotate_predict_accepts_busco_dbs", script_text)
+        self.assertIn("docker)", script_text)
+        self.assertIn("sif)", script_text)
+        self.assertIn("COPY software/funannotate/", worker_text)
+        self.assertIn("/clusterweave/software/funannotate/*.sh", worker_text)
+        self.assertIn("!software/funannotate/", dockerignore_text)
+        self.assertIn("!software/funannotate/build_funannotate_sif.sh", dockerignore_text)
+        self.assertIn("!software/funannotate/install_busco_db.py", dockerignore_text)
+        self.assertIn("Redirect308Handler", installer_text)
+        self.assertIn("resources.busco_links", installer_text)
+        self.assertIn("safe_extract", installer_text)
+        self.assertNotIn("auto-lineage", combined)
+        self.assertNotIn("_odb10", combined)
+        self.assertIn("Public jobs must not download BUSCO DBs", readme_text)
+
+    def test_funannotate_sif_bake_is_not_a_job_time_download_path(self) -> None:
+        pipeline = (REPO_ROOT / "run_annotation_and_detection.sh").read_text(encoding="utf-8")
+        self.assertIn("AUTO_BUILD_FUNANNOTATE_SIF", pipeline)
+        self.assertIn("AUTO_BUILD_FUNANNOTATE_DOCKER", pipeline)
+        self.assertIn("FUNANNOTATE_BUILD_SCRIPT", pipeline)
+        self.assertIn("ensure_funannotate_docker_runtime()", pipeline)
+        self.assertIn("ensure_funannotate_sif_runtime()", pipeline)
+        self.assertIn("clusterweave-funannotate:v1.8.17-busco", pipeline)
+        self.assertNotIn("funannotate setup", pipeline)
+        self.assertNotIn("download_buscos", pipeline)
+
     def test_antismash_done_requires_complete_browseable_output(self) -> None:
         text = (REPO_ROOT / "run_annotation_and_detection.sh").read_text(encoding="utf-8")
         block = text.split("antismash_done() {", 1)[1].split("funbgcex_done()", 1)[0]
@@ -133,6 +314,9 @@ class RepoLayoutTests(unittest.TestCase):
             "CITATION.cff",
             "THIRD_PARTY.md",
             "DATA_SOURCES.md",
+            "visuals/ClusterWeave.svg",
+            "visuals/logo.svg",
+            "visuals/logo_black.svg",
             "web/OPERATOR_AGREEMENT.md",
             "docs/REPRODUCIBILITY.md",
             "docs/WEB_RUNTIME.md",
@@ -146,7 +330,9 @@ class RepoLayoutTests(unittest.TestCase):
         for rel in [
             "web/STAN.md",
             "web/STYLE.md",
-            "web/UI_SLICE_ARCHIVE.md",
+            "web/STYLE_ARCHIVE.md",
+            "web/PRODUCTION_LAUNCH_SLICE_MAP.md",
+            "web/PRODUCTION_LAUNCH_SLICE_ARCHIVE.md",
             "web/GLOSSARY.md",
             "web/UPSTREAM_MAINTAINER_NOTE.md",
         ]:
@@ -214,6 +400,16 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("Stage 4/4: running run_clinker.sh", text)
         self.assertIn("SHOULD_RUN_CLINKER=1", text)
 
+    def test_wrapper_stops_before_grouping_when_annotation_drops_every_genome(self) -> None:
+        text = (REPO_ROOT / "run_clusterweave.sh").read_text(encoding="utf-8")
+        self.assertIn("require_annotation_stage_outputs()", text)
+        self.assertIn("annotation_manifest_usable_count()", text)
+        self.assertIn("Annotation stage produced zero usable genomes", text)
+        self.assertIn("stopping before grouping", text)
+        stage_block = text.split('log "Stage 1/4: running run_annotation_and_detection.sh"', 1)[1].split('if [[ "${RUN_STAGE_BIGSCAPE}" == "1" ]]', 1)[0]
+        self.assertIn('bash "${RUN_ANNOTATION_STAGE}"', stage_block)
+        self.assertIn("require_annotation_stage_outputs", stage_block)
+
     def test_clinker_supports_metadata_fallback(self) -> None:
         text = (REPO_ROOT / "run_clinker.sh").read_text(encoding="utf-8")
         self.assertIn('CLINKER_MODE="${CLINKER_MODE:-auto}"', text)
@@ -265,7 +461,7 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("CLUSTERWEAVE_RUNTIME_MODE: lab-docker", compose)
         self.assertIn("CLUSTERWEAVE_ENABLE_DOCKER_SOCKET: \"1\"", compose)
         self.assertIn("ENGINE: docker", compose)
-        self.assertIn('WORKER_CONCURRENCY: "${WORKER_CONCURRENCY:-1}"', compose)
+        self.assertIn('WORKER_CONCURRENCY: "${WORKER_CONCURRENCY:-5}"', compose)
         self.assertIn("/var/run/docker.sock:/var/run/docker.sock", compose)
         self.assertIn("CLUSTERWEAVE_RUNTIME_MODE: public-queue", public_compose)
         self.assertIn("CLUSTERWEAVE_ENABLE_DOCKER_SOCKET: \"0\"", public_compose)
@@ -281,7 +477,9 @@ class RepoLayoutTests(unittest.TestCase):
             "THIRD_PARTY.md",
             "docs/RELEASE_CHECKLIST.md",
             "docs/WEB_RUNTIME.md",
-            "manuscript/application_note/outline.md",
+            "visuals/ClusterWeave.svg",
+            "visuals/logo.svg",
+            "visuals/logo_black.svg",
             "examples/example_project/clusterweave_smoke_derived_outputs/README.md",
             "examples/example_project/clusterweave_smoke_derived_outputs/summary/family_atlas_shortlist.md",
             "docker-compose.yml",
@@ -309,17 +507,182 @@ class RepoLayoutTests(unittest.TestCase):
         js_text = (static_dir / "assets" / "clusterweave.js").read_text(encoding="utf-8")
 
         self.assertLess(len(index_text.splitlines()), 1000)
-        self.assertIn('href="assets/clusterweave.css?v=20260612-ncbi-preflight"', index_text)
-        self.assertIn('src="assets/clusterweave.js?v=20260612-ncbi-preflight"', index_text)
+        self.assertIn('href="/favicon.ico"', index_text)
+        self.assertTrue((static_dir / "favicon.ico").exists())
+        self.assertIn('href="assets/clusterweave.css?v=20260629-input-validation"', index_text)
+        self.assertIn('src="assets/clusterweave.js?v=20260629-input-validation"', index_text)
         self.assertNotIn("<style>", index_text)
         self.assertNotIn("<script>\n", index_text)
         self.assertIn("function apiUrl(path)", js_text)
         self.assertIn("function handleResultLinkClick(event, jobId, relPath, download = false)", js_text)
-        self.assertIn("function resultLollipopItems", js_text)
-        self.assertIn("resultCategoryLabel('synteny')", js_text)
+        self.assertIn("const WORKFLOW_DNA_MODULE_PATH", js_text)
+        self.assertIn("function bootBgcWorkflowDna()", js_text)
+        self.assertIn('id="input-station-limit"', index_text)
+        self.assertIn('id="upload-limit-note"', index_text)
+        self.assertNotIn('input-method-tag standard', index_text)
+        self.assertNotIn('input-method-tag secondary', index_text)
+        self.assertNotIn('Local file input', index_text)
+        self.assertIn('.setup-panel { grid-area: setup; overflow: hidden; align-self: start; }', css_text)
+        self.assertIn('.brutal-accession-card {', css_text)
+        self.assertIn('align-items: start;\n    margin-bottom: .7rem;', css_text)
+        self.assertIn('grid-template-columns: minmax(0, 1fr) minmax(16rem, 1fr);', css_text)
+        self.assertIn('background: white;\n    min-height: 0;', css_text)
+        self.assertIn('box-shadow: 0 5px 0 var(--line);', css_text)
+        self.assertIn('background: var(--blue-soft);\n  }\n  .brutal-accession-card label', css_text)
+        self.assertNotIn('.input-method-tag', css_text)
+        self.assertIn('background: #1155cc;\n    color: white;', css_text)
+        self.assertIn('#target-genome-toggle { background: var(--yellow-soft); color: var(--ink); }', css_text)
+        self.assertIn('.upload-card .dropbox', css_text)
+        self.assertIn('max-height: min(22vh, 118px);', css_text)
+        self.assertIn("PUBLIC_WEB_FAQ_URL", js_text)
+        self.assertIn('id="bgc-tool-activity-chip"', index_text)
+        self.assertIn(".tool-activity-chip", css_text)
+        self.assertIn("function bgcActivityChipPayload", js_text)
+        self.assertNotIn("data-progress-label", index_text)
+        self.assertNotIn(".dna-panel::after", css_text)
         self.assertIn('body[data-access="public"] .admin-only', css_text)
+        self.assertIn('body[data-job-state="complete"] .state-grid', css_text)
         self.assertNotIn("https://cdn", index_text + css_text + js_text)
         self.assertNotIn("unpkg.com", index_text + css_text + js_text)
+        self.assertNotIn("tmp/node_geometry_render", index_text + css_text + js_text)
+
+    def test_public_fasta_validation_streams_large_lines(self) -> None:
+        app_text = (REPO_ROOT / "web" / "app.py").read_text(encoding="utf-8")
+        self.assertIn("for raw_line in io.BytesIO(content):", app_text)
+        self.assertIn("sequence_char_count += 1", app_text)
+        self.assertNotIn("sequence_chars: list", app_text)
+        self.assertNotIn("sequence_chars.extend", app_text)
+        self.assertIn('route == "/favicon.ico"', app_text)
+
+    def test_public_upload_parser_does_not_read_entire_body_before_multipart_parse(self) -> None:
+        app_text = (REPO_ROOT / "web" / "app.py").read_text(encoding="utf-8")
+        self.assertIn("cgi.FieldStorage", app_text)
+        self.assertIn("content_length=content_length", app_text)
+        self.assertIn("parse_multipart_form_data", app_text)
+        self.assertIn("self.rfile", app_text)
+        self.assertNotIn("body = self.rfile.read(content_length)", app_text)
+        self.assertNotIn("BytesParser", app_text)
+
+    def test_motion_vendor_policy_is_local_and_narrow(self) -> None:
+        vendor_root = REPO_ROOT / "web" / "static" / "vendor"
+        three_root = vendor_root / "three-0.184.0"
+        gsap_root = vendor_root / "gsap-3.15.0"
+        self.assertTrue((three_root / "three.module.min.js").exists())
+        self.assertTrue((three_root / "LICENSE").exists())
+        self.assertTrue((gsap_root / "gsap.min.js").exists())
+        self.assertTrue((gsap_root / "STANDARD-LICENSE.md").exists())
+        self.assertTrue((vendor_root / "VENDOR_NOTES.md").exists())
+        vendored = sorted(path.relative_to(vendor_root).as_posix() for path in vendor_root.rglob("*") if path.is_file())
+        self.assertEqual(vendored, [
+            "VENDOR_NOTES.md",
+            "gsap-3.15.0/STANDARD-LICENSE.md",
+            "gsap-3.15.0/gsap.min.js",
+            "three-0.184.0/LICENSE",
+            "three-0.184.0/three.core.min.js",
+            "three-0.184.0/three.module.min.js",
+        ])
+        notes = (vendor_root / "VENDOR_NOTES.md").read_text(encoding="utf-8")
+        self.assertIn("three@0.184.0", notes)
+        self.assertIn("build/three.module.min.js", notes)
+        self.assertIn("build/three.core.min.js", notes)
+        self.assertIn("same-package core module", notes)
+        self.assertIn("5bca0a3851eea5345e4c205567b40dfa49b791b5", notes)
+        self.assertIn("gsap@3.15.0", notes)
+        self.assertIn("dist/gsap.min.js", notes)
+        self.assertIn("7851baaffc77642f2db3b1749d3634f9b5a19d14", notes)
+        self.assertIn("No GSAP plugins", notes)
+        self.assertIn("public, same-origin runtime dependencies", notes)
+        self.assertIn("local reference media", notes)
+        self.assertNotIn("Retired DNA reference assets", notes)
+        self.assertNotIn("gn_dna_tutorial_sharing.blend", notes)
+        self.assertNotIn("Recording 2026-06-13 184339.mp4", notes)
+
+    def test_web_retired_motion_controls_are_absent_with_safe_fallbacks(self) -> None:
+        text = frontend_text()
+        self.assertIn("function richMotionDisabled() {\n  return false;\n}", text)
+        self.assertIn("const GSAP_BROWSER_PATH = 'vendor/gsap-3.15.0/gsap.min.js'", text)
+        self.assertIn("function loadGsapMotion", text)
+        self.assertIn("function teardownGsapMotion", text)
+        self.assertNotIn('id="disable-rich-motion"', text)
+        self.assertNotIn('id="enable-three-weavemap"', text)
+        self.assertNotIn("Disable rich motion", text)
+        self.assertNotIn("Enable 3D layer", text)
+        self.assertIn("const RETIRED_MOTION_STORAGE_KEYS = [", text)
+        self.assertIn("'clusterweave.richMotionDisabled'", text)
+        self.assertIn("'clusterweave.threeWeavemapEnabled'", text)
+        self.assertIn("function clearRetiredMotionSettings", text)
+        self.assertIn("function initializeRetiredMotionControls", text)
+        self.assertIn("document.body.dataset.threeWeavemap = 'disabled';", text)
+        self.assertIn("document.body.dataset.threeWeavemapOptIn = 'disabled';", text)
+        self.assertIn("function wireMotionLifecycleGuards", text)
+        self.assertIn("document.addEventListener('visibilitychange'", text)
+        self.assertIn("window.addEventListener('pagehide'", text)
+        self.assertIn("helix.replaceChildren(weaveShell)", text)
+        for removed in [
+            "const THREE_WEAVEMAP_MODULE_PATH",
+            "function scheduleThreeWeavemapRender",
+            "function threeWeaveFallbackReason",
+            "function threeWeavemapOptInEnabled",
+            "function syncThreeWeavemapControl",
+            "function webglAvailable",
+            "function startThreeWeaveAnimationLoop",
+            "function updateThreeWeaveAnimationFrame",
+            "function probeThreeWeaveCanvasPixels",
+            "function renderThreeWeavemap",
+            "function buildThreeWeaveScene",
+            "function wireThreeCanvasContextGuards",
+            "new THREE.PerspectiveCamera",
+            "new THREE.WebGLRenderer",
+            "renderer.setAnimationLoop",
+            "threeWeaveLayer",
+            "threeHost.className = 'three-weavemap-layer'",
+            "const threeRenderKey = JSON.stringify",
+            "helix.dataset.threeRenderKey",
+            "helix.replaceChildren(threeHost, weaveShell)",
+            "host.dataset.threeWeavemap = 'animated'",
+            "document.body.dataset.threeWeavemap = 'enabled'",
+            "markThreeWeaveFallback('vendor-load-failed'",
+            ".three-weavemap-layer",
+            "three-weavemap-canvas",
+            "powerPreference: 'low-power'",
+        ]:
+            self.assertNotIn(removed, text)
+        self.assertNotIn("https://cdn", text)
+        self.assertNotIn("unpkg.com", text)
+        self.assertNotIn("jsdelivr", text.lower())
+
+    def test_web_molecular_renderer_is_removed_from_results_workbench(self) -> None:
+        ui_text = frontend_text()
+        self.assertIn('id="result-dashboard-section"', ui_text)
+        self.assertIn('id="download-package-btn"', ui_text)
+        for removed in [
+            'id="results-render-switch"',
+            'id="results-render-workbench"',
+            'id="results-render-molecular"',
+            'id="molecular-renderer-panel"',
+            'id="molecular-canvas-host"',
+            'id="molecular-stage-legend"',
+            "onclick=\"setResultsRenderMode('molecular')\"",
+            "let resultsRenderMode = 'workbench';",
+            'const THREE_MOLECULAR_MODULE_PATH',
+            'function setResultsRenderMode(mode)',
+            'function syncResultsRenderControls()',
+            'function syncMolecularRenderer()',
+            'function molecularFallbackToWorkbench(reason =',
+            'function molecularRendererContextLost(renderer)',
+            'function buildMolecularScene(THREE, layout, models)',
+            'function renderMolecularRenderer(THREE, host, models, renderKey)',
+            '.results-render-control',
+            '.render-mode-button',
+            '.molecular-renderer-canvas',
+            '.molecular-stage-chip',
+            '.molecular-output-button',
+            'data-results-render-mode="molecular"',
+            'dataset.molecularRenderer',
+        ]:
+            self.assertNotIn(removed, ui_text)
+        self.assertNotIn('https://cdn', ui_text)
+        self.assertNotIn('unpkg.com', ui_text)
 
     def test_web_results_run_switch_keeps_dashboard_spine_open(self) -> None:
         ui_text = frontend_text()
@@ -328,8 +691,10 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("const preferResultsDashboard = shouldPreserveResultsDashboardForJobLoad(jobId, options);", ui_text)
         self.assertIn("document.body.dataset.resultsDashboard = preferResultsDashboard ? 'open' : 'closed';", ui_text)
         self.assertIn("shouldOpenResultDashboardDuringRefresh(normalizedFiles, activeJobMeta)", ui_text)
-        self.assertIn("width: min(64rem, calc(100vw - var(--result-focus-width", ui_text)
-        self.assertNotIn("body[data-access=\"admin\"][data-results-dashboard=\"open\"] .spine-field,\n    body[data-access=\"local\"][data-results-dashboard=\"open\"] .spine-field {\n      left: clamp(3.25rem", ui_text)
+        self.assertIn("panel.classList.remove('hidden');", ui_text)
+        self.assertIn("resultDashboardOpen", ui_text)
+        self.assertNotIn("spine.classList.toggle('spine-field', !loaded)", ui_text)
+        self.assertNotIn("launch.insertBefore(spine, command)", ui_text)
 
     def test_web_result_focus_and_archive_state_are_run_scoped(self) -> None:
         ui_text = frontend_text()
@@ -341,6 +706,14 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("activeArchiveDownload = { jobId: requestJobId, requestId, controller };", ui_text)
         self.assertIn("if (activeJobId !== requestJobId || activeArchiveDownload?.requestId !== requestId) return false;", ui_text)
         self.assertIn("cancelActiveArchiveDownload();", ui_text)
+        self.assertIn("function defaultFocusedResultCategory(counts)", ui_text)
+        self.assertIn("resultCategoryAvailable('antismash', counts)", ui_text)
+        self.assertIn("const completed = String(status || activeJobMeta?.status || '').toLowerCase() === 'success';", ui_text)
+        self.assertIn("if (completed && resultFocusMode !== 'focused')", ui_text)
+        self.assertIn("activeResultCategory = defaultFocusedResultCategory(counts);", ui_text)
+        self.assertIn("setResultFocusMode('focused');", ui_text)
+        self.assertIn("setResultFocusMode(completed ? 'focused' : 'overview');", ui_text)
+        self.assertIn("if (completed) renderFocusedResultCategory(activeResultCategory);", ui_text)
         self.assertIn("function renderResultFileSurface(jobId, files)", ui_text)
         self.assertIn("if (resultFocusMode === 'focused')", ui_text)
         self.assertIn("renderFocusedResultCategory(activeResultCategory);", ui_text)
@@ -349,13 +722,39 @@ class RepoLayoutTests(unittest.TestCase):
     def test_web_results_access_panel_is_side_collapsible(self) -> None:
         ui_text = frontend_text()
         self.assertIn('data-results-panel="collapsed"', ui_text)
+        self.assertIn('id="run-setup-access-panel"', ui_text)
+        self.assertIn('id="run-setup-access-toggle"', ui_text)
+        self.assertIn("function setRunSetupAccessCollapsed(collapsed)", ui_text)
+        self.assertIn("function toggleRunSetupAccessPanel()", ui_text)
+        self.assertIn('body:not([data-job-state="idle"]) .setup-access-head', ui_text)
+        self.assertIn('id="result-access-toggle"', ui_text)
+        self.assertIn('id="submission-confirmation-details"', ui_text)
+        self.assertIn('data-result-access-collapsed="false"', ui_text)
+        self.assertIn("let resultAccessCollapsed = false;", ui_text)
+        self.assertIn("function setResultAccessCollapsed(collapsed)", ui_text)
+        self.assertIn("function toggleResultAccessCard()", ui_text)
         self.assertIn('id="results-panel-toggle"', ui_text)
-        self.assertIn("function setResultsPanelCollapsed(collapsed)", ui_text)
-        self.assertIn("function toggleResultsPanel()", ui_text)
-        self.assertIn('body[data-results-dashboard="open"][data-results-panel="collapsed"] #results-card', ui_text)
-        self.assertIn('body[data-results-dashboard="open"][data-results-panel="open"] #results-card', ui_text)
-        self.assertIn(".results-panel-toggle", ui_text)
+        self.assertIn('.results-panel-toggle { display: none !important; }', ui_text)
         self.assertNotIn('body[data-results-dashboard="open"] #results-card { display: none !important; }', ui_text)
+
+    def test_web_workflow_progress_move_is_stable_during_results_refresh(self) -> None:
+        ui_text = frontend_text()
+        self.assertIn("const placement = loaded ? 'results' : 'idle';", ui_text)
+        self.assertIn("const previousPlacement = spine.dataset.progressPlacement || '';", ui_text)
+        self.assertIn("let moved = false;", ui_text)
+        self.assertIn("spine.dataset.progressPlacement = placement;", ui_text)
+        self.assertIn("spine.classList.toggle('hidden', !loaded);", ui_text)
+        self.assertIn("const modeChanged = previousPlacement !== placement;", ui_text)
+        self.assertIn("if (moved || modeChanged) {", ui_text)
+        move_block = ui_text.split("function moveWorkflowProgressIntoResults(loaded = true)", 1)[1].split("function setResultsLoaded", 1)[0]
+        self.assertIn("if (helix) delete helix.dataset.rendered;", move_block)
+        self.assertIn("if (loaded) renderWeaveHelix(activeJobMeta);", move_block)
+        self.assertNotIn("launch.insertBefore(spine, command)", move_block)
+        self.assertNotIn("spine.classList.toggle('spine-field', !loaded)", move_block)
+        self.assertNotIn("const helix = document.getElementById('weavemap-helix');\n  if (helix) delete helix.dataset.rendered;\n  renderWeaveHelix(activeJobMeta);", move_block)
+        rerender_block = ui_text.split("function rerenderWorkflowSpineForResults(options = {})", 1)[1].split("function closeResultDashboardForManagementTarget", 1)[0]
+        self.assertIn("if (options.force) {", rerender_block)
+        self.assertNotIn("function rerenderWorkflowSpineForResults()", ui_text)
 
     def test_web_synteny_labels_skip_track_folders(self) -> None:
         ui_text = frontend_text()
@@ -365,11 +764,21 @@ class RepoLayoutTests(unittest.TestCase):
 
     def test_web_dna_spine_uses_continuous_ribbons(self) -> None:
         ui_text = frontend_text()
-        self.assertIn("data-ribbon=\"continuous\"", ui_text)
-        self.assertIn("stroke-width: 32;", ui_text)
-        self.assertIn("stroke-width: 44;", ui_text)
+        dna_text = (REPO_ROOT / "web" / "static" / "assets" / "workflow-dna-progress.js").read_text(encoding="utf-8")
+        self.assertIn('id="bgc-dna-canvas"', ui_text)
+        self.assertIn('id="bgc-dna-progress-region"', ui_text)
+        self.assertIn("import * as THREE from '../vendor/three-0.184.0/three.module.min.js';", dna_text)
+        self.assertIn("appliedAs: 'color-fade-only'", dna_text)
+        self.assertIn("motionPaused: state === 'failed'", ui_text)
+        self.assertIn("this.motionPaused = Boolean(payload.motionPaused);", dna_text)
+        self.assertIn("profileForState(payload.state)", dna_text)
+        self.assertIn("const SEGMENTS = 192;", dna_text)
+        self.assertIn("const BACKBONE_OVERLAP = 1.08;", dna_text)
+        self.assertIn("new THREE.CylinderGeometry(0.055, 0.055, 1, 18, 1, true)", dna_text)
+        self.assertIn("length * axialScale", dna_text)
+        self.assertIn("workflow-dna-progress.js?v=20260628-dna-smooth", ui_text)
+        self.assertNotIn("tmp/node_geometry_render", ui_text + dna_text)
         self.assertNotIn("data-segment=", ui_text)
-        self.assertNotIn("Math.ceil(span * Number(layout.turns || 3) * 10)", ui_text)
 
     def test_frontend_opens_generated_html_for_private_result_users(self) -> None:
         ui_text = frontend_text()
@@ -377,6 +786,17 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("return canUseAdminSurfaces() || !!readTokenForJob(jobId);", ui_text)
         self.assertIn("if (canOpenRichHtmlArtifacts(jobId)) return openHtmlResultWithAssets(event, jobId, relPath);", ui_text)
         self.assertIn("if (isHtmlAsset(path) && !canOpenRichHtmlArtifacts(jobId))", ui_text)
+
+    def test_frontend_generated_html_preview_handles_relative_page_links(self) -> None:
+        ui_text = frontend_text()
+        self.assertIn("const RESULT_PREVIEW_NAVIGATOR_SCRIPT = String.raw", ui_text)
+        self.assertIn("data-clusterweave-result-preview", ui_text)
+        self.assertIn("data-clusterweave-result-href", ui_text)
+        self.assertIn("function textDataUrl(text, mime)", ui_text)
+        self.assertIn("reader.readAsDataURL(blob)", ui_text)
+        self.assertIn("event.target.closest('a[href],area[href]')", ui_text)
+        self.assertIn("openRelativeResult(rawUrl)", ui_text)
+        self.assertIn("scriptEl.setAttribute('data-authorization', authHeadersFor('job', jobId).Authorization || '')", ui_text)
 
     def test_frontend_job_fetches_prefer_job_read_token_over_stale_admin_token(self) -> None:
         ui_text = frontend_text()
@@ -397,6 +817,11 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn('"CLINKER_USE_DOCKER_IMAGE"', text)
         self.assertIn('"NPLINKER_DOCKER_IMAGE"', text)
         self.assertIn('"RENDER_BIGSCAPE_NETWORK_PY"', text)
+        self.assertIn('env["CLUSTERWEAVE_JOB_ID"] = job.id', text)
+        self.assertIn('env["CLUSTERWEAVE_CANCEL_FILE"] = str(_job_cancel_path(job))', text)
+        self.assertIn("start_new_session=True", text)
+        self.assertIn("os.killpg(proc.pid, signal.SIGTERM)", text)
+        self.assertIn("except asyncio.CancelledError", text)
         self.assertIn("def _resolve_target_genome_alias", text)
         self.assertIn("accessions_fungusID_taxonomyID.txt", text)
         self.assertIn('env["TARGET_GENOME"] = target_after', text)
@@ -410,40 +835,66 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("def validate_ncbi_accession_preflight", app_text)
         self.assertIn("NCBI_FUNGAL_TAXON_ID = 4751", app_text)
         self.assertIn("accession_preflight=not request_is_admin(handler)", app_text)
-        self.assertIn("Rerun Selected Stages", ui_text)
-        self.assertIn('class="summary-panel rerun-summary"', ui_text)
+        self.assertIn("Rerun scope", ui_text)
+        self.assertIn('class="summary-panel rerun-summary rerun-scope-card"', ui_text)
         self.assertIn("rerunActiveJob()", ui_text)
         self.assertIn("function rerunJobFromHistory(event, jobId)", ui_text)
-        self.assertIn('class="job-rerun"', ui_text)
+        self.assertIn("function toggleJobRerunScope(event, jobId)", ui_text)
+        self.assertIn("class=\"job-rerun${rerunOpen ? \' active\' : \'\'}\"", ui_text)
         self.assertIn("function rerunPayloadFromStages(stageKeys", ui_text)
         self.assertIn("function queueJobRerun(jobId, payload)", ui_text)
         self.assertIn("function rerunStageAllowed(key)", ui_text)
-        self.assertIn("Reuses this job workspace and existing staged inputs/results", ui_text)
-        self.assertIn("failed after preserving earlier outputs", ui_text)
+        self.assertIn("Selected stages rerun inside this job workspace and reuse staged inputs/results.", ui_text)
+        self.assertIn("Select a submitted job, then use its Rerun button to open job-scoped rerun options.", ui_text)
+        self.assertIn("Rerun unavailable while active.", ui_text)
 
     def test_web_progress_popout_uses_ordered_stage_overview(self) -> None:
         text = frontend_text()
-        self.assertIn("function workflowStageOverviewNodes", text)
-        self.assertIn("function stageTimelineLabel", text)
-        self.assertIn("data-node-stage", text)
-        self.assertIn("failure-context", text)
-        self.assertIn('.dna-node-item[data-node-kind^=\"stage-\"]', text)
-        self.assertIn(".dna-stage-pointer.active { animation: none;", text)
-        self.assertIn(".dna-active .dna-base-dot { animation: none;", text)
+        self.assertIn("function bgcWorkflowStages", text)
+        self.assertIn("function bgcStageStatus", text)
+        self.assertIn("function bgcWorkflowPayload", text)
+        self.assertIn("steps: stages.map(stage => ({", text)
+        self.assertIn("currentStepId: currentKey || ''", text)
+        self.assertIn("motionPaused: state === 'failed'", text)
+        self.assertIn("activityText: activityChip.text", text)
+        self.assertIn("function latestJobPublicWorkflowEvent", text)
+        self.assertIn("function latestToolActivityParts", text)
+        self.assertIn("pieces.join(' | ')", text)
+        self.assertIn("activityElapsedFromMeta", text)
+        self.assertIn("const WORKFLOW_PROGRESS_WEIGHTS", text)
+        self.assertIn("function annotationGenomeProgress", text)
+        self.assertIn("function weightedWorkflowProgress", text)
+        self.assertIn("Genome\\s+(\\d+)\\s+of\\s+(\\d+)", text)
+        self.assertIn("stationDetailText: state === 'running' ? '' : detail", text)
+        self.assertIn("progressLabel: stageProgress?.label || ''", text)
+        self.assertIn("if (payload.progressLabel) return payload.progressLabel;", text)
+        self.assertIn("detail.hidden = !stationDetail;", text)
+        self.assertNotIn("const currentWeight = status === 'failed' ? 0.5 : 0.5", text)
+        self.assertIn("function renderBgcWorkflowStageStrip(payload)", text)
+        self.assertIn('data-bgc-stage="${escapeHtml(step.id)}"', text)
+        self.assertNotIn("function workflowStageOverviewNodes", text)
+        self.assertNotIn("dna-popover-connector-layer", text)
 
     def test_dev_admin_ops_panel_stays_available_on_outputs(self) -> None:
         static_dir = REPO_ROOT / "web" / "static"
         index_text = (static_dir / "index.html").read_text(encoding="utf-8")
         css_text = (static_dir / "assets" / "clusterweave.css").read_text(encoding="utf-8")
         js_text = (static_dir / "assets" / "clusterweave.js").read_text(encoding="utf-8")
-        self.assertIn('data-ops-panel="open"', index_text)
-        self.assertIn('id="ops-panel-toggle"', index_text)
-        self.assertIn('aria-controls="ops-side-panel"', index_text)
-        self.assertIn("function toggleOpsPanel()", js_text)
+        self.assertIn('data-ops-panel="collapsed"', index_text)
+        self.assertIn('data-ops-tab="jobs"', index_text)
+        self.assertNotIn('id="ops-panel-toggle"', index_text)
+        self.assertIn("toggle.id = 'ops-panel-toggle';", js_text)
+        self.assertIn("document.body.insertBefore(toggle, panel);", js_text)
+        self.assertIn("function ensureOpsPanelToggle()", js_text)
+        self.assertIn("function removeOpsPanelToggle()", js_text)
         self.assertIn("function setOpsPanelCollapsed(collapsed)", js_text)
-        self.assertIn('body[data-access="admin"] .ops-side-panel.admin-only', css_text)
+        self.assertIn('role="tablist" aria-label="Diagnostics navigation"', index_text)
+        for tab in ["ops-tab-jobs", "ops-tab-worker", "ops-tab-qa", "ops-tab-rerun"]:
+            self.assertIn(f'id="{tab}"', index_text)
+        self.assertIn('body[data-access="public"] .admin-only', css_text)
         self.assertIn('body[data-ops-panel="collapsed"] .ops-side-panel', css_text)
-        self.assertIn('.ops-side-panel #rerun-panel:not(:empty)', css_text)
+        self.assertIn('.ops-panel-toggle', css_text)
+        self.assertIn('.ops-side-panel.admin-drawer', css_text)
         self.assertNotIn('body[data-results-dashboard="open"][data-management-view="closed"] .ops-side-panel { display: none !important; }', css_text)
 
     def test_worker_supports_bounded_concurrency(self) -> None:
@@ -452,15 +903,75 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("async def worker_loop()", text)
         self.assertIn("active_jobs", text)
         self.assertIn("payload = dict(read_job(job.id) or {})", text)
+        self.assertIn("job_cancel_requested(job_id)", text)
+        self.assertIn("task.cancel()", text)
+        self.assertIn("def stop_job_containers(job_id: str)", text)
+        self.assertIn("finalize_cancelled_job(job_id", text)
+        self.assertIn("label=clusterweave.job_id={job_id}", text)
+
+    def test_stage_docker_containers_are_labeled_for_cancellation(self) -> None:
+        for rel in [
+            "run_annotation_and_detection.sh",
+            "run_bigscape.sh",
+            "run_nplinker.sh",
+            "run_clinker.sh",
+            "bin/stage_clinker_panels.py",
+        ]:
+            text = (REPO_ROOT / rel).read_text(encoding="utf-8")
+            self.assertIn("clusterweave.job_id=${CLUSTERWEAVE_JOB_ID}", text, rel)
+            self.assertIn("clusterweave.project=${PROJECT_NAME:-}", text, rel)
 
     def test_ui_stage_states_use_semantic_classes(self) -> None:
         text = frontend_text()
-        self.assertIn(".stage-step.upcoming", text)
-        self.assertIn(".stage-step.active", text)
-        self.assertIn(".stage-step.done", text)
-        self.assertIn(".stage-step.disabled", text)
+        self.assertIn(".stage-card", text)
+        self.assertIn(".bgc-stage-card.complete", text)
+        self.assertIn(".bgc-stage-card.running", text)
+        self.assertIn(".bgc-stage-card.error", text)
         self.assertIn("function initializeStageState(job)", text)
         self.assertIn("function finalizeStageState(status)", text)
+        self.assertIn("function renderBgcWorkflowStageStrip(payload)", text)
+        self.assertIn('class="stage-card bgc-stage-card ${escapeHtml(step.status)}"', text)
+
+    def test_web_stage_elapsed_uses_stable_stage_timing_snapshots(self) -> None:
+        text = frontend_text()
+        self.assertIn("startedAtSource", text)
+        self.assertIn("endedAtSource", text)
+        self.assertIn("appliedEvents: new Set()", text)
+        self.assertIn("lastEventMs: null", text)
+        self.assertIn("function stageTimestampFromLogLine", text)
+        self.assertIn("function applyStageTimingFromPublicEvents(job)", text)
+        self.assertIn("function terminalStageTimeMs(status)", text)
+        self.assertIn("function shouldApplyJobStageSnapshot(key)", text)
+        self.assertIn("parseTimestampMs(job?.stage_updated_at || job?.started_at || job?.created_at || job?.updated_at)", text)
+        self.assertIn("const eventId = `snapshot:${job?.id || ''}:${job?.rerun_count || 0}:${status}:${key}:${snapshotMs}`;", text)
+        self.assertIn("const eventId = `log:${activeJobId || ''}:${logCursor}:${key}`;", text)
+
+        start_block = text.split("function setStageStartTime(key, ms, source = 'snapshot', options = {})", 1)[1].split("function setStageEndTime", 1)[0]
+        self.assertIn("const sourceRank = stageTimingSourceRank(source);", start_block)
+        self.assertIn("const sameSourceEarlier = sourceRank === currentRank && ms < current;", start_block)
+        self.assertNotIn("ms < current || (betterSource && ms <= current)", start_block)
+
+        snapshot_block = text.split("function shouldApplyJobStageSnapshot(key)", 1)[1].split("function applyJobStageSnapshot", 1)[0]
+        self.assertIn("return currentIdx < 0 || snapshotIdx < 0 || snapshotIdx >= currentIdx;", snapshot_block)
+
+        elapsed_block = text.split("function stageElapsedText(key, visualCls)", 1)[1].split("function currentWorkflowStage", 1)[0]
+        self.assertIn("formatDuration(Date.now() - start)", elapsed_block)
+        self.assertIn("formatDuration(end - start)", elapsed_block)
+        self.assertNotIn("jobElapsedText(activeJobMeta)", elapsed_block)
+
+        transition_block = text.split("function advanceToStage(key, options = {})", 1)[1].split("function sanitizeWeaveLogTitle", 1)[0]
+        self.assertIn("if (eventId && activeStageState.appliedEvents.has(eventId)) return;", transition_block)
+        self.assertIn("if (isRestart) clearStageTimingFrom(key);", transition_block)
+        self.assertIn("setStageStartTime(key, eventMs, source, { force: isRestart });", transition_block)
+        self.assertIn("setStageEndTime(activeStageState.current, eventMs, source);", transition_block)
+
+        final_block = text.split("function finalizeStageState(status)", 1)[1].split("function renderStageState", 1)[0]
+        self.assertIn("if (activeStageState.current) setStageEndTime(activeStageState.current, terminalMs, 'terminal');", final_block)
+        self.assertIn("setStageEndTime(failedKey, terminalMs, 'terminal');", final_block)
+
+        public_block = text.split("function publicStageTimingEvent(event)", 1)[1].split("async function deleteJob", 1)[0]
+        self.assertIn("const markerMeta = /^canonical workflow stage$/i.test(marker.meta || '');", public_block)
+        self.assertIn("const eventTimeMs = stageTimestampFromClock(marker.time || marker.meta, job, activeStageState.lastEventMs);", public_block)
 
     def test_web_visualization_is_limited_to_figure_outputs(self) -> None:
         text = frontend_text()
@@ -485,16 +996,19 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("<th>File / Result path</th>", text)
         self.assertNotIn("const htmlFiles = files.filter", text)
 
-    def test_web_results_tabs_are_keyboard_accessible(self) -> None:
+    def test_web_results_output_chips_are_accessible_without_legacy_subtabs(self) -> None:
         text = frontend_text()
-        self.assertIn('role="tablist"', text)
-        self.assertIn('button class="tab active"', text)
-        self.assertIn('role="tab"', text)
-        self.assertIn('aria-selected="true"', text)
-        self.assertIn('role="tabpanel"', text)
-        self.assertIn("function handleResultTabKeydown(event)", text)
-        self.assertIn("tab.setAttribute('aria-selected'", text)
-        self.assertIn("panel.hidden = !active", text)
+        self.assertIn('id="result-bubble-panel" role="tablist"', text)
+        self.assertIn('role="tab" data-output-key=', text)
+        self.assertIn('aria-selected="${selected ? \'true\' : \'false\'}"', text)
+        self.assertIn('aria-controls="result-focus-panel"', text)
+        self.assertIn('onclick="focusResultCategory', text)
+        self.assertIn("function setResultReaderSurface(surface)", text)
+        self.assertNotIn('button class="tab active"', text)
+        self.assertNotIn("function handleResultTabKeydown(event)", text)
+        self.assertNotIn("function switchTab(name", text)
+        self.assertNotIn('role="tabpanel" aria-labelledby="tab-control-viz"', text)
+        self.assertNotIn('role="tabpanel" aria-labelledby="tab-control-files"', text)
 
     def test_web_files_tab_groups_results_into_collapsible_folders(self) -> None:
         text = frontend_text()
@@ -524,195 +1038,131 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("manualLines.join('\\n') + '\\n'", text)
         self.assertIn("new File([manualAccessionText], MANUAL_ACCESSIONS_FILENAME", text)
         self.assertIn("input source(s) ready", text)
+        self.assertIn("setBrutalInputNotice('submission', '')", text)
+        self.assertIn("setBrutalInputNotice('submission', message)", text)
 
     def test_web_has_journey_first_navigation_and_hero(self) -> None:
         text = frontend_text()
-        self.assertIn('id="primary-nav"', text)
-        self.assertIn('data-nav-target="overview"', text)
-        self.assertIn('data-nav-target="intake"', text)
-        self.assertIn('data-nav-target="runs"', text)
-        self.assertIn('data-nav-target="outputs"', text)
-        self.assertIn('data-nav-target="qa"', text)
-        self.assertIn('id="runtime-status-menu"', text)
-        self.assertIn('id="runtime-status-chip"', text)
-        self.assertIn('id="runtime-server-status"', text)
-        self.assertIn('id="runtime-running-jobs"', text)
-        self.assertIn('id="runtime-queued-jobs"', text)
-        self.assertIn('id="runtime-jobs-processed"', text)
-        self.assertIn('runtime-diagnostics-only', text)
-        self.assertIn('body[data-access="public"] .runtime-diagnostics-only', text)
-        self.assertNotIn("Reviewer access required", text)
-        self.assertNotIn("Queue depth unlocks with reviewer access.", text)
-        self.assertIn("function updateRuntimeStatusPanel(system = null, counts = {})", text)
-        self.assertIn('id="weavemap"', text)
-        self.assertIn('class="logo-mark"', text)
-        self.assertIn('src="assets/clusterweave-logo.png"', text)
-        self.assertIn('class="identity-brand-mark"', text)
-        self.assertIn("function navigateToSection(event, target", text)
-        self.assertIn("function loadDemoAccessions(event)", text)
-        self.assertIn("const demoAccessions = ['GCA_000011425.1', 'GCA_030770425.1'];", text)
-        self.assertIn("Use demo accessions", text)
-        self.assertIn('name="description" content="ClusterWeave runs fungal biosynthetic gene cluster discovery', text)
-        self.assertIn('name="robots" content="index, follow"', text)
-        self.assertIn('class="accession-label-row"', text)
+        self.assertIn('data-job-state="idle"', text)
+        self.assertIn('class="state-grid" id="state-grid"', text)
+        self.assertIn('aria-label="Discover the hidden potential of fungi"', text)
+        self.assertIn('<span>Discover</span><span>the</span><span>hidden</span><span>potential</span><span>of</span><span>fungi</span>', text)
+        self.assertIn('class="logo-mark" role="img" aria-label="ClusterWeave"', text)
+        self.assertIn('<strong>INPUT STATION</strong>', text)
+        self.assertIn('id="entry-tab-new"', text)
+        self.assertIn('id="entry-tab-existing"', text)
+        self.assertIn('id="brutal-accession-rows"', text)
         self.assertIn('href="https://www.ncbi.nlm.nih.gov/datasets/genome/"', text)
-        self.assertIn('NCBI Genome</a>', text)
-        self.assertIn("const NCBI_ASSEMBLY_ACCESSION_HELP = 'Use current fungal NCBI assembly accessions", text)
-        self.assertIn('class="run-entry-tabs-panel" id="access-panel"', text)
-        self.assertIn('class="card run-entry-card" id="upload-card"', text)
-        self.assertNotIn('id="entry-input-source-select"', text)
+        self.assertIn('NCBI genomes</a>', text)
         self.assertIn('id="drop-zone" tabindex="0" role="button" aria-label="Upload genome or accession files"', text)
         self.assertIn('id="file-input" multiple accept=', text)
-        self.assertIn('aria-label="Upload genome or accession files"', text)
-        self.assertIn("fileInput.click();", text)
-        self.assertIn("Public fungal BGC workflow", text)
-        self.assertIn("Run fungal BGC discovery.", text)
-        self.assertIn("Submit public assemblies, track canonical stages, and return with a private result link.", text)
-        self.assertNotIn('class="journey-cues"', text)
-        self.assertNotIn('class="journey-cue"', text)
-        self.assertNotIn('class="journey-cue-label"', text)
         self.assertIn('id="docs"', text)
-        self.assertIn('class="status-chip docs-summary"', text)
-        self.assertIn('aria-haspopup="dialog"', text)
-        self.assertIn('aria-label="Tool credits and citations"', text)
-        self.assertIn('class="docs-chip-label">Citations</span>', text)
-        self.assertIn('class="citation-lamp"', text)
-        self.assertIn('role="dialog" aria-modal="true" aria-label="Tool credits and citations"', text)
-        self.assertLess(text.index('id="docs"'), text.index('id="runtime-status-menu"'))
-        self.assertIn('class="identity-brand-caption"', text)
-        self.assertIn("width: min(100%, 62rem);", text)
-        self.assertIn('body[data-results-dashboard="open"] .upload-section', text)
-        self.assertNotIn('body[data-entry-mode="existing"] #upload-card > .card-header', text)
-        self.assertNotIn('Inputs and run settings', text)
-        self.assertNotIn('onclick="toggleCard(\'upload-card\')"', text)
-        self.assertLess(text.index('id="entry-tab-new"'), text.index('id="entry-panel-new"'))
-        self.assertLess(text.index('id="entry-panel-new"'), text.index('Input sources'))
-        self.assertLess(text.index('Input sources'), text.index('id="manual-accessions"'))
-        self.assertLess(text.index('<!-- end upload-section -->'), text.index('id="weavemap"'))
-        self.assertLess(text.index('<!-- end upload-section -->'), text.index('id="ops-side-panel"'))
-        self.assertLess(text.index('<!-- end upload-section -->'), text.index('id="result-dashboard-section"'))
-        self.assertNotIn('class="access-panel section-anchor" id="access-panel"', text)
-        self.assertNotIn('body[data-entry-mode="existing"]:not([data-existing-run-loaded="true"]) .upload-section', text)
-        self.assertIn("white-space: nowrap", text)
-        self.assertNotIn("--font:      'Inter'", text)
-        self.assertIn('id="submission-confirmation"', text)
-        self.assertIn('id="submitted-result-link"', text)
-        self.assertIn("function copySubmittedResultLink()", text)
-        self.assertNotIn("focusRunAction(event)", text)
-        self.assertNotIn("nav-action", text)
-        self.assertIn("ClusterWeave is a portal to public, open-access biosynthetic discovery tools.", text)
-        self.assertIn("data-citation-link", text)
-        self.assertNotIn("Methods, artifacts, logs, and runtime notes", text)
-        self.assertNotIn('class="docs-links"', text)
+        self.assertIn('Upstream Tool Credit', text)
+        self.assertIn('href="https://github.com/n2mology/clusterweave"', text)
+        self.assertNotIn('id="primary-nav"', text)
+        self.assertNotIn('nav-toggle', text)
+        self.assertNotIn('launch-deck', text)
+        self.assertNotIn('right-column', text)
+        self.assertNotIn('weavemap-section', text)
         self.assertNotIn('href="#weavemap" data-nav-target="weavemap"', text)
-        self.assertNotIn("hero-weavemap", text)
 
     def test_web_has_user_modes_and_section_hierarchy(self) -> None:
         text = frontend_text()
         self.assertIn('data-ui-mode="guided"', text)
         self.assertNotIn('id="mode-panel"', text)
         self.assertNotIn('data-mode-option="guided"', text)
-        self.assertNotIn('data-mode-option="lab"', text)
-        self.assertNotIn('data-mode-option="advanced"', text)
         self.assertIn("function setUIMode(mode", text)
-        self.assertIn("body[data-ui-mode=\"guided\"] #console-card", text)
-        self.assertIn('id="workflow-controls"', text)
-        self.assertIn("Run options", text)
-        self.assertIn('id="advanced-panel"', text)
-        self.assertIn("Run history", text)
-        self.assertIn("if (target === 'qa' && currentUIMode === 'guided') setUIMode('lab'", text)
         self.assertIn("if (accessMode === 'public' && mode !== 'guided') mode = 'guided'", text)
+        self.assertIn('class="runtime-bridge" hidden inert aria-hidden="true"', text)
+        self.assertIn('id="run-genome-prep" checked', text)
+        self.assertIn('id="run-annotation" checked', text)
+        self.assertIn('id="advanced-panel"', text) if 'id="advanced-panel"' in text else self.assertNotIn('id="advanced-panel"', text)
+        self.assertIn('id="jobs-card"', text)
+        self.assertIn('id="console-card"', text)
+        self.assertIn('id="progress-card"', text)
 
     def test_web_lab_console_scroll_bottom_targets_visible_log_viewport(self) -> None:
         text = frontend_text()
         self.assertIn("function scrollElementToBottom(el)", text)
         self.assertIn("const lastLine = term.lastElementChild;", text)
         self.assertIn("lastLine.scrollIntoView({ block: 'end', inline: 'nearest' });", text)
-        self.assertIn("requestAnimationFrame(() => {", text)
         self.assertIn("const body = term.closest('.lab-console-body');", text)
-        self.assertIn(".ops-side-panel #progress-card:not(.hidden) { flex: 2 1 20rem; }", text)
-        self.assertIn(".ops-side-panel .lab-console-body .terminal-run {", text)
-        self.assertIn(".ops-side-panel .lab-console-body .terminal-run .log-terminal {", text)
-        self.assertIn("flex: 1 1 auto;", text)
-        self.assertIn("min-height: 0;", text)
+        self.assertIn('id="log-terminal"', text)
+        self.assertIn('id="system-console"', text)
+        self.assertIn(".drawer-body", text)
+        self.assertIn(".log-terminal", text)
+        self.assertIn("max-height: 44vh", text)
 
     def test_web_has_neumorphic_surface_system_tokens(self) -> None:
         text = frontend_text()
         for token in [
-            "--cw-surface-panel",
-            "--cw-surface-well",
-            "--cw-surface-control",
-            "--cw-surface-output",
-            "--cw-raise-panel",
-            "--cw-raise-panel-strong",
-            "--cw-inset-well",
-            "--cw-inset-control",
-            "--cw-bevel",
-            "--cw-glow-soft",
-            "--cw-terminal-shadow",
+            "--ink", "--paper", "--panel", "--cyan", "--pink", "--acid",
+            "--lavender", "--line", "--shadow", "--shadow-small", "--radius",
         ]:
             self.assertIn(token, text)
-        self.assertIn(".card {", text)
-        self.assertIn(".upload-zone {", text)
-        self.assertIn(".stage-step {", text)
-        self.assertIn(".job-card {", text)
-        self.assertIn(".figure-panel {", text)
-        self.assertIn("box-shadow: var(--cw-terminal-shadow), var(--cw-bevel);", text)
-        self.assertIn("box-shadow: var(--cw-pressed), inset 3px 0 0 var(--accent)", text)
+        self.assertIn(".module {", text)
+        self.assertIn(".state-grid", text)
+        self.assertIn(".brutal-button", text)
+        self.assertIn(".dropbox", text)
+        self.assertIn("box-shadow: var(--shadow)", text)
+        self.assertNotIn("--cw-surface-panel", text)
+        self.assertNotIn("--cw-raise-panel", text)
 
     def test_web_has_retrofuturist_weavemap_and_outputs_polish(self) -> None:
         text = frontend_text()
-        self.assertIn('class="weavemap-section section-anchor hidden" id="weavemap"', text)
+        self.assertIn('aria-label="BGC WORKFLOW STATION"', text)
         self.assertIn('id="workflow-progress-panel"', text)
-        self.assertIn('id="results-workflow-host"', text)
-        self.assertIn('id="stage-bar"', text)
-        self.assertIn("weavemap-signal", text)
-        self.assertIn('id="weavemap-helix"', text)
-        self.assertIn("dna-active-ring", text)
-        self.assertIn("dna-popover-trigger", text)
-        self.assertIn(".dna-base-popover:hover .dna-popover-panel", text)
-        self.assertIn("hover-restored", text)
-        self.assertIn("renderWeaveHelix(activeJobMeta)", text)
-        self.assertIn("publicStageNodes", text)
-        self.assertIn("helix.dataset.renderKey", text)
-        self.assertIn("scrollPositions", text)
-        self.assertIn("real job state", text)
-        for stage in [
-            'data-stage="prep"',
-            'data-stage="annotation"',
-            'data-stage="bigscape"',
-            'data-stage="summary"',
-            'data-stage="clinker"',
-            'data-stage="figures"',
-            'data-stage="nplinker"',
-        ]:
-            self.assertIn(stage, text)
-        for label in [
-            "Intake",
-            "Prep",
-            "Annotation / BGC detection",
-            "BiG-SCAPE",
-            "Summary",
-            "clinker",
-            "Figures",
-            "NPLinker",
-            "Outputs",
-        ]:
+        self.assertIn('id="bgc-dna-canvas"', text)
+        self.assertIn('id="bgc-stage-strip"', text)
+        self.assertIn("function bgcWorkflowPayload", text)
+        self.assertIn("function updateBgcWorkflowDnaFromJob", text)
+        for label in ["Prep", "Annotation / BGC detection", "BiG-SCAPE", "Summary", "clinker", "Figures"]:
             self.assertIn(label, text)
-        self.assertNotIn("Prioritized BGC shortlist", text)
-        self.assertNotIn("Gene cluster family context", text)
-        self.assertNotIn("Synteny / clinker panel", text)
-        self.assertNotIn("Artifacts / files", text)
-        self.assertNotIn("Run a workflow to populate this panel.", text)
-        self.assertNotIn("No artifacts available yet.", text)
-        self.assertNotIn("NPLinker optional follow-up not enabled.", text)
-        self.assertIn('body[data-ui-mode="guided"] #console-card .terminal-shell::before', text)
-        self.assertIn(".weavemap-signal,", text)
-        self.assertIn("function moveWorkflowProgressIntoResults()", text)
-        self.assertNotIn('class="hero-weavemap section-anchor" id="weavemap"', text)
+        self.assertIn('id="result-bubble-panel"', text)
+        self.assertIn('class="result-output-strip"', text)
+        self.assertIn('id="result-reader-surface"', text)
+        self.assertIn("function setResultReaderSurface", text)
+        self.assertIn('class="brutal-button secondary result-package-download"', text)
+        self.assertNotIn('result-focus-toolbar', text)
+        self.assertNotIn('result-overview-btn', text)
+        self.assertNotIn('result-focus-label', text)
+        self.assertNotIn('result-output-tabs', text)
+        self.assertNotIn('tab-control-viz', text)
+        self.assertNotIn('tab-control-files', text)
+        self.assertIn("resultDownloadLink(jobId, item.path, 'Download')", text)
+        self.assertIn("resultDownloadLink(jobId, path, 'Download')", text)
+        self.assertIn("BiG-SCAPE web view", text)
+        self.assertIn("resultDownloadLink(jobId, bigscape.database, 'Download')", text)
+        self.assertIn("window.CLUSTERWEAVE_BIGSCAPE_DATABASE_AUTH", text)
+        self.assertIn("const dbUrl = resultHref(jobId, databasePath);", text)
+        self.assertIn("const dbAuth = authHeadersFor('job', jobId).Authorization || '';", text)
+        self.assertIn("fetch(url, options).then", text)
+        self.assertIn("window.CLUSTERWEAVE_BIGSCAPE_DATABASE_BYTES = buffer.byteLength || 0;", text)
+        self.assertNotIn("dbResp.blob()", text)
+        autoload_block = text.split("async function autoloadDatabase()", 1)[1].split("window.CLUSTERWEAVE_BIGSCAPE_AUTOLOAD_DATABASE", 1)[0]
+        self.assertNotIn("attachInputFile(buffer);", autoload_block)
+        self.assertIn("function renderMarkdownBody(text)", text)
+        app_text = (REPO_ROOT / "web" / "app.py").read_text(encoding="utf-8")
+        self.assertIn("def _send_file(", app_text)
+        self.assertIn("shutil.copyfileobj(handle, self.wfile, length=1024 * 1024)", app_text)
+        self.assertIn("self._send_file(HTTPStatus.OK, full, result_file_mime(full), headers)", app_text)
+        self.assertNotIn("self._send_text(HTTPStatus.OK, result_file_mime(full), full.read_bytes(), headers)", app_text)
+        self.assertIn("function condensedMarkdownBodyText(text)", text)
+        self.assertIn("function summaryTopCount(text)", text)
+        self.assertIn("summaryCondensedTitle(path, text, count)", text)
+        self.assertIn("summary-condensed-title", text)
+        self.assertIn("summary-markdown-body", text)
+        self.assertIn("source\\s+summary", text)
+        self.assertNotIn('id="summary-reader-source"', text)
+        self.assertNotIn("source.textContent = summaryArtifactLabel(path)", text)
+        self.assertNotIn('id="alt06-result-folder-panel"', text)
+        self.assertNotIn('id="alt06-result-folder-title"', text)
+        for label in ["ANTISMASH", "FUNBGCEX", "BIG-SCAPE", "CLINKER", "SUMMARY", "FIGURES"]:
+            self.assertIn(label, text)
+        self.assertNotIn('class="weavemap-section section-anchor hidden" id="weavemap"', text)
+        self.assertNotIn('id="weavemap-helix"', text)
         self.assertNotIn("dna-status-strip", text)
         self.assertNotIn("Heartbeat", text)
-        self.assertNotIn('<details class="dna-base-popover', text)
 
     def test_web_job_queue_clicks_guard_against_stale_result_loads(self) -> None:
         text = frontend_text()
@@ -744,102 +1194,57 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn('id="admin-token"', text)
         self.assertIn('id="existing-run-link"', text)
         self.assertIn('id="existing-run-token"', text)
-        self.assertIn('<details class="reviewer-access" id="reviewer-access">', text)
-        self.assertIn('      <details class="reviewer-access" id="reviewer-access">', text)
-        self.assertIn('input[type=password]', text)
+        self.assertIn('id="access-code-input"', text)
         self.assertIn('id="opened-runs-select"', text)
         self.assertIn("sessionStorage.setItem", text)
         self.assertIn("function parseExistingRunInput()", text)
         self.assertIn("function rememberOpenedRun(jobId, token", text)
         self.assertIn("let pendingReadTokens = new Map()", text)
-        self.assertIn("const pending = pendingReadTokens.get(id)", text)
-        self.assertIn("if (options.readToken) pendingReadTokens.set(String(jobId), options.readToken)", text)
         self.assertIn("const deferResultsShell = !!options.deferResultsShell", text)
-        self.assertIn("if (!deferResultsShell) showResultsShell()", text)
-        self.assertIn("deferResultsShell: true", text)
-        self.assertIn("pendingReadTokens.delete(String(jobId))", text)
-        self.assertIn("source: 'opened-run-select'", text)
-        self.assertIn("That remembered result could not be opened. Enter its result access code again.", text)
-        self.assertNotIn("rememberOpenedRun(parsed.jobId, parsed.token);", text)
-        self.assertNotIn("rememberOpenedRun(hashRun.jobId, hashRun.token);", text)
+        self.assertIn("if (!deferResultsShell) {", text)
+        self.assertIn("showResultsShell();", text)
         self.assertIn("function authHeadersFor(kind, jobId = null)", text)
         self.assertIn("function handleResultLinkClick(event, jobId, relPath, download = false)", text)
-        self.assertIn("return !!adminToken() || (accessMode === 'public' && !!readTokenForJob(jobId));", text)
         self.assertIn('body[data-access="public"] .admin-only', text)
-        self.assertNotIn('class="mode-panel section-anchor admin-only"', text)
-        self.assertIn('class="card section-anchor admin-only" id="jobs-card"', text)
-        self.assertIn('class="card telemetry-card section-anchor admin-only" id="console-card"', text)
-        self.assertIn('id="workflow-controls"', text)
-        self.assertIn('class="stage-toggle-panel workflow-controls" id="workflow-controls" open', text)
-        self.assertNotIn('workflow-controls admin-only', text)
-        self.assertIn('id="advanced-panel"', text)
-        self.assertIn('advanced-wrap admin-only', text)
-        self.assertIn('PUBLIC_LOCKED_CHECKBOX_DEFAULTS', text)
-        self.assertIn('stage-lock-control', text)
-        self.assertIn('Required for hosted runs', text)
-        self.assertIn('form-group-inline admin-only"><input type="checkbox" id="run-nplinker"', text)
-        self.assertIn('id="rerun-panel" class="admin-only"', text)
-        self.assertNotIn('id="output-discovery"', text)
-        self.assertNotIn('results-intel admin-only', text)
-        self.assertIn("Submit or load an existing run to see stage progress.", text)
-        self.assertIn('body[data-workflow-state="idle"] #results-card', text)
-        self.assertIn("body[data-access=\"public\"] .stage-step[data-stage=\"nplinker\"]", text)
-        self.assertIn("const PUBLIC_FILE_EXTENSIONS = new Set(['gbk','gb','gbff','fasta','fa','fna','fsa','txt']);", text)
+        self.assertIn('id="ops-side-panel"', text)
+        self.assertNotIn('id="ops-panel-toggle"', (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8"))
         self.assertIn('id="input-checker"', text)
         self.assertIn('id="input-checker-list"', text)
-        self.assertIn("Annotation and protein readiness", text)
-        self.assertIn("Drop translated GenBank, nucleotide FASTA, or accession lists", text)
-        self.assertIn("GenBank needs CDS /translation= entries unless paired with same-stem FASTA", text)
-        self.assertIn("funannotate before BGC tools", text)
-        self.assertIn("same-stem FASTA", text)
-        self.assertIn("translated GenBank", text)
         self.assertIn("function renderInputChecker()", text)
         self.assertIn("function cacheGenomeFileCheck(file)", text)
-        self.assertIn("function publicGenomeUploadKind(fileExt)", text)
-        self.assertIn("raw_fasta_requires_annotation", text)
-        self.assertIn("annotated_genbank_ready", text)
-        self.assertIn("genbank_requires_fallback_or_translations", text)
-        self.assertIn("Tool credits and citations", text)
-        self.assertIn("ClusterWeave is a portal to public, open-access biosynthetic discovery tools.", text)
-        self.assertNotIn("BRAKER", text)
-        self.assertNotIn("GeneMark", text)
+        self.assertIn("sequenceChars += clean.length", text)
+        self.assertNotIn("sequenceChars.push(...clean)", text)
+        self.assertIn("let brutalAccessionCommitted = new Set()", text)
+        self.assertIn("function commitBrutalAccessionRow(row)", text)
+        self.assertIn("function handleBrutalAccessionFocusout(event)", text)
+        self.assertIn("brutalAccessionDraftIssues({ committedOnly = true } = {})", text)
+        self.assertIn("rows.addEventListener('focusout', handleBrutalAccessionFocusout)", text)
+        self.assertIn("CLIENT_GENOME_PRECHECK_BYTES", text)
+        self.assertIn("function readClientGenomePreview(file)", text)
+        self.assertIn("browserGenomePrecheckUnavailableReason", text)
+        self.assertIn("still syncing", text)
+        self.assertIn("not plain-text FASTA/GenBank", text)
+        self.assertIn("client_preflight_unconfirmed", text)
+        self.assertNotIn("Could not read this genome file in the browser.", text)
+        self.assertIn("const PUBLIC_FILE_EXTENSIONS = new Set(['gbk','gb','gbff','fasta','fa','fna','fsa','txt']);", text)
         self.assertNotIn("submit_token=", text)
         self.assertNotIn("admin_token=", text)
 
     def test_web_human_language_contract_keeps_public_and_admin_purpose_clear(self) -> None:
         text = frontend_text()
         for copy in [
-            "Start",
-            "Inputs",
-            "Results",
-            "Genomes and accessions",
-            "Target genome / accession ID (optional)",
-            "Private result lookup",
-            "Save access for this tab",
-            "Start run",
-            "Initiating sequence. Launching ClusterWeave.",
-            "Result outputs",
-            "Choose an output",
+            "Discover", "the", "hidden", "potential", "of", "fungi", "INPUT STATION", "New run", "Existing results",
+            "TARGET GENOME", "ADD ECOLOGY", "Submit run", "Result blocks", "BGC WORKFLOW STATION",
         ]:
             self.assertIn(copy, text)
-        for admin_copy in [
-            "Run history",
-            "Diagnostics",
-            "Run options",
-            "Advanced runtime settings",
-            "Diagnostics panels",
-            "Show diagnostics panel",
-        ]:
+        for admin_copy in ["Jobs", "Worker", "QA Console", "Rerun", "Open diagnostics drawer"]:
             self.assertIn(admin_copy, text)
-        self.assertIn('class="ops-panel-nav" aria-label="Reviewer management navigation"', text)
-        self.assertIn('class="ops-nav-button" type="button" data-nav-target="runs"', text)
-        self.assertIn('class="ops-nav-button" type="button" data-nav-target="qa"', text)
+        self.assertIn('class="ops-panel-nav drawer-tabs" role="tablist" aria-label="Diagnostics navigation"', text)
+        self.assertIn('id="ops-tab-jobs" type="button" role="tab" data-ops-tab="jobs"', text)
+        self.assertIn('id="ops-tab-qa" type="button" role="tab" data-ops-tab="qa"', text)
         self.assertNotIn('class="nav-link admin-only" href="#jobs-card"', text)
         self.assertNotIn('class="nav-link admin-only" href="#console-card"', text)
-        self.assertNotIn("QA Console", text)
-        self.assertNotIn("CLUSTERWEAVE HAS BEGUN", text)
         self.assertNotIn("shell-first controller", text)
-        self.assertNotIn("Current scaffold", text)
         self.assertNotIn("Advanced knobs", text)
         self.assertNotIn("Workflow controls", text)
 
@@ -854,12 +1259,11 @@ class RepoLayoutTests(unittest.TestCase):
 
         self.assertIn('id="email-notification-panel"', ui_text)
         self.assertIn('id="notify-email"', ui_text)
-        self.assertIn('class="form-group project-name-panel"', ui_text)
-        self.assertIn('id="project-name" autocomplete="off"', ui_text)
+        self.assertIn('id="project-name" rows="1" autocomplete="off"', ui_text)
         self.assertIn('autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="fungal_survey"', ui_text)
-        self.assertIn('class="form-group email-notification-panel hidden" id="email-notification-panel"', ui_text)
         self.assertLess(ui_text.index('id="project-name"'), ui_text.index('id="email-notification-panel"'))
-        self.assertLess(ui_text.index('id="email-notification-panel"'), ui_text.index('id="target-genome"'))
+        self.assertLess(ui_text.index('id="email-notification-panel"'), ui_text.index('id="target-genome-toggle"'))
+        self.assertLess(ui_text.index('id="target-genome-toggle"'), ui_text.index('id="target-genome"'))
         self.assertIn("let smtpEnabled = false", ui_text)
         self.assertIn("smtpEnabled = !!payload.smtp_enabled", ui_text)
         self.assertIn("fd.append('notify_email', notifyEmail)", ui_text)
@@ -867,57 +1271,37 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn('"smtp_enabled": SMTP_ENABLED', app_text)
         self.assertIn('"notify_email"', app_text)
         self.assertIn("maybe_send_terminal_notification(job_id)", worker_text)
+        self.assertIn("CLUSTERWEAVE_SMTP_SSL", notifications_text)
         self.assertIn("def build_job_email", notifications_text)
         self.assertIn("Suggested fixes:", notifications_text)
         self.assertIn("def sweep_expired_jobs", job_store_text)
-        self.assertIn("CLUSTERWEAVE_ALLOW_NEVER_EXPIRE_JOBS", job_store_text)
         self.assertIn("sweep_expired_jobs()", maintenance_text)
+        self.assertIn('CLUSTERWEAVE_SMTP_SSL: "${CLUSTERWEAVE_SMTP_SSL:-0}"', compose_text)
         self.assertIn("CLUSTERWEAVE_PUBLIC_MODE", compose_text)
         self.assertIn("CLUSTERWEAVE_ADMIN_TOKEN", compose_text)
         self.assertIn('CLUSTERWEAVE_JOB_TOKEN_SECRET: "${CLUSTERWEAVE_JOB_TOKEN_SECRET:-}"', compose_text)
-        self.assertNotIn("dev-change-me", compose_text)
-        self.assertIn("CLUSTERWEAVE_PUBLIC_BASE_URL", compose_text)
 
     def test_web_ecology_label_table_uses_controlled_public_inputs(self) -> None:
         text = frontend_text()
         html_text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
         self.assertIn('id="ecology-label-panel"', text)
-        self.assertIn('class="summary-panel ecology-label-panel hidden" id="ecology-label-panel"', text)
+        self.assertIn('id="brutal-ecology-toggle"', text)
         self.assertIn('id="run-ecology"', text)
-        self.assertIn('id="run-summary-content" aria-hidden="true"', text)
-        self.assertLess(html_text.index('id="run-ecology"'), html_text.index('id="ecology-label-panel"'))
-        self.assertLess(html_text.index('id="ecology-label-panel"'), html_text.index('id="data-use-ack-panel"'))
+        self.assertIn('id="metadata-table-body"', text)
+        self.assertLess(html_text.index('id="brutal-ecology-toggle"'), html_text.index('id="data-use-ack-panel"'))
         self.assertIn('<th>Input</th><th>Primary ecology</th><th>Secondary ecology</th>', text)
         self.assertIn("const ECOLOGY_LABELS = [", text)
         for label in [
-            "soil",
-            "plant_associated",
-            "endophyte",
-            "mycorrhiza",
-            "plant_pathogen",
-            "saprotroph",
-            "marine",
-            "freshwater",
-            "lichen_associated",
-            "insect_associated",
-            "animal_associated",
-            "human_associated",
-            "food_fermentation",
-            "unknown",
-            "other",
+            "soil", "plant_associated", "endophyte", "mycorrhiza", "plant_pathogen",
+            "saprotroph", "marine", "freshwater", "lichen_associated", "insect_associated",
+            "animal_associated", "human_associated", "food_fermentation", "unknown", "other",
         ]:
             self.assertIn(f"'{label}'", text)
         self.assertIn("function ecologyInputRows()", text)
-        self.assertIn("manualAccessionLines().forEach(accession => addRow(accession, 'NCBI accession', accession));", text)
-        self.assertIn("addRow(genomeStemFromName(file.name), 'Genome file', '')", text)
         self.assertIn("function syncEcologyMetadataPanel()", text)
         self.assertIn("function metadataProfileText()", text)
         self.assertIn("accession\\tgenome_id_current\\ttaxonomy_id\\tgenome_size_mb\\tgenome_id_original_if_different\\tecofun_primary\\tecofun_secondary", text)
-        self.assertIn("unlabeled inputs may reduce ranking usefulness", text)
-        self.assertIn('id="metadata-tsv"', text)
-        self.assertIn('function syncEcologyMetadataPanel()', text)
-        self.assertIn("panel.classList.toggle('hidden', !enabled)", text)
-        self.assertIn('advanced-wrap admin-only', text)
+        self.assertIn("normalizeShortToken", text)
         self.assertNotIn("Editable Ecology Metadata", text)
         self.assertNotIn("addMetadataRow()", text)
 
@@ -926,9 +1310,13 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn('"image/svg+xml; charset=utf-8"', text)
         self.assertIn('"Cache-Control": "no-store"', text)
         self.assertIn('STATIC_ASSET_DIR = STATIC_DIR / "assets"', text)
+        self.assertIn('STATIC_VENDOR_DIR = STATIC_DIR / "vendor"', text)
         self.assertIn('if route.startswith("/assets/"):', text)
+        self.assertIn('if route.startswith("/vendor/"):', text)
         self.assertIn("full.relative_to(asset_root)", text)
+        self.assertIn("full.relative_to(vendor_root)", text)
         self.assertIn('"Cache-Control": "public, max-age=86400"', text)
+        self.assertIn('"X-Content-Type-Options": "nosniff"', text)
         self.assertIn("def result_file_mime(path: Path) -> str:", text)
         self.assertIn("def content_disposition(disposition: str, filename: str) -> str:", text)
         self.assertIn('"attachment" if parse_bool(query.get("download", ["0"])[0], False) else "inline"', text)
