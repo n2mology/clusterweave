@@ -6,7 +6,7 @@
   <img src="visuals/ClusterWeave.svg" alt="ClusterWeave workflow overview" width="900">
 </p>
 
-# `ClusterWeave`: an accessible workbench for fungal biosynthetic discovery
+# An accessible workbench for fungal biosynthetic discovery
 
 ClusterWeave connects genome preparation, annotation, antiSMASH, FunBGCeX, BiG-SCAPE, summary tables, clinker synteny panels, and figures into one reproducible run.
 
