@@ -325,8 +325,8 @@ GitHub Actions can publish web and worker images to GitHub Container Registry fr
 
 Published image names:
 
-- `ghcr.io/<owner>/clusterweave-web`
-- `ghcr.io/<owner>/clusterweave-worker`
+- `ghcr.io/n2mology/clusterweave-web`
+- `ghcr.io/n2mology/clusterweave-worker`
 
 Build roles:
 
@@ -336,16 +336,25 @@ Build roles:
 Release example:
 
 ```bash
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.3.1-beta
+git push origin v0.3.1-beta
 ```
 
-Pull pinned images:
+After the tag publish workflow finishes, pull pinned images:
 
 ```bash
-docker pull ghcr.io/<owner>/clusterweave-web:v0.2.0
-docker pull ghcr.io/<owner>/clusterweave-worker:v0.2.0
+docker pull ghcr.io/n2mology/clusterweave-web:v0.3.1-beta
+docker pull ghcr.io/n2mology/clusterweave-worker:v0.3.1-beta
 ```
+
+Run pinned compose images:
+
+```bash
+CLUSTERWEAVE_IMAGE_TAG=v0.3.1-beta docker compose -f clusterweave.yml pull
+CLUSTERWEAVE_IMAGE_TAG=v0.3.1-beta docker compose -f clusterweave.yml up -d
+```
+
+Replace `v0.3.1-beta` with the release tag you want to deploy.
 
 For local advanced deployments, review [docs/WEB_RUNTIME.md](docs/WEB_RUNTIME.md) before exposing a service beyond localhost.
 
