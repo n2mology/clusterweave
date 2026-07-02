@@ -342,7 +342,14 @@ class RepoLayoutTests(unittest.TestCase):
 
     def test_generic_example_paths_exist(self) -> None:
         self.assertTrue((REPO_ROOT / "profiles" / "example_project.env").exists())
-        self.assertTrue((REPO_ROOT / "examples" / "example_project" / "README.md").exists())
+        for rel in [
+            "examples/README.md",
+            "examples/summary/README.md",
+            "examples/summary/family_atlas_shortlist.md",
+            "examples/figures/big_scape_multipanel.svg",
+            "examples/figures/bgc_overlap.svg",
+        ]:
+            self.assertTrue((REPO_ROOT / rel).exists(), rel)
 
     def test_lowercase_runtime_roots_exist(self) -> None:
         for rel in [
@@ -480,8 +487,9 @@ class RepoLayoutTests(unittest.TestCase):
             "visuals/ClusterWeave.svg",
             "visuals/logo.svg",
             "visuals/logo_black.svg",
-            "examples/example_project/clusterweave_smoke_derived_outputs/README.md",
-            "examples/example_project/clusterweave_smoke_derived_outputs/summary/family_atlas_shortlist.md",
+            "examples/README.md",
+            "examples/summary/README.md",
+            "examples/summary/family_atlas_shortlist.md",
             "docker-compose.yml",
             "clusterweave.yml",
             "web/OPERATOR_AGREEMENT.md",
