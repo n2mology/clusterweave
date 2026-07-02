@@ -374,7 +374,7 @@ For local advanced deployments, review [docs/WEB_RUNTIME.md](docs/WEB_RUNTIME.md
 
 ## Examples Vs Tests
 
-- `examples/example_project/` is for public-safe walkthrough material and small example-output bundles.
+- `examples/` contains public-safe walkthrough material, compact summary outputs, and rendered example figures.
 - `tests/` is for automated software validation and regression checks. It is not intended to represent a biological analysis project.
 
 ## Public Repository Hygiene
