@@ -344,6 +344,8 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertTrue((REPO_ROOT / "profiles" / "example_project.env").exists())
         for rel in [
             "examples/README.md",
+            "examples/accessions.txt",
+            "examples/accessions_fungusID_taxonomyID.txt",
             "examples/summary/README.md",
             "examples/summary/family_atlas_shortlist.md",
             "examples/figures/big_scape_multipanel.svg",
@@ -488,6 +490,8 @@ class RepoLayoutTests(unittest.TestCase):
             "visuals/logo.svg",
             "visuals/logo_black.svg",
             "examples/README.md",
+            "examples/accessions.txt",
+            "examples/accessions_fungusID_taxonomyID.txt",
             "examples/summary/README.md",
             "examples/summary/family_atlas_shortlist.md",
             "docker-compose.yml",
