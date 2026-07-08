@@ -245,6 +245,24 @@ class BigscapeNetworkRenderingTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.module = load_module()
 
+    def test_sample_name_tspans_italicize_organism_but_not_strain(self) -> None:
+        self.assertEqual(
+            self.module.sample_name_parts("Penicillium_rubens_Wisconsin_54-1255"),
+            ("Penicillium rubens", "Wisconsin 54-1255"),
+        )
+        self.assertEqual(
+            self.module.sample_name_parts("pENICILLIUM_RUBENS_wISCONSIN_54-1255"),
+            ("pENICILLIUM RUBENS", "wISCONSIN 54-1255"),
+        )
+        self.assertEqual(
+            self.module.sample_name_parts("Sphaerulina_BC-14"),
+            ("Sphaerulina", "BC-14"),
+        )
+        self.assertEqual(
+            self.module.svg_sample_name_tspans("pENICILLIUM_RUBENS_wISCONSIN_54-1255"),
+            '<tspan font-style="italic">pENICILLIUM RUBENS</tspan><tspan> wISCONSIN 54-1255</tspan>',
+        )
+
     def test_loading_metadata_class_mapping_mibig_and_singletons(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root, metadata_path = build_synthetic_bigscape_project(tmpdir)

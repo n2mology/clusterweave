@@ -1160,9 +1160,15 @@ def sample_name_parts(sample_id: str) -> tuple[str, str]:
     if not display or display == MIBIG_SAMPLE_ID:
         return "", display
     words = display.split()
-    if len(words) >= 2 and words[0][:1].isupper() and words[1][:1].islower():
-        return " ".join(words[:2]), " ".join(words[2:])
-    return "", display
+    if len(words) < 2 or not words[0].isalpha():
+        return "", display
+
+    italic_words = [words[0]]
+    plain_words = words[1:]
+    if words[1].isalpha() and words[1].casefold().rstrip(".") not in {"sp", "spp", "cf", "aff", "strain", "isolate"}:
+        italic_words.append(words[1])
+        plain_words = words[2:]
+    return " ".join(italic_words), " ".join(plain_words)
 
 
 def sample_display_text(sample_id: str) -> str:

@@ -1,3 +1,4 @@
+import csv
 import json
 import os
 from pathlib import Path
@@ -391,6 +392,95 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn('re.sub(r"\\.\\d+$", "", scaf)', text)
         self.assertIn('return scaf.rstrip(".")', text)
 
+    def test_summary_maps_funbgcex_locus_truncation_to_full_accession(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_root = Path(tmp)
+            project = "truncated_locus_project"
+            genome = "Genome_one"
+            results_root = tmp_root / "data" / "results" / project
+            antismash_dir = results_root / "antismash" / genome
+            funbgcex_dir = results_root / "funbgcex" / genome
+            input_gbks_dir = results_root / "input_gbks"
+            antismash_dir.mkdir(parents=True)
+            funbgcex_dir.mkdir(parents=True)
+            input_gbks_dir.mkdir(parents=True)
+
+            (input_gbks_dir / f"{genome}.gbk").write_text(
+                "LOCUS       tig00000001_RagT     1000 bp    DNA     linear   UNA 01-JAN-1980\n"
+                "ACCESSION   tig00000001_RagTag\n"
+                "VERSION     tig00000001_RagTag\n"
+                "//\n",
+                encoding="utf-8",
+            )
+            (antismash_dir / f"{genome}.antismash.json").write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {
+                                "id": "tig00000001_RagTag",
+                                "modules": {},
+                                "areas": [
+                                    {
+                                        "start": 99,
+                                        "end": 200,
+                                        "products": ["NRPS"],
+                                        "protoclusters": {},
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (funbgcex_dir / "allBGCs.csv").write_text(
+                "BGC no.,Scaffold,Start position,End position,Core enzymes,Metabolite from similar BGC,Similar BGC,Similarity score\n"
+                "BGC1,tig00000001_RagT,120,180,NRPS,-,-,-\n",
+                encoding="utf-8",
+            )
+            noop_script = tmp_root / "noop.py"
+            noop_script.write_text("import sys\n", encoding="utf-8")
+
+            env = dict(os.environ)
+            env.update(
+                {
+                    "PROJECT_NAME": project,
+                    "PROJECTS_ROOT": str(REPO_ROOT),
+                    "DATA_ROOT": str(tmp_root / "data"),
+                    "RESULTS_ROOT": str(results_root),
+                    "INPUT_GBKS_ROOT": str(input_gbks_dir),
+                    "BGC_GCF_CROSSWALK_PY": str(noop_script),
+                    "TARGETED_ANALYSIS_PY": str(noop_script),
+                    "RUN_ECOLOGY_ANALYSIS": "0",
+                    "PYTHON_BIN": sys.executable,
+                }
+            )
+            result = subprocess.run(
+                ["bash", str(REPO_ROOT / "summarize_clusterweave.sh")],
+                cwd=str(REPO_ROOT),
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=True,
+            )
+
+            output = result.stdout + result.stderr
+            with (results_root / "summary" / "all_tools_bgc_comparison.csv").open(encoding="utf-8") as fh:
+                bgc_rows = list(csv.DictReader(fh))
+            self.assertEqual(len(bgc_rows), 1, output)
+            self.assertEqual(bgc_rows[0]["scaffold"], "tig00000001_RagTag")
+            self.assertEqual(bgc_rows[0]["overlap_bp"], "61")
+            self.assertEqual(bgc_rows[0]["antismash_bgc_id"], "tig00000001_RagTag.region001")
+            self.assertEqual(bgc_rows[0]["funbgcex_bgc_id"], "BGC1")
+
+            with (results_root / "summary" / "all_tools_shared_unshared_summary.csv").open(encoding="utf-8") as fh:
+                summary_rows = list(csv.DictReader(fh))
+            counts = {(row["tool"], row["entity_type"], row["class_norm"]): row for row in summary_rows}
+            for key in [("antismash", "BGC", "NRPS"), ("funbgcex", "BGC", "NRPS")]:
+                self.assertEqual(counts[key]["shared_count"], "1")
+                self.assertEqual(counts[key]["unshared_count"], "0")
+
     def test_summary_counts_hybrid_bgcs_once(self) -> None:
         text = (REPO_ROOT / "summarize_clusterweave.sh").read_text(encoding="utf-8")
         self.assertIn("def summary_bgc_class", text)
@@ -436,6 +526,44 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("infer_target_genome_from_existing_outputs()", text)
         self.assertIn("mode_includes_track()", text)
         self.assertIn("can_run_existing_panels_without_target()", text)
+
+    def test_clinker_normalizes_legacy_web_panel_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_root = Path(tmp)
+            env = dict(os.environ)
+            env.update(
+                {
+                    "PROJECT_NAME": "legacy_clinker_defaults",
+                    "PROJECTS_ROOT": str(REPO_ROOT),
+                    "DATA_ROOT": str(tmp_root / "data"),
+                    "RESULTS_ROOT": str(tmp_root / "data" / "results" / "legacy_clinker_defaults"),
+                    "SOFTWARE_ROOT": str(REPO_ROOT / "software"),
+                    "CLINKER_MODE": "docker",
+                    "PANEL_TARGET_SET": "atlas",
+                    "STAGE_PANELS": "0",
+                    "RUN_CLINKER": "0",
+                    "REFRESH_FAMILY_ATLAS": "0",
+                    "REFRESH_REVIEWER_SHORTLIST": "0",
+                    "REFRESH_PRIORITY_SHORTLIST": "0",
+                    "REFRESH_SHARED_FAMILY_SHORTLIST": "0",
+                }
+            )
+            result = subprocess.run(
+                ["bash", str(REPO_ROOT / "run_clinker.sh")],
+                cwd=str(REPO_ROOT),
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=True,
+            )
+
+        output = result.stdout + result.stderr
+        self.assertIn("CLINKER_MODE=docker is a runtime backend value; using CLINKER_MODE=auto", output)
+        self.assertIn("PANEL_TARGET_SET=atlas is a legacy atlas selector; using PANEL_TARGET_SET=both", output)
+        self.assertIn("CLINKER_MODE=auto", output)
+        self.assertIn("PANEL_TARGET_SET=both", output)
+        self.assertIn("run_clinker.sh complete.", output)
 
     def test_metadata_template_is_runtime_local_not_repo_rewritten(self) -> None:
         normalize_text = (REPO_ROOT / "bin" / "normalize_metadata.py").read_text(encoding="utf-8")
