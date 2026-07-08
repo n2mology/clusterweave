@@ -14,6 +14,17 @@ FUNANNOTATE_BUSCO_DBS="${FUNANNOTATE_BUSCO_DBS:-ascomycota basidiomycota microsp
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
+path_with_absolute_parent() {
+  local path="$1"
+  local parent
+  local name
+  parent="$(dirname "${path}")"
+  name="$(basename "${path}")"
+  mkdir -p "${parent}"
+  parent="$(cd "${parent}" && pwd -P)"
+  printf '%s/%s\n' "${parent}" "${name}"
+}
+
 usage() {
   cat <<EOF
 Usage: $(basename "$0") [build|docker|sif|inventory|validate]
@@ -59,6 +70,15 @@ EOF
 predict_accepts_snippet() {
   cat <<'EOF'
 set -eu
+if ! command -v python >/dev/null 2>&1; then
+  printf 'python\tmissing\n'
+  exit 1
+fi
+funannotate_probe="$("/venv/bin/funannotate" --help 2>&1 || true)"
+if ! printf '%s\n' "${funannotate_probe}" | grep -Eqi 'Usage:|Description:|funannotate'; then
+  printf 'funannotate\texecutable_failed\n'
+  exit 1
+fi
 tmp="$(mktemp -d)"
 trap 'rm -rf "${tmp}"' EXIT
 for db in "$@"; do
@@ -116,17 +136,31 @@ build_docker_image() {
 
 build_sif_from_def() {
   local builder="$1"
-  [[ -s "${DEF}" ]] || { echo "ERROR: definition file not found: ${DEF}" >&2; exit 1; }
-  mkdir -p "$(dirname "${SIF_OUT}")"
+  local def_dir
+  local def_file
+
+  def_dir="$(cd "$(dirname "${DEF}")" && pwd -P)" || {
+    echo "ERROR: definition directory not found: $(dirname "${DEF}")" >&2
+    exit 1
+  }
+  def_file="$(basename "${DEF}")"
+  [[ -s "${def_dir}/${def_file}" ]] || { echo "ERROR: definition file not found: ${DEF}" >&2; exit 1; }
+  SIF_OUT="$(path_with_absolute_parent "${SIF_OUT}")"
   echo "Building ${SIF_OUT} with ${builder}; BUSCO DBs: ${FUNANNOTATE_BUSCO_DBS}"
-  if FUNANNOTATE_BUSCO_DBS="${FUNANNOTATE_BUSCO_DBS}" FUNANNOTATE_DB="${FUNANNOTATE_DB}" \
-      "${builder}" build --fakeroot "${SIF_OUT}" "${DEF}"; then
+  if (
+      cd "${def_dir}"
+      FUNANNOTATE_BUSCO_DBS="${FUNANNOTATE_BUSCO_DBS}" FUNANNOTATE_DB="${FUNANNOTATE_DB}" \
+        "${builder}" build --fakeroot "${SIF_OUT}" "${def_file}"
+    ); then
     echo "Built ${SIF_OUT} (${builder} --fakeroot)"
     return 0
   fi
   echo "fakeroot failed; trying ${builder} build without fakeroot"
-  FUNANNOTATE_BUSCO_DBS="${FUNANNOTATE_BUSCO_DBS}" FUNANNOTATE_DB="${FUNANNOTATE_DB}" \
-    "${builder}" build "${SIF_OUT}" "${DEF}"
+  (
+    cd "${def_dir}"
+    FUNANNOTATE_BUSCO_DBS="${FUNANNOTATE_BUSCO_DBS}" FUNANNOTATE_DB="${FUNANNOTATE_DB}" \
+      "${builder}" build "${SIF_OUT}" "${def_file}"
+  )
   echo "Built ${SIF_OUT} (${builder})"
 }
 

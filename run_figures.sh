@@ -5,6 +5,10 @@ IFS=$' \n\t'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 PROJECT_DIR="${PROJECT_DIR:-${SCRIPT_DIR}}"
 PROJECT_NAME="${PROJECT_NAME:-$(basename "${PROJECT_DIR}")}"
+PROJECTS_ROOT="${PROJECTS_ROOT:-${PROJECT_DIR}}"
+DATA_ROOT="${DATA_ROOT:-${PROJECTS_ROOT}/data}"
+RESULTS_BASE="${RESULTS_BASE:-${DATA_ROOT}/results}"
+RESULTS_ROOT="${RESULTS_ROOT:-${RESULTS_BASE}/${PROJECT_NAME}}"
 R_BIN="${R_BIN:-}"
 FORCE="${FORCE:-0}"
 RENDER_FIGURES_R="${RENDER_FIGURES_R:-${SCRIPT_DIR}/bin/render_summary_figures.R}"
@@ -15,8 +19,9 @@ RUN_SUMMARY_FIGURES="${RUN_SUMMARY_FIGURES:-0}"
 RUN_BGC_OVERLAP_FIGURE="${RUN_BGC_OVERLAP_FIGURE:-1}"
 RUN_BIGSCAPE_NETWORK_FIGURE="${RUN_BIGSCAPE_NETWORK_FIGURE:-1}"
 RUN_BIGSCAPE_MULTIPANEL_FIGURE="${RUN_BIGSCAPE_MULTIPANEL_FIGURE:-1}"
-BIGSCAPE_NETWORK_METADATA_TSV="${BIGSCAPE_NETWORK_METADATA_TSV:-${PROJECT_DIR}/data/results/${PROJECT_NAME}/summary_tables/ecofun_metadata_normalized.tsv}"
-BIGSCAPE_NETWORK_ANNOTATION_TABLE="${BIGSCAPE_NETWORK_ANNOTATION_TABLE:-${PROJECT_DIR}/data/results/${PROJECT_NAME}/summary/candidate_bgc_gcf_crosswalk.tsv}"
+BIGSCAPE_NETWORK_METADATA_TSV="${BIGSCAPE_NETWORK_METADATA_TSV:-${RESULTS_ROOT}/summary_tables/ecofun_metadata_normalized.tsv}"
+BIGSCAPE_NETWORK_ANNOTATION_TABLE="${BIGSCAPE_NETWORK_ANNOTATION_TABLE:-${RESULTS_ROOT}/summary/candidate_bgc_gcf_crosswalk.tsv}"
+SUMMARY_TABLE="${SUMMARY_TABLE:-${RESULTS_ROOT}/summary/all_tools_shared_unshared_summary.csv}"
 BIGSCAPE_NETWORK_ECOLOGY_FIELD="${BIGSCAPE_NETWORK_ECOLOGY_FIELD:-ecofun_primary}"
 BIGSCAPE_NETWORK_FORMATS="${BIGSCAPE_NETWORK_FORMATS:-graphml}"
 BIGSCAPE_MULTIPANEL_FORMATS="${BIGSCAPE_MULTIPANEL_FORMATS:-svg,png}"
@@ -250,8 +255,8 @@ else
   log "Skipping R summary figures because RUN_SUMMARY_FIGURES=${RUN_SUMMARY_FIGURES}"
 fi
 
-BIGSCAPE_OUTPUT_FILES="${PROJECT_DIR}/data/results/${PROJECT_NAME}/big_scape/output_files"
-BIGSCAPE_NETWORK_OUTPUT_DIR="${PROJECT_DIR}/data/results/${PROJECT_NAME}/figures"
+BIGSCAPE_OUTPUT_FILES="${BIGSCAPE_OUTPUT_FILES:-${RESULTS_ROOT}/big_scape/output_files}"
+BIGSCAPE_NETWORK_OUTPUT_DIR="${BIGSCAPE_NETWORK_OUTPUT_DIR:-${RESULTS_ROOT}/figures}"
 
 if [[ "${RUN_BGC_OVERLAP_FIGURE}" == "1" ]]; then
   if [[ ! -f "${RENDER_BGC_OVERLAP_PY}" ]]; then
@@ -264,6 +269,8 @@ if [[ "${RUN_BGC_OVERLAP_FIGURE}" == "1" ]]; then
       "${PYTHON_BIN}" "${RENDER_BGC_OVERLAP_PY}"
       --project-root "${PROJECT_DIR}"
       --project-name "${PROJECT_NAME}"
+      --summary-table "${SUMMARY_TABLE}"
+      --output-dir "${BIGSCAPE_NETWORK_OUTPUT_DIR}"
       --formats "${BGC_OVERLAP_FORMATS}"
     )
     if [[ "${FORCE}" == "1" ]]; then
@@ -290,6 +297,7 @@ if [[ "${RUN_BIGSCAPE_NETWORK_FIGURE}" == "1" ]]; then
         --project-root "${PROJECT_DIR}"
         --project-name "${PROJECT_NAME}"
         --bigscape-root "${BIGSCAPE_OUTPUT_FILES}"
+        --output-dir "${BIGSCAPE_NETWORK_OUTPUT_DIR}"
         --ecology-field "${BIGSCAPE_NETWORK_ECOLOGY_FIELD}"
         --formats "${BIGSCAPE_NETWORK_FORMATS}"
         --category "${BIGSCAPE_NETWORK_CATEGORY}"
@@ -342,6 +350,8 @@ if [[ "${RUN_BIGSCAPE_MULTIPANEL_FIGURE}" == "1" ]]; then
         --project-root "${PROJECT_DIR}"
         --project-name "${PROJECT_NAME}"
         --bigscape-root "${BIGSCAPE_OUTPUT_FILES}"
+        --summary-table "${SUMMARY_TABLE}"
+        --output-dir "${BIGSCAPE_NETWORK_OUTPUT_DIR}"
         --ecology-field "${BIGSCAPE_NETWORK_ECOLOGY_FIELD}"
         --formats "${BIGSCAPE_MULTIPANEL_FORMATS}"
         --category "${BIGSCAPE_NETWORK_CATEGORY}"

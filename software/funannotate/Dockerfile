@@ -10,6 +10,11 @@ COPY install_busco_db.py /opt/clusterweave-install-busco-db.py
 COPY busco_cache/ /opt/clusterweave-busco-cache/
 
 RUN set -eu; \
+    if [ ! -x /venv/bin/python ] && [ -x /venv/bin/python3 ]; then ln -s python3 /venv/bin/python; fi; \
+    if [ ! -x /venv/bin/python ] && command -v python3 >/dev/null 2>&1; then ln -s "$(command -v python3)" /venv/bin/python; fi; \
+    test -x /venv/bin/python; \
+    if [ ! -x /usr/local/bin/python ]; then ln -s /venv/bin/python /usr/local/bin/python; fi; \
+    test -x /usr/local/bin/python; \
     mkdir -p "${FUNANNOTATE_DB}"; \
     install_from_cache() { \
       db="$1"; \

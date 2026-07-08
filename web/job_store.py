@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -135,13 +136,20 @@ def read_job(job_id: str) -> dict[str, Any] | None:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def atomic_write_text(path: Path, data: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    try:
+        tmp.write_text(data, encoding="utf-8")
+        tmp.replace(path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
 def write_job(job: dict[str, Any]) -> None:
     apply_retention_metadata(job)
     path = job_meta_path(job["id"])
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(job, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp.replace(path)
+    atomic_write_text(path, json.dumps(job, ensure_ascii=False, indent=2))
 
 
 def list_jobs() -> list[dict[str, Any]]:
@@ -218,9 +226,7 @@ def read_retention_totals() -> dict[str, Any]:
 
 def write_retention_totals(totals: dict[str, Any]) -> None:
     RETENTION_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = RETENTION_TOTALS_PATH.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(totals, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp.replace(RETENTION_TOTALS_PATH)
+    atomic_write_text(RETENTION_TOTALS_PATH, json.dumps(totals, ensure_ascii=False, indent=2))
 
 
 def job_is_expired(job: dict[str, Any], now: datetime | None = None) -> bool:

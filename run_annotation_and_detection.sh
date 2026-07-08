@@ -193,6 +193,10 @@ PIPELOG="${LOGDIR}/run_annotation_and_detection.$(date +%Y%m%d_%H%M%S).log"
 WORK_ROOT="${WORK_ROOT:-/tmp/$(basename "${RESULTS_ROOT}")_work}"
 mkdir -p "${WORK_ROOT}"/{logs,tmp,bin}
 
+if [[ "${ENGINE}" != "docker" ]]; then
+  BIND_ARGS+=(--bind "${WORK_ROOT}:${WORK_ROOT}")
+fi
+
 ###############################################################################
 # Logging helpers
 ###############################################################################

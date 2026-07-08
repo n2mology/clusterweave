@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import asyncio
+import argparse
 import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +50,7 @@ except ImportError:  # pragma: no cover - package-style imports in local tests
 
 POLL_SECONDS = float(os.environ.get("WORKER_POLL_SECONDS", "1.0"))
 WORKER_CONCURRENCY = max(1, int(os.environ.get("WORKER_CONCURRENCY", "1")))
+EXECUTOR = os.environ.get("CLUSTERWEAVE_EXECUTOR", "local").strip().lower() or "local"
 WORKER_DIR = DATA_DIR / "worker"
 WORKER_STATUS_PATH = WORKER_DIR / "status.json"
 CANCELLED_ERROR = "Cancelled by administrator"
@@ -141,6 +144,7 @@ def write_worker_status(
         "updated_at": now_iso(),
         "runtime": {
             "mode": runtime.get("mode"),
+            "executor": EXECUTOR,
             "engine": runtime.get("engine"),
             "docker_ready": runtime.get("docker_ready"),
             "docker_socket_enabled": runtime.get("docker_socket_enabled"),
@@ -277,6 +281,38 @@ def build_job_from_meta(meta: dict) -> Job:
     return job
 
 
+def runtime_slurm_job_id() -> str:
+    for key in ["SLURM_JOB_ID", "SLURM_JOBID"]:
+        value = str(os.environ.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def apply_runtime_scheduler_metadata(payload: dict[str, Any]) -> None:
+    runtime_job_id = runtime_slurm_job_id()
+    scheduler = payload.get("scheduler")
+    scheduler_payload = dict(scheduler) if isinstance(scheduler, dict) else {}
+    scheduler_job_id = str(scheduler_payload.get("job_id") or payload.get("slurm_job_id") or "").strip()
+    slurm_job_id = scheduler_job_id or runtime_job_id
+    if not slurm_job_id:
+        return
+
+    scheduler_payload.setdefault("kind", "slurm")
+    scheduler_payload.setdefault("job_id", slurm_job_id)
+    scheduler_payload.setdefault("state", "RUNNING")
+    scheduler_payload["clusterweave_status"] = str(payload.get("status") or scheduler_payload.get("clusterweave_status") or "")
+    scheduler_payload.setdefault("submit_script", "slurm/submit.sbatch")
+    scheduler_payload.setdefault("queue_payload", "slurm/queue_payload.json")
+    scheduler_payload.setdefault("stdout", "slurm/slurm-%j.out")
+    scheduler_payload.setdefault("stderr", "slurm/slurm-%j.err")
+    scheduler_payload["updated_at"] = now_iso()
+
+    payload["executor"] = "slurm"
+    payload["slurm_job_id"] = slurm_job_id
+    payload["scheduler"] = scheduler_payload
+
+
 def persist_job(job: Job, cpus: int, settings: dict[str, Any]) -> None:
     write_logs(job.id, job.log_lines)
     payload = dict(read_job(job.id) or {})
@@ -286,6 +322,7 @@ def persist_job(job: Job, cpus: int, settings: dict[str, Any]) -> None:
     payload["cpus"] = cpus
     payload["settings"] = settings
     payload["updated_at"] = now_iso()
+    apply_runtime_scheduler_metadata(payload)
     write_job(payload)
 
 
@@ -385,9 +422,78 @@ async def worker_loop() -> None:
         await asyncio.sleep(POLL_SECONDS)
 
 
-def main() -> None:
+def _payload_from_path(path: str | None) -> dict[str, Any]:
+    if not path:
+        return {}
+    payload_path = Path(path)
+    payload = json.loads(payload_path.read_text(encoding="utf-8"))
+    return payload if isinstance(payload, dict) else {}
+
+
+def _one_shot_claim(job_id: str, *, cpus: int | None = None, queue_payload: str | None = None) -> tuple[int, dict[str, Any]]:
+    meta = read_job(job_id)
+    if meta is None:
+        raise ValueError(f"Job '{job_id}' not found")
+
+    payload = _payload_from_path(queue_payload)
+    settings = dict(meta.get("settings") or {})
+    queued_settings = payload.get("settings")
+    if isinstance(queued_settings, dict):
+        settings.update(queued_settings)
+
+    if cpus is None:
+        raw_cpus = payload.get("cpus", meta.get("cpus", 4))
+        try:
+            cpus = int(raw_cpus)
+        except (TypeError, ValueError):
+            cpus = 4
+    return max(1, cpus), settings
+
+
+def run_one_shot(job_id: str, *, cpus: int | None = None, queue_payload: str | None = None) -> int:
+    try:
+        resolved_cpus, settings = _one_shot_claim(job_id, cpus=cpus, queue_payload=queue_payload)
+        asyncio.run(process_claim(job_id, resolved_cpus, settings))
+    except Exception as exc:
+        print(f"ClusterWeave one-shot worker failed for {job_id}: {exc}", file=sys.stderr)
+        return 1
+
+    meta = read_job(job_id)
+    if meta is None:
+        return 1
+    return 1 if str(meta.get("status") or "").lower() == JobStatus.FAILED.value else 0
+
+
+async def slurm_loop() -> None:
+    try:
+        from slurm_backend import SlurmBackend
+    except ImportError:  # pragma: no cover - package-style imports in local tests
+        from .slurm_backend import SlurmBackend
+
+    backend = SlurmBackend(claim_next_job=claim_next_job, status_writer=write_worker_status)
+    await backend.loop()
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="ClusterWeave queue worker")
+    parser.add_argument("--once", metavar="JOB_ID", help="run exactly one already-created ClusterWeave job")
+    parser.add_argument("--queue-payload", help="queue payload JSON captured by a scheduler submitter")
+    parser.add_argument("--cpus", type=int, help="override CPU count for --once")
+    args = parser.parse_args(argv)
+
+    if args.once:
+        return run_one_shot(args.once, cpus=args.cpus, queue_payload=args.queue_payload)
+
+    if EXECUTOR == "slurm":
+        asyncio.run(slurm_loop())
+        return 0
+    if EXECUTOR != "local":
+        print(f"Unknown CLUSTERWEAVE_EXECUTOR={EXECUTOR!r}; expected 'local' or 'slurm'.", file=sys.stderr)
+        return 2
+
     asyncio.run(worker_loop())
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

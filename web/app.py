@@ -1263,6 +1263,23 @@ def queued_job_ids() -> list[str]:
     return ids
 
 
+def slurm_scheduler_metadata(job: dict[str, object]) -> dict[str, object]:
+    scheduler = job.get("scheduler")
+    if isinstance(scheduler, dict) and str(scheduler.get("kind") or "").lower() == "slurm":
+        return scheduler
+    return {}
+
+
+def slurm_scheduler_job_id(job: dict[str, object]) -> str:
+    scheduler = slurm_scheduler_metadata(job)
+    return str(scheduler.get("job_id") or job.get("slurm_job_id") or "").strip()
+
+
+def job_needs_scheduler_cancel_before_delete(job: dict[str, object]) -> bool:
+    status = str(job.get("status") or "").lower()
+    return status in QUEUED_JOB_STATUSES and bool(slurm_scheduler_job_id(job))
+
+
 def job_queue_status(job: dict[str, object], *, admin: bool) -> dict[str, object] | None:
     job_id = str(job.get("id") or "")
     status = str(job.get("status") or "").lower()
@@ -1273,6 +1290,33 @@ def job_queue_status(job: dict[str, object], *, admin: bool) -> dict[str, object
     active_ids = worker_active_job_ids(worker)
     queued_ids = queued_job_ids()
     active_count = len(active_ids)
+    scheduler = slurm_scheduler_metadata(job)
+    scheduler_id = slurm_scheduler_job_id(job)
+
+    if scheduler_id:
+        scheduler_state = str(scheduler.get("state") or "").upper()
+        if status == "running" or scheduler_state in {"RUNNING", "COMPLETING", "SUSPENDED", "STOPPED"}:
+            state = "running"
+            detail = "Scheduler is processing this run."
+        else:
+            state = "queued"
+            detail = "Submitted to the scheduler; waiting for compute resources."
+        payload: dict[str, object] = {
+            "state": state,
+            "position": None,
+            "jobs_ahead": active_count,
+            "active_count": active_count,
+            "queue_depth": len(queued_ids),
+            "detail": detail,
+        }
+        if admin:
+            payload["active_jobs"] = active_ids
+            payload["scheduler"] = {
+                "kind": "slurm",
+                "job_id": scheduler_id,
+                "state": scheduler_state or None,
+            }
+        return payload
 
     if job_id in active_ids or status == "running":
         detail = "Worker is processing this run."
@@ -2320,6 +2364,9 @@ class Handler(BaseHTTPRequestHandler):
             job["settings"] = settings
             job["submission_settings"] = base_settings
             job["last_rerun_settings"] = settings
+            job.pop("scheduler", None)
+            job.pop("slurm_job_id", None)
+            job.pop("executor", None)
             job["log_count"] = len(lines)
             job["updated_at"] = now_iso()
             job["rerun_count"] = int(job.get("rerun_count", 0) or 0) + 1
@@ -2606,7 +2653,7 @@ class Handler(BaseHTTPRequestHandler):
         for q in QUEUE_DIR.glob(f"{job_id}*.working"):
             q.unlink(missing_ok=True)
 
-        if str(job.get("status") or "").lower() == "running":
+        if str(job.get("status") or "").lower() == "running" or job_needs_scheduler_cancel_before_delete(job):
             request_job_cancel(job_id, "Admin delete requested", delete_after_cancel=True)
             append_log(job_id, "Cancel requested by administrator; stopping active workflow before deleting job data.")
             job["stage"] = "cancel requested"

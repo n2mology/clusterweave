@@ -26,6 +26,14 @@ Current Docker-native bridge paths:
 
 HPC/Singularity behavior remains the default when `ENGINE` is unset and Singularity/Apptainer is available.
 
+### Pilot: CADES/Slurm Scheduler Backend
+
+`CLUSTERWEAVE_EXECUTOR=local` remains the default worker mode. Set `CLUSTERWEAVE_EXECUTOR=slurm` to run the scheduler-backed pilot submitter while preserving the existing filesystem queue.
+
+In Slurm mode the worker process claims `/data/queue/<job-id>.json`, writes `/data/jobs/<job-id>/slurm/submit.sbatch`, submits it with `sbatch --parsable`, records `slurm_job_id` and scheduler metadata in `job.json`, polls `squeue`/`sacct`, and uses `scancel` for admin cancellation. The compute node runs exactly one job through `python3 web/worker.py --once <job-id> --queue-payload ...`, which reuses the current canonical pipeline.
+
+See `docs/CADES_SLURM_BACKEND.md` for the CADES pilot env contract, dry-run test, smoke-test procedure, cache guidance, and security notes.
+
 ### Long Term: Public Hosted Runtime
 
 Public hosting should not expose the host Docker socket to a web-facing worker. The target model is:
