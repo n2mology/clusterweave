@@ -283,6 +283,7 @@ BIND_ARGS=(
   --bind "${PFAM_DIR}:${PFAM_DIR}"
   --bind "${LOCAL_BIN}:${LOCAL_BIN}"
   --bind "${BIGSCAPE_OUT}:${BIGSCAPE_OUT}"
+  --bind "${WORK_ROOT}:${WORK_ROOT}"
 )
 
 if [[ -n "${MIBIG_VERSION}" ]]; then

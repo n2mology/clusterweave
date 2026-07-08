@@ -4,11 +4,30 @@ __pycache__/
 *.tmp
 *.bak
 .env
+.env.*
+*.env
+*.env.*
+!*.env.example
+!*.env.sample
+!config/*.env
+!profiles/*.env
 .pytest_cache/
 .mypy_cache/
 .DS_Store
 .venv/
 venv/
+
+# Local credentials and deployment secrets.
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+known_hosts
+authorized_keys
+secrets/
+private/
 
 # Local-only browser screenshot tooling for agent visual review.
 node_modules/
@@ -18,6 +37,15 @@ skills/
 
 data/results/**
 !data/results/.gitkeep
+
+data/jobs/**
+!data/jobs/.gitkeep
+data/queue/**
+!data/queue/.gitkeep
+data/worker/**
+!data/worker/.gitkeep
+data/uploads/**
+!data/uploads/.gitkeep
 
 data/genomes/**
 !data/genomes/
@@ -45,12 +73,24 @@ software/funannotate/busco_cache/**
 /results/
 /logs/
 /tmp/
+/clusterweave_cades/
+/cades/
+/cades_*/
+/api_smoke/
+/sif_stage/
+/apptainer-cache/
+/singularity-cache/
 
 *.sif
 *.tar.gz
 *.tar.bz2
 *.hmm
 *.hmm.gz
+*.sbatch
+*.out
+*.err
+slurm-*.out
+slurm-*.err
 accessions_aspergillus.txt
 accessions_dse.txt
 demo

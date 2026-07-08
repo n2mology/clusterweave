@@ -18,6 +18,7 @@ RESULTS_ROOT="${RESULTS_ROOT:-${RESULTS_BASE}/${PROJECT_NAME}}"
 ANTISMASH_ROOT="${ANTISMASH_ROOT:-${RESULTS_ROOT}/antismash}"
 FUNBGCEX_ROOT="${FUNBGCEX_ROOT:-${RESULTS_ROOT}/funbgcex}"
 BIGSCAPE_ROOT="${BIGSCAPE_ROOT:-${RESULTS_ROOT}/big_scape}"
+INPUT_GBKS_ROOT="${INPUT_GBKS_ROOT:-${RESULTS_ROOT}/input_gbks}"
 OUTDIR="${OUTDIR:-${RESULTS_ROOT}/summary}"
 mkdir -p "${OUTDIR}"
 
@@ -25,7 +26,7 @@ SCAFFOLD_COMPARISON_CSV="${SCAFFOLD_COMPARISON_CSV:-${OUTDIR}/all_tools_scaffold
 BGC_COMPARISON_CSV="${BGC_COMPARISON_CSV:-${OUTDIR}/all_tools_bgc_comparison.csv}"
 SUMMARY_CSV="${SUMMARY_CSV:-${OUTDIR}/all_tools_shared_unshared_summary.csv}"
 
-export ANTISMASH_ROOT FUNBGCEX_ROOT BIGSCAPE_ROOT SCAFFOLD_COMPARISON_CSV BGC_COMPARISON_CSV SUMMARY_CSV
+export ANTISMASH_ROOT FUNBGCEX_ROOT BIGSCAPE_ROOT INPUT_GBKS_ROOT SCAFFOLD_COMPARISON_CSV BGC_COMPARISON_CSV SUMMARY_CSV
 
 have(){ command -v "$1" >/dev/null 2>&1; }
 resolve_python_cmd() {
@@ -72,6 +73,7 @@ from collections import Counter, defaultdict
 ANTISMASH_ROOT = os.environ["ANTISMASH_ROOT"]
 FUNBGCEX_ROOT = os.environ["FUNBGCEX_ROOT"]
 BIGSCAPE_ROOT = os.environ["BIGSCAPE_ROOT"]
+INPUT_GBKS_ROOT = os.environ["INPUT_GBKS_ROOT"]
 SCAFFOLD_COMPARISON_CSV = os.environ["SCAFFOLD_COMPARISON_CSV"]
 BGC_COMPARISON_CSV = os.environ["BGC_COMPARISON_CSV"]
 SUMMARY_CSV = os.environ["SUMMARY_CSV"]
@@ -91,6 +93,60 @@ def normalize_scaffold(scaf):
     # while FunBGCeX may emit the same scaffold with a trailing "." only.
     scaf = re.sub(r"\.\d+$", "", scaf)
     return scaf.rstrip(".")
+
+_scaffold_alias_cache = {}
+
+def collect_gbk_scaffold_aliases(path, aliases):
+    locus = accession = version = ""
+
+    def flush():
+        target = version or accession
+        src = normalize_scaffold(locus)
+        dst = normalize_scaffold(target)
+        if src and dst and src != dst:
+            aliases[src].add(dst)
+
+    try:
+        fh = open(path, encoding="utf-8")
+    except OSError:
+        return
+    with fh:
+        for line in fh:
+            if line.startswith("LOCUS"):
+                flush()
+                parts = line.split()
+                locus = parts[1] if len(parts) > 1 else ""
+                accession = version = ""
+            elif line.startswith("ACCESSION"):
+                parts = line.split()
+                accession = parts[1] if len(parts) > 1 else ""
+            elif line.startswith("VERSION"):
+                parts = line.split()
+                version = parts[1] if len(parts) > 1 else ""
+            elif line.startswith("//"):
+                flush()
+                locus = accession = version = ""
+        flush()
+
+def scaffold_aliases_for_genome(genome):
+    if genome in _scaffold_alias_cache:
+        return _scaffold_alias_cache[genome]
+
+    candidates = [
+        os.path.join(INPUT_GBKS_ROOT, f"{genome}.gbk"),
+        os.path.join(INPUT_GBKS_ROOT, f"{genome}.gbff"),
+    ]
+    candidates.extend(glob.glob(os.path.join(INPUT_GBKS_ROOT, genome, "*.gbk")))
+    candidates.extend(glob.glob(os.path.join(INPUT_GBKS_ROOT, genome, "*.gbff")))
+
+    alias_targets = defaultdict(set)
+    for candidate in sorted(set(candidates)):
+        if os.path.isfile(candidate):
+            collect_gbk_scaffold_aliases(candidate, alias_targets)
+
+    aliases = {src: next(iter(dst)) for src, dst in alias_targets.items() if len(dst) == 1}
+    _scaffold_alias_cache[genome] = aliases
+    return aliases
 
 def classes_from_terms(terms):
     out=set()
@@ -145,6 +201,7 @@ def parse_funbgcex():
     for genome_dir in sorted(glob.glob(os.path.join(FUNBGCEX_ROOT,'*'))):
         if not os.path.isdir(genome_dir): continue
         genome=os.path.basename(genome_dir)
+        scaffold_aliases=scaffold_aliases_for_genome(genome)
         csv_path=os.path.join(genome_dir,'allBGCs.csv')
         if not os.path.isfile(csv_path): continue
         with open(csv_path,newline='',encoding='utf-8') as fh:
@@ -155,9 +212,10 @@ def parse_funbgcex():
                     start=int(float(clean(row.get('Start position')))); end=int(float(clean(row.get('End position'))))
                 except Exception:
                     start=end=0
+                scaffold=normalize_scaffold(row.get('Scaffold'))
                 data[genome].append({
                     'bgc_id': clean(row.get('BGC no.')),
-                    'scaffold': normalize_scaffold(row.get('Scaffold')),
+                    'scaffold': scaffold_aliases.get(scaffold, scaffold),
                     'start': start, 'end': end,
                     'core_enzymes': core,
                     'classes': classes,

@@ -23,6 +23,7 @@ def _stage(available: bool, detail: str, missing: list[str] | None = None) -> di
 
 def runtime_health() -> dict[str, Any]:
     """Describe the worker runtime without mutating host/container state."""
+    executor = os.environ.get("CLUSTERWEAVE_EXECUTOR", "local").strip().lower() or "local"
     runtime_mode = os.environ.get("CLUSTERWEAVE_RUNTIME_MODE", "hpc-singularity")
     engine = os.environ.get("ENGINE") or os.environ.get("CLUSTERWEAVE_CONTAINER_ENGINE") or ""
     docker_socket_enabled = _truthy(os.environ.get("CLUSTERWEAVE_ENABLE_DOCKER_SOCKET"), False)
@@ -38,6 +39,54 @@ def runtime_health() -> dict[str, Any]:
     has_antismash = shutil.which("antismash") is not None
     has_rscript = shutil.which("Rscript") is not None
     has_clinker = shutil.which("clinker") is not None
+    has_sbatch = shutil.which("sbatch") is not None
+    has_squeue = shutil.which("squeue") is not None
+    has_sacct = shutil.which("sacct") is not None
+    has_scancel = shutil.which("scancel") is not None
+
+    if executor == "slurm":
+        missing = [
+            name
+            for name, available in [
+                ("sbatch", has_sbatch),
+                ("squeue", has_squeue),
+                ("sacct", has_sacct),
+                ("scancel", has_scancel),
+            ]
+            if not available
+        ]
+        scheduler_ready = not missing
+        scheduler_detail = (
+            "Slurm scheduler backend available"
+            if scheduler_ready
+            else "Slurm scheduler commands unavailable"
+        )
+        return {
+            "mode": runtime_mode,
+            "executor": executor,
+            "engine": engine or "auto",
+            "docker_socket_enabled": docker_socket_enabled,
+            "docker_cli": has_docker_cli,
+            "docker_socket": has_docker_socket,
+            "docker_ready": docker_ready,
+            "singularity": has_singularity,
+            "apptainer": has_apptainer,
+            "slurm": {
+                "sbatch": has_sbatch,
+                "squeue": has_squeue,
+                "sacct": has_sacct,
+                "scancel": has_scancel,
+            },
+            "stages": {
+                "prepare": _stage(scheduler_ready, scheduler_detail, missing),
+                "annotation": _stage(scheduler_ready, scheduler_detail, missing),
+                "bigscape": _stage(scheduler_ready, scheduler_detail, missing),
+                "summary": _stage(scheduler_ready, scheduler_detail, missing),
+                "clinker": _stage(scheduler_ready, scheduler_detail, missing),
+                "figures": _stage(scheduler_ready, scheduler_detail, missing),
+                "nplinker": _stage(scheduler_ready, scheduler_detail, missing),
+            },
+        }
 
     if engine == "docker":
         annotation_available = docker_ready
@@ -60,6 +109,7 @@ def runtime_health() -> dict[str, Any]:
 
     return {
         "mode": runtime_mode,
+        "executor": executor,
         "engine": engine or "auto",
         "docker_socket_enabled": docker_socket_enabled,
         "docker_cli": has_docker_cli,
