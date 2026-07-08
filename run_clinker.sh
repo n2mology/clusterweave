@@ -138,6 +138,38 @@ log(){ echo "[$(ts)] [INFO] $*"; }
 warn(){ echo "[$(ts)] [WARN] $*" >&2; }
 die(){ echo "[$(ts)] [ERROR] $*" >&2; exit 1; }
 have(){ command -v "$1" >/dev/null 2>&1; }
+
+normalize_clinker_selection_settings() {
+  local normalized_clinker_mode normalized_panel_target_set
+  normalized_clinker_mode="$(printf '%s' "${CLINKER_MODE}" | tr '[:upper:]-' '[:lower:]_')"
+  case "${normalized_clinker_mode}" in
+    auto|atlas|targeted|both)
+      CLINKER_MODE="${normalized_clinker_mode}"
+      ;;
+    docker|local|runtime|singularity|apptainer)
+      warn "CLINKER_MODE=${CLINKER_MODE} is a runtime backend value; using CLINKER_MODE=auto for panel selection."
+      CLINKER_MODE="auto"
+      ;;
+    *)
+      die "Unsupported CLINKER_MODE=${CLINKER_MODE}. Use auto, atlas, targeted, or both."
+      ;;
+  esac
+
+  normalized_panel_target_set="$(printf '%s' "${PANEL_TARGET_SET}" | tr '[:upper:]-' '[:lower:]_')"
+  case "${normalized_panel_target_set}" in
+    both|priority|shared_family)
+      PANEL_TARGET_SET="${normalized_panel_target_set}"
+      ;;
+    atlas)
+      warn "PANEL_TARGET_SET=${PANEL_TARGET_SET} is a legacy atlas selector; using PANEL_TARGET_SET=both. Use CLINKER_MODE=atlas for atlas-only runs."
+      PANEL_TARGET_SET="both"
+      ;;
+    *)
+      die "Unsupported PANEL_TARGET_SET=${PANEL_TARGET_SET}. Use both, priority, or shared_family."
+      ;;
+  esac
+}
+
 mibig_cache_has_gbks() {
   local cache="$1"
   [[ -d "${cache}" ]] || return 1
@@ -249,6 +281,8 @@ PYTHON_BIN="$(resolve_python_cmd)"
 [[ -f "${EXPORT_SHORTLIST_PY}" ]] || die "Missing Python helper: ${EXPORT_SHORTLIST_PY}"
 [[ -f "${EXPORT_SHARED_FAMILY_PY}" ]] || die "Missing Python helper: ${EXPORT_SHARED_FAMILY_PY}"
 [[ -f "${STAGE_CLINKER_PY}" ]] || die "Missing Python helper: ${STAGE_CLINKER_PY}"
+
+normalize_clinker_selection_settings
 
 case "${PANEL_TARGET_SET}" in
   both)
