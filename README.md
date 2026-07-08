@@ -336,25 +336,25 @@ Build roles:
 Release example:
 
 ```bash
-git tag v0.3.1-beta
-git push origin v0.3.1-beta
+git tag v0.3.2-beta
+git push origin v0.3.2-beta
 ```
 
 After the tag publish workflow finishes, pull pinned images:
 
 ```bash
-docker pull ghcr.io/n2mology/clusterweave-web:v0.3.1-beta
-docker pull ghcr.io/n2mology/clusterweave-worker:v0.3.1-beta
+docker pull ghcr.io/n2mology/clusterweave-web:v0.3.2-beta
+docker pull ghcr.io/n2mology/clusterweave-worker:v0.3.2-beta
 ```
 
 Run pinned compose images:
 
 ```bash
-CLUSTERWEAVE_IMAGE_TAG=v0.3.1-beta docker compose -f clusterweave.yml pull
-CLUSTERWEAVE_IMAGE_TAG=v0.3.1-beta docker compose -f clusterweave.yml up -d
+CLUSTERWEAVE_IMAGE_TAG=v0.3.2-beta docker compose -f clusterweave.yml pull
+CLUSTERWEAVE_IMAGE_TAG=v0.3.2-beta docker compose -f clusterweave.yml up -d
 ```
 
-Replace `v0.3.1-beta` with the release tag you want to deploy.
+Replace `v0.3.2-beta` with the release tag you want to deploy.
 
 For local advanced deployments, review [docs/WEB_RUNTIME.md](docs/WEB_RUNTIME.md) before exposing a service beyond localhost.
 
