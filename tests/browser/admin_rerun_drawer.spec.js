@@ -182,7 +182,9 @@ test('rerun opens as one normal-flow job disclosure and uses original stage elig
   await expect(secondDisclosure).not.toHaveAttribute('open', '');
   await expect(refreshedSecond.getByRole('button', { name: 'Rerun' })).toHaveAttribute('aria-expanded', 'false');
   expect(await page.evaluate(() => rerunScopeOpenJobId)).toBe('');
-  expect(reloadRequests).toEqual([
+  // A pending rerun is polled repeatedly; every reload must stay scoped to the rerun job.
+  await expect.poll(() => reloadRequests.length).toBeGreaterThan(0);
+  expect(new Set(reloadRequests)).toEqual(new Set([
     baseUrl + '/api/results/synthetic-fixture-job',
-  ]);
+  ]));
 });
