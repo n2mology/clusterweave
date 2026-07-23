@@ -264,7 +264,7 @@ def agreement_pie(
             lines.append(
                 svg_text(
                     shared_label_x,
-                    cy - radius - 11.0,
+                    cy + radius + 22.0,
                     f"Shared (n = {count_label(value)})",
                     12,
                     "700",

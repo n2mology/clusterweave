@@ -1,23 +1,33 @@
+# Language and tooling caches.
 __pycache__/
 *.py[cod]
-*.log
-*.tmp
-*.bak
-.env
-.env.*
-*.env
-*.env.*
-!*.env.example
-!*.env.sample
-!config/*.env
-!profiles/*.env
 .pytest_cache/
 .mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+.coverage
+coverage.xml
+htmlcov/
 .DS_Store
 .venv/
 venv/
 
-# Local credentials and deployment secrets.
+# Dependencies and generated test reports.
+node_modules/
+/test-results/
+/playwright-report/
+/blob-report/
+/coverage/
+
+# Local runtime configuration and credentials.
+/.env
+/.env.*
+!/.env.example
+!/.env.sample
+/config/local.env
+/credentials/
+/secrets/
+/private/
 *.pem
 *.key
 *.p12
@@ -26,31 +36,25 @@ id_rsa*
 id_ed25519*
 known_hosts
 authorized_keys
-secrets/
-private/
 
-# Local-only browser screenshot tooling for agent visual review.
-node_modules/
-package.json
-package-lock.json
-skills/
+# Logs, temporary files, editor state, and backups.
+*.log
+*.tmp
+*.bak
+*.backup
+*.orig
+*.rej
+*.swp
+*.swo
+*~
 
-data/results/**
-!data/results/.gitkeep
-
-data/jobs/**
-!data/jobs/.gitkeep
-data/queue/**
-!data/queue/.gitkeep
-data/worker/**
-!data/worker/.gitkeep
-data/uploads/**
-!data/uploads/.gitkeep
-
-data/genomes/**
-!data/genomes/
-!data/genomes/fungi/
-!data/genomes/fungi/.gitkeep
+# Runtime uploads, workspaces, queues, and results; retain only public placeholders.
+/data/**
+!/data/genomes/
+!/data/genomes/fungi/
+!/data/genomes/fungi/.gitkeep
+!/data/results/
+!/data/results/.gitkeep
 
 software/**
 !software/.gitkeep
@@ -69,47 +73,23 @@ software/funannotate/**
 !software/funannotate/busco_cache/
 software/funannotate/busco_cache/**
 !software/funannotate/busco_cache/.gitkeep
+!software/phylogeny/
+software/phylogeny/**
+!software/phylogeny/build_phylogeny_image.sh
+!software/phylogeny/build_phylogeny_sif.sh
+!software/phylogeny/Dockerfile
+!software/phylogeny/Singularity.def
+!software/phylogeny/compare_gene_tree_taxonomy.py
 
+# Other generated runtime output and databases.
 /results/
 /logs/
 /tmp/
-/clusterweave_cades/
-/cades/
-/cades_*/
-/api_smoke/
-/sif_stage/
-/apptainer-cache/
-/singularity-cache/
-
-*.sif
-*.tar.gz
-*.tar.bz2
-*.hmm
-*.hmm.gz
-*.sbatch
-*.out
-*.err
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.sqlite-shm
+*.sqlite-wal
 slurm-*.out
 slurm-*.err
-accessions_aspergillus.txt
-accessions_dse.txt
-demo
-
-# Local web handoff boards and QA-only compose files.
-web/STAN.md
-web/STYLE.md
-web/STYLE_ARCHIVE.md
-web/PRODUCTION_LAUNCH_SLICE_MAP.md
-web/PRODUCTION_LAUNCH_SLICE_ARCHIVE.md
-web/GLOSSARY.md
-web/UPSTREAM_MAINTAINER_NOTE.md
-docker-compose.local-faces.yml
-
-# Editable publication/design source files not needed in the public source release.
-manuscript/
-visuals/*.ai
-visuals/*.blend
-visuals/*.mp4
-visuals/*.mov
-visuals/*.psd
-visuals/*.sketch

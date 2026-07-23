@@ -58,8 +58,20 @@ RES_DIR="${RES_DIR:-${BIGSCAPE_SOFTDIR}/resources}"
 MIBIG_CACHE="${MIBIG_CACHE:-${RES_DIR}/mibig_cache}"
 
 TARGET_GENOME="${TARGET_GENOME:-}"
-ECOLOGY_FIELD="${ECOLOGY_FIELD:-ecofun_primary}"
+ANALYSIS_SCOPE="${ANALYSIS_SCOPE:-fungi}"
+if [[ "${ANALYSIS_SCOPE}" == "bacteria" ]]; then
+  DEFAULT_ECOLOGY_FIELD="ecobac_primary"
+  DEFAULT_METADATA_NAME="ecobac_metadata_normalized.tsv"
+  DEFAULT_METADATA_TEMPLATE_NAME="ecobac_metadata_template.tsv"
+else
+  DEFAULT_ECOLOGY_FIELD="ecofun_primary"
+  DEFAULT_METADATA_NAME="ecofun_metadata_normalized.tsv"
+  DEFAULT_METADATA_TEMPLATE_NAME="ecofun_metadata_template.tsv"
+fi
+ECOLOGY_FIELD="${ECOLOGY_FIELD:-${DEFAULT_ECOLOGY_FIELD}}"
 FOCUS_ECOLOGY_LABEL="${FOCUS_ECOLOGY_LABEL:-}"
+BIGSCAPE_GCF_CATEGORY="${BIGSCAPE_GCF_CATEGORY:-${BIGSCAPE_NETWORK_CATEGORY:-mix}}"
+BIGSCAPE_GCF_THRESHOLD="${BIGSCAPE_GCF_THRESHOLD:-${BIGSCAPE_NETWORK_CLUSTERING_THRESHOLD:-0.3}}"
 CLINKER_MODE="${CLINKER_MODE:-auto}"
 PANEL_TARGET_SET="${PANEL_TARGET_SET:-both}"
 REFRESH_FAMILY_ATLAS="${REFRESH_FAMILY_ATLAS:-1}"
@@ -71,7 +83,7 @@ RUN_CLINKER="${RUN_CLINKER:-1}"
 SHORTLIST_BUCKET="${SHORTLIST_BUCKET:-}"
 SHORTLIST_PATH="${SHORTLIST_PATH:-}"
 SHORTLIST_LIMIT="${SHORTLIST_LIMIT:-12}"
-ATLAS_STAGE_LIMIT="${ATLAS_STAGE_LIMIT:-12}"
+ATLAS_STAGE_LIMIT="${ATLAS_STAGE_LIMIT:-20}"
 ATLAS_MIN_RECORDS="${ATLAS_MIN_RECORDS:-2}"
 SHARED_FAMILY_STAGE_LIMIT="${SHARED_FAMILY_STAGE_LIMIT:-12}"
 SHARED_FAMILY_MIN_RECORDS="${SHARED_FAMILY_MIN_RECORDS:-4}"
@@ -121,6 +133,9 @@ CLINKER_SIF_PATH="${CLINKER_SIF_PATH:-${CLINKER_SOFTDIR}/clinker-py_${CLINKER_CO
 CLINKER_USE_DOCKER_IMAGE="${CLINKER_USE_DOCKER_IMAGE:-0}"
 CLINKER_DOCKER_IMAGE="${CLINKER_DOCKER_IMAGE:-quay.io/biocontainers/clinker-py:${CLINKER_CONTAINER_TAG}}"
 CLINKER_DOCKER_DATA_VOLUME="${CLINKER_DOCKER_DATA_VOLUME:-${DOCKER_DATA_VOLUME:-}}"
+CLINKER_DOCKER_CPUS="${CLINKER_DOCKER_CPUS:-1}"
+CLINKER_DOCKER_MEMORY="${CLINKER_DOCKER_MEMORY:-${CLUSTERWEAVE_TOOL_DOCKER_MEMORY:-}}"
+CLINKER_DOCKER_PIDS_LIMIT="${CLINKER_DOCKER_PIDS_LIMIT:-${CLUSTERWEAVE_TOOL_DOCKER_PIDS_LIMIT:-}}"
 
 TARGETED_ANALYSIS_PY="${TARGETED_ANALYSIS_PY:-${PROJECT_DIR}/bin/build_candidate_tables.py}"
 EXPORT_FAMILY_ATLAS_PY="${EXPORT_FAMILY_ATLAS_PY:-${PROJECT_DIR}/bin/export_dataset_family_atlas.py}"
@@ -130,14 +145,38 @@ STAGE_CLINKER_PY="${STAGE_CLINKER_PY:-${PROJECT_DIR}/bin/stage_clinker_panels.py
 NORMALIZE_METADATA_PY="${NORMALIZE_METADATA_PY:-${PROJECT_DIR}/bin/normalize_metadata.py}"
 AUTO_NORMALIZE_METADATA="${AUTO_NORMALIZE_METADATA:-1}"
 ACCESSIONS_MAP="${ACCESSIONS_MAP:-${DATA_ROOT}/genomes/fungi/${PROJECT_NAME}/accessions_fungusID_taxonomyID.txt}"
-METADATA_TSV="${METADATA_TSV:-${RESULTS_ROOT}/summary_tables/ecofun_metadata_normalized.tsv}"
-METADATA_TEMPLATE_TSV="${METADATA_TEMPLATE_TSV:-${RESULTS_ROOT}/summary_tables/ecofun_metadata_template.tsv}"
+METADATA_TSV="${METADATA_TSV:-${RESULTS_ROOT}/summary_tables/${DEFAULT_METADATA_NAME}}"
+METADATA_TEMPLATE_TSV="${METADATA_TEMPLATE_TSV:-${RESULTS_ROOT}/summary_tables/${DEFAULT_METADATA_TEMPLATE_NAME}}"
 
 ts(){ date +"%Y-%m-%d %H:%M:%S"; }
 log(){ echo "[$(ts)] [INFO] $*"; }
 warn(){ echo "[$(ts)] [WARN] $*" >&2; }
 die(){ echo "[$(ts)] [ERROR] $*" >&2; exit 1; }
 have(){ command -v "$1" >/dev/null 2>&1; }
+
+normalize_positive_integer() {
+  local name="$1"
+  local fallback="$2"
+  local value="${!name:-}"
+  if [[ ! "${value}" =~ ^[0-9]+$ ]] || (( 10#${value} < 1 )); then
+    warn "${name}=${value:-unset} is not a positive integer; using ${fallback}"
+    printf -v "${name}" '%s' "${fallback}"
+  fi
+}
+
+normalize_positive_integer CLINKER_DOCKER_CPUS 1
+bounded_docker_cpu_limit() {
+  local requested="${1:-}"
+  local ceiling="${2:-}"
+  if [[ "${ceiling}" =~ ^[0-9]+([.][0-9]+)?$ && "${ceiling}" != "0" && "${ceiling}" != "0.0" ]]; then
+    awk -v requested="${requested}" -v ceiling="${ceiling}" \
+      'BEGIN { print (requested + 0 <= ceiling + 0) ? requested : ceiling }'
+  else
+    printf '%s\n' "${requested}"
+  fi
+}
+CLINKER_DOCKER_CPUS="$(bounded_docker_cpu_limit "${CLINKER_DOCKER_CPUS}" "${CLUSTERWEAVE_TOOL_DOCKER_CPUS:-}")"
+export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
 
 normalize_clinker_selection_settings() {
   local normalized_clinker_mode normalized_panel_target_set
@@ -639,6 +678,7 @@ log "MIBIG_ROOT=${MIBIG_ROOT:-none}"
 log "CLINKER_SIF_PATH=${CLINKER_SIF_PATH}"
 log "CLINKER_DOCKER_IMAGE=${CLINKER_DOCKER_IMAGE}"
 log "CLINKER_DOCKER_DATA_VOLUME=${CLINKER_DOCKER_DATA_VOLUME:-none}"
+log "CLINKER_DOCKER_CPUS=${CLINKER_DOCKER_CPUS}"
 log "AUTO_NORMALIZE_METADATA=${AUTO_NORMALIZE_METADATA}"
 log "METADATA_TSV=${METADATA_TSV}"
 for track in "${TRACKS[@]}"; do
@@ -664,6 +704,7 @@ if [[ "${REFRESH_REVIEWER_SHORTLIST}" == "1" || "${REFRESH_FAMILY_ATLAS}" == "1"
     "${PYTHON_BIN}" "${TARGETED_ANALYSIS_PY}"
     --project-root "${PROJECTS_ROOT}"
     --project-name "${PROJECT_NAME}"
+    --metadata "${METADATA_TSV}"
     --ecology-field "${ECOLOGY_FIELD}"
   )
   if [[ -n "${TARGET_GENOME}" ]]; then
@@ -684,9 +725,12 @@ if mode_includes_track atlas; then
       "${PYTHON_BIN}" "${EXPORT_FAMILY_ATLAS_PY}"
       --project-root "${PROJECTS_ROOT}"
       --project-name "${PROJECT_NAME}"
+      --metadata "${METADATA_TSV}"
       --stage-limit "${ATLAS_STAGE_LIMIT}"
       --min-records "${ATLAS_MIN_RECORDS}"
       --ecology-field "${ECOLOGY_FIELD}"
+      --gcf-category "${BIGSCAPE_GCF_CATEGORY}"
+      --gcf-threshold "${BIGSCAPE_GCF_THRESHOLD}"
     )
     if [[ -n "${FOCUS_ECOLOGY_LABEL}" ]]; then
       atlas_args+=(--focus-ecology-label "${FOCUS_ECOLOGY_LABEL}")
@@ -715,10 +759,13 @@ if mode_includes_track shared_family && [[ "${REFRESH_SHARED_FAMILY_SHORTLIST}" 
     "${PYTHON_BIN}" "${EXPORT_SHARED_FAMILY_PY}"
     --project-root "${PROJECTS_ROOT}"
     --project-name "${PROJECT_NAME}"
+    --metadata "${METADATA_TSV}"
     --genome "${TARGET_GENOME}"
     --stage-limit "${SHARED_FAMILY_STAGE_LIMIT}"
     --min-records "${SHARED_FAMILY_MIN_RECORDS}"
     --ecology-field "${ECOLOGY_FIELD}"
+    --gcf-category "${BIGSCAPE_GCF_CATEGORY}"
+    --gcf-threshold "${BIGSCAPE_GCF_THRESHOLD}"
   )
   if [[ -n "${FOCUS_ECOLOGY_LABEL}" ]]; then
     shared_family_args+=(--focus-ecology-label "${FOCUS_ECOLOGY_LABEL}")
@@ -747,9 +794,25 @@ if [[ "${RUN_CLINKER}" == "1" ]]; then
     ensure_clinker_docker_image
     export CLINKER_DOCKER_IMAGE
     export CLINKER_DOCKER_DATA_VOLUME
+    export CLINKER_DOCKER_CPUS
+    export CLINKER_DOCKER_MEMORY
+    export CLINKER_DOCKER_PIDS_LIMIT
     export PREFER_CLINKER_CONTAINER=1
     log "Using clinker Docker image: ${CLINKER_DOCKER_IMAGE}"
-    clinker_docker_args=(--rm -i --user 0:0 --entrypoint "")
+    clinker_docker_args=(
+      --rm -i --user 0:0 --entrypoint ""
+      --cpus "${CLINKER_DOCKER_CPUS}"
+      -e OMP_NUM_THREADS=1
+      -e OPENBLAS_NUM_THREADS=1
+      -e MKL_NUM_THREADS=1
+      -e NUMEXPR_NUM_THREADS=1
+    )
+    if [[ -n "${CLINKER_DOCKER_MEMORY}" ]]; then
+      clinker_docker_args+=(--memory "${CLINKER_DOCKER_MEMORY}")
+    fi
+    if [[ -n "${CLINKER_DOCKER_PIDS_LIMIT}" ]]; then
+      clinker_docker_args+=(--pids-limit "${CLINKER_DOCKER_PIDS_LIMIT}")
+    fi
     if [[ -n "${CLUSTERWEAVE_JOB_ID:-}" ]]; then
       clinker_docker_args+=(--label "clusterweave.job_id=${CLUSTERWEAVE_JOB_ID}" --label "clusterweave.project=${PROJECT_NAME:-}")
     fi

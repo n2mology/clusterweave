@@ -1,6 +1,6 @@
 # Dataset-Wide Family Atlas
 
-- Source summary: `data/jobs/f26e0fa4/data/results/slice88_manuscript_panel_20260626/summary/bigscape_family_atlas.tsv`
+- Source summary: generated `bigscape_family_atlas.tsv` (not included)
 - Representative family rows: `1418`
 - `atlas_now`: `12`
 - `atlas_context`: `1406`

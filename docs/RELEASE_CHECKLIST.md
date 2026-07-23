@@ -1,118 +1,78 @@
-# GitHub Release Checklist
+# ClusterWeave v1.0.0 release checklist
 
-This checklist is meant for the first public `ClusterWeave` release and for future tagged releases.
+Use this checklist when preparing and verifying a source release. Commit, tag,
+push, and GitHub Release actions follow only after the applicable checks pass
+and the release owner has reviewed the resulting source tree.
 
-## 1. Pre-Push Review
+## Source and metadata
 
-- confirm there are no plaintext secrets, private tokens, or institution-specific private paths in tracked files
-- confirm the default runtime roots are lowercase: `data/genomes/fungi/`, `data/results/`, and `software/`
-- confirm the reserved DOI `https://doi.org/10.11578/PMI/dc.20260608.2` is marked pending until the resolver is active
-- confirm `data/results/`, project genomes, large containers, and local caches are still ignored by `.gitignore`
-- review `CITATION.cff` and fill in real authors, repository URL, and version metadata
-- review `LICENSE`, `THIRD_PARTY.md`, and `DATA_SOURCES.md` for final redistribution language
-- confirm the public docs still match the current workflow entrypoints and defaults
-- for publication-linked runs, keep `data/results/<project-name>/reproducibility/external_artifacts.tsv` with the output bundle and compare it against any rerun artifacts
-- update `profiles/release_v0.1.0.env` or add a new release profile when tool/resource versions change intentionally
+- [ ] `CITATION.cff`, `CHANGELOG.md`, `SECURITY.md`, BSD-3-Clause license,
+      DOI, version, and preparation date are correct.
+- [ ] README local commands work from a fresh clone at
+      `http://127.0.0.1:8080`.
+- [ ] `profiles/release_v1.0.0.env` is the only release profile.
+- [ ] Fungi, bacteria, Both routing and applicability are documented.
 
-## 2. Validate The Repo
+## Public examples
 
-Run these checks before the first public push:
+- [ ] `examples/fungi_only` retains the 50-genome fungal bundle.
+- [ ] `examples/mixed` contains the verified 20-bacteria/20-fungi input,
+      both taxon maps, four canonical SVGs, and refreshed safe summaries.
+- [ ] No example contains a job ID, token, private URL, raw genome, raw tool
+      tree, log, database, cache, or absolute path.
 
-```bash
-python -m unittest discover -s tests -p "test_*.py"
-bash -n run_clusterweave.sh
-bash -n run_annotation_and_detection.sh
-bash -n run_bigscape.sh
-bash -n summarize_clusterweave.sh
-bash -n run_clinker.sh
-```
-
-Recommended extra checks:
-
-- verify that a dry run or small example run does not rewrite tracked helper files
-- confirm `BEGINNER_SETUP.md` is accurate enough for a first-time user
-- confirm `README.md` still reflects the intended public scope of the project
-- confirm `external_artifacts.tsv` is written for the release/example run, or document why artifact capture was disabled
-- run `rg -n "Data/|Software/|/Data|/Software" .` and resolve any accidental uppercase runtime-root references
-
-## 3. Prepare The Initial Commit
-
-- make sure the branch is `main`
-- stage only repo files intended for public release
-- create the first commit with a clear message
-
-Suggested command sequence:
+## Validation
 
 ```bash
-git branch -M main
-git add .
-git status --short
-git commit -m "Initial public scaffold for ClusterWeave"
+git diff --check
+python3 -B bin/check_public_release.py
+python3 -B -c 'from pathlib import Path; [compile(p.read_text(encoding="utf-8"), str(p), "exec") for root in ("bin", "tests", "web") for p in Path(root).glob("*.py")]'
+while IFS= read -r -d '' file; do bash -n "$file"; done < <(find . -maxdepth 4 -type f -name '*.sh' -not -path './.git/*' -print0)
+python3 -B -m unittest discover -s tests -p 'test_*.py'
+for file in web/static/assets/clusterweave.js tests/browser/*.js; do node --check "$file"; done
+npm run test:browser
+docker compose config --quiet
+docker compose -f clusterweave.yml config --quiet
 ```
 
-Before committing, check that staged files do not include:
+- [ ] Shell, Python, JavaScript, compose, documentation-link, and public-safety
+      checks pass.
+- [ ] Web and worker build from a clean exported tree.
+- [ ] Fresh-clone localhost smoke passes.
+- [ ] Public/read-token/admin access tests pass; raw SQLite stays private and
+      the sanitized viewer copy opens automatically.
+- [ ] Fungal antiSMASH, bacterial antiSMASH, and FunBGCeX nested HTML navigation
+      work in the opaque authenticated preview.
+- [ ] 50 accessions are accepted and 51 are rejected.
 
-- local result folders under `data/results/<project-name>/`
-- downloaded genome folders under `data/genomes/fungi/<project-name>/`
-- local `.sif` images or downloaded third-party resources under `software/`
-
-## 4. Create The GitHub Repository
-
-- create an empty GitHub repository named `clusterweave`
-- add the GitHub remote
-- push `main`
-
-Typical commands:
+Run the focused public/read-token/admin and result-package boundary suites:
 
 ```bash
-git remote add origin https://github.com/n2mology/clusterweave.git
-git push -u origin main
+python3 -B -m unittest discover -s tests -p 'test_web_api_auth.py'
+python3 -B -m unittest discover -s tests -p 'test_opaque_public_results.py'
+python3 -B -m unittest discover -s tests -p 'test_public_result_manifest.py'
+python3 -B -m unittest discover -s tests -p 'test_bigscape_public_db.py'
+python3 -B -m unittest discover -s tests -p 'test_result_attestation.py'
 ```
 
-If the remote repository already exists, verify the default branch and visibility settings before pushing.
+- [ ] Linux and WSL2 smokes pass.
+- [ ] Physical Intel and Apple Silicon Docker Desktop smokes pass.
 
-## 5. Prepare The First GitHub Release
+## Archive gate
 
-- choose a first version tag such as `v0.1.0`
-- update `CITATION.cff` version fields if needed
-- create an annotated tag
-- push the tag
-- draft a GitHub Release with short installation and scope notes
+Build the prospective source manifest from existing files reported by
+`git ls-files -co --exclude-standard -z`; do not tar the raw worktree. Before
+installing dependencies, run `bin/check_public_release.py` in both the working
+tree and an extracted archive. Create the archive twice with the same prefix,
+owner/group, modes, and modification time, then compare SHA-256 values. Verify
+every member is a regular file under the release prefix and that the manifest
+contains neither ignored runtime material nor deleted tracked paths.
 
-Typical commands:
+Scan the extracted archive for credentials, private paths/IPs, production job
+identifiers, oversized binaries, caches, databases, uploads, logs, raw genomes,
+`clusterweave_ops`, and `local_only`. Then run the browser fixtures and
+web/worker build from that extracted tree. A prospective export is not evidence
+for the tagged-fresh-clone gate; that requires the real published tag on a
+separate clean host.
 
-```bash
-git tag -a v0.1.0 -m "ClusterWeave v0.1.0"
-git push origin v0.1.0
-```
-
-Suggested GitHub Release notes should include:
-
-- what `ClusterWeave` does
-- intended platform support: Linux / WSL
-- the main entrypoints: `prepare_genomes_from_accessions.sh` and `run_clusterweave.sh`
-- the fact that `PROJECT_NAME` separates multiple studies in one clone
-- any known limitations for the first release
-
-## 6. Nice-To-Have Release Extras
-
-- upload a small public example dataset or example-output bundle
-- confirm the reserved DOI record points at the final release archive once it is active
-- add one workflow figure and one representative output figure to the repository or release assets
-- document the exact software versions used in the publication-linked release run
-- include or archive the release run's artifact checksum table
-
-## 7. Publication Follow-Up
-
-- finalize authorship and acknowledgements
-- finalize the Nature Methods Brief Communication title, abstract, and availability statement
-- keep publication text outside this source repository
-- decide whether to include a public example dataset, a public example-output bundle, or both
-
-## 8. Handoff Notes
-
-- Current source-release shape includes the CLI workflow, Python helpers, web portal UI/API code, build recipes, docs, and public-safe examples.
-- Reserved DOI: `https://doi.org/10.11578/PMI/dc.20260608.2`; leave it described as pending until the DOI resolver works.
-- Default generated paths are lowercase. Do not reintroduce `Data/`, `Software/`, `Genomes/`, `Results/`, or `Fungi/` as default directory components.
-- Keep full uploaded inputs, raw run logs, private ecology metadata, local databases, caches, generated full-result archives, and SIF/container images out of the public source release.
-- If an operator needs to rerun an older uppercase layout, use `DATA_ROOT`, `RESULTS_ROOT`, and `SOFTWARE_ROOT` overrides rather than changing the public defaults.
+Never run `docker compose down -v` during release validation.

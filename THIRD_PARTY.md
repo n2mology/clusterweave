@@ -19,8 +19,9 @@ not legal advice.
 - Keep the README clear that auto-pulled and auto-built artifacts remain under upstream terms and are not
   covered by the repo BSD-3-Clause license.
 - Name the major third-party tools, their upstream homes, their licenses, and where users should cite them.
-- Pin mutable references before any archival release. The current workflow still references
-  `teambraker/braker3:latest` and downloads `FastTree` from the `main` branch head.
+- Keep runtime acquisition references immutable for archival releases. The release defaults pin
+  BRAKER3 v3.0.7.6 by OCI digest and FastTree v2.2.0 by commit plus SHA-256; the
+  release profile also disables automatic acquisition of prepopulated artifacts.
 - Do not commit or attach pulled containers, SIFs, reference tarballs, or caches unless their
   redistribution terms have been checked for that exact artifact.
 - If you publish a binary or container release, include a `THIRD_PARTY_NOTICES/` bundle with:
@@ -41,6 +42,15 @@ not legal advice.
   redistribute a modified image, make the corresponding source for those modifications available under the
   AGPL as well.
 
+### Prodigal
+
+- Repo reference: bacterial antiSMASH input preparation uses Prodigal gene finding through the pinned
+  antiSMASH runtime.
+- Upstream terms: Prodigal is GPL-3.0 and publishes source and citation guidance at
+  https://github.com/hyattpd/Prodigal .
+- Requirement for the published repo: credit Prodigal in the UI and scientific documentation. If a
+  binary is redistributed outside the upstream antiSMASH image, preserve its GPL notice and source path.
+
 ### FunBGCeX
 
 - Repo reference: `run_annotation_and_detection.sh` can build a repo-local image from
@@ -57,7 +67,8 @@ not legal advice.
 
 ### BRAKER3
 
-- Repo reference: `run_annotation_and_detection.sh` pulls `docker://teambraker/braker3:latest`.
+- Repo reference: `run_annotation_and_detection.sh` uses
+  `docker://teambraker/braker3:v3.0.7.6@sha256:5f8b3c508a9fe1bbc2e9a74dcc013eeed82f91dd5945adca7823514d9c8aecf8`.
 - Upstream terms: BRAKER's own source is under the Artistic License 1.0 and its README states that
   publications should cite BRAKER plus the exact tools used in a run. See
   https://github.com/Gaius-Augustus/BRAKER and the upstream license at
@@ -70,8 +81,8 @@ not legal advice.
   separate GeneMark licensing. Do not imply that a pulled BRAKER or GeneMark SIF is covered by the repo
   BSD-3-Clause license.
 - If you redistribute the image or a derived SIF: do not mirror it from ClusterWeave without separately
-  clearing the rights for included GeneMark components. Also replace `latest` with a pinned digest before
-  any archival or manuscript-linked release.
+  clearing the rights for included GeneMark components. Preserve the pinned v3.0.7.6 digest, or document
+  and revalidate the exact digest selected for a later release.
 
 ### funannotate
 
@@ -145,15 +156,48 @@ not legal advice.
 
 ### FastTree
 
-- Repo reference: `run_bigscape.sh` downloads the executable from
-  `https://github.com/morgannprice/fasttree/raw/main/FastTree`.
+- Repo reference: `run_bigscape.sh` downloads FastTree v2.2.0 from immutable commit
+  `29c5e62fbcd93230ee325f9c6a17b81f00e3c72a` at
+  `https://raw.githubusercontent.com/morgannprice/fasttree/29c5e62fbcd93230ee325f9c6a17b81f00e3c72a/FastTree` and verifies SHA-256
+  `55a9d997813aae2208bd4c2081bfa690e0ecdba2d6c491805d8689415c43e38e`.
 - Upstream terms: the current FastTree repository is GPL-3.0 and the official site lists the standard
   citations for FastTree 1 and FastTree 2. See https://github.com/morgannprice/fasttree and
   https://morgannprice.github.io/fasttree/ .
-- Requirement for the published repo: disclose the download source and citation. Replace the moving
-  branch-head download with a pinned release, commit, or checksum before archival release.
+- Requirement for the published repo: disclose the immutable download source, v2.2.0 citation, and
+  checksum. Revalidate both commit and checksum before intentionally changing the pinned binary.
 - If you redistribute the binary or an image that contains it: preserve GPL-3.0 notice and corresponding
   source access for the exact binary version redistributed.
+
+### Optional Pinned Phylogeny Runtime
+
+- Repo reference: `software/phylogeny/Dockerfile` and `software/phylogeny/Singularity.def` define
+  the separately built `clusterweave-phylogeny:1.0.0` runtime. The recipe starts from
+  `mambaorg/micromamba:2.0.5` pinned by OCI digest and installs exact conda builds of
+  MAFFT `7.526`, IQ-TREE 2 `2.4.0`, ETE 4 `4.3.0`, and trimAl `1.5.0`. The image records
+  a checksum of its explicit conda package manifest. The source repository ships recipes only, not the built image,
+  SIF, or conda package cache.
+- Upstream terms: the MAFFT without-extensions source distribution is BSD-licensed
+  (https://mafft.cbrc.jp/alignment/software/); IQ-TREE 2 is GPL-2.0
+  (https://github.com/iqtree/iqtree2); ETE 4 is GPL-3.0
+  (https://github.com/etetoolkit/ete); trimAl is GPL-3.0
+  (https://github.com/inab/trimal); and mamba/micromamba is BSD-3-Clause
+  (https://github.com/mamba-org/mamba). Preserve each package's own license metadata because transitive
+  conda dependencies may carry additional terms.
+- Requirement for the published repo: keep runtime acquisition in the explicit build scripts, never in a
+  job. Record the built OCI image ID/repository digest or SIF SHA-256 plus the emitted tool versions and
+  explicit conda-manifest checksum in run provenance. Before an archival release, retain the resolved
+  package manifest or SBOM alongside the built artifact.
+- If you redistribute the built image or SIF: include the GPL license texts and corresponding-source
+  pointers for IQ-TREE, ETE, and trimAl; preserve the MAFFT and micromamba BSD notices; include notices for
+  all resolved conda/base-image components; and ship the exact package manifest or SBOM used to build it.
+
+### Browser visualization libraries
+
+- Repo reference: the web UI vendors Three.js 0.184.0 and GSAP 3.15.0 under
+  `web/static/vendor/`, alongside their upstream license files.
+- Requirement for the published repo: keep the pinned versions and bundled license files together, and
+  update both when either vendored library changes. These browser assets are source-release inputs, not
+  generated runtime caches.
 
 ## Reference Data And External Services
 

@@ -7,6 +7,19 @@ import argparse
 import csv
 from collections import defaultdict
 from pathlib import Path
+import sys
+
+BIN_DIR = str(Path(__file__).resolve().parent)
+if BIN_DIR not in sys.path:
+    sys.path.insert(0, BIN_DIR)
+
+from gcf_view import (
+    GCF_PROVENANCE_FIELDS,
+    canonical_gcf_category,
+    canonical_gcf_threshold,
+    clustering_view,
+    materialized_gcf_provenance,
+)
 
 
 def clean(value: object) -> str:
@@ -55,6 +68,59 @@ def region_from_gbk(gbk: str) -> str:
     if "__" in token:
         return token.split("__", 1)[1]
     return token
+
+
+def canonical_record_key(record: str, gbk: str) -> tuple[str, str]:
+    """Return the canonical ``(genome_id, region_id)`` encoded by BiG-SCAPE.
+
+    ClusterWeave stages records as ``<genome_id>__<region_id>``. BiG-SCAPE's
+    ``Organism`` annotation is human-readable and therefore must never be used
+    as a machine join key.
+    """
+
+    token = clean(gbk)
+    if not token:
+        token = clean(record).split(".gbk_region_", 1)[0]
+    token = token.removesuffix(".gbk")
+    if "__" not in token:
+        # MiBIG/reference records do not carry a ClusterWeave genome prefix.
+        return "", ""
+    genome_id, region_id = token.split("__", 1)
+    return clean(genome_id), clean(region_id)
+
+
+def compatible_record_keys(record: str, gbk: str) -> tuple[tuple[str, str], ...]:
+    """Return current and historical keys for one staged BiG-SCAPE record."""
+
+    genome_id, region_id = canonical_record_key(record, gbk)
+    if not genome_id:
+        return ()
+    keys = [(genome_id, region_id)]
+    # Current mixed jobs preserve the route prefix in their canonical manifest;
+    # older summary exports removed it. Accept that historical spelling only as
+    # a join fallback, after the current manifest spelling.
+    for prefix in ("bacteria_", "fungi_"):
+        if genome_id.startswith(prefix):
+            historical_genome = genome_id[len(prefix) :]
+            historical_region = region_id
+            if historical_region.startswith(prefix):
+                historical_region = historical_region[len(prefix) :]
+            keys.append((historical_genome, historical_region))
+            break
+    return tuple(keys)
+
+
+def latest_bigscape_run_dir(bigscape_root: Path) -> Path | None:
+    """Return the newest deterministic BiG-SCAPE run directory."""
+
+    # Retain compatibility with imported/local layouts that expose one run
+    # directly under output_files rather than a timestamped child directory.
+    if (bigscape_root / "record_annotations.tsv").is_file():
+        return bigscape_root
+    candidates = sorted(
+        path for path in bigscape_root.glob("*_c*") if path.is_dir()
+    )
+    return candidates[-1] if candidates else None
 
 
 def join_sorted(values: set[str]) -> str:
@@ -182,8 +248,9 @@ def build_safe_claim_text(row: dict[str, object]) -> str:
 
 def public_path_label(path: Path) -> str:
     parts = path.parts
-    if "data" in parts:
-        return Path(*parts[parts.index("data") :]).as_posix()
+    for index in range(len(parts) - 1):
+        if parts[index : index + 2] == ("data", "results"):
+            return Path(*parts[index:]).as_posix()
     return path.name
 
 
@@ -258,6 +325,15 @@ def main() -> None:
         help="Project name used under data/results.",
     )
     parser.add_argument(
+        "--metadata",
+        type=Path,
+        default=None,
+        help=(
+            "Explicit normalized metadata TSV. Defaults to the historical "
+            "summary_tables/ecofun_metadata_normalized.tsv path."
+        ),
+    )
+    parser.add_argument(
         "--ecology-field",
         default="ecofun_primary",
         help="Metadata column used as the ecology label.",
@@ -268,9 +344,19 @@ def main() -> None:
         help="Optional ecology label to annotate focus counts.",
     )
     parser.add_argument(
+        "--gcf-category",
+        default="mix",
+        help="BiG-SCAPE category used for atlas family logic (default: mix).",
+    )
+    parser.add_argument(
+        "--gcf-threshold",
+        default="0.3",
+        help="BiG-SCAPE clustering threshold used for atlas family logic (default: 0.3).",
+    )
+    parser.add_argument(
         "--stage-limit",
         type=int,
-        default=12,
+        default=20,
         help="Top atlas rows to mark as atlas_now.",
     )
     parser.add_argument(
@@ -280,30 +366,39 @@ def main() -> None:
         help="Minimum BiG-SCAPE record count to mark atlas_now.",
     )
     args = parser.parse_args()
+    args.gcf_category = canonical_gcf_category(args.gcf_category)
+    args.gcf_threshold = canonical_gcf_threshold(args.gcf_threshold)
 
     results_root = args.project_root / "data" / "results" / args.project_name
     summary_root = results_root / "summary"
     summary_tables_root = results_root / "summary_tables"
     bigscape_root = results_root / "big_scape" / "output_files"
 
-    metadata_path = summary_tables_root / "ecofun_metadata_normalized.tsv"
+    metadata_path = args.metadata or (summary_tables_root / "ecofun_metadata_normalized.tsv")
     ranking_path = summary_root / "targeted_candidate_ranking.tsv"
-    annotations_path = next(bigscape_root.rglob("record_annotations.tsv"), None)
+    bigscape_run_dir = latest_bigscape_run_dir(bigscape_root)
+    annotations_path = (
+        bigscape_run_dir / "record_annotations.tsv"
+        if bigscape_run_dir is not None
+        else None
+    )
 
-    if annotations_path is None:
-        raise FileNotFoundError(f"record_annotations.tsv not found under: {bigscape_root}")
     if not ranking_path.exists():
         raise FileNotFoundError(f"Required input not found: {ranking_path}")
 
     metadata_rows = read_tsv_rows(metadata_path) if metadata_path.exists() else []
     ranking_rows = read_tsv_rows(ranking_path)
-    annotation_rows = read_tsv_rows(annotations_path)
+    # A successful antiSMASH run may legitimately contain zero regions. In
+    # that case BiG-SCAPE has no annotations or clustering tables and the
+    # correct atlas is a header-only, insufficient-data result.
+    annotation_rows = read_tsv_rows(annotations_path) if annotations_path is not None else []
 
     global_out = summary_root / "bigscape_family_atlas.tsv"
     shortlist_out = summary_root / "family_atlas_shortlist.tsv"
     shortlist_md_out = summary_root / "family_atlas_shortlist.md"
 
     ecology_by_genome: dict[str, str] = {}
+    taxon_by_genome: dict[str, str] = {}
     for row in metadata_rows:
         genome = clean(row.get("genome_id_current"))
         if genome:
@@ -312,6 +407,8 @@ def main() -> None:
         genome = clean(row.get("genome"))
         if genome and genome not in ecology_by_genome:
             ecology_by_genome[genome] = ecology_group(clean(row.get("ecology_group")))
+        if genome and clean(row.get("taxon_group")):
+            taxon_by_genome[genome] = clean(row.get("taxon_group"))
 
     focus_ecology_label = clean(args.focus_ecology_label)
 
@@ -334,6 +431,7 @@ def main() -> None:
             "classes": set(),
             "organisms": set(),
             "dataset_genomes": set(),
+            "taxon_groups": set(),
             "focus_genomes": set(),
             "other_genomes": set(),
             "mibig_records": set(),
@@ -341,8 +439,18 @@ def main() -> None:
         }
     )
 
-    for cluster_path in sorted(bigscape_root.rglob("*_clustering_c0.3.tsv")):
-        category_name = cluster_path.parent.name
+    cluster_paths = (
+        sorted(bigscape_run_dir.rglob("*_clustering_c*.tsv"))
+        if bigscape_run_dir is not None
+        else []
+    )
+    for cluster_path in cluster_paths:
+        category_name, clustering_threshold = clustering_view(cluster_path)
+        if (
+            category_name,
+            clustering_threshold,
+        ) != (args.gcf_category, args.gcf_threshold):
+            continue
         for row in read_tsv_rows(cluster_path):
             cc = clean(row.get("CC"))
             record = clean(row.get("Record"))
@@ -363,22 +471,33 @@ def main() -> None:
             annot_row = annotation_by_record.get(record, {})
             organism = clean(annot_row.get("Organism"))
             class_name = clean(annot_row.get("Class"))
-            if organism:
-                ecology_by_genome.setdefault(organism, ecology_group(""))
-                bucket["organisms"].add(organism)
-                bucket["dataset_genomes"].add(organism)
-                if matches_focus_ecology(ecology_by_genome[organism], focus_ecology_label):
-                    bucket["focus_genomes"].add(organism)
+            record_keys = compatible_record_keys(record, gbk)
+            if record_keys:
+                genome_id, region = next(
+                    (key for key in record_keys if key in ranking_by_region),
+                    record_keys[0],
+                )
+            else:
+                genome_id, region = "", ""
+            if genome_id:
+                ecology_by_genome.setdefault(genome_id, ecology_group(""))
+                bucket["dataset_genomes"].add(genome_id)
+                if organism:
+                    bucket["organisms"].add(organism)
+                taxon_group = clean(taxon_by_genome.get(genome_id))
+                if taxon_group:
+                    bucket["taxon_groups"].add(taxon_group)
+                if matches_focus_ecology(ecology_by_genome[genome_id], focus_ecology_label):
+                    bucket["focus_genomes"].add(genome_id)
                 else:
-                    bucket["other_genomes"].add(organism)
+                    bucket["other_genomes"].add(genome_id)
             if class_name:
                 bucket["classes"].add(class_name)
             if record.startswith("BGC"):
                 bucket["mibig_records"].add(record)
 
-            region = region_from_gbk(gbk)
-            if organism and region and (organism, region) in ranking_by_region:
-                bucket["candidate_regions"].add((organism, region))
+            if genome_id and region and (genome_id, region) in ranking_by_region:
+                bucket["candidate_regions"].add((genome_id, region))
 
     global_rows: list[dict[str, object]] = []
     shortlist_rows: list[dict[str, object]] = []
@@ -412,11 +531,16 @@ def main() -> None:
             {
                 "atlas_rank": cc_rank,
                 "cc": cc,
+                "gcf_selected_category": args.gcf_category,
+                "gcf_selected_threshold": args.gcf_threshold,
                 "primary_family_source": primary_category,
                 "primary_families": primary_family_text,
                 "all_family_aliases": all_family_text,
                 "record_count": len(info["records"]),
                 "dataset_genome_count": dataset_genome_count,
+                "dataset_genomes": join_sorted(info["dataset_genomes"]),
+                "dataset_organisms": join_sorted(info["organisms"]),
+                "taxon_groups": join_sorted(info["taxon_groups"]),
                 "focus_ecology_label": focus_ecology_label,
                 "focus_genome_count": focus_count,
                 "nonfocus_genome_count": other_count,
@@ -436,6 +560,14 @@ def main() -> None:
         if representative_row is None:
             continue
 
+        gcf_provenance = materialized_gcf_provenance(
+            representative_row,
+            fallback_selected_id=primary_family_text,
+            fallback_category=args.gcf_category,
+            fallback_threshold=args.gcf_threshold,
+        )
+        if not gcf_provenance["gcf_id"]:
+            gcf_provenance["gcf_id"] = all_family_text or primary_family_text
         shortlist_rows.append(
             {
                 "atlas_rank": 0,
@@ -447,6 +579,9 @@ def main() -> None:
                 "shared_cc_all_family_aliases": all_family_text,
                 "shared_cc_record_count": len(info["records"]),
                 "shared_cc_dataset_genome_count": dataset_genome_count,
+                "shared_cc_dataset_genomes": join_sorted(info["dataset_genomes"]),
+                "shared_cc_dataset_organisms": join_sorted(info["organisms"]),
+                "shared_cc_taxon_groups": join_sorted(info["taxon_groups"]),
                 "focus_ecology_label": focus_ecology_label,
                 "shared_cc_focus_genome_count": focus_count,
                 "shared_cc_nonfocus_genome_count": other_count,
@@ -459,11 +594,12 @@ def main() -> None:
                 "priority_score": clean(representative_row.get("priority_score")),
                 "priority_tier": clean(representative_row.get("priority_tier")),
                 "genome": clean(representative_row.get("genome")),
+                "taxon_group": clean(representative_row.get("taxon_group")),
                 "ecology_group": clean(representative_row.get("ecology_group")) or ecology_by_genome.get(clean(representative_row.get("genome")), "UNLABELED"),
                 "antismash_region": clean(representative_row.get("antismash_region")),
                 "funbgcex_cluster": clean(representative_row.get("funbgcex_cluster")),
                 "antismash_class": clean(representative_row.get("antismash_class")) or join_sorted(info["classes"]),
-                "gcf_id": clean(representative_row.get("gcf_id")) or primary_family_text or all_family_text,
+                **gcf_provenance,
                 "gcf_ecology_pattern": clean(representative_row.get("gcf_ecology_pattern")),
                 "gcf_genome_count": clean(representative_row.get("gcf_genome_count")) or str(dataset_genome_count),
                 "gcf_focus_genome_count": clean(representative_row.get("gcf_focus_genome_count")) or str(focus_count),
@@ -474,6 +610,13 @@ def main() -> None:
                     representative_row.get("nearest_mibig_or_annotation_if_available")
                 ),
                 "antismash_knowncluster_product": clean(representative_row.get("antismash_knowncluster_product")),
+                "antismash_knowncluster_accession": clean(representative_row.get("antismash_knowncluster_accession")),
+                "antismash_knowncluster_similarity_score": clean(representative_row.get("antismash_knowncluster_similarity_score")),
+                "antismash_clustercompare_compounds": clean(representative_row.get("antismash_clustercompare_compounds")),
+                "antismash_clustercompare_similarity_score": clean(representative_row.get("antismash_clustercompare_similarity_score")),
+                "antismash_clustercompare_organism": clean(representative_row.get("antismash_clustercompare_organism")),
+                "funbgcex_similar_bgc": clean(representative_row.get("funbgcex_similar_bgc")),
+                "funbgcex_similarity_score": clean(representative_row.get("funbgcex_similarity_score")),
                 "funbgcex_putative_product": clean(representative_row.get("funbgcex_putative_product")),
                 "recommended_followup": clean(representative_row.get("recommended_followup"))
                 or "review this dataset-wide BiG-SCAPE family by clinker before narrowing to a target genome",
@@ -501,11 +644,16 @@ def main() -> None:
         [
             "atlas_rank",
             "cc",
+            "gcf_selected_category",
+            "gcf_selected_threshold",
             "primary_family_source",
             "primary_families",
             "all_family_aliases",
             "record_count",
             "dataset_genome_count",
+            "dataset_genomes",
+            "dataset_organisms",
+            "taxon_groups",
             "focus_ecology_label",
             "focus_genome_count",
             "nonfocus_genome_count",
@@ -535,6 +683,9 @@ def main() -> None:
             "shared_cc_all_family_aliases",
             "shared_cc_record_count",
             "shared_cc_dataset_genome_count",
+            "shared_cc_dataset_genomes",
+            "shared_cc_dataset_organisms",
+            "shared_cc_taxon_groups",
             "focus_ecology_label",
             "shared_cc_focus_genome_count",
             "shared_cc_nonfocus_genome_count",
@@ -547,11 +698,12 @@ def main() -> None:
             "priority_score",
             "priority_tier",
             "genome",
+            "taxon_group",
             "ecology_group",
             "antismash_region",
             "funbgcex_cluster",
             "antismash_class",
-            "gcf_id",
+            *GCF_PROVENANCE_FIELDS,
             "gcf_ecology_pattern",
             "gcf_genome_count",
             "gcf_focus_genome_count",
@@ -560,6 +712,13 @@ def main() -> None:
             "annotation_support_tier",
             "nearest_mibig_or_annotation_if_available",
             "antismash_knowncluster_product",
+            "antismash_knowncluster_accession",
+            "antismash_knowncluster_similarity_score",
+            "antismash_clustercompare_compounds",
+            "antismash_clustercompare_similarity_score",
+            "antismash_clustercompare_organism",
+            "funbgcex_similar_bgc",
+            "funbgcex_similarity_score",
             "funbgcex_putative_product",
             "recommended_followup",
             "ranking_rationale",

@@ -1,8 +1,12 @@
-# CADES Slurm Backend Pilot
+# CADES Slurm backend
 
-This is the first scheduler-backed ClusterWeave execution path. It keeps the existing web API, result tokens, retention policy, admin dashboard, and filesystem queue. It does not replace the queue with Postgres, Redis, or another broker.
+This document describes the shipped scheduler-backed ClusterWeave executor
+for a CADES or comparable Slurm environment. It keeps the web API, result
+tokens, retention policy, administrator dashboard, canonical shell workflow,
+and filesystem queue. Slurm supplies execution and does not replace the queue
+with a database or broker.
 
-## Pilot Architecture
+## Shipped architecture
 
 ClusterWeave still creates jobs the same way:
 
@@ -25,7 +29,7 @@ python3 web/worker.py --once <job-id> --queue-payload /data/jobs/<job-id>/slurm/
 
 The one-shot worker runs the existing canonical pipeline and exits. It does not poll the queue.
 
-## Required CADES Values
+## Required CADES values
 
 Fill these in from approved CADES/project policy. Do not commit real usernames, allocation IDs, hostnames, private paths, SSH keys, or tokens.
 
@@ -53,9 +57,9 @@ Discover allocation values with:
 sacctmgr -n -P show assoc user="$USER" format=Account,Partition,QOS%30,DefaultQOS%30
 ```
 
-Use only accounts, partitions, and QOS values approved for the deployment. Some CADES partitions require `#SBATCH --nodes`; the pilot emits `CLUSTERWEAVE_SLURM_NODES=1` by default.
+Use only accounts, partitions, and QOS values approved for the deployment. Some CADES partitions require `#SBATCH --nodes`; the backend emits `CLUSTERWEAVE_SLURM_NODES=1` by default.
 
-## Example Env File
+## Example environment file
 
 This example uses placeholders only.
 
@@ -106,7 +110,7 @@ MIBIG_AUTO_DOWNLOAD=0
 
 Use `/home` only for tiny smoke tests unless CADES confirms the quota and policy are appropriate. Real jobs should place `DATA_DIR`, `CLUSTERWEAVE_SOFTWARE_ROOT`, and container caches on approved shared storage visible from both login and compute nodes.
 
-## Dry-Run Script Generation Test
+## Dry-run script-generation test
 
 This test does not call a real Slurm scheduler. It injects fake `sbatch`, `squeue`, `sacct`, and `scancel` responses.
 
@@ -116,7 +120,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_slurm_backend
 
 The test verifies sbatch script generation, Slurm state parsing, job metadata updates, and cancellation metadata.
 
-## CADES Preflight Checks
+## CADES preflight checks
 
 Run these checks before submitting real jobs:
 
@@ -133,7 +137,7 @@ Check approved shared storage with a timeout so a stuck mount does not hang the 
 timeout 10s stat -c '%A %U %G %n' <APPROVED_SHARED_CLUSTERWEAVE_ROOT>
 ```
 
-If shared scratch is missing or times out, keep only tiny smoke tests in a temporary home-backed pilot directory and resolve storage with CADES support before real scientific runs.
+If shared scratch is missing or times out, keep only tiny smoke tests in a temporary home-backed smoke directory and resolve storage with CADES support before real scientific runs.
 
 Apptainer registry conversion can be tested with a tiny image:
 
@@ -182,9 +186,9 @@ sbatch --parsable "$SMOKE_ROOT/apptainer_compute.sbatch"
 
 After the job leaves `squeue`, confirm `sacct` reports `COMPLETED|0:0`, stdout contains `apptainer_compute_ok`, and the SIF exists under `CLUSTERWEAVE_SOFTWARE_ROOT/smoke/`. Warnings about unsupported xattrs can be harmless on scratch filesystems when the SIF is created and executes successfully.
 
-## Small Slurm Smoke Tests
+## Small Slurm smoke tests
 
-Only run a real Slurm smoke test after the operator confirms CADES access, allocation, filesystem, and queue policy.
+Run a real Slurm smoke test only after the operator confirms site access, allocation, filesystem, and queue policy.
 
 1. Use a shared `DATA_DIR`, `CLUSTERWEAVE_ROOT`, and `CLUSTERWEAVE_SOFTWARE_ROOT` visible to login and compute nodes.
 2. Set `CLUSTERWEAVE_SLURM_MAX_SUBMITTED=1`, a short walltime, and conservative memory.
@@ -231,79 +235,23 @@ Recommended smoke sequence:
 - No-input failure smoke: submit a job with all heavy stages disabled and no genome input. Expected result is ClusterWeave `failed` with a clear "No genome inputs were staged" error, plus final Slurm state captured from `sacct`.
 - Tiny FASTA success smoke: add one small `.fna` file under `jobs/<job-id>/inputs/`, disable annotation, BiG-SCAPE, summary, clinker, figures, NPLinker, external artifact capture, downloads, and image pulls. Expected result is ClusterWeave `success`, Slurm `COMPLETED`, and generated public result manifest/archive.
 
-### Full Annotation Smoke Result
+## Backend validation
 
-A full scheduler-backed annotation smoke was validated on CADES on 2026-07-06 using a public fungal accession (`GCA_000011425.1`, `Aspergillus_nidulans_FGSC_A4`). The job ran through the Slurm backend on a compute node with the normal one-shot worker path, using pre-staged Apptainer SIFs and scratch-backed ClusterWeave data/software/cache directories.
-
-Observed outcome:
-
-- ClusterWeave job status: `success`
-- Slurm state: `COMPLETED`
-- Slurm exit code: `0:0`
-- Requested resources: 4 CPUs, 64 GB memory, 4 hour walltime
-- Observed elapsed time: about 1 hour 40 minutes
-- Observed peak RSS: about 22 GB
-- Completed stages: NCBI accession genome prep, antiSMASH, FunBGCeX, public result packaging
-- Skipped stages for this smoke: BiG-SCAPE, summary, clinker, figures, external artifact capture
-- Produced artifacts: public results zip, public results manifest, antiSMASH JSON/GBK/HTML outputs, region GBKs, FunBGCeX `allBGCs.csv`/HTML, run manifest, synchronized tool logs
-
-This is the first end-to-end proof that the filesystem queue, Slurm submitter, one-shot worker, compute-node Apptainer execution, canonical annotation pipeline, scheduler polling, and public result packaging can work together without running scientific workload on a login node.
-
-A follow-up comparison smoke on 2026-07-07 used the same accession and pre-staged SIFs with 8 CPUs, 96 GB memory, and a 4 hour walltime. It also completed successfully. Observed elapsed time was about 1 hour 28 minutes with about 22 GB peak RSS. Compared with the 4 CPU run, this was only a modest walltime improvement, which suggests the full antiSMASH-heavy annotation path does not scale linearly inside a single genome. Use this as evidence to prioritize genome-level Slurm fan-out before record-level antiSMASH sharding.
-
-Pilot resource guidance from these two smokes:
-
-- 4 CPUs and 64 GB memory are sufficient for this accession-level annotation smoke.
-- 8 CPUs reduced walltime modestly but did not materially increase peak RSS.
-- antiSMASH database comparisons dominate enough of the runtime that scaling across genomes is likely to provide better throughput than only increasing CPUs per single-genome job.
-- Record-level antiSMASH sharding remains a second-stage optimization and should be gated by correctness tests against a monolithic antiSMASH run.
-
-Release-scope downstream coverage was also validated on CADES by reusing the completed annotation smoke outputs and running the remaining stages on a compute node:
-
-- BiG-SCAPE SIF staging and execution completed, producing `big_scape.db`, `index.html`, `output_files/record_annotations.tsv`, and a `.network` output.
-- Summary generation completed, producing the expected comparison, crosswalk, family atlas, ecology, and shortlist tables.
-- Clinker SIF staging and atlas panel generation completed, producing `panels_manifest.tsv`, track-specific panel manifests, master runner scripts, panel HTML files, and alignments.
-- Figure rendering completed, producing `bgc_overlap.svg`, `big_scape_multipanel.svg`, `bigscape_network.graphml`, and node/edge attribute TSVs.
-
-Operational fixes discovered during downstream coverage:
-
-- `run_bigscape.sh` must bind `WORK_ROOT` into Apptainer/Singularity, because staged region GBKs live under `WORK_ROOT`.
-- `run_figures.sh` must honor `RESULTS_ROOT` and pass explicit scratch-backed output/input paths to its Python render helpers.
-- PNG rendering is optional in the pilot; if `cairosvg` is unavailable, SVG/GraphML outputs are still valid coverage.
-
-### API-Submitted Release Route Validation
-
-A full web/API-submitted Slurm release-route smoke was validated on CADES in July 2026. The web service accepted a normal public API submission, the Slurm worker claimed the filesystem queue item, submitted one scheduler job, and the one-shot worker completed the release-scope workflow on a compute node.
-
-Observed outcome:
-
-- Slurm state: `COMPLETED`
-- Slurm exit code: `0:0`
-- Observed elapsed time: about 2 hours
-- ClusterWeave status: `success`
-- ClusterWeave stage: `complete`
-- Completed stages: NCBI accession genome prep, annotation/BGC detection, BiG-SCAPE, summary tables, clinker atlas panels, figure rendering, public result packaging
-- Intentionally disabled stage: NPLinker
-
-This is the pilot's production-route proof: public API submission, filesystem queue, Slurm submitter, compute-node one-shot worker, pre-staged Apptainer tools, canonical release-scope stages, result token packaging, and admin/API status visibility worked together without requiring Docker on compute nodes or replacing the queue backend.
-
-The pilot also exposed an important metadata hardening case. If the long-running terminal session disconnects after the compute job finishes, the compute-side one-shot worker must preserve `executor`, `slurm_job_id`, and `scheduler` metadata directly in `job.json`, instead of relying only on the polling submitter to reconcile scheduler state later.
-
-Follow-up metadata smokes validated that behavior:
-
-- Admin API metadata success smoke: Slurm `COMPLETED|0:0`, ClusterWeave `success`, scheduler metadata preserved.
-- Public raw FASTA failure smoke: Slurm `FAILED|1:0`, ClusterWeave `failed`, scheduler metadata preserved. This was an expected policy failure for a raw FASTA public-mode annotation submission, not a scientific success test.
-
-Minimum validation before committing the Slurm pilot:
+Before enabling user submissions, run the focused backend, job-store, web-auth,
+and syntax checks from the repository root:
 
 ```bash
-python3 -m unittest tests.test_slurm_backend tests.test_job_store_atomic
-python3 -m unittest tests.test_web_api_auth
-python3 -m unittest tests.test_repo_layout
-python3 -m py_compile web/app.py web/worker.py web/job_store.py web/runtime_capabilities.py web/canonical_pipeline.py web/slurm_backend.py
+python3 -B -m unittest tests.test_slurm_backend tests.test_job_store_atomic
+python3 -B -m unittest tests.test_web_api_auth
+python3 -B -m py_compile web/app.py web/worker.py web/job_store.py web/runtime_capabilities.py web/canonical_pipeline.py web/slurm_backend.py
 ```
 
-## Container And SIF Caches
+Then complete the tiny scheduler and Apptainer checks above with the real
+account, partition, QOS, shared storage, and compute-node policy. A prior
+site-specific run is not evidence that a new deployment, filesystem, allocation,
+or tool cache is ready.
+
+## Container and SIF caches
 
 Do not require Docker on CADES compute nodes. Use Apptainer or Singularity and keep SIF/cache paths on approved shared storage.
 
@@ -387,7 +335,10 @@ ls -lh "$ANTISMASH_SIF"
 
 Proceed only if Slurm reports `COMPLETED|0:0`, the SIF exists, and `antismash --version` runs inside the container. Then add the final `ANTISMASH_SIF` and `ANTISMASH_IMAGE_URI` values to the deployment env file and keep `AUTO_PULL_IMAGES=never` for production-like runs.
 
-Operational note: antiSMASH SIF conversion is much heavier than the tiny Apptainer smoke. On the CADES pilot, an 8 GB staging job was OOM killed during `apptainer pull`; a retry with 32 GB completed, used about 25 GB MaxRSS, took about 9 minutes, and produced a roughly 4.6 GB SIF. Warnings about unsupported xattrs on the scratch filesystem were non-fatal when the SIF was created and `antismash --version` succeeded inside the container.
+antiSMASH image conversion is substantially heavier than the Alpine preflight.
+Allocate memory, scratch space, and walltime from measurements on the target
+filesystem, inspect Slurm MaxRSS and exit status, and proceed only when the SIF
+exists and `antismash --version` succeeds inside it.
 
 Before attempting a real annotation run, choose and document the approved shared locations for:
 
@@ -397,7 +348,7 @@ Before attempting a real annotation run, choose and document the approved shared
 
 These locations must be visible from the login/service node and Slurm compute nodes, have enough quota for concurrent jobs, and be excluded from source control.
 
-## Security Notes
+## Security notes
 
 - Do not commit secrets, CADES usernames, allocation IDs, SSH keys, tokens, private hostnames, or host-specific paths.
 - Do not mount the Docker socket in the public portal path.

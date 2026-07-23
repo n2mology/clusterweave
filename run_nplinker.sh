@@ -29,6 +29,8 @@ ENGINE="${ENGINE:-}"
 FORCE="${FORCE:-0}"
 CPUS="${CPUS:-6}"
 CLUSTERWEAVE_RUNTIME_MODE="${CLUSTERWEAVE_RUNTIME_MODE:-hpc-singularity}"
+NPLINKER_DOCKER_MEMORY="${NPLINKER_DOCKER_MEMORY:-${CLUSTERWEAVE_TOOL_DOCKER_MEMORY:-}}"
+NPLINKER_DOCKER_PIDS_LIMIT="${NPLINKER_DOCKER_PIDS_LIMIT:-${CLUSTERWEAVE_TOOL_DOCKER_PIDS_LIMIT:-}}"
 
 # Run mode:
 #   auto  -> try PODP first (if PODP_ID exists), else require local inputs
@@ -107,6 +109,30 @@ warn(){ echo "[$(ts)] [WARN] $*" | tee -a "${LOGFILE}" >&2; }
 err(){ echo "[$(ts)] [ERROR] $*" | tee -a "${LOGFILE}" >&2; }
 die(){ err "$*"; exit 1; }
 have(){ command -v "$1" >/dev/null 2>&1; }
+
+normalize_positive_integer() {
+  local name="$1"
+  local fallback="$2"
+  local value="${!name:-}"
+  if [[ ! "${value}" =~ ^[0-9]+$ ]] || (( 10#${value} < 1 )); then
+    warn "${name}=${value:-unset} is not a positive integer; using ${fallback}"
+    printf -v "${name}" '%s' "${fallback}"
+  fi
+}
+
+normalize_positive_integer CPUS 1
+bounded_docker_cpu_limit() {
+  local requested="${1:-}"
+  local ceiling="${2:-}"
+  if [[ "${ceiling}" =~ ^[0-9]+([.][0-9]+)?$ && "${ceiling}" != "0" && "${ceiling}" != "0.0" ]]; then
+    awk -v requested="${requested}" -v ceiling="${ceiling}" \
+      'BEGIN { print (requested + 0 <= ceiling + 0) ? requested : ceiling }'
+  else
+    printf '%s\n' "${requested}"
+  fi
+}
+NPLINKER_DOCKER_CPUS="$(bounded_docker_cpu_limit "${CPUS}" "${CLUSTERWEAVE_TOOL_DOCKER_CPUS:-}")"
+export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
 sync_results_back() {
   if [[ "${RUN_DIR}" == "${MIRROR_RUN_DIR}" ]]; then
     return 0
@@ -125,13 +151,12 @@ resolve_local_antismash_root() {
     return 0
   fi
 
-  local discovered=""
-  discovered="$(find "${RESULTS_ROOT}/antismash" -maxdepth 1 -mindepth 1 -type d | head -n 1 || true)"
-  if [[ -n "${discovered}" ]]; then
-    warn "LOCAL_ANTISMASH_ROOT not found: ${LOCAL_ANTISMASH_ROOT}"
-    warn "Using discovered antiSMASH directory: ${discovered}"
-    LOCAL_ANTISMASH_ROOT="${discovered}"
-  fi
+  local -a discovered_roots=()
+  mapfile -d '' -t discovered_roots < <(
+    find "${RESULTS_ROOT}/antismash" -maxdepth 1 -mindepth 1 -type d -print0 2>/dev/null \
+      | sort -z
+  )
+  die "LOCAL_ANTISMASH_ROOT does not match TARGET_STRAIN='${TARGET_STRAIN}'; exact target root is required (discovered ${#discovered_roots[@]} other genome result root(s))"
 }
 
 get_podp_genome_ids() {
@@ -148,14 +173,56 @@ elif isinstance(gs, list):
 for x in out: print(x)" 2>/dev/null || true
 }
 
+target_taxon_provenance_json() {
+  local manifest="${GENOME_TAXON_MANIFEST:-${RESULTS_ROOT}/summary_tables/genome_taxon_manifest.tsv}"
+  python3 - "${manifest}" "${TARGET_STRAIN}" <<'PY'
+import csv
+import json
+from pathlib import Path
+import sys
+
+manifest = Path(sys.argv[1])
+target_genome_id = sys.argv[2].strip()
+provenance = {
+    "target_genome_id": target_genome_id,
+    "taxon_group": "",
+    "prediction_method": "",
+    "source": "genome_taxon_manifest.tsv",
+}
+
+if manifest.is_file():
+    with manifest.open(newline="", encoding="utf-8") as handle:
+        rows = [
+            row
+            for row in csv.DictReader(handle, delimiter="\t")
+            if (row.get("genome_id") or "").strip() == target_genome_id
+        ]
+    if len(rows) > 1:
+        raise SystemExit(
+            f"duplicate exact target rows in genome taxon manifest: {target_genome_id}"
+        )
+    if rows:
+        taxon_group = (rows[0].get("taxon_group") or "").strip().lower()
+        prediction_method = (rows[0].get("prediction_method") or "").strip().lower()
+        if taxon_group in {"fungi", "bacteria"}:
+            provenance["taxon_group"] = taxon_group
+        if prediction_method in {"funannotate", "existing_cds", "prodigal"}:
+            provenance["prediction_method"] = prediction_method
+
+print(json.dumps(provenance, separators=(",", ":"), sort_keys=True))
+PY
+}
+
 write_genome_status_for_local_antismash() {
   local status_file="${RUN_DIR}/downloads/genome_status.json"
+  local clusterweave_provenance
   mkdir -p "${RUN_DIR}/downloads"
 
   mapfile -t _podp_ids < <(get_podp_genome_ids)
   if [[ "${#_podp_ids[@]}" -eq 0 ]]; then
     return 0
   fi
+  clusterweave_provenance="$(target_taxon_provenance_json)"
 
   {
     printf '{"genome_status": ['
@@ -171,7 +238,8 @@ write_genome_status_for_local_antismash() {
       printf '{"original_id": "%s", "resolved_refseq_id": "%s", "resolve_attempted": true, "bgc_path": "%s"}' \
         "${gid}" "${TARGET_STRAIN}" "${RUN_DIR}/antismash/${TARGET_STRAIN}"
     done
-    printf '], "version": "1.0"}\n'
+    printf '], "version": "1.0", "clusterweave_provenance": %s}\n' \
+      "${clusterweave_provenance}"
   } > "${status_file}"
 
   log "Wrote local genome status mapping for seeded antiSMASH: ${status_file}"
@@ -315,7 +383,20 @@ BIND_ARGS=(
 )
 
 docker_run_args() {
-  local -a args=(--rm -i --user 0:0 --entrypoint "")
+  local -a args=(
+    --rm -i --user 0:0 --entrypoint ""
+    --cpus "${NPLINKER_DOCKER_CPUS}"
+    -e OMP_NUM_THREADS=1
+    -e OPENBLAS_NUM_THREADS=1
+    -e MKL_NUM_THREADS=1
+    -e NUMEXPR_NUM_THREADS=1
+  )
+  if [[ -n "${NPLINKER_DOCKER_MEMORY}" ]]; then
+    args+=(--memory "${NPLINKER_DOCKER_MEMORY}")
+  fi
+  if [[ -n "${NPLINKER_DOCKER_PIDS_LIMIT}" ]]; then
+    args+=(--pids-limit "${NPLINKER_DOCKER_PIDS_LIMIT}")
+  fi
   if [[ -n "${CLUSTERWEAVE_JOB_ID:-}" ]]; then
     args+=(--label "clusterweave.job_id=${CLUSTERWEAVE_JOB_ID}" --label "clusterweave.project=${PROJECT_NAME:-}")
   fi

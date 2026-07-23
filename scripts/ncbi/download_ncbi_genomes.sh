@@ -7,6 +7,7 @@ PROJECT_ROOT="${PROJECT_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd -P)}"
 PROJECT_NAME="${PROJECT_NAME:-$(basename "${PROJECT_ROOT}")}"
 ACCESSIONS_FILE="${ACCESSIONS_FILE:-${PROJECT_ROOT}/accessions.txt}"
 GENOME_ROOT="${GENOME_ROOT:-${PROJECT_ROOT}/data/genomes/fungi/${PROJECT_NAME}}"
+TAXON_GROUP="${TAXON_GROUP:-fungi}"
 NCBI_CLI_ROOT="${NCBI_CLI_ROOT:-${PROJECT_ROOT}/software/ncbi_cli}"
 
 INCLUDE_SETS=(
@@ -190,11 +191,15 @@ download_and_extract_with_includes() {
 datasets_cmd="$(detect_datasets)" || die "datasets not found in PATH or ${NCBI_CLI_ROOT}"
 PYTHON_CMD="$(resolve_python)"
 mkdir -p "${GENOME_ROOT}"
+download_total=0
+download_completed=0
+download_failed=0
 
 while IFS= read -r acc || [[ -n "${acc}" ]]; do
   acc="${acc//$'\r'/}"
   acc="$(printf "%s" "${acc}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
   [[ -z "${acc}" || "${acc}" =~ ^# ]] && continue
+  download_total=$((download_total + 1))
 
   acc_dir="${GENOME_ROOT}/${acc}"
   mkdir -p "${acc_dir}"
@@ -202,10 +207,13 @@ while IFS= read -r acc || [[ -n "${acc}" ]]; do
   status_now="$(get_status "${acc_dir}")"
   if should_skip "${status_now}"; then
     echo "[SKIP] ${acc} (status=${status_now})"
+    echo "NCBI_DOWNLOAD_PROGRESS accession=${acc} taxon=${TAXON_GROUP} status=complete percent=8 message=\"Genome download already available\""
+    download_completed=$((download_completed + 1))
     continue
   fi
 
   echo "[WORK] ${acc} (current=${status_now})"
+  echo "NCBI_DOWNLOAD_PROGRESS accession=${acc} taxon=${TAXON_GROUP} status=running percent=2 message=\"Downloading genome from NCBI\""
   clean_partial "${acc_dir}"
 
   attempt=0
@@ -231,6 +239,8 @@ while IFS= read -r acc || [[ -n "${acc}" ]]; do
     status_after="$(get_status "${acc_dir}")"
     if [[ -n "${used_set}" && "${status_after}" != "none" ]]; then
       echo "       got=${status_after} via --include ${used_set}"
+      echo "NCBI_DOWNLOAD_PROGRESS accession=${acc} taxon=${TAXON_GROUP} status=complete percent=8 message=\"NCBI genome download complete\""
+      download_completed=$((download_completed + 1))
       success=1
       break
     fi
@@ -244,5 +254,18 @@ while IFS= read -r acc || [[ -n "${acc}" ]]; do
 
   if [[ "${success}" -ne 1 ]]; then
     echo "[FAIL] ${acc}"
+    echo "NCBI_DOWNLOAD_PROGRESS accession=${acc} taxon=${TAXON_GROUP} status=failed percent=8 message=\"NCBI genome download failed\""
+    download_failed=$((download_failed + 1))
   fi
 done < "${ACCESSIONS_FILE}"
+
+download_status="complete"
+download_message="NCBI genome download stage complete"
+if [[ "${download_failed}" -gt 0 && "${download_completed}" -eq 0 ]]; then
+  download_status="failed"
+  download_message="No requested NCBI genome download completed"
+elif [[ "${download_failed}" -gt 0 ]]; then
+  download_status="partial_failure"
+  download_message="NCBI genome downloads completed with isolated failures"
+fi
+echo "NCBI_DOWNLOAD_SUMMARY taxon=${TAXON_GROUP} status=${download_status} total=${download_total} completed=${download_completed} failed=${download_failed} message=\"${download_message}\""

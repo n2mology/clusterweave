@@ -8,6 +8,7 @@ const RUNG_STEP = 8;
 const BACKBONE_OVERLAP = 1.08;
 const TWO_PI = Math.PI * 2;
 const UP = new THREE.Vector3(0, 1, 0);
+const FRAME_INTERVAL_MS = 1000 / 30;
 
 const DEFAULT_PROFILE = Object.freeze({
   radius: 0.72,
@@ -75,20 +76,42 @@ export class WorkflowDnaProgress {
     this.canvas = canvas;
     this.region = region;
     this.progress = 0;
+    this.hasProgressState = false;
+    this.geometryDirty = true;
     this.baseAutoSpiral = Boolean(autoSpiral);
     this.motionPaused = false;
     this.profile = DEFAULT_PROFILE;
     this.phase = 0;
     this.lastFrameTime = performance.now();
+    this.lastRenderTime = 0;
     this.frame = 0;
+    this.suspended = false;
+    this.manualSuspended = false;
+    this.pageHidden = document.hidden;
+    this.offscreen = false;
     this.disposed = false;
     this.backboneSegments = [];
     this.rungs = [];
     this.materials = [];
     this.geometries = [];
     this.resizeObserver = null;
+    this.intersectionObserver = null;
+    this.topA = new THREE.Vector3();
+    this.topB = new THREE.Vector3();
+    this.bottomA = new THREE.Vector3();
+    this.bottomB = new THREE.Vector3();
+    this.direction = new THREE.Vector3();
+    this.colorScratch = new THREE.Color();
     this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-    this.reducedMotionListener = () => this.renderFrame(performance.now(), true);
+    this.reducedMotionListener = () => {
+      this.geometryDirty = true;
+      this.renderFrame(performance.now(), true);
+      this.syncAnimationLoop();
+    };
+    this.visibilityListener = () => {
+      this.pageHidden = document.hidden;
+      this.syncSuspension();
+    };
     this.beforeUnloadListener = () => this.dispose();
 
     this.renderer = new THREE.WebGLRenderer({
@@ -115,6 +138,7 @@ export class WorkflowDnaProgress {
     this.buildMeshes();
     this.resize();
     this.bindLifecycle();
+    this.syncSuspension();
     this.animate();
   }
 
@@ -142,7 +166,15 @@ export class WorkflowDnaProgress {
     } else {
       window.addEventListener('resize', this.reducedMotionListener);
     }
+    if (typeof IntersectionObserver !== 'undefined') {
+      this.intersectionObserver = new IntersectionObserver((entries) => {
+        this.offscreen = !entries.some((entry) => entry.isIntersecting);
+        this.syncSuspension();
+      }, { rootMargin: '96px' });
+      this.intersectionObserver.observe(this.region);
+    }
     this.reducedMotion.addEventListener?.('change', this.reducedMotionListener);
+    document.addEventListener('visibilitychange', this.visibilityListener);
     window.addEventListener('beforeunload', this.beforeUnloadListener, { once: true });
   }
 
@@ -190,11 +222,11 @@ export class WorkflowDnaProgress {
     this.root.add(this.centerRail);
   }
 
-  helixPoint(index, offset) {
+  helixPoint(index, offset, target) {
     const t = index / (SEGMENTS - 1);
     const x = AXIS_MIN + (AXIS_MAX - AXIS_MIN) * t;
     const angle = t * TURNS * TWO_PI + offset + this.phase;
-    return new THREE.Vector3(
+    return target.set(
       x,
       Math.cos(angle) * this.profile.radius,
       Math.sin(angle) * this.profile.radius * this.profile.depthScale,
@@ -202,7 +234,7 @@ export class WorkflowDnaProgress {
   }
 
   placeCylinder(mesh, start, end, radialScale = 1, axialScale = 1) {
-    const direction = new THREE.Vector3().subVectors(end, start);
+    const direction = this.direction.subVectors(end, start);
     const length = Math.max(direction.length(), 0.0001);
     mesh.position.copy(start).add(end).multiplyScalar(0.5);
     mesh.quaternion.setFromUnitVectors(UP, direction.normalize());
@@ -219,7 +251,7 @@ export class WorkflowDnaProgress {
       : rail === 'bottom'
         ? COLORS.bottom
         : COLORS.rung[Math.floor(t * 100) % COLORS.rung.length];
-    return base.clone().lerp(COLORS.head, headWeight * 0.72);
+    return this.colorScratch.copy(base).lerp(COLORS.head, headWeight * 0.72);
   }
 
   applyColors() {
@@ -235,21 +267,23 @@ export class WorkflowDnaProgress {
       mesh.material.color.copy(this.colorForSegment(t, 'rung'));
       mesh.material.opacity = complete ? 0.96 : 0.34;
     });
-    this.ballMaterial.color.copy(COLORS.head.clone().lerp(COLORS.headEnd, this.progress * 0.35));
+    this.ballMaterial.color.copy(this.colorScratch.copy(COLORS.head).lerp(COLORS.headEnd, this.progress * 0.35));
   }
 
   updateGeometry() {
     for (let index = 0; index < SEGMENTS - 1; index += 1) {
-      const topA = this.helixPoint(index, 0);
-      const topB = this.helixPoint(index + 1, 0);
-      const bottomA = this.helixPoint(index, Math.PI);
-      const bottomB = this.helixPoint(index + 1, Math.PI);
-      this.placeCylinder(this.backboneSegments[index * 2], topA, topB, this.profile.backboneScale, BACKBONE_OVERLAP);
-      this.placeCylinder(this.backboneSegments[index * 2 + 1], bottomA, bottomB, this.profile.backboneScale, BACKBONE_OVERLAP);
+      this.helixPoint(index, 0, this.topA);
+      this.helixPoint(index + 1, 0, this.topB);
+      this.helixPoint(index, Math.PI, this.bottomA);
+      this.helixPoint(index + 1, Math.PI, this.bottomB);
+      this.placeCylinder(this.backboneSegments[index * 2], this.topA, this.topB, this.profile.backboneScale, BACKBONE_OVERLAP);
+      this.placeCylinder(this.backboneSegments[index * 2 + 1], this.bottomA, this.bottomB, this.profile.backboneScale, BACKBONE_OVERLAP);
     }
     this.rungs.forEach((rung) => {
       const index = Math.round(rung.userData.t * (SEGMENTS - 1));
-      this.placeCylinder(rung, this.helixPoint(index, 0), this.helixPoint(index, Math.PI), this.profile.rungScale);
+      this.helixPoint(index, 0, this.topA);
+      this.helixPoint(index, Math.PI, this.bottomA);
+      this.placeCylinder(rung, this.topA, this.bottomA, this.profile.rungScale);
     });
     this.ball.position.set(AXIS_MIN + (AXIS_MAX - AXIS_MIN) * this.progress, 0, 0.05);
     this.ball.scale.setScalar(this.profile.ballScale);
@@ -257,17 +291,28 @@ export class WorkflowDnaProgress {
   }
 
   setProgress(progress, payload = {}) {
-    this.progress = clampProgress(progress);
-    this.profile = profileForState(payload.state);
-    this.motionPaused = Boolean(payload.motionPaused);
+    const nextProgress = clampProgress(progress);
+    const nextProfile = profileForState(payload.state);
+    const nextMotionPaused = Boolean(payload.motionPaused);
+    const changed = !this.hasProgressState
+      || nextProgress !== this.progress
+      || nextProfile !== this.profile
+      || nextMotionPaused !== this.motionPaused;
+    this.progress = nextProgress;
+    this.profile = nextProfile;
+    this.motionPaused = nextMotionPaused;
+    this.hasProgressState = true;
+    if (!changed) return;
     this.applyCameraProfile();
     this.applyColors();
-    this.updateGeometry();
+    this.geometryDirty = true;
     this.renderFrame(performance.now(), true);
+    this.syncAnimationLoop();
   }
 
   setAutoSpiral(enabled) {
     this.baseAutoSpiral = Boolean(enabled);
+    this.syncAnimationLoop();
   }
 
   applyCameraProfile() {
@@ -288,33 +333,91 @@ export class WorkflowDnaProgress {
   }
 
   renderFrame(now, force = false) {
-    if (this.disposed) return;
+    if (this.disposed || this.suspended) return;
+    if (!force && now - this.lastRenderTime < FRAME_INTERVAL_MS) return;
     const delta = Math.min(0.05, Math.max(0, (now - this.lastFrameTime) / 1000));
     this.lastFrameTime = now;
-    if (this.baseAutoSpiral && !this.motionPaused && !this.reducedMotion.matches) {
+    this.lastRenderTime = now;
+    if (this.shouldAnimate()) {
       this.phase += delta * 1.15;
       this.updateGeometry();
-    } else if (force) {
+      this.geometryDirty = false;
+    } else if (force || this.geometryDirty) {
       this.updateGeometry();
+      this.geometryDirty = false;
     }
     this.renderer.render(this.scene, this.camera);
   }
 
-  animate() {
+  shouldAnimate() {
+    return this.baseAutoSpiral
+      && !this.motionPaused
+      && !this.reducedMotion.matches;
+  }
+
+  syncAnimationLoop() {
     if (this.disposed) return;
+    if (this.suspended || !this.shouldAnimate()) {
+      if (this.frame) {
+        window.cancelAnimationFrame(this.frame);
+        this.frame = 0;
+      }
+      return;
+    }
+    this.animate();
+  }
+
+  animate() {
+    if (this.disposed || this.suspended || !this.shouldAnimate() || this.frame) return;
     this.frame = window.requestAnimationFrame((now) => {
+      this.frame = 0;
+      if (this.disposed || this.suspended) return;
       this.renderFrame(now);
       this.animate();
     });
   }
 
+  suspend() {
+    if (this.disposed || this.manualSuspended) return;
+    this.manualSuspended = true;
+    this.syncSuspension();
+  }
+
+  syncSuspension() {
+    if (this.disposed) return;
+    const shouldSuspend = this.manualSuspended || this.pageHidden || this.offscreen;
+    if (shouldSuspend === this.suspended) return;
+    this.suspended = shouldSuspend;
+    if (this.frame) {
+      window.cancelAnimationFrame(this.frame);
+      this.frame = 0;
+    }
+    if (!shouldSuspend) {
+      this.lastFrameTime = performance.now();
+      this.renderFrame(this.lastFrameTime, true);
+      this.syncAnimationLoop();
+    }
+  }
+
+  resume() {
+    if (this.disposed || !this.manualSuspended) return;
+    this.manualSuspended = false;
+    this.syncSuspension();
+  }
+
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
-    window.cancelAnimationFrame(this.frame);
+    this.suspended = true;
+    if (this.frame) {
+      window.cancelAnimationFrame(this.frame);
+      this.frame = 0;
+    }
     this.resizeObserver?.disconnect();
+    this.intersectionObserver?.disconnect();
     window.removeEventListener('resize', this.reducedMotionListener);
     window.removeEventListener('beforeunload', this.beforeUnloadListener);
+    document.removeEventListener('visibilitychange', this.visibilityListener);
     this.reducedMotion.removeEventListener?.('change', this.reducedMotionListener);
     this.materials.forEach((material) => material.dispose());
     this.geometries.forEach((geometry) => geometry.dispose());

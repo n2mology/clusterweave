@@ -5,6 +5,10 @@ ANTISMASH_DB_DIR="${ANTISMASH_DB_DIR:-/databases/antismash}"
 PFAM_DIR="${PFAM_DIR:-/databases/pfam}"
 PFAM_HMM="${PFAM_DIR}/Pfam-A.hmm"
 PFAM_URL="${PFAM_URL:-https://ftp.ebi.ac.uk/pub/databases/Pfam/current_release/Pfam-A.hmm.gz}"
+AUTO_INSTALL_NCBI_CLI="${AUTO_INSTALL_NCBI_CLI:-1}"
+NCBI_CLI_ROOT="${NCBI_CLI_ROOT:-${CLUSTERWEAVE_SOFTWARE_ROOT:-/data/software}/ncbi_cli}"
+INSTALL_DIR="${INSTALL_DIR:-${NCBI_CLI_ROOT}}"
+NCBI_CLI_INSTALLER="${NCBI_CLI_INSTALLER:-/clusterweave/install_ncbi_cli.sh}"
 PREPULL_CLINKER_IMAGE="${PREPULL_CLINKER_IMAGE:-1}"
 CLINKER_DOCKER_IMAGE="${CLINKER_DOCKER_IMAGE:-quay.io/biocontainers/clinker-py:0.0.32--pyhdfd78af_0}"
 PREPULL_BIGSCAPE_IMAGE="${PREPULL_BIGSCAPE_IMAGE:-1}"
@@ -21,6 +25,7 @@ phase_name() {
   case "$1" in
     antismash) echo "antiSMASH" ;;
     pfam) echo "Pfam" ;;
+    ncbi_cli) echo "NCBI CLI" ;;
     funbgcex_image) echo "FunBGCeX" ;;
     clinker_image) echo "clinker" ;;
     bigscape_image) echo "BiG-SCAPE" ;;
@@ -66,6 +71,16 @@ normalize_substep() {
 
   if [[ "$line" =~ ^Status:[[:space:]]+(.+) ]]; then
     echo "${BASH_REMATCH[1]}"
+    return
+  fi
+
+  if [[ "$line" =~ Installing[[:space:]]+NCBI[[:space:]]+CLI[[:space:]]+tools[[:space:]]+into[[:space:]]+(.+) ]]; then
+    echo "Installing into ${BASH_REMATCH[1]}"
+    return
+  fi
+
+  if [[ "$line" =~ Installed[[:space:]]+datasets[[:space:]]+and[[:space:]]+dataformat ]]; then
+    echo "datasets and dataformat installed"
     return
   fi
 
@@ -229,6 +244,13 @@ else
   set_status "antismash" 100 "antiSMASH databases already present" "Using cached antiSMASH databases"
 fi
 
+ncbi_cli_ready() {
+  have datasets && return 0
+  [[ -x "${NCBI_CLI_ROOT}/datasets" ]] && return 0
+  [[ -f "${NCBI_CLI_ROOT}/datasets.exe" ]] && return 0
+  return 1
+}
+
 if [[ ! -f "${PFAM_HMM}" ]]; then
   log "Downloading Pfam-A.hmm ..."
   pfam_gz="${PFAM_DIR}/Pfam-A.hmm.gz"
@@ -244,6 +266,29 @@ if [[ ! -f "${PFAM_HMM}" ]]; then
 else
   log "Pfam-A.hmm already present."
   set_status "pfam" 100 "Pfam-A database already present" "Using cached Pfam database"
+fi
+
+if [[ "${AUTO_INSTALL_NCBI_CLI}" == "1" ]]; then
+  if ncbi_cli_ready; then
+    log "NCBI datasets CLI already present."
+    set_status "ncbi_cli" 100 "NCBI Datasets CLI ready" "Using cached datasets/dataformat"
+  elif [[ -f "${NCBI_CLI_INSTALLER}" ]]; then
+    log "Installing NCBI datasets CLI into ${NCBI_CLI_ROOT} ..."
+    mkdir -p "${NCBI_CLI_ROOT}"
+    if run_with_progress "ncbi_cli" "Installing NCBI Datasets CLI" \
+      env PROJECT_ROOT=/clusterweave INSTALL_DIR="${INSTALL_DIR}" bash "${NCBI_CLI_INSTALLER}"; then
+      set_status "ncbi_cli" 100 "NCBI Datasets CLI ready" "datasets/dataformat installed"
+      log "NCBI datasets CLI ready."
+    else
+      log "WARNING: NCBI datasets CLI install failed; accession jobs will stay unavailable until it is installed."
+      set_status "ncbi_cli" 100 "NCBI Datasets CLI unavailable" "Install failed; accession jobs will be rejected"
+    fi
+  else
+    log "WARNING: NCBI CLI installer missing: ${NCBI_CLI_INSTALLER}"
+    set_status "ncbi_cli" 100 "NCBI Datasets CLI unavailable" "Installer missing"
+  fi
+else
+  set_status "ncbi_cli" 100 "Skipping NCBI Datasets CLI install" "Auto-install disabled"
 fi
 
 if [[ "${PREPULL_CLINKER_IMAGE}" == "1" ]] && have docker; then

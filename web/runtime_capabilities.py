@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,121 @@ def _stage(available: bool, detail: str, missing: list[str] | None = None) -> di
         "detail": detail,
         "missing": missing or [],
     }
+
+
+def _ncbi_cli_root() -> Path:
+    configured = os.environ.get("NCBI_CLI_ROOT", "").strip()
+    if configured:
+        return Path(configured)
+    software_root = Path(os.environ.get("CLUSTERWEAVE_SOFTWARE_ROOT", "/data/software"))
+    return software_root / "ncbi_cli"
+
+
+def _has_ncbi_datasets() -> bool:
+    root = _ncbi_cli_root()
+    return (
+        shutil.which("datasets") is not None
+        or (root / "datasets").is_file() and os.access(root / "datasets", os.X_OK)
+        or (root / "datasets.exe").is_file()
+    )
+
+
+def _clusterweave_root() -> Path:
+    configured = os.environ.get("CLUSTERWEAVE_ROOT", "").strip()
+    if configured:
+        return Path(configured)
+    return Path(__file__).resolve().parents[1]
+
+
+def _taxon_tree_renderer() -> Path:
+    configured = os.environ.get("TAXON_TREE_RENDERER", "").strip()
+    if configured:
+        return Path(configured)
+    return _clusterweave_root() / "bin" / "render_phylo_taxon_profile.py"
+
+
+def _phylogeny_sif_path() -> Path:
+    configured = os.environ.get("PHYLOGENY_SIF_PATH", "").strip()
+    if configured:
+        return Path(configured)
+    return (
+        _clusterweave_root()
+        / "software"
+        / "phylogeny"
+        / "clusterweave_phylogeny_1.0.0.sif"
+    )
+
+
+def _docker_image_available(image: str) -> bool:
+    if not image or shutil.which("docker") is None:
+        return False
+    try:
+        completed = subprocess.run(
+            ["docker", "image", "inspect", image],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return completed.returncode == 0
+
+
+def _sequence_phylogeny_stage(
+    *,
+    docker_ready: bool,
+    has_singularity: bool,
+    has_apptainer: bool,
+) -> dict[str, Any]:
+    """Report a pre-installed pinned runtime without pulling or building it."""
+
+    requested_runtime = (
+        os.environ.get("PHYLOGENY_RUNTIME", "auto").strip().lower() or "auto"
+    )
+    image = os.environ.get(
+        "PHYLOGENY_DOCKER_IMAGE", "clusterweave-phylogeny:1.0.0"
+    ).strip()
+    sif_path = _phylogeny_sif_path()
+    docker_image_ready = docker_ready and _docker_image_available(image)
+    sif_engine = "apptainer" if has_apptainer else "singularity" if has_singularity else ""
+    sif_ready = bool(sif_engine) and sif_path.is_file()
+
+    if requested_runtime == "docker":
+        available = docker_image_ready
+        runtime = "docker"
+        missing = [] if available else [f"prebuilt Docker image {image}"]
+    elif requested_runtime in {"sif", "apptainer", "singularity"}:
+        available = sif_ready
+        runtime = sif_engine or "sif"
+        missing = [] if available else ["pinned phylogeny SIF and apptainer/singularity"]
+    elif requested_runtime == "auto":
+        available = docker_image_ready or sif_ready
+        runtime = "docker" if docker_image_ready else sif_engine if sif_ready else "none"
+        missing = [] if available else ["prebuilt phylogeny Docker image or pinned SIF"]
+    else:
+        available = False
+        runtime = "none"
+        missing = ["supported PHYLOGENY_RUNTIME (auto, docker, or sif)"]
+
+    if available:
+        detail = f"Optional pinned sequence-phylogeny runtime available via {runtime}"
+    else:
+        detail = (
+            "Optional sequence-phylogeny runtime unavailable; the core taxonomy "
+            "figure remains available"
+        )
+    stage = _stage(available, detail, missing)
+    stage.update(
+        {
+            "runtime": runtime,
+            "requested_runtime": requested_runtime,
+            "image": image,
+            "sif_available": sif_ready,
+        }
+    )
+    return stage
 
 
 def runtime_health() -> dict[str, Any]:
@@ -38,11 +154,28 @@ def runtime_health() -> dict[str, Any]:
     sif_ready = has_singularity or has_apptainer
     has_antismash = shutil.which("antismash") is not None
     has_rscript = shutil.which("Rscript") is not None
+    has_ncbi_datasets = _has_ncbi_datasets()
     has_clinker = shutil.which("clinker") is not None
     has_sbatch = shutil.which("sbatch") is not None
     has_squeue = shutil.which("squeue") is not None
     has_sacct = shutil.which("sacct") is not None
     has_scancel = shutil.which("scancel") is not None
+    taxon_tree_renderer = _taxon_tree_renderer()
+    taxon_tree_available = taxon_tree_renderer.is_file()
+    taxon_tree_stage = _stage(
+        taxon_tree_available,
+        (
+            "Dependency-light taxonomy/BGC/GCF figure renderer available"
+            if taxon_tree_available
+            else "Dependency-light taxonomy/BGC/GCF figure renderer unavailable"
+        ),
+        [] if taxon_tree_available else ["render_phylo_taxon_profile.py"],
+    )
+    sequence_phylogeny_stage = _sequence_phylogeny_stage(
+        docker_ready=docker_ready,
+        has_singularity=has_singularity,
+        has_apptainer=has_apptainer,
+    )
 
     if executor == "slurm":
         missing = [
@@ -71,6 +204,7 @@ def runtime_health() -> dict[str, Any]:
             "docker_ready": docker_ready,
             "singularity": has_singularity,
             "apptainer": has_apptainer,
+            "ncbi_datasets": has_ncbi_datasets,
             "slurm": {
                 "sbatch": has_sbatch,
                 "squeue": has_squeue,
@@ -84,6 +218,8 @@ def runtime_health() -> dict[str, Any]:
                 "summary": _stage(scheduler_ready, scheduler_detail, missing),
                 "clinker": _stage(scheduler_ready, scheduler_detail, missing),
                 "figures": _stage(scheduler_ready, scheduler_detail, missing),
+                "taxon_tree_figure": taxon_tree_stage,
+                "sequence_phylogeny": sequence_phylogeny_stage,
                 "nplinker": _stage(scheduler_ready, scheduler_detail, missing),
             },
         }
@@ -119,8 +255,13 @@ def runtime_health() -> dict[str, Any]:
         "apptainer": has_apptainer,
         "antismash": has_antismash,
         "rscript": has_rscript,
+        "ncbi_datasets": has_ncbi_datasets,
         "stages": {
-            "prepare": _stage(True, "Upload and accession staging are handled by the web worker"),
+            "prepare": _stage(
+                has_ncbi_datasets,
+                "NCBI Datasets CLI available for accession retrieval" if has_ncbi_datasets else "NCBI Datasets CLI unavailable for accession retrieval",
+                [] if has_ncbi_datasets else ["NCBI datasets CLI"],
+            ),
             "annotation": _stage(
                 annotation_available,
                 "antiSMASH/FunBGCeX runtime available" if annotation_available else "Annotation runtime unavailable",
@@ -142,6 +283,8 @@ def runtime_health() -> dict[str, Any]:
                 "Rscript available" if has_rscript else "Rscript unavailable; figure stage should stay optional",
                 [] if has_rscript else ["Rscript"],
             ),
+            "taxon_tree_figure": taxon_tree_stage,
+            "sequence_phylogeny": sequence_phylogeny_stage,
             "nplinker": _stage(
                 nplinker_available,
                 "NPLinker runtime available" if nplinker_available else "NPLinker runtime unavailable",

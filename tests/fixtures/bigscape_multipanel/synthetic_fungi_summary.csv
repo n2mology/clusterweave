@@ -1,0 +1,10 @@
+genome,taxon_group,tool,entity_type,class_norm,shared_count,unshared_count,total
+Fungus_alpha,fungi,funbgcex,BGC,PKS,12,0,12
+Fungus_alpha,fungi,antismash,BGC,NRPS,10,0,10
+Fungus_alpha,fungi,antismash,GCF,NRPS;PKS,4,0,4
+Fungus_beta,fungi,funbgcex,BGC,terpene,7,0,7
+Fungus_beta,fungi,antismash,BGC,RiPP,3,0,3
+Fungus_beta,fungi,antismash,GCF,siderophore,2,0,2
+Fungus_gamma,fungi,funbgcex,BGC,NRPS,5,0,5
+Fungus_gamma,fungi,antismash,BGC,NRPS;PKS,8,0,8
+Fungus_gamma,fungi,antismash,GCF,terpene,1,0,1

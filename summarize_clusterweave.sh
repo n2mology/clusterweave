@@ -20,13 +20,17 @@ FUNBGCEX_ROOT="${FUNBGCEX_ROOT:-${RESULTS_ROOT}/funbgcex}"
 BIGSCAPE_ROOT="${BIGSCAPE_ROOT:-${RESULTS_ROOT}/big_scape}"
 INPUT_GBKS_ROOT="${INPUT_GBKS_ROOT:-${RESULTS_ROOT}/input_gbks}"
 OUTDIR="${OUTDIR:-${RESULTS_ROOT}/summary}"
+SUMMARY_TABLES_ROOT="${SUMMARY_TABLES_ROOT:-${RESULTS_ROOT}/summary_tables}"
 mkdir -p "${OUTDIR}"
+mkdir -p "${SUMMARY_TABLES_ROOT}"
 
 SCAFFOLD_COMPARISON_CSV="${SCAFFOLD_COMPARISON_CSV:-${OUTDIR}/all_tools_scaffold_comparison.csv}"
 BGC_COMPARISON_CSV="${BGC_COMPARISON_CSV:-${OUTDIR}/all_tools_bgc_comparison.csv}"
 SUMMARY_CSV="${SUMMARY_CSV:-${OUTDIR}/all_tools_shared_unshared_summary.csv}"
+GENOME_TAXON_MANIFEST="${GENOME_TAXON_MANIFEST:-${SUMMARY_TABLES_ROOT}/genome_taxon_manifest.tsv}"
+ANTISMASH_PRODUCT_TYPES_TSV="${ANTISMASH_PRODUCT_TYPES_TSV:-${SUMMARY_TABLES_ROOT}/antismash_product_types_exact.tsv}"
 
-export ANTISMASH_ROOT FUNBGCEX_ROOT BIGSCAPE_ROOT INPUT_GBKS_ROOT SCAFFOLD_COMPARISON_CSV BGC_COMPARISON_CSV SUMMARY_CSV
+export ANTISMASH_ROOT FUNBGCEX_ROOT BIGSCAPE_ROOT INPUT_GBKS_ROOT SCAFFOLD_COMPARISON_CSV BGC_COMPARISON_CSV SUMMARY_CSV GENOME_TAXON_MANIFEST ANTISMASH_PRODUCT_TYPES_TSV
 
 have(){ command -v "$1" >/dev/null 2>&1; }
 resolve_python_cmd() {
@@ -56,15 +60,27 @@ resolve_python_cmd() {
 PYTHON_BIN="$(resolve_python_cmd)"
 
 BGC_GCF_CROSSWALK_PY="${BGC_GCF_CROSSWALK_PY:-${PROJECT_DIR}/bin/build_bgc_gcf_crosswalk.py}"
+BIGSCAPE_GCF_CATEGORY="${BIGSCAPE_GCF_CATEGORY:-${BIGSCAPE_NETWORK_CATEGORY:-mix}}"
+BIGSCAPE_GCF_THRESHOLD="${BIGSCAPE_GCF_THRESHOLD:-${BIGSCAPE_NETWORK_CLUSTERING_THRESHOLD:-0.3}}"
 TARGETED_ANALYSIS_PY="${TARGETED_ANALYSIS_PY:-${PROJECT_DIR}/bin/build_candidate_tables.py}"
 NORMALIZE_METADATA_PY="${NORMALIZE_METADATA_PY:-${PROJECT_DIR}/bin/normalize_metadata.py}"
-ECOLOGY_FIELD="${ECOLOGY_FIELD:-ecofun_primary}"
+ANALYSIS_SCOPE="${ANALYSIS_SCOPE:-fungi}"
+if [[ "${ANALYSIS_SCOPE}" == "bacteria" ]]; then
+  DEFAULT_ECOLOGY_FIELD="ecobac_primary"
+  DEFAULT_METADATA_NAME="ecobac_metadata_normalized.tsv"
+  DEFAULT_METADATA_TEMPLATE_NAME="ecobac_metadata_template.tsv"
+else
+  DEFAULT_ECOLOGY_FIELD="ecofun_primary"
+  DEFAULT_METADATA_NAME="ecofun_metadata_normalized.tsv"
+  DEFAULT_METADATA_TEMPLATE_NAME="ecofun_metadata_template.tsv"
+fi
+ECOLOGY_FIELD="${ECOLOGY_FIELD:-${DEFAULT_ECOLOGY_FIELD}}"
 FOCUS_ECOLOGY_LABEL="${FOCUS_ECOLOGY_LABEL:-}"
 RUN_ECOLOGY_ANALYSIS="${RUN_ECOLOGY_ANALYSIS:-0}"
 AUTO_NORMALIZE_METADATA="${AUTO_NORMALIZE_METADATA:-1}"
 ACCESSIONS_MAP="${ACCESSIONS_MAP:-${DATA_ROOT}/genomes/fungi/${PROJECT_NAME}/accessions_fungusID_taxonomyID.txt}"
-METADATA_TSV="${METADATA_TSV:-${RESULTS_ROOT}/summary_tables/ecofun_metadata_normalized.tsv}"
-METADATA_TEMPLATE_TSV="${METADATA_TEMPLATE_TSV:-${RESULTS_ROOT}/summary_tables/ecofun_metadata_template.tsv}"
+METADATA_TSV="${METADATA_TSV:-${RESULTS_ROOT}/summary_tables/${DEFAULT_METADATA_NAME}}"
+METADATA_TEMPLATE_TSV="${METADATA_TEMPLATE_TSV:-${RESULTS_ROOT}/summary_tables/${DEFAULT_METADATA_TEMPLATE_NAME}}"
 
 "${PYTHON_BIN}" - <<'PY'
 import csv, glob, json, os, re
@@ -77,6 +93,9 @@ INPUT_GBKS_ROOT = os.environ["INPUT_GBKS_ROOT"]
 SCAFFOLD_COMPARISON_CSV = os.environ["SCAFFOLD_COMPARISON_CSV"]
 BGC_COMPARISON_CSV = os.environ["BGC_COMPARISON_CSV"]
 SUMMARY_CSV = os.environ["SUMMARY_CSV"]
+GENOME_TAXON_MANIFEST = os.environ["GENOME_TAXON_MANIFEST"]
+ANTISMASH_PRODUCT_TYPES_TSV = os.environ["ANTISMASH_PRODUCT_TYPES_TSV"]
+DISPLAY_ONTOLOGY_VERSION = "clusterweave-bgc-broad-v1"
 
 
 def clean(s): return "" if s is None else str(s).strip()
@@ -196,6 +215,23 @@ def conf_from_similarity(sim):
     return "none"
 
 
+def load_taxon_manifest():
+    routes={}
+    if not os.path.isfile(GENOME_TAXON_MANIFEST):
+        return routes
+    with open(GENOME_TAXON_MANIFEST,newline='',encoding='utf-8-sig') as fh:
+        for row in csv.DictReader(fh,delimiter='\t'):
+            genome=clean(row.get('genome_id')) or clean(row.get('genome')) or clean(row.get('input_key'))
+            if not genome:
+                continue
+            routes[genome]={
+                'taxon_group': clean(row.get('taxon_group')) or 'fungi',
+                'prediction_method': clean(row.get('prediction_method')) or ('prodigal' if clean(row.get('taxon_group')) == 'bacteria' else ''),
+                'detector_profile': clean(row.get('detector_profile')) or ('antismash' if clean(row.get('taxon_group')) == 'bacteria' else 'antismash+funbgcex'),
+            }
+    return routes
+
+
 def parse_funbgcex():
     data=defaultdict(list)
     for genome_dir in sorted(glob.glob(os.path.join(FUNBGCEX_ROOT,'*'))):
@@ -232,7 +268,17 @@ def parse_antismash():
         if not os.path.isdir(genome_dir): continue
         genome=os.path.basename(genome_dir)
         json_path=os.path.join(genome_dir,f"{genome}.antismash.json")
-        if not os.path.isfile(json_path): continue
+        bacterial_json_path=os.path.join(genome_dir,f"{genome}.bacteria.antismash.json")
+        taxon_group=routes.get(genome,{'taxon_group':'fungi'}).get('taxon_group','fungi')
+        # A legacy/unsharded bacterial antiSMASH run may retain the explicit
+        # ".bacteria" output basename. Select exactly one canonical JSON per
+        # genome, preferring the name appropriate to its immutable taxon route.
+        if taxon_group == 'bacteria':
+            json_candidates=(bacterial_json_path,json_path)
+        else:
+            json_candidates=(json_path,bacterial_json_path)
+        json_path=next((path for path in json_candidates if os.path.isfile(path)),None)
+        if not json_path: continue
         obj=json.load(open(json_path,encoding='utf-8'))
         for rec in obj.get('records',[]):
             rec_id=clean(rec.get('id')); scaffold=normalize_scaffold(rec_id)
@@ -292,6 +338,11 @@ def parse_antismash():
                     'end': int(area.get('end',0)),
                     'classes': classes,
                     'bgc_class': join_classes(classes),
+                    'exact_terms': (
+                        [('area_product', value) for value in products]
+                        + [('protocluster_product', value) for value in proto_products]
+                        + [('protocluster_category', value) for value in proto_categories]
+                    ),
                     'known_product': clean(known.get('known_product','')),
                     'known_accession': clean(known.get('known_accession','')),
                     'known_similarity': clean(known.get('known_similarity','')),
@@ -324,11 +375,16 @@ def parse_bigscape():
                 if rec and fam: rec_to_family[rec]=fam
     return ann,rec_to_family
 
+routes=load_taxon_manifest()
 fun=parse_funbgcex(); anti=parse_antismash(); ann,rec_to_family=parse_bigscape()
 all_genomes=sorted(set(fun.keys())|set(anti.keys())); target_genomes=set(all_genomes)
-scaffold_rows=[]; bgc_rows=[]; summary_counts=defaultdict(lambda:{'shared':0,'unshared':0})
+scaffold_rows=[]; bgc_rows=[]; summary_counts=defaultdict(lambda:{'shared':0,'unshared':0,'not_applicable':0})
 
 for genome in all_genomes:
+    route=routes.get(genome,{'taxon_group':'fungi','prediction_method':'','detector_profile':'antismash+funbgcex'})
+    taxon_group=route['taxon_group']
+    prediction_method=route['prediction_method']
+    funbgcex_applicability='not_applicable_taxon' if taxon_group == 'bacteria' else 'applicable'
     anti_by=defaultdict(list); fun_by=defaultdict(list)
     for r in anti.get(genome,[]): anti_by[r['scaffold']].append(r)
     for r in fun.get(genome,[]): fun_by[r['scaffold']].append(r)
@@ -344,10 +400,11 @@ for genome in all_genomes:
             f_class[summary_bgc_class(classes)]+=1
             if r.get('metabolite'): f_prod[canon_term(r['metabolite'])]+=1
         scaffold_rows.append({
-            'genome':genome,'scaffold':scaf,
-            'antismash_bgc_count':len(a_rows),'funbgcex_bgc_count':len(f_rows),'same_bgc_count':'yes' if len(a_rows)==len(f_rows) else 'no',
-            'antismash_class_counts':counter_to_text(a_class),'funbgcex_class_counts':counter_to_text(f_class),'same_class_counts':'yes' if dict(a_class)==dict(f_class) else 'no',
-            'antismash_known_cluster_product_counts':counter_to_text(a_prod),'funbgcex_putative_product_counts':counter_to_text(f_prod),'same_putative_product_counts':'yes' if dict(a_prod)==dict(f_prod) and bool(a_prod or f_prod) else 'no'
+            'genome':genome,'taxon_group':taxon_group,'prediction_method':prediction_method,
+            'funbgcex_applicability':funbgcex_applicability,'scaffold':scaf,
+            'antismash_bgc_count':len(a_rows),'funbgcex_bgc_count':len(f_rows),'same_bgc_count':'not_applicable_taxon' if funbgcex_applicability == 'not_applicable_taxon' else ('yes' if len(a_rows)==len(f_rows) else 'no'),
+            'antismash_class_counts':counter_to_text(a_class),'funbgcex_class_counts':counter_to_text(f_class),'same_class_counts':'not_applicable_taxon' if funbgcex_applicability == 'not_applicable_taxon' else ('yes' if dict(a_class)==dict(f_class) else 'no'),
+            'antismash_known_cluster_product_counts':counter_to_text(a_prod),'funbgcex_putative_product_counts':counter_to_text(f_prod),'same_putative_product_counts':'not_applicable_taxon' if funbgcex_applicability == 'not_applicable_taxon' else ('yes' if dict(a_prod)==dict(f_prod) and bool(a_prod or f_prod) else 'no')
         })
         pairs=[]
         for ai,a in enumerate(a_rows):
@@ -396,8 +453,11 @@ for genome in all_genomes:
                 'same_putative_product_exact':'no','same_putative_product_keyword':'no'})
         for cls in sorted(set(a_class)|set(f_class)):
             a_n=a_class.get(cls,0); f_n=f_class.get(cls,0); sh=min(a_n,f_n)
-            summary_counts[(genome,'antismash','BGC',cls)]['shared']+=sh; summary_counts[(genome,'antismash','BGC',cls)]['unshared']+=max(0,a_n-f_n)
-            summary_counts[(genome,'funbgcex','BGC',cls)]['shared']+=sh; summary_counts[(genome,'funbgcex','BGC',cls)]['unshared']+=max(0,f_n-a_n)
+            if funbgcex_applicability == 'not_applicable_taxon':
+                summary_counts[(genome,'antismash','BGC',cls)]['not_applicable']+=a_n
+            else:
+                summary_counts[(genome,'antismash','BGC',cls)]['shared']+=sh; summary_counts[(genome,'antismash','BGC',cls)]['unshared']+=max(0,a_n-f_n)
+                summary_counts[(genome,'funbgcex','BGC',cls)]['shared']+=sh; summary_counts[(genome,'funbgcex','BGC',cls)]['unshared']+=max(0,f_n-a_n)
 
 family_to_genomes=defaultdict(set); record_to_class={}; record_to_genome={}
 for rec,fam in rec_to_family.items():
@@ -413,32 +473,54 @@ for (genome,cls),payload in seen.items():
     summary_counts[(genome,'antismash','GCF',cls)]['shared']+=len(payload['shared']); summary_counts[(genome,'antismash','GCF',cls)]['unshared']+=len(payload['unshared'])
 
 with open(SCAFFOLD_COMPARISON_CSV,'w',newline='',encoding='utf-8') as fh:
-    fields=['genome','scaffold','antismash_bgc_count','funbgcex_bgc_count','same_bgc_count','antismash_class_counts','funbgcex_class_counts','same_class_counts','antismash_known_cluster_product_counts','funbgcex_putative_product_counts','same_putative_product_counts']
+    fields=['genome','taxon_group','prediction_method','funbgcex_applicability','scaffold','antismash_bgc_count','funbgcex_bgc_count','same_bgc_count','antismash_class_counts','funbgcex_class_counts','same_class_counts','antismash_known_cluster_product_counts','funbgcex_putative_product_counts','same_putative_product_counts']
     w=csv.DictWriter(fh,fieldnames=fields); w.writeheader();
     for r in sorted(scaffold_rows,key=lambda x:(x['genome'],x['scaffold'])): w.writerow(r)
 
 with open(BGC_COMPARISON_CSV,'w',newline='',encoding='utf-8') as fh:
-    fields=['genome','scaffold','overlap_bp','antismash_bgc_id','antismash_start','antismash_end','antismash_bgc_class','antismash_knowncluster_similarity_score','antismash_knowncluster_accession','antismash_knowncluster_product','antismash_clustercompare_similarity_score','antismash_clustercompare_compounds','antismash_clustercompare_organism','funbgcex_bgc_id','funbgcex_start','funbgcex_end','funbgcex_core_enzymes','funbgcex_similar_bgc','funbgcex_similarity_score','funbgcex_putative_product','same_putative_product_exact','same_putative_product_keyword']
-    w=csv.DictWriter(fh,fieldnames=fields); w.writeheader();
-    for r in sorted(bgc_rows,key=lambda x:(x['genome'],x['scaffold'],str(x['antismash_bgc_id']),str(x['funbgcex_bgc_id']))): w.writerow(r)
+    fields=['genome','taxon_group','detector_relation','scaffold','overlap_bp','antismash_bgc_id','antismash_start','antismash_end','antismash_bgc_class','antismash_knowncluster_similarity_score','antismash_knowncluster_accession','antismash_knowncluster_product','antismash_clustercompare_similarity_score','antismash_clustercompare_compounds','antismash_clustercompare_organism','funbgcex_bgc_id','funbgcex_start','funbgcex_end','funbgcex_core_enzymes','funbgcex_similar_bgc','funbgcex_similarity_score','funbgcex_putative_product','same_putative_product_exact','same_putative_product_keyword']
+    w=csv.DictWriter(fh,fieldnames=fields,extrasaction='ignore'); w.writeheader();
+    for r in sorted(bgc_rows,key=lambda x:(x['genome'],x['scaffold'],str(x['antismash_bgc_id']),str(x['funbgcex_bgc_id']))):
+        route=routes.get(r['genome'],{'taxon_group':'fungi'})
+        r['taxon_group']=route['taxon_group']
+        if route['taxon_group'] == 'bacteria':
+            r['detector_relation']='antismash_only'
+        elif r.get('antismash_bgc_id') and r.get('funbgcex_bgc_id'): r['detector_relation']='shared'
+        elif r.get('antismash_bgc_id'): r['detector_relation']='antismash_only'
+        else: r['detector_relation']='funbgcex_only'
+        w.writerow(r)
+
+with open(ANTISMASH_PRODUCT_TYPES_TSV,'w',newline='',encoding='utf-8') as fh:
+    fields=['genome','taxon_group','bgc_id','scaffold','exact_product_type','term_source','broad_display_class','display_ontology_version']
+    w=csv.DictWriter(fh,fieldnames=fields,delimiter='\t'); w.writeheader()
+    for genome in sorted(anti):
+        taxon_group=routes.get(genome,{'taxon_group':'fungi'})['taxon_group']
+        for bgc in anti[genome]:
+            for source,value in bgc.get('exact_terms',[]):
+                w.writerow({'genome':genome,'taxon_group':taxon_group,'bgc_id':bgc['bgc_id'],'scaffold':bgc['scaffold'],'exact_product_type':value,'term_source':source,'broad_display_class':bgc['bgc_class'],'display_ontology_version':DISPLAY_ONTOLOGY_VERSION})
 
 with open(SUMMARY_CSV,'w',newline='',encoding='utf-8') as fh:
-    fields=['genome','tool','entity_type','class_norm','shared_count','unshared_count','total']
+    fields=['genome','taxon_group','tool','entity_type','class_norm','comparison_applicability','shared_count','unshared_count','not_applicable_count','total']
     w=csv.DictWriter(fh,fieldnames=fields); w.writeheader();
     rows=[]
     for (g,t,e,c),v in summary_counts.items():
-        sh=int(v['shared']); un=int(v['unshared']); rows.append({'genome':g,'tool':t,'entity_type':e,'class_norm':c,'shared_count':sh,'unshared_count':un,'total':sh+un})
+        sh=int(v['shared']); un=int(v['unshared']); na=int(v.get('not_applicable',0)); taxon_group=routes.get(g,{'taxon_group':'fungi'})['taxon_group']; rows.append({'genome':g,'taxon_group':taxon_group,'tool':t,'entity_type':e,'class_norm':c,'comparison_applicability':'not_applicable_taxon' if na else 'applicable','shared_count':sh,'unshared_count':un,'not_applicable_count':na,'total':sh+un+na})
     for r in sorted(rows,key=lambda x:(x['genome'],x['entity_type'],x['tool'],x['class_norm'])): w.writerow(r)
 
 print(f"Wrote scaffold comparison table: {SCAFFOLD_COMPARISON_CSV}")
 print(f"Wrote BGC comparison table:      {BGC_COMPARISON_CSV}")
 print(f"Wrote summary table:             {SUMMARY_CSV}")
+print(f"Wrote exact product types:       {ANTISMASH_PRODUCT_TYPES_TSV}")
 PY
 
 [[ -f "${BGC_GCF_CROSSWALK_PY}" ]] || { echo "ERROR: crosswalk builder not found: ${BGC_GCF_CROSSWALK_PY}" >&2; exit 1; }
 [[ -f "${TARGETED_ANALYSIS_PY}" ]] || { echo "ERROR: targeted analysis script not found: ${TARGETED_ANALYSIS_PY}" >&2; exit 1; }
 
-"${PYTHON_BIN}" "${BGC_GCF_CROSSWALK_PY}" --project-root "${PROJECTS_ROOT}" --project-name "${PROJECT_NAME}"
+"${PYTHON_BIN}" "${BGC_GCF_CROSSWALK_PY}" \
+  --project-root "${PROJECTS_ROOT}" \
+  --project-name "${PROJECT_NAME}" \
+  --selected-gcf-category "${BIGSCAPE_GCF_CATEGORY}" \
+  --selected-gcf-threshold "${BIGSCAPE_GCF_THRESHOLD}"
 
 if [[ "${RUN_ECOLOGY_ANALYSIS}" != "1" ]]; then
   echo "Skipped ecology-aware ranking: set RUN_ECOLOGY_ANALYSIS=1 to enable metadata-driven candidate tables."
@@ -471,6 +553,7 @@ candidate_args=(
   "${PYTHON_BIN}" "${TARGETED_ANALYSIS_PY}"
   --project-root "${PROJECTS_ROOT}"
   --project-name "${PROJECT_NAME}"
+  --metadata "${METADATA_TSV}"
   --ecology-field "${ECOLOGY_FIELD}"
 )
 if [[ -n "${TARGET_GENOME:-}" ]]; then

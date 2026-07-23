@@ -221,16 +221,18 @@ def build_synthetic_bigscape_project(tmpdir: str) -> tuple[Path, Path]:
     )
     write_tsv(
         project_root / "data" / "results" / "demo" / "summary" / "candidate_bgc_gcf_crosswalk.tsv",
-        ["genome", "antismash_region", "bigscape_record", "nearest_mibig_or_annotation_if_available"],
+        ["genome", "taxon_group", "antismash_region", "bigscape_record", "nearest_mibig_or_annotation_if_available"],
         [
             {
                 "genome": "genomeA",
+                "taxon_group": "fungi",
                 "antismash_region": "ctg1.region001",
                 "bigscape_record": "genomeA__ctg1.region001.gbk_region_1",
                 "nearest_mibig_or_annotation_if_available": "BGC0000123.1 | synthetic product; clustercompare 0.95: synthetic product",
             },
             {
                 "genome": "genomeB",
+                "taxon_group": "bacteria",
                 "antismash_region": "ctg2.region001",
                 "bigscape_record": "genomeB__ctg2.region001.gbk_region_1",
                 "nearest_mibig_or_annotation_if_available": "BGC0000123.1 | synthetic product; clustercompare 0.75: synthetic product",
@@ -345,6 +347,11 @@ class BigscapeNetworkRenderingTests(unittest.TestCase):
             legend = (output_dir / "test_network_fungal_id_legend.tsv").read_text(encoding="utf-8")
             warnings = (output_dir / "test_network_warnings.txt").read_text(encoding="utf-8")
 
+            self.assertIn('role="img"', svg_text)
+            self.assertIn('aria-labelledby="bigscape-svg-title"', svg_text)
+            self.assertIn('aria-describedby="bigscape-svg-description"', svg_text)
+            self.assertIn('<title id="bigscape-svg-title">BiG-SCAPE gene cluster family network</title>', svg_text)
+            self.assertIn('<desc id="bigscape-svg-description">Network of biosynthetic gene clusters grouped by BiG-SCAPE.', svg_text)
             self.assertIn("Node Labels", svg_text)
             self.assertIn("BGC Class Fill", svg_text)
             self.assertIn("Ecology Border", svg_text)
@@ -379,6 +386,10 @@ class BigscapeNetworkRenderingTests(unittest.TestCase):
             self.assertIn("source_bigscape_record\ttarget_bigscape_record", edge_attrs)
             self.assertNotIn("source\ttarget", edge_attrs)
             self.assertIn("synthetic product", graphml_text)
+            self.assertIn('attr.name="taxon_group"', graphml_text)
+            self.assertIn('<data key="taxon_group">fungi</data>', graphml_text)
+            self.assertIn('<data key="taxon_group">bacteria</data>', graphml_text)
+            self.assertIn("category\ttaxon_group\tecology_category", node_attrs)
             self.assertIn("putative_product_scores", graphml_text)
             self.assertNotIn("FBGC", graphml_text)
             self.assertIn("true", node_attrs)
@@ -466,6 +477,38 @@ class BigscapeNetworkRenderingTests(unittest.TestCase):
             self.assertNotIn("Ecology Border", svg_text)
             self.assertIn("No non-unknown ecology categories", warnings)
 
+    def test_component_packing_reserves_compound_label_width(self) -> None:
+        products = {
+            "a": "1,3,5,8-tetrahydroxynaphthalene",
+            "b": "ethylenediaminesuccinic acid hydroxyarginine",
+        }
+        nodes = {
+            f"{prefix}{index}": self.module.NodeRecord(
+                record=f"{prefix}{index}",
+                putative_products=(product,),
+            )
+            for prefix, product in products.items()
+            for index in range(3)
+        }
+        edges = [
+            self.module.EdgeRecord(f"{prefix}0", f"{prefix}1", distance=0.1)
+            for prefix in products
+        ] + [
+            self.module.EdgeRecord(f"{prefix}1", f"{prefix}2", distance=0.1)
+            for prefix in products
+        ]
+
+        layout = self.module.build_layout(nodes, edges, 1400, 0, combine_connected_components=True)
+        entries = sorted(self.module.component_label_entries(nodes, edges, layout.positions))
+
+        self.assertEqual(len(entries), 2)
+        self.assertAlmostEqual(entries[0][1], entries[1][1])
+        widths = [
+            max(self.module.estimated_svg_text_width(line, self.module.PRODUCT_LABEL_FONT_SIZE, "700") for line in entry[2])
+            for entry in entries
+        ]
+        self.assertTrue(all(len(line) <= 24 for line in self.module.wrap_label_text(products["a"])))
+        self.assertGreaterEqual(entries[1][0] - entries[0][0], (widths[0] + widths[1]) / 2.0 + 30.0)
 
 if __name__ == "__main__":
     unittest.main()

@@ -60,6 +60,11 @@ class NcbiDownloadRetryPolicyTests(unittest.TestCase):
             calls = call_log.read_text(encoding="utf-8").splitlines()
             self.assertEqual(len(calls), 1, result.stdout + result.stderr)
             self.assertIn("nonretryable=accession_not_found", result.stdout)
+            self.assertIn("[FAIL] GCA_012011425.1", result.stdout)
+            self.assertIn(
+                "NCBI_DOWNLOAD_SUMMARY taxon=fungi status=failed total=1 completed=0 failed=1",
+                result.stdout,
+            )
             self.assertEqual(result.stderr.count("There are no genome assemblies that match your query"), 1)
 
 

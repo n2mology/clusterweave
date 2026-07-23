@@ -1,4 +1,4 @@
-# Summary Outputs
+# Fungi-only summary outputs
 
 This folder contains compact, derived ClusterWeave summary outputs. The files
 are intended as examples of the workflow review surface and as

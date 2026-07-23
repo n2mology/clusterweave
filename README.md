@@ -1,434 +1,247 @@
 <p align="center">
-  <img src="visuals/logo.svg" alt="ClusterWeave logo" width="360">
+  <img src="visuals/logo_black.svg" alt="ClusterWeave logo" width="360">
 </p>
 
 <p align="center">
-  <img src="visuals/ClusterWeave.svg" alt="ClusterWeave workflow overview" width="900">
+  <img src="visuals/ClusterWeave_workflow.svg" alt="ClusterWeave workflow overview" width="900">
 </p>
 
-# An accessible workbench for fungal biosynthetic discovery
+# ClusterWeave
 
-ClusterWeave connects genome preparation, annotation, antiSMASH, FunBGCeX, BiG-SCAPE, summary tables, clinker synteny panels, and figures into one reproducible run.
+ClusterWeave is a genome-mining workbench for studying biosynthetic gene
+clusters (BGCs), the neighboring genes that may contribute to a natural-product
+pathway. It prepares fungal and bacterial genomes, runs the applicable
+annotation and BGC callers, groups related BGCs into gene cluster families
+(GCFs), and produces tables, synteny views, and taxon-aware figures that can be
+reviewed together.
 
-The repository contains the reusable workflow, web UI/API, worker orchestration, build recipes, tests, public-safe examples, and release documentation. It does not retain draft publication text or private runtime data.
+The workflow accepts fungal, bacterial, or mixed datasets. NCBI taxonomy is the
+authority for accession inputs, and ClusterWeave records one route for each
+genome before the downstream stages begin. Fungal genomes may use existing
+protein features or funannotate when annotation is needed; bacterial genomes use
+feature-free sequence with Prodigal gene finding. antiSMASH and BiG-SCAPE apply
+to both domains, while FunBGCeX applies only to fungi.
 
-## Manuscript
-- Title: ClusterWeave: a workflow for biosynthetic target discovery and prioritization
-- Authors: Julian B. Cosner, Stanton Martin, and Tomás A. Rush
-- Keywords: genome mining, biosynthetic gene clusters, gene cluster families, natural products, workflow automation
-- DOI: pending
+> Web-hosted access: **Coming soon.** ClusterWeave v1.0.0 is available for
+> local use through the Docker interface described below.
 
-## Submit A Web Job
+Version 1.0.0 is the full public ClusterWeave release.
 
-Starting a [new job](clusterweave.org) is easy. In the web UI:
+## What the results can and cannot say
 
-1. Open `INPUT STATION`.
-2. Enter a required project name.
-3. Optionally enter an email address for result links.
-4. Add NCBI assembly accessions manually, paste a one-accession-per-line list, upload a `.txt` accession list, or upload supported genome files.
-5. Optionally choose a target genome and ecology labels.
-6. Submit the run.
+ClusterWeave organizes computational predictions for comparison and
+prioritization. A predicted BGC, a GCF assignment, a similarity score, or an
+annotation hint is not a confirmed metabolite, pathway function, evolutionary
+event, or transfer direction. In particular, a cross-kingdom GCF connection is
+useful context for follow-up but is not evidence of horizontal gene transfer by
+itself.
 
-Supported public inputs:
+The results depend on the submitted assemblies, upstream reference data, tool
+versions, and selected settings. Zero predicted BGCs can be a valid result.
+Similarly, a missing FunBGCeX value for a bacterium means that the fungal-only
+tool was not applicable; it should not be interpreted as a failed bacterial
+call. Experimental validation and subject-matter review remain necessary.
 
-- NCBI assembly accessions
-- `.txt` accession list, one accession per line
-- `.fasta`, `.fa`, `.fna`, `.fsa`, `.gb`, `.gbk`, `.gbff`
+## Run a job
 
-Use public or releasable data only on a public service. Sensitive data should be run locally or on approved internal infrastructure.
+Web-hosted access is coming soon. The local interface uses the same basic job
+path planned for hosted access. After starting a local instance, open
+[http://127.0.0.1:8080](http://127.0.0.1:8080) and follow these steps:
 
-## Track And Load Runs
+1. In **INPUT STATION**, keep **New run** selected and choose **Fungi**,
+   **Bacteria**, or **Both**. The scope describes which domains the run accepts;
+   NCBI taxonomy still determines the route for each accession.
+2. Add NCBI GenBank/RefSeq assembly accessions one per row, paste or upload a
+   one-accession-per-line `.txt` file, or upload supported FASTA or GenBank
+   genome files. The interface shows the active accession, file-size, upload,
+   and queue limits.
+3. Enter a required project name. A target genome and ecology labels are
+   optional, and an intial run can leave both unset.
+4. Select **Submit run**. ClusterWeave validates the input before it publishes a
+   job to the filesystem queue.
+5. In **Save your result access**, save the private result link. You may instead
+   save the job ID together with its separate result access code. The link and
+   code are bearer credentials, so do not publish either one.
+6. Select **Open run progress**. **BGC WORKFLOW STATION** shows the current tool,
+   overall stage state, and per-genome milestones as the worker reports them.
+   **RUN STACK** keeps runs available in the current browser tab, and **ADD RUN**
+   returns to the input form without discarding those remembered runs.
+7. When outputs become available, **RESULT BLOCKS** provides these tabs:
 
-After submission, ClusterWeave shows:
+   - **ANTISMASH** opens per-genome antiSMASH reports and region files.
+   - **FUNBGCEX** opens fungal FunBGCeX results when the tool applies.
+   - **BIG-SCAPE** opens the sanitized viewer and its public-safe database copy.
+   - **CLINKER** separates fungal and bacterial synteny panels where available.
+   - **SUMMARY** presents comparison tables and review-oriented summaries.
+   - **FIGURES** presents taxon-specific multipanels and taxonomy/BGC/GCF
+     context figures.
 
-- project name
-- ClusterWeave job ID
-- result access code
-- private result link
-- expiration date
-- current workflow state
+Use **Download package** for the declared result archive. Individual rows also
+provide **Open** or **Download** when an artifact is eligible for public result
+access. Raw genomes, raw databases, private logs, scratch files, route internals,
+and operator state are not members of the public package.
 
-The run stack lets one browser tab switch between submitted or loaded jobs. `ADD RUN` returns to the input station without discarding the existing run stack.
+To return later, open **New run / Existing results** and paste either the full
+private result link or the job ID plus result access code. The browser keeps the
+read token in session storage after reading it from the URL fragment; treat a
+saved result link with the same care as the underlying code.
 
-To reopen a job later, use `NEW RUN / EXISTING RESULTS` and paste either:
+## Local Docker start
 
-- a full private result link, or
-- the job ID plus result access code
+The trusted local profile supports Docker Engine with Compose v2 on Linux and
+Docker Desktop on Windows/WSL2 or macOS. Give Docker at least 4 CPUs and 16 GiB
+of memory, and leave enough disk for container images, approximately 6 GiB of
+initial reference databases, temporary work, and retained results. The release
+has Linux x86_64 build and smoke evidence. WSL2 and macOS use the same pinned
+amd64 images, although host integration and Apple Silicon emulation can affect
+performance.
 
-## View And Download Results
-
-When a job completes, open `RESULT BLOCKS`.
-
-Tabs:
-
-- `ANTISMASH`: per-genome antiSMASH views
-- `FUNBGCEX`: FunBGCeX output rows
-- `BIG-SCAPE`: BiG-SCAPE web viewer and database download
-- `CLINKER`: synteny panels
-- `SUMMARY`: markdown and table summaries
-- `FIGURES`: rendered SVG/PNG figures
-
-Use the top-strip `Download package` button to download the full result package. Individual output rows also provide `Open` and `Download` actions when those artifacts exist.
-
-## Web Portal FAQ
-
-### What if my genome file is larger than the public upload limit?
-
-The hosted portal has public-use limits so shared compute stays responsive. If your genome file is larger than the portal limit, or if the data is sensitive/private, use the local GitHub workflow instead of uploading it to the public service.
-
-The web UI shows the current public limits before file selection. Typical launch limits are `500 MB` per file and `1 GB` total per run, but the live portal may change those values.
-
-### When should I use the local workflow instead of the hosted portal?
-
-Use the local workflow for large datasets, private genomes, custom runtime settings, heavy reruns, or analyses that need institutional compute resources. Start with the command-line workflow below.
-
-## Command-Line Workflow
-
-Normal users should use the hosted web portal mentioned above. Advanced users can clone the repository and run the same canonical workflow locally on Linux or WSL.
-
-### Scope
-
-The canonical workflow stages are:
-
-- Stage 1: annotation plus antiSMASH and FunBGCeX via `run_annotation_and_detection.sh`
-- Stage 2: BiG-SCAPE family inference via `run_bigscape.sh`
-- Stage 3: summary-table generation via `summarize_clusterweave.sh`
-- Optional within Stage 3: ecology-aware ranking with `RUN_ECOLOGY_ANALYSIS=1`
-- Stage 4: dataset-wide clinker family-atlas staging and execution via `run_clinker.sh`
-- Optional: NPLinker exploratory paired-omics follow-up via `run_nplinker.sh`
-
-### Default Local Layout
-
-ClusterWeave assumes the repository root is the project root:
-
-```text
-data/genomes/fungi/<project-name>/
-data/results/<project-name>/
-software/
-```
-
-The default generated layout is lowercase. If an older local checkout used `Data/` or `Software/`, move those directories to `data/` and `software/` or set `DATA_ROOT`, `RESULTS_ROOT`, and `SOFTWARE_ROOT` explicitly for that legacy run.
-
-### CLI Quick Start
-
-Start with an accession list. The default file is [accessions.txt](accessions.txt), but project-specific accession files are recommended.
+Install Git and Docker, then run these commands in a Bash-compatible terminal:
 
 ```bash
-bash install_ncbi_cli.sh
-PROJECT_NAME=my_project ACCESSIONS_FILE=$PWD/accessions.txt bash prepare_genomes_from_accessions.sh
-PROJECT_NAME=my_project bash run_clusterweave.sh
+git clone https://github.com/n2mology/clusterweave.git
+cd clusterweave
+./bin/init_local_instance.sh
+docker compose build
+docker compose up -d
+docker compose ps
+curl --fail http://127.0.0.1:8080/
 ```
 
-`prepare_genomes_from_accessions.sh` writes:
+The initializer creates a private mode-0600 `.env` with local secrets and keeps
+an existing `.env` unchanged. The initialized profile gives the worker 4 CPUs
+and 16 GiB, and `CLUSTERWEAVE_MAX_CPUS_PER_JOB=4` ensures that a public job
+accepted by the local web service cannot request more than the worker's default
+`CLUSTERWEAVE_WORKER_CPU_LIMIT=4`.
 
-```text
-data/genomes/fungi/<project-name>/accessions_fungusID_taxonomyID.txt
-```
-
-The mapping includes accession, normalized genome ID, taxonomy ID, and genome size in Mb when available.
-
-`run_clusterweave.sh` runs annotation/detection, BiG-SCAPE, summary generation, clinker staging, and clinker execution in one pass. The default clinker behavior is a dataset-wide atlas run.
-
-Set `TARGET_GENOME` when you want target-aware summary or synteny outputs:
+The browser can open while the worker prepares its runtime. On an initial start,
+the worker downloads the antiSMASH and Pfam data, installs the NCBI Datasets
+command-line tools, pulls the BiG-SCAPE and clinker images, and builds or reuses
+the FunBGCeX image. Follow the real progress rather than assuming the worker is
+ready:
 
 ```bash
-TARGET_GENOME=Your_Target_Genome_ID PROJECT_NAME=my_project bash run_clusterweave.sh
+docker compose logs -f worker
 ```
 
-## Running More Than One Project
+Press `Ctrl-C` to stop following the logs; that does not stop the containers.
+The detailed, platform-specific tutorial is [docs/BEGINNER_SETUP.md](docs/BEGINNER_SETUP.md),
+and the technical reference is [docs/INSTALL.md](docs/INSTALL.md).
 
-`PROJECT_NAME` separates one ClusterWeave run from another.
+### Local security boundary
 
-Each project writes to its own local genome and result roots:
+`docker-compose.yml` is for one trusted user on one trusted machine. The worker
+mounts `/var/run/docker.sock`, which gives the worker substantial control over
+the host Docker daemon. Keep the default `127.0.0.1` binding and do not expose
+this profile directly to another network or the public internet.
 
-- `data/genomes/fungi/<project-name>/`
-- `data/results/<project-name>/`
+The socket-free `clusterweave.yml` profile requires a configured external
+executor such as Slurm. It is an operator profile, not a drop-in laptop
+replacement for `docker-compose.yml`.
 
-A separate project usually means a different `PROJECT_NAME`, a different accession list through `ACCESSIONS_FILE`, and optionally a different `TARGET_GENOME`.
+Do not run `docker compose down -v` during routine operation or an upgrade. The
+`-v` option deletes the named volumes that hold job data and downloaded
+reference databases.
+
+## Stop, restart, and inspect the local instance
 
 ```bash
-PROJECT_NAME=project_alpha ACCESSIONS_FILE=$PWD/accessions_project_alpha.txt bash prepare_genomes_from_accessions.sh
-PROJECT_NAME=project_alpha bash run_clusterweave.sh
-
-PROJECT_NAME=project_beta ACCESSIONS_FILE=$PWD/accessions_project_beta.txt bash prepare_genomes_from_accessions.sh
-PROJECT_NAME=project_beta bash run_clusterweave.sh
+docker compose logs --tail=200 web worker
+docker compose stop
+docker compose start
+docker compose ps
 ```
 
-## Optional Configuration
-
-You do not need to copy an env file to get started.
-
-- [config/defaults.env](config/defaults.env) is the reference sheet of supported knobs.
-- [profiles/example_project.env](profiles/example_project.env) is a generic profile example.
-- Use env files or inline variables only when overriding paths, resources, or analysis behavior.
-
-Common examples:
-
-```bash
-TARGET_GENOME=Your_Target_Genome_ID bash run_clusterweave.sh
-RUN_ECOLOGY_ANALYSIS=1 TARGET_GENOME=Your_Target_Genome_ID bash summarize_clusterweave.sh
-CLINKER_MODE=targeted TARGET_GENOME=Your_Target_Genome_ID bash run_clinker.sh
-```
-
-## Common Follow-Ups
-
-Regenerate summary tables without rerunning earlier stages:
-
-```bash
-bash summarize_clusterweave.sh
-```
-
-Enable ecology-aware prioritization and shortlist outputs:
-
-```bash
-RUN_ECOLOGY_ANALYSIS=1 TARGET_GENOME=Your_Target_Genome_ID bash summarize_clusterweave.sh
-```
-
-If ecology metadata has not been normalized yet, the summary stage scaffolds `summary_tables/ecofun_metadata_normalized.tsv` from the accession mapping. Genomes without curated labels remain blank until edited.
-
-Focus ecology-aware prioritization around a specific label:
-
-```bash
-RUN_ECOLOGY_ANALYSIS=1 TARGET_GENOME=Your_Target_Genome_ID FOCUS_ECOLOGY_LABEL=Your_Ecology_Label bash summarize_clusterweave.sh
-```
-
-Stage and execute clinker panels directly:
-
-```bash
-bash run_clinker.sh
-```
-
-Stage clinker panel inputs and scripts without executing clinker:
-
-```bash
-RUN_CLINKER=0 bash run_clinker.sh
-```
-
-Choose atlas-only, targeted-only, or both:
-
-```bash
-CLINKER_MODE=atlas bash run_clinker.sh
-CLINKER_MODE=targeted TARGET_GENOME=Your_Target_Genome_ID bash run_clinker.sh
-CLINKER_MODE=both TARGET_GENOME=Your_Target_Genome_ID bash run_clinker.sh
-```
-
-## Figures And Network Exports
-
-Render final figures and graph-ready exports from generated tables:
-
-```bash
-bash run_figures.sh
-```
-
-When BiG-SCAPE outputs are present, the figure stage writes:
-
-- `data/results/<project-name>/figures/big_scape_multipanel.svg`
-- `data/results/<project-name>/figures/big_scape_multipanel.png`
-- `data/results/<project-name>/figures/bgc_overlap.svg`
-- `data/results/<project-name>/figures/bgc_overlap.png`
-- `data/results/<project-name>/figures/bigscape_network.graphml`
-- `data/results/<project-name>/figures/bigscape_network_node_attributes.tsv`
-- `data/results/<project-name>/figures/bigscape_network_edge_attributes.tsv`
-
-The network renderer uses numbered fungal/sample IDs, BGC-class node fill, ecology-colored borders when informative metadata exists, a blue outer ring for MiBIG reference GBKs, and a small blue dot for representative dataset records with MiBIG-style BGC accession hits.
-
-Run the network renderer directly:
-
-```bash
-python bin/render_bigscape_network.py \
-  --project-root . \
-  --project-name your_project \
-  --metadata your_ecology_metadata.tsv \
-  --ecology-field ecology_category \
-  --formats svg,graphml,png
-```
-
-Useful figure controls:
-
-```bash
-RUN_BIGSCAPE_NETWORK_FIGURE=0 bash run_figures.sh
-RUN_BGC_OVERLAP_FIGURE=0 bash run_figures.sh
-FORCE=1 bash run_figures.sh
-BIGSCAPE_NETWORK_MAX_NODES=250 bash run_figures.sh
-BIGSCAPE_NETWORK_INCLUDE_MIBIG_ONLY=1 bash run_figures.sh
-```
-
-PNG/PDF export uses `cairosvg` when installed. SVG and GraphML do not require extra plotting packages.
-
-The summary bar-chart layer uses condensed BGC categories:
-
-- `NRP`
-- `PKS`
-- `RiPP`
-- `Terpene`
-- `Hybrid`
-- `Other`
-
-Isolated labels such as `indole`, `alkaloid`, `saccharide`, `ICS`, and other non-core categories are grouped into `Other`. Terpene cyclases and terpene synthases are grouped under `Terpene`.
-
-## Ecology Metadata
-
-Ecology is optional. The main BGC outputs do not require it.
-
-- User-facing ecology TSV: `data/results/<project-name>/summary_tables/ecofun_metadata_normalized.tsv`
-- Static header template: [config/metadata_template.tsv](config/metadata_template.tsv)
-- Project-local editable scaffold: `data/results/<project-name>/summary_tables/ecofun_metadata_template.tsv`
-
-Important columns:
-
-- `accession`
-- `genome_id_current`
-- `taxonomy_id`
-- `genome_size_mb`
-- `genome_id_original_if_different`
-- `ecofun_primary`
-- `ecofun_secondary`
-
-Leave ecology blank for core BGC summaries. Set `RUN_ECOLOGY_ANALYSIS=1` only when you want ecology-aware grouping and ranking.
-
-## Skipping Or Rerunning Stages
-
-The default behavior is beginner-friendly: if a required container or resource is missing, ClusterWeave tries to pull or build it automatically.
-
-Stage 1 can:
-
-- pull the official antiSMASH image if `ANTISMASH_SIF` is missing
-- build a repo-local FunBGCeX SIF in `software/funbgcex/` if `FUNBGCEX_SIF` is missing
-- use a repo-local funannotate runtime from `software/funannotate/`
-
-Disable stages from the wrapper instead of editing scripts:
-
-```bash
-RUN_STAGE_BIGSCAPE=0 bash run_clusterweave.sh
-RUN_STAGE_SUMMARY=0 bash run_clusterweave.sh
-RUN_STAGE_ANNOTATION=0 RUN_STAGE_BIGSCAPE=1 RUN_STAGE_SUMMARY=1 bash run_clusterweave.sh
-RUN_STAGE_CLINKER=0 bash run_clusterweave.sh
-RUN_CLINKER=0 bash run_clusterweave.sh
-```
-
-For stricter offline or reproducibility-focused runs, prepopulate runtime artifacts and disable auto-fetch behavior in your environment:
-
-```bash
-AUTO_PULL_IMAGES=never
-AUTO_BUILD_FUNBGCEX_SIF=0
-AUTO_PULL_BIGSCAPE_SIF=0
-AUTO_DOWNLOAD_PFAM=0
-AUTO_DOWNLOAD_FASTTREE=0
-MIBIG_AUTO_DOWNLOAD=0
-AUTO_PULL_NPLINKER_SIF=0
-NPLINKER_BOOTSTRAP_ENV=0
-```
-
-## Container Images
-
-GitHub Actions can publish web and worker images to GitHub Container Registry from version tags and GitHub releases.
-
-Published image names:
-
-- `ghcr.io/n2mology/clusterweave-web`
-- `ghcr.io/n2mology/clusterweave-worker`
-
-Build roles:
-
-- `Dockerfile.web` builds the lightweight web/API service.
-- `Dockerfile.worker` builds the worker with canonical ClusterWeave shell entrypoints and helper scripts under `/clusterweave`.
-
-Release example:
-
-```bash
-git tag v0.3.2-beta
-git push origin v0.3.2-beta
-```
-
-After the tag publish workflow finishes, pull pinned images:
-
-```bash
-docker pull ghcr.io/n2mology/clusterweave-web:v0.3.2-beta
-docker pull ghcr.io/n2mology/clusterweave-worker:v0.3.2-beta
-```
-
-Run pinned compose images:
-
-```bash
-CLUSTERWEAVE_IMAGE_TAG=v0.3.2-beta docker compose -f clusterweave.yml pull
-CLUSTERWEAVE_IMAGE_TAG=v0.3.2-beta docker compose -f clusterweave.yml up -d
-```
-
-Replace `v0.3.2-beta` with the release tag you want to deploy.
-
-For local advanced deployments, review [docs/WEB_RUNTIME.md](docs/WEB_RUNTIME.md) before exposing a service beyond localhost.
-
-## Repository Layout
-
-- `bin/`: Python helpers used by shell stages
-- `scripts/ncbi/`: NCBI download, rename, and flatten helpers
-- `config/`: default templates and metadata schema
-- `profiles/`: example runtime profiles
-- `docs/`: install, runtime, release, and reproducibility notes
-- `examples/`: public-safe example outputs
-- `visuals/`: public logo and workflow image assets
-- `tests/`: software regression tests
-- `data/`: ignored local runtime data root
-- `software/`: local tool/cache root with selected build recipes tracked
-- `web/`: web UI, API, worker, notifications, and runtime helpers
-
-## Examples Vs Tests
-
-- `examples/` contains public-safe walkthrough material, compact summary outputs, and rendered example figures.
-- `tests/` is for automated software validation and regression checks. It is not intended to represent a biological analysis project.
-
-## Public Repository Hygiene
-
-Tracked source should stay free of:
-
-- `.env` files and secrets
-- private job data, raw logs, and full result archives
-- downloaded databases and container/SIF artifacts
-- local work directories and caches
-- draft publication text or editable design sources
-
-Public-safe visuals retained in this repo:
-
-- [visuals/logo.svg](visuals/logo.svg)
-- [visuals/logo_black.svg](visuals/logo_black.svg)
-- [visuals/ClusterWeave.svg](visuals/ClusterWeave.svg)
-
-## Validation
-
-Common checks:
-
-```bash
-python3 -m unittest discover -s tests -p "test_*.py"
-bash -n run_clusterweave.sh
-bash -n run_annotation_and_detection.sh
-bash -n run_bigscape.sh
-bash -n summarize_clusterweave.sh
-bash -n run_clinker.sh
-git diff --check
-```
-
-Web source checks:
-
-```bash
-node --check web/static/assets/clusterweave.js
-node --input-type=module --check < web/static/assets/workflow-dna-progress.js
-python3 -m unittest tests.test_repo_layout tests.test_web_api_auth
-```
-
-## Release And Citation Files
-
-- [LICENSE](LICENSE)
-- [CITATION.cff](CITATION.cff)
-- [THIRD_PARTY.md](THIRD_PARTY.md)
-- [DATA_SOURCES.md](DATA_SOURCES.md)
-- [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)
-- [docs/REPRODUCIBILITY.md](docs/REPRODUCIBILITY.md)
-- [docs/WEB_RUNTIME.md](docs/WEB_RUNTIME.md)
-- [web/OPERATOR_AGREEMENT.md](web/OPERATOR_AGREEMENT.md)
-- [BEGINNER_SETUP.md](BEGINNER_SETUP.md)
-
-Software DOI: https://doi.org/10.11578/PMI/dc.20260608.2.
-
-## Funding Acknowledgement
-
-This research was funded by the Genomic System Sciences Program, U.S. Department of Energy, Office of Science, Biological and Environmental Research, as part of the Plant-Microbe Interfaces Scientific Focus Area at Oak Ridge National Laboratory (https://pmiweb.ornl.gov/). Oak Ridge National Laboratory is managed by UT-Battelle, LLC, for the U.S. Department of Energy under contract DE-AC05-00OR22725.
+Stopping containers preserves named volumes. Rebuilding or recreating the
+services also preserves the volumes unless a user explicitly removes them.
+Back up the job-data volume before an upgrade; the beginner and installation
+guides provide the full command and explain the archive/source-update choices.
+
+## Inputs and privacy
+
+Public-mode accession submissions accept up to 50 NCBI assemblies by default.
+The local interface also accepts bounded `.fasta`, `.fa`, `.fna`, `.fsa`, `.gb`,
+`.gbk`, and `.gbff` uploads; current live limits appear before file selection.
+A user-generated ecology table is accepted only through the corresponding UI
+path. Generic archives and unrecognized auxiliary files are rejected.
+
+Use only public, releasable, or otherwise authorized data on a shared service.
+A local instance keeps the normal web/API access model, but local result links
+are still credentials and the Docker host still stores uploads, logs, work
+files, results, and private metadata. Backups of the job-data volume therefore
+have the same sensitivity as the submitted genomes.
+
+## Public examples
+
+Two curated bundles show the v1.0.0 output contract without publishing raw
+genomes or private runtime data:
+
+- [`examples/fungi_only`](examples/fungi_only/) retains the 50-genome fungal
+  accession set and fungal-only detector outputs.
+- [`examples/mixed`](examples/mixed/) contains 20 bacterial and 20 fungal
+  assemblies, both taxon mappings, four canonical SVGs, and compact summaries.
+
+The example accession lists are locked inputs for v1.0.0. Their lists and
+derived outputs should not be changed in place; a later correction belongs to a
+later version with its own provenance.
+
+## Repository and documentation map
+
+| Path | Purpose |
+| --- | --- |
+| [`docs/BEGINNER_SETUP.md`](docs/BEGINNER_SETUP.md) | First local installation, first job, backup, update, and troubleshooting tutorial |
+| [`docs/INSTALL.md`](docs/INSTALL.md) | Detailed local profile, configuration, platform, and troubleshooting reference |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Shipped web, queue, worker, taxonomy, and result boundaries |
+| [`docs/WEB_RUNTIME.md`](docs/WEB_RUNTIME.md) | Current runtime, resource admission, result access, and security behavior |
+| [`docs/CADES_SLURM_BACKEND.md`](docs/CADES_SLURM_BACKEND.md) | External Slurm executor setup and validation |
+| [`docs/REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md) | Run provenance, pinned artifacts, and figure outputs |
+| [`examples/`](examples/) | Public-safe accession inputs and selected derived outputs |
+| [`bin/`](bin/) and [`scripts/ncbi/`](scripts/ncbi/) | Focused Python helpers and NCBI preparation scripts |
+| [`run_clusterweave.sh`](run_clusterweave.sh) | Canonical shell-first scientific entrypoint |
+| [`web/`](web/) | Static browser UI, standard-library API, filesystem job store, and worker |
+| [`SECURITY.md`](SECURITY.md) | Vulnerability reporting and deployment boundary |
+| [`THIRD_PARTY.md`](THIRD_PARTY.md) | Upstream tools, licenses, citations, and redistribution limits |
+| [`docs/DATA_SOURCES.md`](docs/DATA_SOURCES.md) | Input, reference-data, and public-example provenance |
+| [`CHANGELOG.md`](CHANGELOG.md) | Version history |
+| [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md) | Release validation procedure |
+
+The canonical scientific stages remain shell-first. `run_clusterweave.sh` calls
+the annotation/BGC, BiG-SCAPE, summary, clinker, figure, and optional follow-up
+entrypoints, while focused Python helpers transform and render declared outputs.
+The web layer stages the same workflow rather than maintaining a second
+scientific implementation.
+
+## Manuscript, authorship, and provenance
+
+ClusterWeave began as the reusable software workflow for the companion manuscript
+*ClusterWeave organizes genome-mining analyses into Integrated Evidence Profiles*.
+The authors named in the public metadata are Julian B. Cosner,
+Stanton Martin, and Tomás A. Rush. Keywords: genome mining, biosynthetic gene
+clusters, gene cluster families, evidence integration, candidate prioritization.
+The repository preserves the reusable source,
+build recipes, tests, documentation, and public-safe examples; it does not
+publish manuscript drafts or private run evidence.
+
+The project is intended to make the manuscript's computational preparation and
+build path inspectable and repeatable. That purpose does not turn predictions
+into experimental conclusions, and it does not remove the need to cite the
+upstream tools and data resources listed in [THIRD_PARTY.md](THIRD_PARTY.md).
+
+## Funding, citation, and license
+
+This research was funded by the Genomic System Sciences Program, U.S. Department
+of Energy, Office of Science, Biological and Environmental Research, as part of
+the [Plant-Microbe Interfaces Scientific Focus Area](https://pmiweb.ornl.gov/)
+at Oak Ridge National Laboratory. Oak Ridge National Laboratory is managed by
+UT-Battelle, LLC, for the U.S. Department of Energy under contract
+DE-AC05-00OR22725.
+
+Citation metadata is in [`CITATION.cff`](CITATION.cff). The companion software
+record resolves at
+[doi:10.11578/PMI/dc.20260608.2](https://doi.org/10.11578/PMI/dc.20260608.2).
+Version 1.0.0 is the current public release.
+
+ClusterWeave's own source is available under the
+[BSD 3-Clause License](LICENSE). Downloaded tools, containers, databases, and
+reference data remain under their upstream terms and are not relicensed by this
+repository.

@@ -16,10 +16,16 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.10"
+          python-version: "3.12"
 
-      - name: Run unit tests
-        run: python -m unittest discover -s tests -p "test_*.py"
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install browser test dependency
+        run: npm ci
 
       - name: Check Python syntax
         run: |
@@ -27,15 +33,15 @@ jobs:
           from pathlib import Path
           import sys
 
-          ok = True
-          for path in list(Path("bin").glob("*.py")) + list(Path("tests").glob("*.py")):
+          paths = [*Path("bin").glob("*.py"), *Path("tests").glob("*.py"), *Path("web").glob("*.py")]
+          failed = False
+          for path in paths:
               try:
                   compile(path.read_text(encoding="utf-8"), str(path), "exec")
               except SyntaxError as exc:
-                  ok = False
+                  failed = True
                   print(f"{path}:{exc.lineno}:{exc.offset}: {exc.msg}")
-
-          if not ok:
+          if failed:
               sys.exit(1)
           PY
 
@@ -43,7 +49,29 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for file in *.sh scripts/ncbi/*.sh Software/funbgcex/*.sh; do
-            [ -e "$file" ] || continue
+          while IFS= read -r -d '' file; do
             bash -n "$file"
-          done
+          done < <(find . -maxdepth 4 -type f -name '*.sh' -not -path './.git/*' -print0)
+
+      - name: Check JavaScript syntax
+        run: |
+          node --check web/static/assets/clusterweave.js
+          node --check tests/browser/result_html_bundle.spec.js
+          node --check tests/browser/playwright.config.js
+
+      - name: Validate compose profiles
+        run: |
+          docker compose config --quiet
+          docker compose -f clusterweave.yml config --quiet
+
+      - name: Check public release safety and links
+        run: python3 -B bin/check_public_release.py
+
+      - name: Run unit tests
+        run: python3 -B -m unittest discover -s tests -p 'test_*.py'
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run browser fixtures
+        run: npm run test:browser

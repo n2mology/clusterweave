@@ -1,6 +1,13 @@
+FROM docker:29.6.1-cli AS docker-cli
+
 FROM antismash/standalone:8.0.4
 
 USER root
+
+# The trusted local profile launches pinned sibling tool containers through the
+# host socket. Ship a known Docker client instead of bind-mounting a
+# host-specific /usr/bin/docker path (which is absent on Docker Desktop).
+COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
@@ -14,11 +21,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 COPY web/worker.py /app/worker.py
+COPY web/bigscape_public_db.py /app/bigscape_public_db.py
 COPY web/canonical_pipeline.py /app/canonical_pipeline.py
+COPY web/genbank_readiness.py /app/genbank_readiness.py
 COPY web/job_store.py /app/job_store.py
 COPY web/notifications.py /app/notifications.py
+COPY web/public_results.py /app/public_results.py
+COPY web/result_policy.py /app/result_policy.py
+COPY web/result_attestation.py /app/result_attestation.py
+COPY web/resource_policy.py /app/resource_policy.py
 COPY web/runtime_capabilities.py /app/runtime_capabilities.py
 COPY web/slurm_backend.py /app/slurm_backend.py
+COPY web/taxon_routing.py /app/taxon_routing.py
 COPY web/entrypoint-worker.sh /app/entrypoint.sh
 
 RUN chmod +x /app/entrypoint.sh
@@ -30,8 +44,9 @@ COPY config/ /clusterweave/config/
 COPY scripts/ /clusterweave/scripts/
 COPY software/funbgcex/ /clusterweave/software/funbgcex/
 COPY software/funannotate/ /clusterweave/software/funannotate/
+COPY software/phylogeny/ /clusterweave/software/phylogeny/
 
-RUN chmod +x /clusterweave/*.sh /clusterweave/scripts/ncbi/*.sh /clusterweave/software/funbgcex/*.sh /clusterweave/software/funannotate/*.sh || true
+RUN chmod +x /clusterweave/*.sh /clusterweave/scripts/ncbi/*.sh /clusterweave/software/funbgcex/*.sh /clusterweave/software/funannotate/*.sh /clusterweave/software/phylogeny/*.sh || true
 
 RUN mkdir -p /data/uploads /data/jobs /databases/antismash /databases/pfam
 

@@ -32,6 +32,8 @@ THREADS="${THREADS:-6}"
 FORCE="${FORCE:-0}"
 ENGINE="${ENGINE:-}"
 CLUSTERWEAVE_RUNTIME_MODE="${CLUSTERWEAVE_RUNTIME_MODE:-hpc-singularity}"
+BIGSCAPE_DOCKER_MEMORY="${BIGSCAPE_DOCKER_MEMORY:-${CLUSTERWEAVE_TOOL_DOCKER_MEMORY:-}}"
+BIGSCAPE_DOCKER_PIDS_LIMIT="${BIGSCAPE_DOCKER_PIDS_LIMIT:-${CLUSTERWEAVE_TOOL_DOCKER_PIDS_LIMIT:-}}"
 AUTO_PULL_BIGSCAPE_SIF="${AUTO_PULL_BIGSCAPE_SIF:-1}"
 AUTO_DOWNLOAD_PFAM="${AUTO_DOWNLOAD_PFAM:-1}"
 AUTO_DOWNLOAD_FASTTREE="${AUTO_DOWNLOAD_FASTTREE:-1}"
@@ -54,7 +56,9 @@ PFAM_URL="${PFAM_URL:-https://ftp.ebi.ac.uk/pub/databases/Pfam/current_release/P
 
 LOCAL_BIN="${LOCAL_BIN:-${BIGSCAPE_SOFTDIR}/bin}"
 FASTTREE_HOST="${FASTTREE_HOST:-${LOCAL_BIN}/fasttree}"
-FASTTREE_URL="${FASTTREE_URL:-https://github.com/morgannprice/fasttree/raw/main/FastTree}"
+FASTTREE_URL="${FASTTREE_URL:-https://raw.githubusercontent.com/morgannprice/fasttree/29c5e62fbcd93230ee325f9c6a17b81f00e3c72a/FastTree}"
+FASTTREE_SHA256="${FASTTREE_SHA256:-55a9d997813aae2208bd4c2081bfa690e0ecdba2d6c491805d8689415c43e38e}"
+FASTTREE_VERSION="${FASTTREE_VERSION:-2.2.0}"
 
 MIBIG_VERSION_DEFAULT="${MIBIG_VERSION_DEFAULT:-4.0}"
 MIBIG_CACHE="${MIBIG_CACHE:-${RES_DIR}/mibig_cache}"
@@ -64,6 +68,8 @@ MIBIG_GBK_URL="${MIBIG_GBK_URL:-}"
 
 WORK_ROOT="${WORK_ROOT:-/tmp/$(basename "${RESULTS_ROOT}")_work}"
 STAGE_DIR="${STAGE_DIR:-${WORK_ROOT}/bigscape_stage_region_gbks}"
+GENOME_TAXON_MANIFEST="${GENOME_TAXON_MANIFEST:-${RESULTS_ROOT}/summary_tables/genome_taxon_manifest.tsv}"
+BIGSCAPE_REGION_CROSSWALK="${BIGSCAPE_REGION_CROSSWALK:-${RESULTS_ROOT}/summary_tables/bigscape_region_crosswalk.tsv}"
 
 LOGDIR="${LOGDIR:-${RESULTS_ROOT}/logs}"
 mkdir -p "${LOGDIR}"
@@ -79,22 +85,94 @@ err(){ echo "[$(ts)] [ERROR] $*" | tee -a "${LOGFILE}" >&2; }
 die(){ err "$*"; exit 1; }
 have(){ command -v "$1" >/dev/null 2>&1; }
 
+file_sha256() {
+  local path="$1"
+  if have sha256sum; then
+    sha256sum -- "${path}" | awk '{print tolower($1)}'
+  elif have shasum; then
+    shasum -a 256 -- "${path}" | awk '{print tolower($1)}'
+  else
+    return 127
+  fi
+}
+
+verify_fasttree_checksum() {
+  local path="$1"
+  local actual
+  [[ "${FASTTREE_SHA256}" =~ ^[0-9a-fA-F]{64}$ ]] || die "FASTTREE_SHA256 must be exactly 64 hexadecimal characters"
+  actual="$(file_sha256 "${path}")" || die "sha256sum or shasum is required to verify FastTree"
+  [[ "${actual}" == "${FASTTREE_SHA256,,}" ]] || die "FastTree checksum mismatch for ${path}"
+}
+
+normalize_positive_integer() {
+  local name="$1"
+  local fallback="$2"
+  local value="${!name:-}"
+  if [[ ! "${value}" =~ ^[0-9]+$ ]] || (( 10#${value} < 1 )); then
+    warn "${name}=${value:-unset} is not a positive integer; using ${fallback}"
+    printf -v "${name}" '%s' "${fallback}"
+  fi
+}
+
+normalize_positive_integer THREADS 1
+bounded_docker_cpu_limit() {
+  local requested="${1:-}"
+  local ceiling="${2:-}"
+  if [[ "${ceiling}" =~ ^[0-9]+([.][0-9]+)?$ && "${ceiling}" != "0" && "${ceiling}" != "0.0" ]]; then
+    awk -v requested="${requested}" -v ceiling="${ceiling}" \
+      'BEGIN { print (requested + 0 <= ceiling + 0) ? requested : ceiling }'
+  else
+    printf '%s\n' "${requested}"
+  fi
+}
+BIGSCAPE_DOCKER_CPUS="$(bounded_docker_cpu_limit "${THREADS}" "${CLUSTERWEAVE_TOOL_DOCKER_CPUS:-}")"
+export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+
+# Only assembled, per-genome region files are valid BiG-SCAPE inputs. Raw
+# antiSMASH shard outputs live below WORK_ROOT, and any future browseable shard
+# views below a genome result directory must not be discovered recursively.
+find_antismash_genome_regions() {
+  find "${ANTISMASH_ROOT}" \
+    -mindepth 2 -maxdepth 2 -type f -name "*region*.gbk" "$@"
+}
+
 ###############################################################################
 # MiBIG helpers
 ###############################################################################
 mibig_cache_has_gbks() {
   local cache="$1"
-  [[ -d "${cache}" ]] || return 1
-  find "${cache}" -type f \( -name "*.gbk" -o -name "*.gb" \) -print -quit 2>/dev/null | grep -q .
+  local ver="${2:-${MIBIG_VERSION_DEFAULT}}"
+  local version_dir="${cache}/mibig_antismash_${ver}_gbk"
+  [[ -d "${version_dir}" ]] || return 1
+  find "${version_dir}" -type f \( -name "*.gbk" -o -name "*.gb" \) -print -quit 2>/dev/null | grep -q .
+}
+
+normalize_mibig_version_dir() {
+  local cache="$1"
+  local ver="$2"
+  local expected="${cache}/mibig_antismash_${ver}_gbk"
+  local candidate=""
+  local match=""
+  local matches=0
+
+  [[ -d "${expected}" ]] && return 0
+  for candidate in "${cache}"/mibig_antismash_"${ver}"_gbk*; do
+    [[ -d "${candidate}" ]] || continue
+    match="${candidate}"
+    matches=$((matches + 1))
+  done
+  [[ "${matches}" -eq 1 ]] || return 1
+  mv "${match}" "${expected}"
 }
 
 mibig_archive_candidates() {
   local cache="$1"
   local ver="$2"
-  printf '%s\n' \
-    "${cache}/mibig_antismash_${ver}_gbk.tar.bz2" \
-    "${cache}/mibig_gbk_${ver}.tar.gz" \
-    "${cache}/mibig_gbk_${ver}.tar.bz2"
+  local candidate=""
+  for candidate in "${cache}"/mibig_antismash_"${ver}"_gbk*.tar.bz2; do
+    [[ -e "${candidate}" ]] || continue
+    printf '%s\n' "${candidate}"
+  done
 }
 
 extract_mibig_archive() {
@@ -123,8 +201,9 @@ ensure_mibig_cache() {
   local archive=""
   local url=""
 
-  mibig_cache_has_gbks "${cache}" && return 0
   mkdir -p "${cache}"
+  normalize_mibig_version_dir "${cache}" "${ver}" || true
+  mibig_cache_has_gbks "${cache}" "${ver}" && return 0
 
   while IFS= read -r candidate; do
     if [[ -s "${candidate}" ]]; then
@@ -136,7 +215,8 @@ ensure_mibig_cache() {
   if [[ -n "${archive}" ]]; then
     log "MiBIG cache empty; extracting local archive ${archive}"
     extract_mibig_archive "${archive}" "${cache}" || die "Failed to extract MiBIG archive ${archive}"
-    mibig_cache_has_gbks "${cache}" || die "MiBIG archive extracted but no GBKs were found in ${cache}"
+    normalize_mibig_version_dir "${cache}" "${ver}" || true
+    mibig_cache_has_gbks "${cache}" "${ver}" || die "BiG-SCAPE-ready MiBIG archive extracted but no GBKs were found under ${cache}/mibig_antismash_${ver}_gbk"
     echo "${ver}" > "${cache}/.mibig_version" 2>/dev/null || true
     return 0
   fi
@@ -147,18 +227,21 @@ ensure_mibig_cache() {
 
   if [[ -n "${MIBIG_GBK_URL}" ]]; then
     url="${MIBIG_GBK_URL}"
+  elif [[ "${ver}" == "4.0" ]]; then
+    url="${MIBIG_URL_BASE}/mibig_antismash_${ver}_gbk_as8b1.tar.bz2"
   else
-    url="${MIBIG_URL_BASE}/mibig_gbk_${ver}.tar.gz"
+    url="${MIBIG_URL_BASE}/mibig_antismash_${ver}_gbk.tar.bz2"
   fi
 
-  log "MiBIG cache empty; downloading archive from ${url}"
-  archive="$(mktemp -t mibig_gbk_${ver}.XXXXXX.tar.gz)"
+  log "BiG-SCAPE-ready MiBIG cache empty; downloading archive from ${url}"
+  archive="$(mktemp -t mibig_antismash_${ver}.XXXXXX.tar.bz2)"
   curl -L --fail -o "${archive}" "${url}" 2>&1 | tee -a "${LOGFILE}" \
     || die "Failed to download MiBIG GBKs from ${url}"
   extract_mibig_archive "${archive}" "${cache}" || die "Failed to extract downloaded MiBIG archive"
   rm -f "${archive}" || true
 
-  mibig_cache_has_gbks "${cache}" || die "MiBIG GBKs not detected after extraction into ${cache}"
+  normalize_mibig_version_dir "${cache}" "${ver}" || true
+  mibig_cache_has_gbks "${cache}" "${ver}" || die "BiG-SCAPE-ready MiBIG GBKs not detected after extraction into ${cache}/mibig_antismash_${ver}_gbk"
   echo "${ver}" > "${cache}/.mibig_version" 2>/dev/null || true
   log "MiBIG GBKs ready under ${cache}"
 }
@@ -186,7 +269,7 @@ fi
 # Preconditions
 ###############################################################################
 log "ENGINE=${ENGINE}"
-log "THREADS=${THREADS} FORCE=${FORCE}"
+log "THREADS=${THREADS} BIGSCAPE_DOCKER_CPUS=${BIGSCAPE_DOCKER_CPUS} FORCE=${FORCE}"
 log "ANTISMASH_ROOT=${ANTISMASH_ROOT}"
 log "BIGSCAPE_OUT=${BIGSCAPE_OUT}"
 log "SIF_PATH=${SIF_PATH}"
@@ -198,8 +281,17 @@ log "LOGFILE=${LOGFILE}"
 
 [[ -d "${ANTISMASH_ROOT}" ]] || die "ANTISMASH_ROOT not found: ${ANTISMASH_ROOT}"
 
-if ! find "${ANTISMASH_ROOT}" -type f -name "*region*.gbk" -print -quit 2>/dev/null | grep -q .; then
-  die "No *region*.gbk files found under ANTISMASH_ROOT=${ANTISMASH_ROOT}"
+if ! find_antismash_genome_regions -print -quit 2>/dev/null | grep -q .; then
+  # A valid antiSMASH run can contain zero regions.  Preserve that biological
+  # result as an explicit empty BiG-SCAPE universe instead of turning the
+  # whole bacterial workflow into a technical failure or retaining stale
+  # clusters from an earlier rerun.
+  rm -rf -- "${BIGSCAPE_OUT}" "${STAGE_DIR}" 2>/dev/null || true
+  mkdir -p "${BIGSCAPE_OUT}/output_files" "${STAGE_DIR}" "$(dirname "${BIGSCAPE_REGION_CROSSWALK}")"
+  printf 'staged_gbk\tgenome_id\ttaxon_group\tprediction_method\tsource_region_key\n' > "${BIGSCAPE_REGION_CROSSWALK}"
+  log "No assembled region GBKs were detected; wrote a valid empty BiG-SCAPE result."
+  printf 'BIGSCAPE_RESULT status=insufficient_data regions=0 families=0 message="No antiSMASH regions were detected"\n' | tee -a "${LOGFILE}"
+  exit 0
 fi
 
 if [[ "${FORCE}" != "1" ]] && [[ -d "${BIGSCAPE_OUT}" ]] && \
@@ -248,11 +340,11 @@ fi
 # MiBIG: prefer the shared cache; extract/download only if genuinely missing
 ###############################################################################
 MIBIG_VERSION=""
-if ! mibig_cache_has_gbks "${MIBIG_CACHE}"; then
+if ! mibig_cache_has_gbks "${MIBIG_CACHE}" "${MIBIG_VERSION_DEFAULT}"; then
   ensure_mibig_cache "${MIBIG_CACHE}" "${MIBIG_VERSION_DEFAULT}" || true
 fi
 
-if mibig_cache_has_gbks "${MIBIG_CACHE}"; then
+if mibig_cache_has_gbks "${MIBIG_CACHE}" "${MIBIG_VERSION_DEFAULT}"; then
   MIBIG_VERSION="${MIBIG_VERSION_DEFAULT}"
   log "MiBIG cache detected; enabling --mibig-version ${MIBIG_VERSION}"
 else
@@ -265,13 +357,19 @@ fi
 mkdir -p "${LOCAL_BIN}"
 if [[ ! -x "${FASTTREE_HOST}" ]]; then
   [[ "${AUTO_DOWNLOAD_FASTTREE}" == "1" ]] || die "FastTree missing: ${FASTTREE_HOST}. Set AUTO_DOWNLOAD_FASTTREE=1 to fetch it."
-  log "FastTree missing at ${FASTTREE_HOST}; downloading Linux executable"
+  log "FastTree missing at ${FASTTREE_HOST}; downloading pinned v${FASTTREE_VERSION} Linux executable"
   have curl || die "curl not found (needed to download FastTree)"
-  curl -L --fail -o "${FASTTREE_HOST}" "${FASTTREE_URL}" 2>&1 | tee -a "${LOGFILE}" || die "Failed to download FastTree"
-  chmod +x "${FASTTREE_HOST}" || die "Failed to chmod +x ${FASTTREE_HOST}"
+  fasttree_download_tmp="$(mktemp "${FASTTREE_HOST}.download.XXXXXX")" || die "Failed to create a temporary FastTree download"
+  trap 'rm -f -- "${fasttree_download_tmp}"' EXIT
+  curl -L --fail -o "${fasttree_download_tmp}" "${FASTTREE_URL}" 2>&1 | tee -a "${LOGFILE}" || die "Failed to download FastTree"
+  verify_fasttree_checksum "${fasttree_download_tmp}"
+  chmod +x "${fasttree_download_tmp}" || die "Failed to chmod +x downloaded FastTree"
+  mv -f -- "${fasttree_download_tmp}" "${FASTTREE_HOST}" || die "Failed to install FastTree"
+  trap - EXIT
 else
   log "FastTree already present: ${FASTTREE_HOST}"
 fi
+verify_fasttree_checksum "${FASTTREE_HOST}"
 
 ###############################################################################
 # Container exec wrapper
@@ -292,7 +390,20 @@ if [[ -n "${MIBIG_VERSION}" ]]; then
 fi
 
 docker_run_args() {
-  local -a args=(--rm -i --user 0:0 --entrypoint "")
+  local -a args=(
+    --rm -i --user 0:0 --entrypoint ""
+    --cpus "${BIGSCAPE_DOCKER_CPUS}"
+    -e OMP_NUM_THREADS=1
+    -e OPENBLAS_NUM_THREADS=1
+    -e MKL_NUM_THREADS=1
+    -e NUMEXPR_NUM_THREADS=1
+  )
+  if [[ -n "${BIGSCAPE_DOCKER_MEMORY}" ]]; then
+    args+=(--memory "${BIGSCAPE_DOCKER_MEMORY}")
+  fi
+  if [[ -n "${BIGSCAPE_DOCKER_PIDS_LIMIT}" ]]; then
+    args+=(--pids-limit "${BIGSCAPE_DOCKER_PIDS_LIMIT}")
+  fi
   if [[ -n "${CLUSTERWEAVE_JOB_ID:-}" ]]; then
     args+=(--label "clusterweave.job_id=${CLUSTERWEAVE_JOB_ID}" --label "clusterweave.project=${PROJECT_NAME:-}")
   fi
@@ -305,6 +416,16 @@ docker_run_args() {
     args+=(-v "${BIGSCAPE_DOCKER_PFAM_VOLUME}:${PFAM_DIR}")
   elif [[ -z "${BIGSCAPE_DOCKER_DATA_VOLUME}" ]]; then
     args+=(-v "${PFAM_DIR}:${PFAM_DIR}")
+  fi
+  if [[ -n "${MIBIG_VERSION}" ]]; then
+    if [[ -n "${BIGSCAPE_DOCKER_DATA_VOLUME}" && "${MIBIG_CACHE}" == /data/* ]]; then
+      args+=(
+        --mount
+        "type=volume,src=${BIGSCAPE_DOCKER_DATA_VOLUME},dst=/home/mambauser/BiG-SCAPE/big_scape/MIBiG,volume-subpath=${MIBIG_CACHE#/data/}"
+      )
+    else
+      args+=(-v "${MIBIG_CACHE}:/home/mambauser/BiG-SCAPE/big_scape/MIBiG")
+    fi
   fi
   printf '%s\0' "${args[@]}"
 }
@@ -332,17 +453,63 @@ cexec bash -lc '/opt/conda/bin/python /home/mambauser/BiG-SCAPE/bigscape.py --he
 log "Staging region GBKs -> ${STAGE_DIR}"
 rm -rf "${STAGE_DIR}" 2>/dev/null || true
 mkdir -p "${STAGE_DIR}"
+mkdir -p "$(dirname "${BIGSCAPE_REGION_CROSSWALK}")"
+printf 'staged_gbk\tgenome_id\ttaxon_group\tprediction_method\tsource_region_key\n' > "${BIGSCAPE_REGION_CROSSWALK}"
 
-collisions=0
+manifest_route_fields() {
+  local genome_id="$1"
+  if [[ -s "${GENOME_TAXON_MANIFEST}" ]]; then
+    awk -F '\t' -v target="${genome_id}" '
+      NR == 1 {
+        for (i = 1; i <= NF; i++) h[$i] = i
+        next
+      }
+      $(h["genome_id"]) == target {
+        taxon = (h["taxon_group"] ? $(h["taxon_group"]) : "fungi")
+        prediction = (h["prediction_method"] ? $(h["prediction_method"]) : "")
+        print (taxon == "" ? "fungi" : taxon) "\t" prediction
+        exit
+      }
+    ' "${GENOME_TAXON_MANIFEST}"
+    return 0
+  fi
+  printf 'fungi\t\n'
+}
+
+manifest_taxon_source() {
+  local genome_id="$1"
+  if [[ -s "${GENOME_TAXON_MANIFEST}" ]]; then
+    awk -F '\t' -v target="${genome_id}" '
+      NR == 1 {
+        for (i = 1; i <= NF; i++) h[$i] = i
+        next
+      }
+      $(h["genome_id"]) == target {
+        print (h["taxon_source"] ? $(h["taxon_source"]) : "")
+        exit
+      }
+    ' "${GENOME_TAXON_MANIFEST}"
+  fi
+}
+
 while IFS= read -r -d "" f; do
-  parent="$(basename "$(dirname "$f")")"
+  relative="${f#"${ANTISMASH_ROOT%/}/"}"
+  genome="${relative%%/*}"
   base="$(basename "$f")"
-  label="$parent"
-  out="${STAGE_DIR}/${parent}__${base}"
+  # New IDs are taxon-neutral. Hide the historical NCBI-only prefix only when
+  # provenance proves that it was synthesized by an older ClusterWeave run.
+  label="${genome}"
+  taxon_source="$(manifest_taxon_source "${genome}")"
+  if [[ "${taxon_source,,}" =~ ^(ncbi|ncbi_taxonomy)$ && "${genome,,}" == bacteria_* ]]; then
+    label="${genome#bacteria_}"
+  fi
+  label="${label//_/ }"
+  out="${STAGE_DIR}/${genome}__${base}"
+  route_fields="$(manifest_route_fields "${genome}")"
+  [[ -n "${route_fields}" ]] || route_fields=$'fungi\t'
 
   if [[ -e "${out}" ]]; then
-    collisions=$((collisions + 1))
-    continue
+    die "Region staging name collision for ${f}: ${out}"
   fi
 
   cp -f "$f" "${out}"
@@ -352,10 +519,11 @@ while IFS= read -r -d "" f; do
     $1=="ORGANISM" { print "  ORGANISM  " LABEL; next }
     { print }
   ' "${out}" > "${out}.tmp" && mv -f "${out}.tmp" "${out}"
-done < <(find "${ANTISMASH_ROOT}" -type f -name "*region*.gbk" -print0)
+  printf '%s\t%s\t%s\t%s\n' "$(basename "${out}")" "${genome}" "${route_fields}" "${genome}/${base}" >> "${BIGSCAPE_REGION_CROSSWALK}"
+done < <(find_antismash_genome_regions -print0)
 
 region_n="$(find "${STAGE_DIR}" -maxdepth 1 -type f -name "*.gbk" | wc -l | tr -d " ")"
-log "Staged region GBKs: ${region_n} (collisions=${collisions})"
+log "Staged region GBKs: ${region_n} (assembled per-genome roots only)"
 [[ "${region_n}" -gt 0 ]] || die "No region GBKs staged; cannot run BiG-SCAPE"
 
 ###############################################################################

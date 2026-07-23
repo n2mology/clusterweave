@@ -7,6 +7,19 @@ import argparse
 import csv
 from collections import Counter, defaultdict
 from pathlib import Path
+import sys
+
+BIN_DIR = str(Path(__file__).resolve().parent)
+if BIN_DIR not in sys.path:
+    sys.path.insert(0, BIN_DIR)
+
+from gcf_view import (
+    GCF_PROVENANCE_FIELDS,
+    canonical_gcf_category,
+    canonical_gcf_threshold,
+    clustering_view,
+    materialized_gcf_provenance,
+)
 
 
 def clean(value: object) -> str:
@@ -133,8 +146,9 @@ def build_safe_claim_text(row: dict[str, object], genome: str) -> str:
 
 def public_path_label(path: Path) -> str:
     parts = path.parts
-    if "data" in parts:
-        return Path(*parts[parts.index("data") :]).as_posix()
+    for index in range(len(parts) - 1):
+        if parts[index : index + 2] == ("data", "results"):
+            return Path(*parts[index:]).as_posix()
     return path.name
 
 
@@ -226,6 +240,15 @@ def main() -> None:
         help="Project name used under data/results.",
     )
     parser.add_argument(
+        "--metadata",
+        type=Path,
+        default=None,
+        help=(
+            "Explicit normalized metadata TSV. Defaults to the historical "
+            "summary_tables/ecofun_metadata_normalized.tsv path."
+        ),
+    )
+    parser.add_argument(
         "--genome",
         default="",
         help="Genome ID to shortlist.",
@@ -241,6 +264,16 @@ def main() -> None:
         help="Optional ecology label to prioritize. Defaults to the target genome's ecology label when available.",
     )
     parser.add_argument(
+        "--gcf-category",
+        default="mix",
+        help="BiG-SCAPE category used for shortlist family logic (default: mix).",
+    )
+    parser.add_argument(
+        "--gcf-threshold",
+        default="0.3",
+        help="BiG-SCAPE clustering threshold used for shortlist family logic (default: 0.3).",
+    )
+    parser.add_argument(
         "--stage-limit",
         type=int,
         default=12,
@@ -253,6 +286,8 @@ def main() -> None:
         help="Minimum BiG-SCAPE record count to mark shared_family_now.",
     )
     args = parser.parse_args()
+    args.gcf_category = canonical_gcf_category(args.gcf_category)
+    args.gcf_threshold = canonical_gcf_threshold(args.gcf_threshold)
     if not clean(args.genome):
         raise ValueError("--genome is required")
 
@@ -261,13 +296,11 @@ def main() -> None:
     summary_tables_root = results_root / "summary_tables"
     bigscape_root = results_root / "big_scape" / "output_files"
 
-    metadata_path = summary_tables_root / "ecofun_metadata_normalized.tsv"
+    metadata_path = args.metadata or (summary_tables_root / "ecofun_metadata_normalized.tsv")
     ranking_path = summary_root / "targeted_candidate_ranking.tsv"
     priority_path = summary_root / "priority_shortlist.tsv"
     annotations_path = next(bigscape_root.rglob("record_annotations.tsv"), None)
 
-    if annotations_path is None:
-        raise FileNotFoundError(f"record_annotations.tsv not found under: {bigscape_root}")
     for path in [metadata_path, ranking_path, priority_path]:
         if not path.exists():
             raise FileNotFoundError(f"Required input not found: {path}")
@@ -279,7 +312,10 @@ def main() -> None:
     metadata_rows = read_tsv_rows(metadata_path)
     ranking_rows = read_tsv_rows(ranking_path)
     priority_rows = read_tsv_rows(priority_path)
-    annotation_rows = read_tsv_rows(annotations_path)
+    # Zero-region projects have no BiG-SCAPE annotation table. Emit the
+    # existing header-only shared-family outputs instead of treating that
+    # biological result as a technical failure.
+    annotation_rows = read_tsv_rows(annotations_path) if annotations_path is not None else []
 
     ecology_by_genome: dict[str, str] = {}
     for row in metadata_rows:
@@ -328,8 +364,13 @@ def main() -> None:
         }
     )
 
-    for cluster_path in sorted(bigscape_root.rglob("*_clustering_c0.3.tsv")):
-        category_name = cluster_path.parent.name
+    for cluster_path in sorted(bigscape_root.rglob("*_clustering_c*.tsv")):
+        category_name, clustering_threshold = clustering_view(cluster_path)
+        if (
+            category_name,
+            clustering_threshold,
+        ) != (args.gcf_category, args.gcf_threshold):
+            continue
         for row in read_tsv_rows(cluster_path):
             cc = clean(row.get("CC"))
             record = clean(row.get("Record"))
@@ -393,6 +434,8 @@ def main() -> None:
         global_row = {
             "shared_rank": cc_rank,
             "cc": cc,
+            "gcf_selected_category": args.gcf_category,
+            "gcf_selected_threshold": args.gcf_threshold,
             "primary_family_source": primary_category,
             "primary_families": primary_family_text,
             "all_family_aliases": all_family_text,
@@ -417,6 +460,14 @@ def main() -> None:
         for region in sorted(info["target_regions"]):
             ranking_row = ranking_by_region.get((args.genome, region), {})
             priority_row = priority_by_region.get(region, {})
+            gcf_provenance = materialized_gcf_provenance(
+                ranking_row,
+                fallback_selected_id=primary_family_text,
+                fallback_category=args.gcf_category,
+                fallback_threshold=args.gcf_threshold,
+            )
+            if not gcf_provenance["gcf_id"]:
+                gcf_provenance["gcf_id"] = all_family_text or primary_family_text
             shortlist_rows.append(
                 {
                     "shared_family_rank": 0,
@@ -444,7 +495,7 @@ def main() -> None:
                     "antismash_region": region,
                     "funbgcex_cluster": clean(ranking_row.get("funbgcex_cluster")),
                     "antismash_class": clean(ranking_row.get("antismash_class")) or join_sorted(info["classes"]),
-                    "gcf_id": clean(ranking_row.get("gcf_id")) or primary_family_text or all_family_text,
+                    **gcf_provenance,
                     "gcf_ecology_pattern": clean(ranking_row.get("gcf_ecology_pattern")),
                     "gcf_genome_count": clean(ranking_row.get("gcf_genome_count")),
                     "gcf_focus_genome_count": clean(ranking_row.get("gcf_focus_genome_count")),
@@ -486,6 +537,8 @@ def main() -> None:
         [
             "shared_rank",
             "cc",
+            "gcf_selected_category",
+            "gcf_selected_threshold",
             "primary_family_source",
             "primary_families",
             "all_family_aliases",
@@ -533,7 +586,7 @@ def main() -> None:
             "antismash_region",
             "funbgcex_cluster",
             "antismash_class",
-            "gcf_id",
+            *GCF_PROVENANCE_FIELDS,
             "gcf_ecology_pattern",
             "gcf_genome_count",
             "gcf_focus_genome_count",

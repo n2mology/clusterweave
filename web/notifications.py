@@ -13,8 +13,10 @@ from typing import Any
 
 try:
     from job_store import now_iso, read_job, write_job
+    from public_results import public_run_id_for_job
 except ImportError:  # pragma: no cover - package-style imports in local tests
     from .job_store import now_iso, read_job, write_job
+    from .public_results import public_run_id_for_job
 
 
 TERMINAL_STATUSES = {"success", "failed"}
@@ -65,7 +67,7 @@ def base_url_for_job(job: dict[str, Any]) -> str:
 
 def result_link(job: dict[str, Any], read_token: str) -> str:
     base = base_url_for_job(job)
-    return f"{base}#/job/{job.get('id')}/{read_token}"
+    return f"{base}#/results/{public_run_id_for_job(job)}/{read_token}"
 
 
 def retention_phrase(job: dict[str, Any]) -> str:
@@ -190,7 +192,7 @@ def sanitized_failure_reason(job: dict[str, Any]) -> str:
 def build_job_email(job: dict[str, Any], link: str, access_code: str = "") -> EmailMessage:
     status = str(job.get("status") or "unknown")
     status_label = result_status_label(status)
-    job_id = str(job.get("id") or "unknown")
+    job_id = public_run_id_for_job(job) or "unknown"
     project = str(job.get("project_name") or job.get("name") or "ClusterWeave project")
     submitted = display_timestamp(job.get("created_at"))
     result_access_code = access_code or link.rsplit("/", 1)[-1]

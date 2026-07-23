@@ -6,7 +6,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 PROJECT_ROOT="${PROJECT_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd -P)}"
 PROJECT_NAME="${PROJECT_NAME:-$(basename "${PROJECT_ROOT}")}"
 GENOME_ROOT="${GENOME_ROOT:-${PROJECT_ROOT}/data/genomes/fungi/${PROJECT_NAME}}"
-MAPPING_FILE="${MAPPING_FILE:-${GENOME_ROOT}/accessions_fungusID_taxonomyID.txt}"
+TAXON_GROUP="${TAXON_GROUP:-fungi}"
+if [[ -z "${MAPPING_FILE+x}" ]]; then
+  if [[ "${TAXON_GROUP}" == "bacteria" ]]; then
+    MAPPING_FILE="${GENOME_ROOT}/accessions_bacteriaID_taxonomyID.txt"
+  else
+    MAPPING_FILE="${GENOME_ROOT}/accessions_fungusID_taxonomyID.txt"
+  fi
+fi
 
 die(){ echo "ERROR: $*" >&2; exit 1; }
 warn(){ echo "WARN: $*" >&2; }
@@ -82,4 +89,3 @@ while IFS= read -r -d '' gdir; do
     warn "kept directory (remaining files due to conflicts): ${fungus_id}"
   fi
 done < <(find "${GENOME_ROOT}" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null)
-

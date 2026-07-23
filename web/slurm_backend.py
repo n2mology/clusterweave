@@ -79,6 +79,18 @@ SLURM_FAILED_STATES = {
     "REVOKED",
     "TIMEOUT",
 }
+SENSITIVE_ENV_KEY_RE = re.compile(
+    r"(?:^|_)(?:AUTH|AUTHORIZATION|COOKIE|CREDENTIALS?|PASS(?:WORD|WD)?|PRIVATE_KEY|SECRET|SIGNATURE|TOKEN)(?:_|$)|(?:ACCESS|API)[_-]?KEY|DOCKER_AUTH_CONFIG",
+    re.IGNORECASE,
+)
+SCHEDULER_SECRET_RE = re.compile(
+    r"(?i)(?<![A-Za-z0-9])((?:--?)?(?:[A-Za-z0-9_.-]+[_-])?(?:api[_-]?key|auth(?:orization)?|cookie|credential|pass(?:word|wd)?|private[_-]?key|secret|signature|token)(?:[_-][A-Za-z0-9_.-]+)?\s*[:=]\s*)([^\s;&]+)"
+)
+SCHEDULER_CLI_SECRET_RE = re.compile(
+    r"(?ix)(?<![A-Za-z0-9])"
+    r"((?:--?)?(?:api[_-]?key|auth(?:orization)?|cookie|credential|pass(?:word|wd)?|private[_-]?key|secret|signature|token))"
+    r"(\s+)(\"[^\"]*\"|'[^']*'|[^\s;&]+)"
+)
 
 
 def _env_int(name: str, default: int, minimum: int = 0) -> int:
@@ -91,6 +103,38 @@ def _env_int(name: str, default: int, minimum: int = 0) -> int:
 
 def _clean_env(value: str | None) -> str:
     return str(value or "").strip()
+
+
+def _scheduler_command_env() -> dict[str, str]:
+    return {
+        str(key): str(value)
+        for key, value in os.environ.items()
+        if not SENSITIVE_ENV_KEY_RE.search(str(key))
+    }
+
+
+def _safe_scheduler_detail(value: object) -> str:
+    text = str(value or "").replace("\x00", "").replace("\r", " ").replace("\n", " ")
+    text = re.sub(
+        r"(?i)\b(authorization|proxy-authorization|cookie|set-cookie)\s*:\s*[^\s]+(?:\s+[^\s]+)?",
+        lambda match: f"{match.group(1)}: [redacted]",
+        text,
+    )
+    text = re.sub(
+        r"(?i)([?&](?:api[_-]?key|credential|password|policy|secret|sig|signature|token|x-amz-security-token|x-amz-signature)=)([^&#\s]+)",
+        lambda match: f"{match.group(1)}[redacted]",
+        text,
+    )
+    text = SCHEDULER_SECRET_RE.sub(
+        lambda match: f"{match.group(1)}[redacted]", text
+    )
+    text = SCHEDULER_CLI_SECRET_RE.sub(
+        lambda match: f"{match.group(1)}{match.group(2)}[redacted]", text
+    )
+    text = re.sub(
+        r"(?i)(://)([^/@\s:]+):([^/@\s]+)@", r"\1[redacted]@", text
+    )
+    return re.sub(r"\s+", " ", text).strip()[:1000]
 
 
 def _repo_root_from_env() -> Path:
@@ -184,6 +228,7 @@ def render_sbatch_script(
     lines = [
         "#!/usr/bin/env bash",
         f"#SBATCH --job-name={_safe_job_name(job_id)}",
+        "#SBATCH --export=NONE",
         f"#SBATCH --output={stdout_path}",
         f"#SBATCH --error={stderr_path}",
         f"#SBATCH --chdir={run_dir}",
@@ -285,6 +330,7 @@ def _default_runner(args: list[str], timeout: int) -> subprocess.CompletedProces
             capture_output=True,
             text=True,
             timeout=timeout,
+            env=_scheduler_command_env(),
         )
     except FileNotFoundError as exc:
         return subprocess.CompletedProcess(args, 127, "", str(exc))
@@ -389,10 +435,12 @@ class SlurmBackend:
         meta["updated_at"] = now_iso()
         write_job(meta)
 
-        result = self._run(["sbatch", "--parsable", str(script_path)])
+        result = self._run(["sbatch", "--export=NONE", "--parsable", str(script_path)])
         slurm_job_id = parse_sbatch_job_id(result.stdout)
         if result.returncode != 0 or not slurm_job_id:
-            error = (result.stderr or result.stdout or "sbatch did not return a Slurm job id").strip()
+            error = _safe_scheduler_detail(
+                result.stderr or result.stdout or "sbatch did not return a Slurm job id"
+            )
             self._mark_submission_failed(job_id, error)
             return None
 
@@ -418,6 +466,7 @@ class SlurmBackend:
         meta = read_job(job_id)
         if meta is None:
             return
+        error = _safe_scheduler_detail(error)
         append_log(job_id, f"Slurm: submission failed: {error}")
         meta["status"] = "failed"
         meta["stage"] = "failed"
@@ -465,7 +514,9 @@ class SlurmBackend:
             if result.returncode == 0:
                 append_log(job_id, f"Slurm: requested cancellation for scheduler job {scheduler_id}.")
             else:
-                detail = (result.stderr or result.stdout or "scancel failed").strip()
+                detail = _safe_scheduler_detail(
+                    result.stderr or result.stdout or "scancel failed"
+                )
                 append_log(job_id, f"Slurm: scancel for scheduler job {scheduler_id} failed: {detail}")
         else:
             append_log(job_id, "Slurm: cancellation requested before scheduler job id was recorded.")

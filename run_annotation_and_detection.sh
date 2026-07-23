@@ -15,7 +15,10 @@ GENOMES_ROOT="${GENOMES_ROOT:-${DATA_ROOT}/genomes/fungi}"
 RESULTS_BASE="${RESULTS_BASE:-${DATA_ROOT}/results}"
 
 GENOME_ROOT="${GENOME_ROOT:-${GENOMES_ROOT}/${PROJECT_NAME}}"
+FUNGI_GENOME_ROOT="${FUNGI_GENOME_ROOT:-${GENOME_ROOT}}"
+BACTERIA_GENOME_ROOT="${BACTERIA_GENOME_ROOT:-${DATA_ROOT}/genomes/bacteria/${PROJECT_NAME}}"
 RESULTS_ROOT="${RESULTS_ROOT:-${RESULTS_BASE}/${PROJECT_NAME}}"
+GENOME_TAXON_MANIFEST="${GENOME_TAXON_MANIFEST:-${RESULTS_ROOT}/summary_tables/genome_taxon_manifest.tsv}"
 
 ANTISMASH_SIF="${ANTISMASH_SIF:-${SOFTWARE_ROOT}/antismash/antismash_standalone.sif}"
 FUNBGCEX_SIF="${FUNBGCEX_SIF:-${SOFTWARE_ROOT}/funbgcex/funbgcex_bundle.sif}"
@@ -27,14 +30,49 @@ ANTISMASH_DB_DIR="${ANTISMASH_DB_DIR:-${SOFTWARE_ROOT}/antismash/databases}"
 ###############################################################################
 # Tunables / knobs
 ###############################################################################
-CPUS="${CPUS:-6}"           # antiSMASH cpus
+CPUS_REQUEST_EXPLICIT=0
+if [[ -n "${CPUS+x}" || -n "${THREADS+x}" ]]; then
+  CPUS_REQUEST_EXPLICIT=1
+fi
+THREADS="${THREADS:-6}"     # recorded; alias for CPUS unless CPUS is explicit
+CPUS="${CPUS:-${THREADS}}"  # total CPU budget for this job
 WORKERS="${WORKERS:-2}"     # funbgcex --workers
+GENOME_PARALLELISM="${GENOME_PARALLELISM:-${ANNOTATION_GENOME_PARALLELISM:-1}}"  # concurrent genomes in annotation stage
+ANTISMASH_RECORD_PARALLELISM="${ANTISMASH_RECORD_PARALLELISM:-1}"  # concurrent antiSMASH records within one genome
+ANTISMASH_SHARD_CPUS="${ANTISMASH_SHARD_CPUS:-}"  # per-record antiSMASH cpus; derived after CLI parsing when unset
+ANTISMASH_LEGACY_CPUS="${ANTISMASH_LEGACY_CPUS:-}"  # single-run antiSMASH cpus; defaults to CPUS
+ANTISMASH_RETAIN_SHARD_WORK="${ANTISMASH_RETAIN_SHARD_WORK:-0}"  # 1 retains complete raw antiSMASH shard directories
+ANTISMASH_SHARD_COMPACTOR="${ANTISMASH_SHARD_COMPACTOR:-${SCRIPT_DIR}/bin/compact_antismash_shard.py}"
+ANTISMASH_WEB_RESULTS_PREPARER="${ANTISMASH_WEB_RESULTS_PREPARER:-${SCRIPT_DIR}/bin/prepare_antismash_web_results.py}"
+ANTISMASH_INPUT_PREPARER="${ANTISMASH_INPUT_PREPARER:-${SCRIPT_DIR}/bin/prepare_antismash_input.py}"
+BACTERIAL_GENBANK_SANITIZER="${BACTERIAL_GENBANK_SANITIZER:-${SCRIPT_DIR}/bin/sanitize_bacterial_genbank.py}"
+ANTISMASH_MIN_RECORD_BP="${ANTISMASH_MIN_RECORD_BP:-1000}"
+ANTISMASH_MAX_RECORD_BP="${ANTISMASH_MAX_RECORD_BP:-50000000}"
 FORCE="${FORCE:-0}"         # FORCE=1 clears staged gbk + tool outputs per genome
-THREADS="${THREADS:-6}"     # recorded; alias for CPUS unless CPUS explicitly set
 ENGINE="${ENGINE:-}"        # singularity, apptainer, or docker
 CLUSTERWEAVE_RUNTIME_MODE="${CLUSTERWEAVE_RUNTIME_MODE:-hpc-singularity}"
 DOCKER_DATA_VOLUME="${DOCKER_DATA_VOLUME:-${CLUSTERWEAVE_DOCKER_DATA_VOLUME:-}}"
 DOCKER_ANTISMASH_DB_VOLUME="${DOCKER_ANTISMASH_DB_VOLUME:-}"
+
+# Resource planning remains manual/conservative unless explicitly enabled. Auto
+# planning is local/HPC opt-in and freezes one bounded plan after genome discovery.
+PIPELINE_RESOURCE_MODE="${PIPELINE_RESOURCE_MODE:-conservative}"
+PIPELINE_MEMORY_BUDGET_MB="${PIPELINE_MEMORY_BUDGET_MB:-}"
+PIPELINE_AUTO_MAX_CPUS="${PIPELINE_AUTO_MAX_CPUS:-32}"
+PIPELINE_AUTO_MAX_GENOME_PARALLELISM="${PIPELINE_AUTO_MAX_GENOME_PARALLELISM:-4}"
+PIPELINE_AUTO_MIN_CPUS_PER_GENOME="${PIPELINE_AUTO_MIN_CPUS_PER_GENOME:-2}"
+PIPELINE_AUTO_MEMORY_PERCENT="${PIPELINE_AUTO_MEMORY_PERCENT:-70}"
+PIPELINE_AUTO_MEMORY_PER_GENOME_MB="${PIPELINE_AUTO_MEMORY_PER_GENOME_MB:-8192}"
+PIPELINE_AUTO_MAX_ANNO_CPUS="${PIPELINE_AUTO_MAX_ANNO_CPUS:-8}"
+PIPELINE_AUTO_MAX_FUNBGCEX_WORKERS="${PIPELINE_AUTO_MAX_FUNBGCEX_WORKERS:-2}"
+PIPELINE_AUTO_MAX_ANTISMASH_RECORD_PARALLELISM="${PIPELINE_AUTO_MAX_ANTISMASH_RECORD_PARALLELISM:-3}"
+
+# Optional hard limits for each Docker tool child. Empty values leave Docker's
+# limits unchanged; pipeline/native tool arguments remain the primary CPU caps.
+CLUSTERWEAVE_TOOL_DOCKER_CPUS="${CLUSTERWEAVE_TOOL_DOCKER_CPUS:-}"
+CLUSTERWEAVE_TOOL_DOCKER_MEMORY="${CLUSTERWEAVE_TOOL_DOCKER_MEMORY:-}"
+CLUSTERWEAVE_TOOL_DOCKER_PIDS_LIMIT="${CLUSTERWEAVE_TOOL_DOCKER_PIDS_LIMIT:-}"
+CLUSTERWEAVE_NUMERIC_LIBRARY_THREADS="${CLUSTERWEAVE_NUMERIC_LIBRARY_THREADS:-1}"
 
 # Annotation knobs
 ANNO_CPUS="${ANNO_CPUS:-6}"
@@ -58,7 +96,7 @@ AUTO_BUILD_FUNBGCEX_SIF="${AUTO_BUILD_FUNBGCEX_SIF:-1}"
 FUNBGCEX_USE_DOCKER_IMAGE="${FUNBGCEX_USE_DOCKER_IMAGE:-0}"
 FUNBGCEX_DOCKER_IMAGE="${FUNBGCEX_DOCKER_IMAGE:-clusterweave-funbgcex:latest}"
 AUTO_BUILD_FUNBGCEX_DOCKER="${AUTO_BUILD_FUNBGCEX_DOCKER:-1}"
-BRAKER_IMAGE_URI="${BRAKER_IMAGE_URI:-docker://teambraker/braker3:latest}"
+BRAKER_IMAGE_URI="${BRAKER_IMAGE_URI:-docker://teambraker/braker3:v3.0.7.6@sha256:5f8b3c508a9fe1bbc2e9a74dcc013eeed82f91dd5945adca7823514d9c8aecf8}"
 FUNANNOTATE_BASE_IMAGE_URI="${FUNANNOTATE_BASE_IMAGE_URI:-docker://nextgenusfs/funannotate:v1.8.17}"
 FUNANNOTATE_IMAGE_URI="${FUNANNOTATE_IMAGE_URI:-docker://clusterweave-funannotate:v1.8.17-busco}"
 AUTO_BUILD_FUNANNOTATE_SIF="${AUTO_BUILD_FUNANNOTATE_SIF:-1}"
@@ -74,6 +112,7 @@ FUNBGCEX_BUILD_SCRIPT="${FUNBGCEX_BUILD_SCRIPT:-${PROJECT_DIR}/software/funbgcex
 TOOL_ACTIVITY_HEARTBEAT_SECONDS="${TOOL_ACTIVITY_HEARTBEAT_SECONDS:-45}"
 TOOL_ACTIVITY_RAW_LIMIT="${TOOL_ACTIVITY_RAW_LIMIT:-1200}"
 FUNANNOTATE_RETRY_WITHOUT_PROTEIN_EVIDENCE="${FUNANNOTATE_RETRY_WITHOUT_PROTEIN_EVIDENCE:-1}"
+FUNANNOTATE_MIN_TRAINING_MODELS_FALLBACK="${FUNANNOTATE_MIN_TRAINING_MODELS_FALLBACK:-150}"
 
 FUNBGCEX_RUNTIME="unresolved"
 FUNBGCEX_CMD=""
@@ -109,7 +148,8 @@ fi
 # Binds as an array (paths contain spaces; do NOT store binds in a single string)
 BIND_ARGS=(
   --bind "${PROJECT_DIR}:${PROJECT_DIR}"
-  --bind "${GENOME_ROOT}:${GENOME_ROOT}"
+  --bind "${FUNGI_GENOME_ROOT}:${FUNGI_GENOME_ROOT}"
+  --bind "${BACTERIA_GENOME_ROOT}:${BACTERIA_GENOME_ROOT}"
   --bind "${RESULTS_ROOT}:${RESULTS_ROOT}"
 )
 
@@ -124,15 +164,49 @@ docker_image_from_uri() {
   printf '%s\n' "${uri#docker://}"
 }
 
+bounded_docker_cpu_limit() {
+  local requested="${1:-}"
+  local ceiling="${2:-}"
+  local numeric_re='^[0-9]+([.][0-9]+)?$'
+  if [[ "${requested}" =~ ${numeric_re} && "${requested}" != "0" && "${requested}" != "0.0" ]]; then
+    if [[ "${ceiling}" =~ ${numeric_re} && "${ceiling}" != "0" && "${ceiling}" != "0.0" ]]; then
+      awk -v requested="${requested}" -v ceiling="${ceiling}" \
+        'BEGIN { print (requested + 0 <= ceiling + 0) ? requested : ceiling }'
+    else
+      printf '%s\n' "${requested}"
+    fi
+  elif [[ "${ceiling}" =~ ${numeric_re} && "${ceiling}" != "0" && "${ceiling}" != "0.0" ]]; then
+    printf '%s\n' "${ceiling}"
+  fi
+}
+
 docker_run_args() {
   local -a args=(--rm -i --user 0:0 --entrypoint "")
+  local child_cpus=""
+  local child_memory="${CLUSTERWEAVE_CHILD_DOCKER_MEMORY:-${CLUSTERWEAVE_TOOL_DOCKER_MEMORY}}"
+  local child_pids="${CLUSTERWEAVE_CHILD_DOCKER_PIDS_LIMIT:-${CLUSTERWEAVE_TOOL_DOCKER_PIDS_LIMIT}}"
+  child_cpus="$(bounded_docker_cpu_limit "${CLUSTERWEAVE_CHILD_DOCKER_CPUS:-}" "${CLUSTERWEAVE_TOOL_DOCKER_CPUS}")"
   if [[ -n "${CLUSTERWEAVE_JOB_ID:-}" ]]; then
     args+=(--label "clusterweave.job_id=${CLUSTERWEAVE_JOB_ID}" --label "clusterweave.project=${PROJECT_NAME:-}")
+  fi
+  if [[ "${child_cpus}" =~ ^[0-9]+([.][0-9]+)?$ && "${child_cpus}" != "0" && "${child_cpus}" != "0.0" ]]; then
+    args+=(--cpus "${child_cpus}")
+  fi
+  if [[ "${child_memory}" =~ ^[0-9]+([.][0-9]+)?[bBkKmMgG]?$ && "${child_memory}" != "0" ]]; then
+    args+=(--memory "${child_memory}")
+  fi
+  if [[ "${child_pids}" =~ ^[0-9]+$ && "${child_pids}" -ge 1 ]]; then
+    args+=(--pids-limit "${child_pids}")
   fi
   if [[ -n "${DOCKER_DATA_VOLUME}" ]]; then
     args+=(-v "${DOCKER_DATA_VOLUME}:/data")
   else
-    args+=(-v "${PROJECT_DIR}:${PROJECT_DIR}" -v "${GENOME_ROOT}:${GENOME_ROOT}" -v "${RESULTS_ROOT}:${RESULTS_ROOT}")
+    args+=(
+      -v "${PROJECT_DIR}:${PROJECT_DIR}"
+      -v "${FUNGI_GENOME_ROOT}:${FUNGI_GENOME_ROOT}"
+      -v "${BACTERIA_GENOME_ROOT}:${BACTERIA_GENOME_ROOT}"
+      -v "${RESULTS_ROOT}:${RESULTS_ROOT}"
+    )
   fi
   if [[ -n "${DOCKER_ANTISMASH_DB_VOLUME}" ]]; then
     args+=(-v "${DOCKER_ANTISMASH_DB_VOLUME}:${ANTISMASH_DB_DIR}")
@@ -142,7 +216,17 @@ docker_run_args() {
   if [[ -z "${DOCKER_DATA_VOLUME}" ]]; then
     args+=(-v "${WORK_ROOT}:${WORK_ROOT}")
   fi
-  args+=(-e "CUDA_VISIBLE_DEVICES=" -e "ANTISMASH_DB_DIR=${ANTISMASH_DB_DIR}" -e "FUNANNOTATE_DB=${FUNANNOTATE_DB:-/opt/databases}")
+  args+=(
+    -e "CUDA_VISIBLE_DEVICES="
+    -e "ANTISMASH_DB_DIR=${ANTISMASH_DB_DIR}"
+    -e "FUNANNOTATE_DB=${FUNANNOTATE_DB:-/opt/databases}"
+    -e "OMP_NUM_THREADS=${CLUSTERWEAVE_NUMERIC_LIBRARY_THREADS}"
+    -e "OPENBLAS_NUM_THREADS=${CLUSTERWEAVE_NUMERIC_LIBRARY_THREADS}"
+    -e "MKL_NUM_THREADS=${CLUSTERWEAVE_NUMERIC_LIBRARY_THREADS}"
+    -e "NUMEXPR_NUM_THREADS=${CLUSTERWEAVE_NUMERIC_LIBRARY_THREADS}"
+    -e "VECLIB_MAXIMUM_THREADS=${CLUSTERWEAVE_NUMERIC_LIBRARY_THREADS}"
+    -e "BLIS_NUM_THREADS=${CLUSTERWEAVE_NUMERIC_LIBRARY_THREADS}"
+  )
   printf '%s\0' "${args[@]}"
 }
 
@@ -185,6 +269,7 @@ antismash_exec() {
 # Paths / working dirs
 ###############################################################################
 mkdir -p "${RESULTS_ROOT}"/{antismash,funbgcex,braker3,funannotate,summary_tables,input_gbks,tmp,logs}
+mkdir -p "${FUNGI_GENOME_ROOT}" "${BACTERIA_GENOME_ROOT}"
 
 LOGDIR="${LOGDIR:-${RESULTS_ROOT}/logs}"
 mkdir -p "${LOGDIR}"
@@ -206,6 +291,342 @@ warn(){ echo "[$(ts)] [WARN] $*" | tee -a "${PIPELOG}" >&2; }
 err(){ echo "[$(ts)] [ERROR] $*" | tee -a "${PIPELOG}" >&2; }
 die(){ err "$*"; exit 1; }
 join_by() { local IFS="$1"; shift; echo "$*"; }
+
+positive_int_or_default() {
+  local value="${1:-}"
+  local default="${2:-1}"
+  if [[ "${value}" =~ ^[0-9]+$ ]] && [[ "${value}" -ge 1 ]]; then
+    printf '%s\n' "${value}"
+  else
+    printf '%s\n' "${default}"
+  fi
+}
+
+minimum_int() {
+  local minimum="${1}"
+  shift
+  local value=""
+  for value in "$@"; do
+    if [[ "${value}" -lt "${minimum}" ]]; then
+      minimum="${value}"
+    fi
+  done
+  printf '%s\n' "${minimum}"
+}
+
+count_cpuset_cpus() {
+  local spec="${1:-}"
+  local total=0
+  local part=""
+  local first=0
+  local last=0
+  local IFS=','
+  local -a parts=()
+  read -r -a parts <<< "${spec}"
+  for part in "${parts[@]}"; do
+    if [[ "${part}" =~ ^([0-9]+)-([0-9]+)$ ]]; then
+      first="${BASH_REMATCH[1]}"
+      last="${BASH_REMATCH[2]}"
+      if [[ "${last}" -ge "${first}" ]]; then
+        total=$((total + last - first + 1))
+      fi
+    elif [[ "${part}" =~ ^[0-9]+$ ]]; then
+      total=$((total + 1))
+    fi
+  done
+  printf '%s\n' "${total}"
+}
+
+detect_online_cpus() {
+  local candidate=""
+
+  if have nproc; then
+    # GNU nproc treats OpenMP limits as CPU availability hints.  ClusterWeave
+    # intentionally caps numeric libraries (normally to one thread), but that
+    # child-library policy must not collapse the job-level resource planner.
+    candidate="$(
+      unset OMP_NUM_THREADS OMP_THREAD_LIMIT
+      nproc 2>/dev/null || true
+    )"
+  elif have getconf; then
+    candidate="$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)"
+  fi
+
+  printf '%s\n' "${candidate}"
+}
+
+detect_effective_cpus() {
+  local cgroup_root="${1:-/sys/fs/cgroup}"
+  local effective=0
+  local candidate=0
+  local quota=""
+  local period=""
+  local cpuset=""
+  local path=""
+
+  candidate="$(detect_online_cpus)"
+  if [[ "${candidate}" =~ ^[0-9]+$ && "${candidate}" -ge 1 ]]; then
+    effective="${candidate}"
+  fi
+
+  for path in "${cgroup_root}/cpuset.cpus.effective" "${cgroup_root}/cpuset/cpuset.cpus"; do
+    [[ -r "${path}" ]] || continue
+    cpuset="$(<"${path}")"
+    candidate="$(count_cpuset_cpus "${cpuset}")"
+    if [[ "${candidate}" -ge 1 && ("${effective}" -eq 0 || "${candidate}" -lt "${effective}") ]]; then
+      effective="${candidate}"
+    fi
+    break
+  done
+
+  if [[ -r "${cgroup_root}/cpu.max" ]]; then
+    read -r quota period < "${cgroup_root}/cpu.max" || true
+    if [[ "${quota}" =~ ^[0-9]+$ && "${period}" =~ ^[0-9]+$ && "${period}" -ge 1 ]]; then
+      candidate=$((quota / period))
+      if [[ "${candidate}" -lt 1 ]]; then candidate=1; fi
+      if [[ "${effective}" -eq 0 || "${candidate}" -lt "${effective}" ]]; then
+        effective="${candidate}"
+      fi
+    fi
+  elif [[ -r "${cgroup_root}/cpu/cpu.cfs_quota_us" && -r "${cgroup_root}/cpu/cpu.cfs_period_us" ]]; then
+    quota="$(<"${cgroup_root}/cpu/cpu.cfs_quota_us")"
+    period="$(<"${cgroup_root}/cpu/cpu.cfs_period_us")"
+    if [[ "${quota}" =~ ^[0-9]+$ && "${quota}" -ge 1 && "${period}" =~ ^[0-9]+$ && "${period}" -ge 1 ]]; then
+      candidate=$((quota / period))
+      if [[ "${candidate}" -lt 1 ]]; then candidate=1; fi
+      if [[ "${effective}" -eq 0 || "${candidate}" -lt "${effective}" ]]; then
+        effective="${candidate}"
+      fi
+    fi
+  fi
+
+  if [[ "${effective}" -lt 1 ]]; then effective=1; fi
+  printf '%s\n' "${effective}"
+}
+
+detect_effective_memory_mb() {
+  local effective=0
+  local candidate=0
+  local limit=""
+  local current=""
+  local remaining=0
+  local host_available=""
+
+  if [[ -r /proc/meminfo ]]; then
+    host_available="$(awk '/^MemAvailable:/ {printf "%d\n", $2 / 1024; exit}' /proc/meminfo)"
+    if [[ "${host_available}" =~ ^[0-9]+$ && "${host_available}" -ge 1 ]]; then
+      effective="${host_available}"
+    fi
+  fi
+
+  if [[ -r /sys/fs/cgroup/memory.max ]]; then
+    limit="$(</sys/fs/cgroup/memory.max)"
+    current="$(</sys/fs/cgroup/memory.current)"
+    if [[ "${limit}" =~ ^[0-9]+$ && "${limit}" -lt 1152921504606846976 && "${current}" =~ ^[0-9]+$ ]]; then
+      remaining=$((limit - current))
+      candidate=$((remaining / 1048576))
+      if [[ "${candidate}" -lt 1 ]]; then candidate=1; fi
+      if [[ "${effective}" -eq 0 || "${candidate}" -lt "${effective}" ]]; then
+        effective="${candidate}"
+      fi
+    fi
+  elif [[ -r /sys/fs/cgroup/memory/memory.limit_in_bytes ]]; then
+    limit="$(</sys/fs/cgroup/memory/memory.limit_in_bytes)"
+    current="$(</sys/fs/cgroup/memory/memory.usage_in_bytes)"
+    if [[ "${limit}" =~ ^[0-9]+$ && "${limit}" -lt 1152921504606846976 && "${current}" =~ ^[0-9]+$ ]]; then
+      remaining=$((limit - current))
+      candidate=$((remaining / 1048576))
+      if [[ "${candidate}" -lt 1 ]]; then candidate=1; fi
+      if [[ "${effective}" -eq 0 || "${candidate}" -lt "${effective}" ]]; then
+        effective="${candidate}"
+      fi
+    fi
+  fi
+
+  printf '%s\n' "${effective}"
+}
+
+freeze_resource_plan() {
+  local total_genomes=""
+  local requested_cpus="${CPUS}"
+  local desired_genome_parallelism="${GENOME_PARALLELISM}"
+  local cpu_genome_limit=1
+  local memory_genome_limit=1
+  local usable_memory_mb=0
+  local auto_max_cpus=1
+  local auto_max_genomes=1
+  local auto_min_cpus_per_genome=1
+  local auto_memory_percent=70
+  local auto_memory_per_genome_mb=8192
+  local auto_max_anno_cpus=1
+  local auto_max_funbgcex_workers=1
+  local auto_max_record_parallelism=1
+  local max_shard_cpus=1
+  local annotation_slots=0
+  local funbgcex_slots=0
+  local antismash_shard_slots=0
+  local antismash_legacy_slots=0
+
+  total_genomes="$(positive_int_or_default "${1:-}" 1)"
+  RESOURCE_EFFECTIVE_CPUS="$(detect_effective_cpus)"
+  RESOURCE_EFFECTIVE_MEMORY_MB="$(detect_effective_memory_mb)"
+  RESOURCE_MEMORY_BUDGET_MB=0
+
+  if [[ "${PIPELINE_RESOURCE_MODE}" == "auto" ]]; then
+    auto_max_cpus="$(positive_int_or_default "${PIPELINE_AUTO_MAX_CPUS}" 32)"
+    if [[ "${CPUS_REQUEST_EXPLICIT}" -eq 0 ]]; then
+      CPUS="${RESOURCE_EFFECTIVE_CPUS}"
+    fi
+    CPUS="$(minimum_int "$(positive_int_or_default "${CPUS}" 1)" "${RESOURCE_EFFECTIVE_CPUS}" "${auto_max_cpus}")"
+
+    auto_max_genomes="$(positive_int_or_default "${PIPELINE_AUTO_MAX_GENOME_PARALLELISM}" 4)"
+    auto_min_cpus_per_genome="$(positive_int_or_default "${PIPELINE_AUTO_MIN_CPUS_PER_GENOME}" 2)"
+    auto_memory_percent="$(positive_int_or_default "${PIPELINE_AUTO_MEMORY_PERCENT}" 70)"
+    if [[ "${auto_memory_percent}" -gt 100 ]]; then auto_memory_percent=100; fi
+    auto_memory_per_genome_mb="$(positive_int_or_default "${PIPELINE_AUTO_MEMORY_PER_GENOME_MB}" 8192)"
+
+    RESOURCE_MEMORY_BUDGET_MB="${RESOURCE_EFFECTIVE_MEMORY_MB}"
+    if [[ "${PIPELINE_MEMORY_BUDGET_MB}" =~ ^[0-9]+$ && "${PIPELINE_MEMORY_BUDGET_MB}" -ge 1 ]]; then
+      if [[ "${RESOURCE_MEMORY_BUDGET_MB}" -ge 1 ]]; then
+        RESOURCE_MEMORY_BUDGET_MB="$(minimum_int "${RESOURCE_MEMORY_BUDGET_MB}" "${PIPELINE_MEMORY_BUDGET_MB}")"
+      else
+        RESOURCE_MEMORY_BUDGET_MB="${PIPELINE_MEMORY_BUDGET_MB}"
+      fi
+    fi
+    if [[ "${RESOURCE_MEMORY_BUDGET_MB}" -ge 1 ]]; then
+      usable_memory_mb=$((RESOURCE_MEMORY_BUDGET_MB * auto_memory_percent / 100))
+    fi
+
+    cpu_genome_limit=$((CPUS / auto_min_cpus_per_genome))
+    if [[ "${cpu_genome_limit}" -lt 1 ]]; then cpu_genome_limit=1; fi
+    memory_genome_limit="${auto_max_genomes}"
+    if [[ "${usable_memory_mb}" -ge 1 ]]; then
+      memory_genome_limit=$((usable_memory_mb / auto_memory_per_genome_mb))
+      if [[ "${memory_genome_limit}" -lt 1 ]]; then memory_genome_limit=1; fi
+    fi
+    desired_genome_parallelism="$(minimum_int "${total_genomes}" "${auto_max_genomes}" "${cpu_genome_limit}" "${memory_genome_limit}")"
+  else
+    CPUS="$(positive_int_or_default "${CPUS}" 6)"
+    if [[ "${CPUS_REQUEST_EXPLICIT}" -eq 0 ]]; then
+      CPUS="$(minimum_int "${CPUS}" "${RESOURCE_EFFECTIVE_CPUS}")"
+    fi
+  fi
+
+  GENOME_PARALLELISM="$(minimum_int "$(positive_int_or_default "${desired_genome_parallelism}" 1)" "${total_genomes}" "${CPUS}")"
+  PER_GENOME_CPU_BUDGET=$((CPUS / GENOME_PARALLELISM))
+  if [[ "${PER_GENOME_CPU_BUDGET}" -lt 1 ]]; then PER_GENOME_CPU_BUDGET=1; fi
+
+  if [[ "${PIPELINE_RESOURCE_MODE}" == "auto" ]]; then
+    auto_max_anno_cpus="$(positive_int_or_default "${PIPELINE_AUTO_MAX_ANNO_CPUS}" 8)"
+    auto_max_funbgcex_workers="$(positive_int_or_default "${PIPELINE_AUTO_MAX_FUNBGCEX_WORKERS}" 2)"
+    auto_max_record_parallelism="$(positive_int_or_default "${PIPELINE_AUTO_MAX_ANTISMASH_RECORD_PARALLELISM}" 3)"
+    ANNO_CPUS="$(minimum_int "${auto_max_anno_cpus}" "${PER_GENOME_CPU_BUDGET}")"
+    WORKERS="$(minimum_int "${auto_max_funbgcex_workers}" "${PER_GENOME_CPU_BUDGET}")"
+    ANTISMASH_RECORD_PARALLELISM="$(minimum_int "${auto_max_record_parallelism}" "${PER_GENOME_CPU_BUDGET}")"
+  else
+    ANNO_CPUS="$(minimum_int "$(positive_int_or_default "${ANNO_CPUS}" 1)" "${PER_GENOME_CPU_BUDGET}")"
+    WORKERS="$(minimum_int "$(positive_int_or_default "${WORKERS}" 1)" "${PER_GENOME_CPU_BUDGET}")"
+    ANTISMASH_RECORD_PARALLELISM="$(minimum_int "$(positive_int_or_default "${ANTISMASH_RECORD_PARALLELISM}" 1)" "${PER_GENOME_CPU_BUDGET}")"
+  fi
+
+  ANTISMASH_SHARD_CPUS_DEFAULT=$((PER_GENOME_CPU_BUDGET / ANTISMASH_RECORD_PARALLELISM))
+  if [[ "${ANTISMASH_SHARD_CPUS_DEFAULT}" -lt 1 ]]; then ANTISMASH_SHARD_CPUS_DEFAULT=1; fi
+  max_shard_cpus="${ANTISMASH_SHARD_CPUS_DEFAULT}"
+  if [[ "${PIPELINE_RESOURCE_MODE}" == "auto" || -z "${ANTISMASH_SHARD_CPUS_REQUESTED}" ]]; then
+    ANTISMASH_SHARD_CPUS="${max_shard_cpus}"
+  else
+    ANTISMASH_SHARD_CPUS="$(minimum_int "$(positive_int_or_default "${ANTISMASH_SHARD_CPUS_REQUESTED}" "${max_shard_cpus}")" "${max_shard_cpus}")"
+  fi
+  if [[ "${PIPELINE_RESOURCE_MODE}" == "auto" || -z "${ANTISMASH_LEGACY_CPUS_REQUESTED}" ]]; then
+    ANTISMASH_LEGACY_CPUS="${PER_GENOME_CPU_BUDGET}"
+  else
+    ANTISMASH_LEGACY_CPUS="$(minimum_int "$(positive_int_or_default "${ANTISMASH_LEGACY_CPUS_REQUESTED}" "${PER_GENOME_CPU_BUDGET}")" "${PER_GENOME_CPU_BUDGET}")"
+  fi
+
+  annotation_slots=$((GENOME_PARALLELISM * ANNO_CPUS))
+  funbgcex_slots=$((GENOME_PARALLELISM * WORKERS))
+  antismash_shard_slots=$((GENOME_PARALLELISM * ANTISMASH_RECORD_PARALLELISM * ANTISMASH_SHARD_CPUS))
+  antismash_legacy_slots=$((GENOME_PARALLELISM * ANTISMASH_LEGACY_CPUS))
+  if [[ "${annotation_slots}" -gt "${CPUS}" || "${funbgcex_slots}" -gt "${CPUS}" || "${antismash_shard_slots}" -gt "${CPUS}" || "${antismash_legacy_slots}" -gt "${CPUS}" ]]; then
+    die "Resource plan invariant failed: a stage can exceed CPUS=${CPUS}"
+  fi
+
+  log "RESOURCE_PLAN_FROZEN mode=${PIPELINE_RESOURCE_MODE} requested_cpus=${requested_cpus} effective_cpus=${RESOURCE_EFFECTIVE_CPUS} effective_memory_mb=${RESOURCE_EFFECTIVE_MEMORY_MB} memory_budget_mb=${RESOURCE_MEMORY_BUDGET_MB} genomes=${total_genomes} cpus=${CPUS} genome_parallelism=${GENOME_PARALLELISM} per_genome_cpu_budget=${PER_GENOME_CPU_BUDGET} anno_cpus=${ANNO_CPUS} funbgcex_workers=${WORKERS} antismash_record_parallelism=${ANTISMASH_RECORD_PARALLELISM} antismash_shard_cpus=${ANTISMASH_SHARD_CPUS} antismash_legacy_cpus=${ANTISMASH_LEGACY_CPUS}"
+  log "RESOURCE_PLAN_BOUNDS annotation_slots=${annotation_slots} funbgcex_slots=${funbgcex_slots} antismash_shard_slots=${antismash_shard_slots} antismash_legacy_slots=${antismash_legacy_slots} job_cpus=${CPUS}"
+}
+
+running_genome_job_count() {
+  jobs -rp | wc -l | tr -d '[:space:]'
+}
+
+wait_for_genome_job() {
+  local rc=0
+  set +e
+  wait -n
+  rc=$?
+  set -e
+  [[ "${rc}" -eq 0 || "${rc}" -eq 127 ]]
+}
+
+wait_for_antismash_shard_job() {
+  local rc=0
+  set +e
+  wait -n
+  rc=$?
+  set -e
+  # Bash can report 127 when all remaining children finish before a later
+  # wait -n observes them. Manifest-row validation below still verifies every shard.
+  [[ "${rc}" -eq 0 || "${rc}" -eq 127 ]]
+}
+
+progress_bar() {
+  local percent="${1:-0}"
+  local width="${2:-20}"
+  local filled empty
+  if ! [[ "${percent}" =~ ^[0-9]+$ ]]; then percent=0; fi
+  if [[ "${percent}" -lt 0 ]]; then percent=0; fi
+  if [[ "${percent}" -gt 100 ]]; then percent=100; fi
+  filled=$((percent * width / 100))
+  empty=$((width - filled))
+  printf '['
+  printf '%*s' "${filled}" '' | tr ' ' '#'
+  printf '%*s' "${empty}" '' | tr ' ' '-'
+  printf ']'
+}
+
+genome_stage_progress() {
+  local genome_id="${1:-genome}"
+  local stage="${2:-annotation}"
+  local percent="${3:-0}"
+  local message="${4:-Working}"
+  message="$(tool_activity_limit_line "${message}")"
+  message="${message//\"/ }"
+  log "GENOME_PROGRESS genome=${genome_id} stage=${stage} percent=${percent} bar=$(progress_bar "${percent}") message=\"${message}\""
+}
+
+genome_annotation_decision() {
+  local genome_id="${1:-genome}"
+  local required="${2:-no}"
+  local method="${3:-existing_cds}"
+  local message="${4:-Annotation route selected}"
+  message="$(tool_activity_limit_line "${message}")"
+  message="${message//\"/ }"
+  log "GENOME_ANNOTATION_DECISION genome=${genome_id} required=${required} method=${method} message=\"${message}\""
+}
+
+antismash_record_progress() {
+  local genome_id="${1:-genome}"
+  local record_id="${2:-record}"
+  local ordinal="${3:-1}"
+  local total_records="${4:-1}"
+  local percent="${5:-0}"
+  local message="${6:-Working}"
+  record_id="$(tool_activity_clean_line "${record_id}")"
+  record_id="$(safe_antismash_record_id "${record_id}")"
+  message="$(tool_activity_limit_line "${message}")"
+  message="${message//\"/ }"
+  log "ANTISMASH_RECORD_PROGRESS genome=${genome_id} record=${record_id} ordinal=${ordinal}/${total_records} percent=${percent} bar=$(progress_bar "${percent}") message=\"${message}\""
+}
 
 tool_activity_clean_line() {
   local value="${1:-}"
@@ -237,7 +658,14 @@ tool_activity_public_message() {
   local tool="${1:-}"
   local line="${2:-}"
   local lower=""
+  local error_scan=""
   lower="$(printf '%s' "${line}" | tr '[:upper:]' '[:lower:]')"
+  # Progress reporters commonly include neutral counters such as
+  # "0 failed". Remove those counters before classifying an error so the
+  # public activity stream does not announce a failure for healthy work.
+  error_scan="${lower//0 failed/}"
+  error_scan="${error_scan//0 errors/}"
+  error_scan="${error_scan//0 error/}"
   case "${tool}" in
     antismash)
       if [[ "${lower}" =~ running[[:space:]]+whole-genome[[:space:]]+pfam[[:space:]]+search ]]; then printf '%s\n' "Running whole-genome PFAM search"; return 0; fi
@@ -246,7 +674,7 @@ tool_activity_public_message() {
       if [[ "${lower}" =~ (cluster|region|detect|detection|rule|rules) ]]; then printf '%s\n' "Detecting biosynthetic regions"; return 0; fi
       if [[ "${lower}" =~ (html|json|write|writing|output|result) ]]; then printf '%s\n' "Writing antiSMASH outputs"; return 0; fi
       if [[ "${lower}" =~ (warn|warning) ]]; then printf '%s\n' "antiSMASH reported a warning"; return 0; fi
-      if [[ "${lower}" =~ (error|failed|exception|traceback) ]]; then printf '%s\n' "antiSMASH reported an error"; return 0; fi
+      if [[ "${error_scan}" =~ (error|failed|exception|traceback) ]]; then printf '%s\n' "antiSMASH reported an error"; return 0; fi
       ;;
     funannotate)
       if [[ "${lower}" =~ (sort|clean|prepare|assembly|contig|fasta) ]]; then printf '%s\n' "Preparing assembly"; return 0; fi
@@ -254,7 +682,7 @@ tool_activity_public_message() {
       if [[ "${lower}" =~ (predict|gene|genemark|snap|glimmer|codingquarry|exonerate|protein) ]]; then printf '%s\n' "Predicting genes"; return 0; fi
       if [[ "${lower}" =~ (gff|gbk|tbl|annotation|write|writing|output|result) ]]; then printf '%s\n' "Writing annotation outputs"; return 0; fi
       if [[ "${lower}" =~ (warn|warning) ]]; then printf '%s\n' "funannotate reported a warning"; return 0; fi
-      if [[ "${lower}" =~ (error|failed|exception|traceback) ]]; then printf '%s\n' "funannotate reported an error"; return 0; fi
+      if [[ "${error_scan}" =~ (error|failed|exception|traceback) ]]; then printf '%s\n' "funannotate reported an error"; return 0; fi
       ;;
   esac
   return 1
@@ -287,10 +715,20 @@ tool_activity_stream() {
   local raw=""
   local public_message=""
   local last_public_message=""
+  local raw_line_count=0
+  local central_raw_count=0
+  local central_raw_limit="${TOOL_ACTIVITY_CENTRAL_RAW_LIMIT:-24}"
+  if ! [[ "${central_raw_limit}" =~ ^[0-9]+$ ]]; then
+    central_raw_limit=24
+  fi
   while IFS= read -r line; do
     raw="$(tool_activity_limit_line "${line}")"
     printf '%s\n' "${raw}" >> "${dest}"
-    log "TOOL_RAW genome=${genome} tool=${tool} stream=${stream} ${raw}"
+    raw_line_count=$((raw_line_count + 1))
+    if [[ "${central_raw_count}" -lt "${central_raw_limit}" ]]; then
+      log "TOOL_RAW genome=${genome} tool=${tool} stream=${stream} ${raw}"
+      central_raw_count=$((central_raw_count + 1))
+    fi
     if public_message="$(tool_activity_public_message "${tool}" "${raw}")"; then
       if [[ -n "${public_message}" && "${public_message}" != "${last_public_message}" ]]; then
         tool_activity_emit_progress "${genome}" "${tool}" "${phase}" "${public_message}"
@@ -298,6 +736,9 @@ tool_activity_stream() {
       fi
     fi
   done
+  if [[ "${raw_line_count}" -gt "${central_raw_count}" ]]; then
+    log "TOOL_RAW_SUMMARY genome=${genome} tool=${tool} stream=${stream} total=${raw_line_count} central_emitted=${central_raw_count} private_retained=${raw_line_count}"
+  fi
 }
 
 tool_activity_heartbeat_loop() {
@@ -376,6 +817,7 @@ resolve_python_cmd() {
 # Converter bootstrap (pure stdlib python; no pip/venv dependency)
 ###############################################################################
 CONVERT_PY="${CONVERT_PY:-${PROJECT_DIR}/bin/gff3_to_gbk_with_translations.py}"
+GENBANK_TRANSLATION_CHECKER="${GENBANK_TRANSLATION_CHECKER:-${PROJECT_DIR}/bin/check_genbank_translations.py}"
 VENV_PY="${VENV_PY:-python3}"
 
 setup_converter() {
@@ -624,12 +1066,113 @@ PY
 # Input discovery/resolution
 ###############################################################################
 GENOME_MAPPING_FILE="${GENOME_MAPPING_FILE:-${GENOME_ROOT}/accessions_fungusID_taxonomyID.txt}"
+declare -A ROUTE_TAXON_BY_GENOME=()
+declare -A ROUTE_ROOT_BY_GENOME=()
+declare -A ROUTE_PREDICTION_BY_GENOME=()
+declare -A ROUTE_DETECTOR_BY_GENOME=()
+declare -A ROUTE_SOURCE_BY_GENOME=()
+declare -A ROUTE_STATUS_BY_GENOME=()
+ROUTE_MANIFEST_ACTIVE=0
+HAS_FUNGAL_ROUTES=0
+HAS_BACTERIAL_ROUTES=0
+
+load_taxon_routes() {
+  local input_key genome_id taxon_group taxon_source taxid organism_name source_accession
+  local prediction_method detector_profile input_path_key route_status route_reason
+  local route_line=""
+  [[ -s "${GENOME_TAXON_MANIFEST}" ]] || {
+    HAS_FUNGAL_ROUTES=1
+    return 0
+  }
+  while IFS= read -r route_line || [[ -n "${route_line}" ]]; do
+    IFS=$'\034' read -r \
+        input_key genome_id taxon_group taxon_source taxid organism_name source_accession \
+        prediction_method detector_profile input_path_key route_status route_reason \
+        <<< "${route_line//$'\t'/$'\034'}"
+    [[ "${input_key}" == "input_key" ]] && continue
+    [[ -n "${genome_id}" ]] || continue
+    case "${route_status,,}" in
+      failed|invalid|rejected|unresolved|unsupported) continue ;;
+    esac
+    case "${taxon_group,,}" in
+      fungi)
+        taxon_group="fungi"
+        HAS_FUNGAL_ROUTES=1
+        ;;
+      bacteria)
+        taxon_group="bacteria"
+        HAS_BACTERIAL_ROUTES=1
+        ;;
+      *)
+        die "Invalid taxon_group='${taxon_group}' for genome ${genome_id} in ${GENOME_TAXON_MANIFEST}"
+        ;;
+    esac
+    [[ -z "${ROUTE_TAXON_BY_GENOME[${genome_id}]+set}" ]] \
+      || die "Duplicate genome_id in canonical taxon manifest: ${genome_id}"
+    ROUTE_TAXON_BY_GENOME["${genome_id}"]="${taxon_group}"
+    if [[ "${taxon_group}" == "bacteria" ]]; then
+      ROUTE_ROOT_BY_GENOME["${genome_id}"]="${BACTERIA_GENOME_ROOT}"
+      ROUTE_PREDICTION_BY_GENOME["${genome_id}"]="${prediction_method:-prodigal}"
+      ROUTE_DETECTOR_BY_GENOME["${genome_id}"]="${detector_profile:-antismash}"
+    else
+      ROUTE_ROOT_BY_GENOME["${genome_id}"]="${FUNGI_GENOME_ROOT}"
+      ROUTE_PREDICTION_BY_GENOME["${genome_id}"]="${prediction_method:-funannotate}"
+      ROUTE_DETECTOR_BY_GENOME["${genome_id}"]="${detector_profile:-antismash+funbgcex}"
+    fi
+    ROUTE_SOURCE_BY_GENOME["${genome_id}"]="${taxon_source:-legacy_default}"
+    ROUTE_STATUS_BY_GENOME["${genome_id}"]="${route_status:-routed}"
+    ROUTE_MANIFEST_ACTIVE=1
+  done < "${GENOME_TAXON_MANIFEST}"
+  if [[ "${ROUTE_MANIFEST_ACTIVE}" -eq 0 ]]; then
+    HAS_FUNGAL_ROUTES=1
+  fi
+}
+
+route_taxon_for_genome() {
+  printf '%s\n' "${ROUTE_TAXON_BY_GENOME[$1]:-fungi}"
+}
+
+route_root_for_genome() {
+  printf '%s\n' "${ROUTE_ROOT_BY_GENOME[$1]:-${FUNGI_GENOME_ROOT}}"
+}
+
+route_prediction_for_genome() {
+  local genome_id="$1"
+  local taxon_group=""
+  taxon_group="$(route_taxon_for_genome "${genome_id}")"
+  printf '%s\n' "${ROUTE_PREDICTION_BY_GENOME[${genome_id}]:-$([[ "${taxon_group}" == "bacteria" ]] && printf prodigal || printf funannotate)}"
+}
+
+route_detector_for_genome() {
+  local genome_id="$1"
+  local taxon_group=""
+  taxon_group="$(route_taxon_for_genome "${genome_id}")"
+  printf '%s\n' "${ROUTE_DETECTOR_BY_GENOME[${genome_id}]:-$([[ "${taxon_group}" == "bacteria" ]] && printf antismash || printf antismash+funbgcex)}"
+}
+
+route_source_for_genome() {
+  printf '%s\n' "${ROUTE_SOURCE_BY_GENOME[$1]:-legacy_default}"
+}
+
+route_status_for_genome() {
+  printf '%s\n' "${ROUTE_STATUS_BY_GENOME[$1]:-routed}"
+}
+
+mapping_file_for_taxon() {
+  local taxon_group="$1"
+  if [[ "${taxon_group}" == "bacteria" ]]; then
+    printf '%s\n' "${BACTERIA_GENOME_ROOT}/accessions_bacteriaID_taxonomyID.txt"
+  else
+    printf '%s\n' "${FUNGI_GENOME_ROOT}/accessions_fungusID_taxonomyID.txt"
+  fi
+}
 
 genome_stem_has_file() {
   local stem="$1"
+  local root="${2:-${GENOME_ROOT}}"
   local ext
   for ext in fna fa fsa fasta gb gbk gbff; do
-    [[ -s "${GENOME_ROOT}/${stem}.${ext}" ]] && return 0
+    [[ -s "${root}/${stem}.${ext}" ]] && return 0
   done
   return 1
 }
@@ -834,7 +1377,7 @@ funannotate_busco_db_available() {
   esac
 
   if [[ "${use_docker}" -eq 1 ]]; then
-    docker_exec "$(docker_image_from_uri "${FUNANNOTATE_IMAGE_URI}")" sh -lc \
+    CLUSTERWEAVE_CHILD_DOCKER_CPUS=1 docker_exec "$(docker_image_from_uri "${FUNANNOTATE_IMAGE_URI}")" sh -lc \
       'db="$1"; base="${FUNANNOTATE_DB:-/opt/databases}"; test -d "${base}/${db}/hmms" && find "${base}/${db}/hmms" -type f -print -quit | grep -q .' \
       sh "${db}" >/dev/null 2>&1
     return $?
@@ -891,7 +1434,9 @@ validate_funannotate_busco_db() {
 funannotate_predict_failed_in_p2g() {
   local fun_log="$1"
   [[ -s "${fun_log}" ]] || return 1
-  grep -Eq 'protein_alignments\.gff3|funannotate-p2g\.py|CMD ERROR: diamond blastx|p2g\.diamond' "${fun_log}"
+  grep -Eiq \
+    'CMD ERROR:[[:space:]]*diamond blastx|funannotate-p2g\.py.*(error|failed|exception|traceback)|p2g\.diamond.*(error|failed|missing|no such file)|protein_alignments\.gff3.*(error|failed|missing|no such file)|(error|failed|exception|traceback|missing|no such file).*(funannotate-p2g\.py|p2g\.diamond|protein_alignments\.gff3)' \
+    "${fun_log}"
 }
 
 funannotate_predict_failure_status() {
@@ -918,6 +1463,49 @@ funannotate_predict_failure_status() {
   else
     printf 'funannotate_training_models_insufficient\ttraining_models=%s required_training_models=%s\n' "${training_models}" "${required_models}"
   fi
+}
+
+funannotate_normalize_min_training_models_fallback() {
+  local value="${1:-150}"
+  case "${value}" in
+    ''|*[!0-9]*) value=150 ;;
+    *)
+      value="$(printf '%s\n' "${value}" | sed -E 's/^0+//')"
+      [[ -n "${value}" ]] || value=0
+      if [[ "${#value}" -gt 3 ]]; then
+        value=200
+      fi
+      ;;
+  esac
+  if (( value < 100 )); then
+    value=100
+  elif (( value >= 200 )); then
+    value=199
+  fi
+  printf '%s\n' "${value}"
+}
+
+funannotate_busco_training_fallback_threshold() {
+  local fun_log="$1"
+  local parsed=""
+  local status=""
+  local detail=""
+  local validated_models=""
+  local required_models=""
+  local fallback_floor=""
+
+  parsed="$(funannotate_predict_failure_status "${fun_log}" || true)"
+  [[ -n "${parsed}" ]] || return 1
+  IFS=$'\t' read -r status detail <<< "${parsed}"
+  [[ "${status}" == "funannotate_busco_training_insufficient" ]] || return 1
+
+  validated_models="$(printf '%s\n' "${detail}" | grep -Eo 'validated_busco_models=[0-9]+' | tail -n1 | cut -d= -f2 || true)"
+  required_models="$(printf '%s\n' "${detail}" | grep -Eo 'required_training_models=[0-9]+' | tail -n1 | cut -d= -f2 || true)"
+  [[ "${validated_models}" =~ ^[0-9]+$ && "${required_models}" =~ ^[0-9]+$ ]] || return 1
+
+  fallback_floor="$(funannotate_normalize_min_training_models_fallback "${FUNANNOTATE_MIN_TRAINING_MODELS_FALLBACK:-150}")"
+  (( validated_models >= fallback_floor && required_models > fallback_floor )) || return 1
+  printf '%s\n' "${fallback_floor}"
 }
 
 funannotate_record_predict_failure() {
@@ -950,7 +1538,11 @@ should_skip_discovered_stem() {
 }
 
 discover_stems() {
-  find "${GENOME_ROOT}" -maxdepth 1 -type f \
+  if [[ "${ROUTE_MANIFEST_ACTIVE}" -eq 1 ]]; then
+    printf '%s\n' "${!ROUTE_TAXON_BY_GENOME[@]}" | LC_ALL=C sort
+    return 0
+  fi
+  find "${FUNGI_GENOME_ROOT}" -maxdepth 1 -type f \
     \( -iname "*.fa" -o -iname "*.fna" -o -iname "*.fsa" -o -iname "*.fasta" -o -iname "*.gb" -o -iname "*.gbk" -o -iname "*.gbff" \) \
     -printf "%f\n" 2>/dev/null \
   | sed -E 's/\.(fa|fna|fsa|fasta|gb|gbk|gbff)$//' \
@@ -963,7 +1555,8 @@ discover_stems() {
 
 resolve_fasta_for_stem() {
   local stem="$1"
-  local cands=( "${GENOME_ROOT}/${stem}.fna" "${GENOME_ROOT}/${stem}.fa" "${GENOME_ROOT}/${stem}.fsa" "${GENOME_ROOT}/${stem}.fasta" )
+  local root="${2:-${GENOME_ROOT}}"
+  local cands=( "${root}/${stem}.fna" "${root}/${stem}.fa" "${root}/${stem}.fsa" "${root}/${stem}.fasta" )
   local f
   for f in "${cands[@]}"; do [[ -s "${f}" ]] && { echo "${f}"; return 0; }; done
   return 1
@@ -971,7 +1564,8 @@ resolve_fasta_for_stem() {
 
 resolve_genbank_for_stem() {
   local stem="$1"
-  local cands=( "${GENOME_ROOT}/${stem}.gbk" "${GENOME_ROOT}/${stem}.gb" "${GENOME_ROOT}/${stem}.gbff" )
+  local root="${2:-${GENOME_ROOT}}"
+  local cands=( "${root}/${stem}.gbk" "${root}/${stem}.gb" "${root}/${stem}.gbff" )
   local f
   for f in "${cands[@]}"; do [[ -s "${f}" ]] && { echo "${f}"; return 0; }; done
   return 1
@@ -983,13 +1577,23 @@ resolve_genbank_for_stem() {
 gbk_has_cds_and_translation() {
   local gbk="$1"
   [[ -s "${gbk}" ]] || return 1
-  grep -q "^[[:space:]]\+CDS[[:space:]]" "${gbk}" && grep -q "/translation=" "${gbk}"
+  [[ -s "${GENBANK_TRANSLATION_CHECKER}" ]] || return 1
+  "${VENV_PY}" "${GENBANK_TRANSLATION_CHECKER}" "${gbk}" >/dev/null 2>&1
 }
 
 gbk_has_cds() {
   local gbk="$1"
   [[ -s "${gbk}" ]] || return 1
-  grep -q "^[[:space:]]\+CDS[[:space:]]" "${gbk}"
+  awk '
+    /^LOCUS[[:space:]]/ { loci++ }
+    /^[[:space:]]+CDS[[:space:]]/ { cds=1 }
+    /^\/\/[[:space:]\r]*$/ { terminators++ }
+    NF { last=$0 }
+    END {
+      sub(/\r$/, "", last)
+      exit !(cds && loci > 0 && terminators == loci && last ~ /^\/\/[[:space:]]*$/)
+    }
+  ' "${gbk}"
 }
 
 backfill_gbk_translations_from_existing_cds() {
@@ -1333,10 +1937,22 @@ ensure_funbgcex_runtime() {
 funbgcex_python_exec() {
   case "${FUNBGCEX_RUNTIME}" in
     sif) sing_exec "${FUNBGCEX_SIF}" "${FUNBGCEX_PYTHON_CMD}" "$@" ;;
-    docker) docker_exec "${FUNBGCEX_DOCKER_IMAGE}" "${FUNBGCEX_PYTHON_CMD}" "$@" ;;
+    docker) CLUSTERWEAVE_CHILD_DOCKER_CPUS=1 docker_exec "${FUNBGCEX_DOCKER_IMAGE}" "${FUNBGCEX_PYTHON_CMD}" "$@" ;;
     host) "${FUNBGCEX_PYTHON_CMD}" "$@" ;;
     *) die "FunBGCeX runtime not configured before python exec" ;;
   esac
+}
+
+antismash_input_python_exec() {
+  # The Docker worker is built from the pinned antiSMASH image and already
+  # carries Biopython plus this repository. A sibling FunBGCeX container sees
+  # the named /data volume but cannot see the worker-only /clusterweave path,
+  # so preparation helpers must run in the worker process in Docker mode.
+  if [[ "${ENGINE}" == "docker" ]]; then
+    "$(resolve_python_cmd)" "$@"
+  else
+    funbgcex_python_exec "$@"
+  fi
 }
 
 run_funbgcex_cli() {
@@ -1353,7 +1969,7 @@ run_funbgcex_cli() {
       "
       ;;
     docker)
-      docker_exec "${FUNBGCEX_DOCKER_IMAGE}" run_funbgcex "${gbk_dir}" "${out_dir}" "${WORKERS}"
+      CLUSTERWEAVE_CHILD_DOCKER_CPUS="${WORKERS}" docker_exec "${FUNBGCEX_DOCKER_IMAGE}" run_funbgcex "${gbk_dir}" "${out_dir}" "${WORKERS}"
       ;;
     host)
       CUDA_VISIBLE_DEVICES="" TF_CPP_MIN_LOG_LEVEL=2 "${FUNBGCEX_CMD}" "${gbk_dir}" "${out_dir}" --workers "${WORKERS}"
@@ -1430,8 +2046,12 @@ ensure_primary_tooling() {
     ensure_sif_or_prompt_pull "antiSMASH" "${ANTISMASH_SIF}" "${ANTISMASH_IMAGE_URI}" \
       || die "antiSMASH is required but unavailable. Provide ANTISMASH_SIF or allow pulling from ${ANTISMASH_IMAGE_URI}."
   fi
-  ensure_funbgcex_runtime \
-    || die "FunBGCeX is required but unavailable. Provide FUNBGCEX_SIF manually or fix the repo-local SIF build path."
+  if [[ "${HAS_FUNGAL_ROUTES}" -eq 1 ]]; then
+    ensure_funbgcex_runtime \
+      || die "FunBGCeX is required for fungal routes but unavailable. Provide FUNBGCEX_SIF manually or fix the repo-local SIF build path."
+  else
+    log "Skipping FunBGCeX runtime bootstrap: no fungal routes are present."
+  fi
 }
 
 ensure_annotation_tooling() {
@@ -1526,7 +2146,7 @@ run_braker3_to_gbk() {
   log "${genome_id}: trying BRAKER3 annotation (outdir=${braker_out})"
 
   if [[ "${ENGINE}" == "docker" ]]; then
-    if ! docker_exec "$(docker_image_from_uri "${BRAKER_IMAGE_URI}")" braker.pl --genome "${fasta}" "${ev_args[@]}" --workingdir "${braker_out}" --species "${braker_species}" --fungus --gff3 --threads "${ANNO_CPUS}" >> "${braker_log}" 2>&1; then
+    if ! CLUSTERWEAVE_CHILD_DOCKER_CPUS="${ANNO_CPUS}" docker_exec "$(docker_image_from_uri "${BRAKER_IMAGE_URI}")" braker.pl --genome "${fasta}" "${ev_args[@]}" --workingdir "${braker_out}" --species "${braker_species}" --fungus --gff3 --threads "${ANNO_CPUS}" >> "${braker_log}" 2>&1; then
       warn "${genome_id}: BRAKER3 failed (see ${braker_log})"
       return 2
     fi
@@ -1709,11 +2329,11 @@ run_funannotate_predict_to_gbk() {
   log "${genome_id}: running funannotate prepare workflow (sort + clean)"
   tool_activity_emit_progress "${genome_id}" "funannotate" "prepare" "Preparing assembly"
   if [[ "${use_docker}" -eq 1 ]]; then
-    if ! docker_exec "$(docker_image_from_uri "${FUNANNOTATE_IMAGE_URI}")" "${fun_cmd}" sort -i "${fasta}" -o "${sorted_fa}" --minlen 500 >> "${fun_log}" 2>&1; then
+    if ! CLUSTERWEAVE_CHILD_DOCKER_CPUS="${ANNO_CPUS}" docker_exec "$(docker_image_from_uri "${FUNANNOTATE_IMAGE_URI}")" "${fun_cmd}" sort -i "${fasta}" -o "${sorted_fa}" --minlen 500 >> "${fun_log}" 2>&1; then
       warn "${genome_id}: funannotate sort failed (see ${fun_log})"
       return 2
     fi
-    if ! docker_exec "$(docker_image_from_uri "${FUNANNOTATE_IMAGE_URI}")" "${fun_cmd}" clean -i "${sorted_fa}" -o "${cleaned_fa}" -m 500 >> "${fun_log}" 2>&1; then
+    if ! CLUSTERWEAVE_CHILD_DOCKER_CPUS="${ANNO_CPUS}" docker_exec "$(docker_image_from_uri "${FUNANNOTATE_IMAGE_URI}")" "${fun_cmd}" clean -i "${sorted_fa}" -o "${cleaned_fa}" -m 500 >> "${fun_log}" 2>&1; then
       warn "${genome_id}: funannotate clean failed; using sorted FASTA for predict"
       cp -f "${sorted_fa}" "${cleaned_fa}"
     fi
@@ -1749,7 +2369,7 @@ run_funannotate_predict_to_gbk() {
     log "${genome_id}: trying funannotate predict (${attempt_label}, outdir=${fun_run})"
     tool_activity_emit_progress "${genome_id}" "funannotate" "predict" "Predicting genes"
     if [[ "${use_docker}" -eq 1 ]]; then
-      run_tool_with_activity "${genome_id}" "funannotate" "predict" "${fun_log}" "${fun_log}" docker_exec "$(docker_image_from_uri "${FUNANNOTATE_IMAGE_URI}")" "${fun_cmd}" predict -i "${predict_fa}" -o "${fun_run}" --species "${species_name}" --organism fungus --busco_db "${busco_db}" "${fun_predict_extra[@]}" "${attempt_extra[@]}" --cpus "${ANNO_CPUS}" --name "${safe_name}_" --tmpdir "${fun_tmp}" --force
+      CLUSTERWEAVE_CHILD_DOCKER_CPUS="${ANNO_CPUS}" run_tool_with_activity "${genome_id}" "funannotate" "predict" "${fun_log}" "${fun_log}" docker_exec "$(docker_image_from_uri "${FUNANNOTATE_IMAGE_URI}")" "${fun_cmd}" predict -i "${predict_fa}" -o "${fun_run}" --species "${species_name}" --organism fungus --busco_db "${busco_db}" "${fun_predict_extra[@]}" "${attempt_extra[@]}" --cpus "${ANNO_CPUS}" --name "${safe_name}_" --tmpdir "${fun_tmp}" --force
     elif [[ "${use_sif}" -eq 1 ]]; then
       run_tool_with_activity "${genome_id}" "funannotate" "predict" "${fun_log}" "${fun_log}" sing_exec "${FUNANNOTATE_SIF}" "${fun_cmd}" predict -i "${predict_fa}" -o "${fun_run}" --species "${species_name}" --organism fungus --busco_db "${busco_db}" "${fun_predict_extra[@]}" "${attempt_extra[@]}" --cpus "${ANNO_CPUS}" --name "${safe_name}_" --tmpdir "${fun_tmp}" --force
     else
@@ -1757,22 +2377,44 @@ run_funannotate_predict_to_gbk() {
     fi
   }
 
-  if ! funannotate_predict_attempt "standard"; then
-    if [[ "${FUNANNOTATE_RETRY_WITHOUT_PROTEIN_EVIDENCE}" == "1" ]] && funannotate_predict_failed_in_p2g "${fun_log}"; then
+  local predict_succeeded=0
+  local training_fallback_floor=""
+  local -a training_retry_args=()
+  if funannotate_predict_attempt "standard"; then
+    predict_succeeded=1
+  else
+    # Classify the structured AUGUSTUS/BUSCO failure before considering the
+    # independent protein-to-genome retry. A bare protein_alignments.gff3 path
+    # in normal funannotate output is not evidence of a p2g failure.
+    if training_fallback_floor="$(funannotate_busco_training_fallback_threshold "${fun_log}")"; then
+      training_retry_args=(--min_training_models "${training_fallback_floor}")
+      warn "${genome_id}: validated BUSCO models meet the bounded fallback floor; retrying funannotate with --min_training_models ${training_fallback_floor}"
+      if funannotate_predict_attempt "reduced-training-model-threshold" "${training_retry_args[@]}"; then
+        predict_succeeded=1
+      fi
+    fi
+
+    if [[ "${predict_succeeded}" -eq 0 && "${FUNANNOTATE_RETRY_WITHOUT_PROTEIN_EVIDENCE}" == "1" ]] && funannotate_predict_failed_in_p2g "${fun_log}"; then
       warn "${genome_id}: funannotate protein-to-genome evidence mapping failed; retrying without default UniProt protein-to-genome evidence"
       printf '%s\n' '##gff-version 3' > "${no_protein_alignments}"
-      if ! funannotate_predict_attempt "no-protein-evidence" --protein_alignments "${no_protein_alignments}"; then
-        rsync -a --delete "${fun_run}/" "${fun_out}/" >/dev/null 2>&1 || true
-        funannotate_record_predict_failure "${genome_id}" "${fun_log}" "${busco_db}" "${FUNANNOTATE_RESOLVED_SOURCE}"
-        warn "${genome_id}: funannotate predict failed after no-protein-evidence retry (see ${fun_log})"
-        return 2
+      if [[ -n "${training_fallback_floor}" ]]; then
+        if funannotate_predict_attempt "reduced-training-and-no-protein-evidence" "${training_retry_args[@]}" --protein_alignments "${no_protein_alignments}"; then
+          predict_succeeded=1
+        fi
+      elif funannotate_predict_attempt "no-protein-evidence" --protein_alignments "${no_protein_alignments}"; then
+        predict_succeeded=1
       fi
-    else
-      rsync -a --delete "${fun_run}/" "${fun_out}/" >/dev/null 2>&1 || true
-      funannotate_record_predict_failure "${genome_id}" "${fun_log}" "${busco_db}" "${FUNANNOTATE_RESOLVED_SOURCE}"
-      warn "${genome_id}: funannotate predict failed (see ${fun_log})"
-      return 2
     fi
+  fi
+
+  if [[ "${predict_succeeded}" -eq 0 ]]; then
+    rsync -a --delete "${fun_run}/" "${fun_out}/" >/dev/null 2>&1 || true
+    funannotate_record_predict_failure "${genome_id}" "${fun_log}" "${busco_db}" "${FUNANNOTATE_RESOLVED_SOURCE}"
+    if [[ -n "${training_fallback_floor}" && -n "${FUNANNOTATE_LAST_FAILURE_DETAIL}" ]]; then
+      FUNANNOTATE_LAST_FAILURE_DETAIL="${FUNANNOTATE_LAST_FAILURE_DETAIL} fallback_min_training_models=${training_fallback_floor}"
+    fi
+    warn "${genome_id}: funannotate predict failed after eligible bounded retries (see ${fun_log})"
+    return 2
   fi
 
   pred_gbk="$(find "${fun_run}" -type f -path '*/predict_results/*.gbk' | head -n1)"
@@ -1834,12 +2476,14 @@ annotate_genome_with_fallbacks() {
           warn "${genome_id}: BRAKER3 disabled (BRAKER3_ENABLED=0); skipping braker3 fallback."
           continue
         fi
+        genome_annotation_decision "${genome_id}" "yes" "braker3" "BRAKER3 annotation required"
         if run_braker3_to_gbk "${genome_id}" "${fasta}" "${out_gbk}"; then
           ANNOTATION_FALLBACK_METHOD="braker3"
           return 0
         fi
         ;;
       funannotate)
+        genome_annotation_decision "${genome_id}" "yes" "funannotate" "Funannotate annotation required"
         if run_funannotate_predict_to_gbk "${genome_id}" "${fasta}" "${out_gbk}"; then
           ANNOTATION_FALLBACK_METHOD="funannotate"
           return 0
@@ -1862,7 +2506,6 @@ annotate_genome_with_fallbacks() {
 # antiSMASH flag helper (unchanged from your script)
 ###############################################################################
 ANTISMASH_FLAGS_CANDIDATES=(
-  --taxon fungi
   --verbose
   --fullhmmer
   --asf
@@ -1876,29 +2519,21 @@ ANTISMASH_FLAGS_CANDIDATES=(
   --smcog-trees
   --tfbs
   --rre
-  --genefinding-tool none
+  --allow-long-headers
 )
 
 antismash_supported_flags() {
+  local taxon_group="${1:-fungi}"
+  local genefinding_tool="${2:-none}"
   local help
   help="$(antismash_exec antismash --help-showall 2>&1 || true)"
 
-  local out=()
+  # antiSMASH 8.0.4 supports both arguments and they define the scientific
+  # prediction route, so never silently omit them.
+  local out=(--taxon "${taxon_group}" --genefinding-tool "${genefinding_tool}")
   local i=0
   while [[ $i -lt ${#ANTISMASH_FLAGS_CANDIDATES[@]} ]]; do
     local tok="${ANTISMASH_FLAGS_CANDIDATES[$i]}"
-    if [[ "${tok}" == "--taxon" ]]; then
-      local val="${ANTISMASH_FLAGS_CANDIDATES[$((i+1))]:-}"
-      if grep -Fq -- "--taxon" <<< "${help}"; then out+=("--taxon" "${val}"); fi
-      i=$((i+2)); continue
-    fi
-
-    if [[ "${tok}" == "--genefinding-tool" ]]; then
-      local val="${ANTISMASH_FLAGS_CANDIDATES[$((i+1))]:-}"
-      if grep -Fq -- "--genefinding-tool" <<< "${help}"; then out+=("--genefinding-tool" "${val}"); fi
-      i=$((i+2)); continue
-    fi
-
     if [[ "${tok}" == --* ]]; then
       if grep -Fq -- "${tok}" <<< "${help}"; then out+=("${tok}"); fi
     fi
@@ -1914,33 +2549,29 @@ antismash_supported_flags() {
 antismash_done() {
   local outdir="$1"
   [[ -d "${outdir}" ]] || return 1
-  [[ -f "${outdir}/.done" ]] && return 0
+  [[ -f "${outdir}/.done" ]] || return 1
   [[ -s "${outdir}/index.html" ]] || return 1
 
-  # Legacy runs did not always write .done. Require browseable antiSMASH output,
-  # not just interrupted region GBKs, before skipping a rerun.
-  if find "${outdir}" -maxdepth 3 -type f \( -name "regions.js" -o -name "*.antismash.json" -o -name "overview*.js" \) 2>/dev/null | grep -q .; then
+  # The marker is written only after a successful process and assembled output.
+  # Also require browseable antiSMASH state, not interrupted region GBKs alone.
+  if [[ -n "$(find "${outdir}" -maxdepth 3 -type f \( -name "regions.js" -o -name "*.antismash.json" -o -name "overview*.js" \) -print -quit 2>/dev/null)" ]]; then
     return 0
   fi
   return 1
 }
 
-funbgcex_done() {
+funbgcex_outputs_valid() {
   local outdir="$1"
   [[ -d "${outdir}" ]] || return 1
-  [[ -f "${outdir}/.done" ]] && return 0
+  [[ -n "$(find "${outdir}" -maxdepth 4 -type f \
+    \( -name "allBGCs.csv" -o -name "allBGCs.html" -o -name "BGCs.csv" -o -name "results.html" \) \
+    -size +0c -print -quit 2>/dev/null)" ]]
+}
 
-  # Treat as done if the key FunBGCeX outputs exist
-  if [[ -s "${outdir}/allBGCs.csv"  ]]; then return 0; fi
-  if [[ -s "${outdir}/allBGCs.html" ]]; then return 0; fi
-  if [[ -s "${outdir}/funbgcex_in.log" ]]; then return 0; fi
-
-  # Fallback: any CSV/HTML/log in the top-level output dir (covers minor naming changes)
-  if find "${outdir}" -maxdepth 1 -type f \( -iname "*.csv" -o -iname "*.html" -o -iname "*.log" \) 2>/dev/null | grep -q .; then
-    return 0
-  fi
-
-  return 1
+funbgcex_done() {
+  local outdir="$1"
+  [[ -f "${outdir}/.done" ]] || return 1
+  funbgcex_outputs_valid "${outdir}"
 }
 
 ###############################################################################
@@ -2005,115 +2636,517 @@ PY
 }
 
 
+list_genbank_record_ids() {
+  local gbk="$1"
+  local min_record_bp="${2:-${ANTISMASH_MIN_RECORD_BP:-1000}}"
+  funbgcex_python_exec - "${gbk}" "${min_record_bp}" <<'PY'
+import sys
+from Bio import SeqIO
+
+path = sys.argv[1]
+min_record_bp = int(sys.argv[2])
+if min_record_bp < 1:
+    raise RuntimeError(f"Invalid antiSMASH minimum record length: {min_record_bp}")
+seen = set()
+for record in SeqIO.parse(path, "genbank"):
+    record_id = str(record.id or record.name or "").strip()
+    if not record_id or "\t" in record_id or "\n" in record_id or "\r" in record_id:
+        raise RuntimeError(f"Invalid GenBank record ID in {path}: {record_id!r}")
+    if record_id in seen:
+        raise RuntimeError(f"Duplicate GenBank record ID in {path}: {record_id}")
+    seen.add(record_id)
+    if len(record.seq) < min_record_bp:
+        continue
+    print(record_id)
+PY
+}
+
+
+safe_antismash_record_id() {
+  local record_id="${1:-record}"
+  local safe_id=""
+  safe_id="$(printf '%s' "${record_id}" | LC_ALL=C tr -c 'A-Za-z0-9._-' '_')"
+  safe_id="${safe_id:0:120}"
+  case "${safe_id}" in
+    ""|.|..) safe_id="record" ;;
+  esac
+  if [[ "${safe_id}" == -* || "${safe_id}" == .* ]]; then
+    safe_id="record_${safe_id}"
+  fi
+  printf '%s\n' "${safe_id}"
+}
+
+
+antismash_record_ids_are_stable() {
+  local record_ids_file="$1"
+  local record_id=""
+  local safe_record_id=""
+
+  ANTISMASH_UNSTABLE_RECORD_ID=""
+  ANTISMASH_UNSTABLE_SAFE_ID=""
+  while IFS= read -r record_id || [[ -n "${record_id}" ]]; do
+    safe_record_id="$(safe_antismash_record_id "${record_id}")"
+    if [[ "${safe_record_id}" != "${record_id}" ]]; then
+      ANTISMASH_UNSTABLE_RECORD_ID="${record_id}"
+      ANTISMASH_UNSTABLE_SAFE_ID="${safe_record_id}"
+      return 1
+    fi
+  done < "${record_ids_file}"
+}
+
+antismash_public_failure_message() {
+  local error_log="${1:-}"
+  local record_id=""
+  if [[ -s "${error_log}" ]] && grep -qi 'location contains overlapping exons' "${error_log}"; then
+    record_id="$(sed -nE 's/^([A-Za-z0-9_.-]+): location contains overlapping exons.*$/\1/p' "${error_log}" | head -n1)"
+    if [[ -n "${record_id}" ]]; then
+      printf 'antiSMASH rejected record %s: overlapping exon coordinates in an annotated feature\n' "${record_id}"
+    else
+      printf 'antiSMASH rejected an annotated feature with overlapping exon coordinates\n'
+    fi
+  elif [[ -s "${error_log}" ]] && grep -Eqi 'no space left on device|disk quota exceeded' "${error_log}"; then
+    printf 'antiSMASH could not write its results because storage was exhausted\n'
+  elif [[ -s "${error_log}" ]] && grep -Eqi 'out of memory|cannot allocate memory|killed' "${error_log}"; then
+    printf 'antiSMASH exceeded the available memory for this genome\n'
+  elif [[ -s "${error_log}" ]] && grep -Eqi 'invalid.*(genbank|location|feature)|malformed.*(genbank|location|feature)' "${error_log}"; then
+    printf 'antiSMASH rejected an invalid GenBank annotation feature\n'
+  else
+    printf 'antiSMASH exited before producing a valid result; verify the assembly annotations and retry\n'
+  fi
+}
+
+
 sanitize_antismash_duplicate_cds_locations() {
   local in_gbk="$1"
   local out_gbk="$2"
   local genome_id="${3:-genome}"
 
-  funbgcex_python_exec - "$in_gbk" "$out_gbk" "$genome_id" <<'PY'
+  antismash_input_python_exec "${ANTISMASH_INPUT_PREPARER}" sanitize \
+    "${in_gbk}" "${out_gbk}" --genome-id "${genome_id}"
+}
+
+run_antismash_record_shard() {
+  local genome_id="$1"
+  local ant_input="$2"
+  local record_id="$3"
+  local safe_record_id="$4"
+  local ordinal="$5"
+  local total_records="$6"
+  local shard_dir="$7"
+  local row_file="$8"
+  local stdout_log="$9"
+  local stderr_log="${10}"
+  local started_at finished_at elapsed region_count status rc start_percent end_percent compactor_python
+
+  mkdir -p "${shard_dir}"
+  started_at="$(date +%s)"
+  start_percent=$(((ordinal - 1) * 100 / total_records))
+  end_percent=$((ordinal * 100 / total_records))
+  antismash_record_progress "${genome_id}" "${record_id}" "${ordinal}" "${total_records}" "${start_percent}" "Starting antiSMASH record shard"
+
+  rc=0
+  status="ok"
+  if CLUSTERWEAVE_CHILD_DOCKER_CPUS="${ANTISMASH_SHARD_CPUS}" run_tool_with_activity "${genome_id}" "antismash" "record_${ordinal}" "${stdout_log}" "${stderr_log}" antismash_exec antismash \
+      "${ant_input}" \
+      --minlength "${ANTISMASH_MIN_RECORD_BP}" \
+      --output-dir "${shard_dir}" \
+      --output-basename "${safe_record_id}" \
+      --cpus "${ANTISMASH_SHARD_CPUS}" \
+      "${ANT_FLAGS_ARRAY[@]}"; then
+    compactor_python="$(resolve_python_cmd)"
+    if "${compactor_python}" "${ANTISMASH_SHARD_COMPACTOR}" \
+        --shard-dir "${shard_dir}" \
+        --record-id "${record_id}" \
+        --json-name "${safe_record_id}.json" \
+        --retain "${ANTISMASH_RETAIN_SHARD_WORK}" \
+        >> "${stdout_log}" 2>> "${stderr_log}"; then
+      antismash_record_progress "${genome_id}" "${record_id}" "${ordinal}" "${total_records}" "${end_percent}" "antiSMASH record shard complete"
+    else
+      rc=$?
+      status="failed"
+      antismash_record_progress "${genome_id}" "${record_id}" "${ordinal}" "${total_records}" "${end_percent}" "antiSMASH record shard compaction failed"
+    fi
+  else
+    rc=$?
+    status="failed"
+    antismash_record_progress "${genome_id}" "${record_id}" "${ordinal}" "${total_records}" "${end_percent}" "antiSMASH record shard failed"
+  fi
+
+  finished_at="$(date +%s)"
+  elapsed=$((finished_at - started_at))
+  region_count="$(find "${shard_dir}" -type f -name '*region*.gbk' -print 2>/dev/null | wc -l | tr -d '[:space:]')"
+  region_count="${region_count:-0}"
+  if ! printf '%s\t%s\t%s\t%s\t%s\n' \
+      "${record_id}" "${shard_dir}" "${status}" "${elapsed}" "${region_count}" > "${row_file}"; then
+    return 1
+  fi
+  return "${rc}"
+}
+
+merge_antismash_shard_jsons() {
+  local output_json="$1"
+  local python_cmd=""
+  shift
+  [[ "$#" -gt 0 ]] || return 1
+  if declare -F resolve_python_cmd >/dev/null 2>&1; then
+    python_cmd="$(resolve_python_cmd)" || return 1
+  elif command -v python3 >/dev/null 2>&1; then
+    python_cmd="python3"
+  elif command -v python >/dev/null 2>&1; then
+    python_cmd="python"
+  else
+    return 1
+  fi
+  "${python_cmd}" - "${output_json}" "$@" <<'PY'
+import json
+import os
 import sys
-from collections import defaultdict
-from Bio import SeqIO
-from Bio.SeqFeature import CompoundLocation
 
-inp, outp, genome_id = sys.argv[1], sys.argv[2], sys.argv[3]
+output_path = sys.argv[1]
+record_and_path_args = sys.argv[2:]
+if len(record_and_path_args) % 2:
+    raise RuntimeError("antiSMASH shard JSON merge requires record/path pairs")
+merged = None
+merged_records = []
+merged_timings = {}
 
-
-def location_key(location):
-    if isinstance(location, CompoundLocation):
-        operator = getattr(location, "operator", "join") or "join"
-        return f"{operator}(" + ",".join(location_key(part) for part in location.parts) + ")"
-    ref = getattr(location, "ref", None) or ""
-    ref_db = getattr(location, "ref_db", None) or ""
-    strand = getattr(location, "strand", None)
-    return f"{ref}:{ref_db}:{int(location.start)}:{int(location.end)}:{strand}"
-
-
-def has_translation(feature):
-    qualifiers = feature.qualifiers or {}
-    return any(str(value).strip() for value in qualifiers.get("translation", []))
-
-
-def qualifier_label(feature):
-    qualifiers = feature.qualifiers or {}
-    labels = []
-    for key in ("locus_tag", "protein_id", "ID", "gene"):
-        values = qualifiers.get(key, [])
-        for value in values:
-            text = str(value).strip()
-            if text:
-                labels.append(f"{key}:{text}")
-                break
-    return ",".join(labels) if labels else "unlabeled_cds"
-
-
-records = []
-total_records = 0
-total_cds = 0
-dropped_duplicate_cds = 0
-duplicate_location_groups = set()
-examples = []
-
-for rec in SeqIO.parse(inp, "genbank"):
-    total_records += 1
-    rec.annotations.setdefault("molecule_type", "DNA")
-    keep_by_key = {}
-    dropped_indexes = set()
-    duplicate_counts = defaultdict(int)
-
-    for index, feature in enumerate(rec.features or []):
-        if feature.type != "CDS":
-            continue
-        total_cds += 1
-        key = (rec.id or rec.name or "record", location_key(feature.location))
-        duplicate_counts[key] += 1
-        if key not in keep_by_key:
-            keep_by_key[key] = index
-            continue
-
-        duplicate_location_groups.add(key)
-        kept_index = keep_by_key[key]
-        kept_feature = rec.features[kept_index]
-        if not has_translation(kept_feature) and has_translation(feature):
-            dropped_indexes.add(kept_index)
-            keep_by_key[key] = index
-            dropped_feature = kept_feature
-            kept_feature = feature
-        else:
-            dropped_indexes.add(index)
-            dropped_feature = feature
-
-        dropped_duplicate_cds += 1
-        if len(examples) < 5:
-            examples.append(
-                (
-                    rec.id or rec.name or "record",
-                    str(feature.location),
-                    qualifier_label(kept_feature),
-                    qualifier_label(dropped_feature),
-                )
-            )
-
-    if dropped_indexes:
-        rec.features = [
-            feature for index, feature in enumerate(rec.features or [])
-            if index not in dropped_indexes
+for offset in range(0, len(record_and_path_args), 2):
+    expected_record_id = record_and_path_args[offset]
+    input_path = record_and_path_args[offset + 1]
+    with open(input_path, encoding="utf-8") as handle:
+        document = json.load(handle)
+    if not isinstance(document, dict):
+        raise RuntimeError(f"antiSMASH shard JSON is not an object: {input_path}")
+    records = document.get("records")
+    if not isinstance(records, list) or not records:
+        raise RuntimeError(f"antiSMASH shard JSON has no records: {input_path}")
+    matching_records = [
+        record for record in records
+        if isinstance(record, dict) and (
+            str(record.get("id", "")) == expected_record_id
+            or str(record.get("original_id", "")) == expected_record_id
+        )
+    ]
+    if len(matching_records) != 1:
+        analysed_records = [
+            record for record in records
+            if isinstance(record, dict) and (record.get("areas") or record.get("modules"))
         ]
-    records.append(rec)
+        if len(analysed_records) == 1:
+            matching_records = analysed_records
+    if len(matching_records) != 1:
+        raise RuntimeError(
+            f"antiSMASH shard JSON did not contain exactly one target record "
+            f"{expected_record_id!r}: {input_path}"
+        )
+    if merged is None:
+        merged = document
+    merged_records.append(matching_records[0])
+    timings = document.get("timings", {})
+    if not isinstance(timings, dict):
+        raise RuntimeError(f"antiSMASH shard JSON timings is not an object: {input_path}")
+    merged_timings.update(timings)
 
-SeqIO.write(records, outp, "genbank")
-print(
-    f"{genome_id}: antismash_input_duplicate_cds_locations "
-    f"records={total_records} cds={total_cds} "
-    f"duplicate_location_groups={len(duplicate_location_groups)} "
-    f"dropped_duplicate_cds={dropped_duplicate_cds}"
-)
-for record_id, location, kept, dropped in examples:
-    print(
-        f"{genome_id}: dropped_duplicate_cds_example "
-        f"record={record_id} location={location} kept={kept} dropped={dropped}"
-    )
+if merged is None:
+    raise RuntimeError("No antiSMASH shard JSON documents were provided")
+merged["records"] = merged_records
+merged["timings"] = merged_timings
+temporary_path = output_path + ".tmp"
+with open(temporary_path, "w", encoding="utf-8") as handle:
+    json.dump(merged, handle, ensure_ascii=False, separators=(",", ":"))
+    handle.write("\n")
+os.replace(temporary_path, output_path)
 PY
+}
+
+render_antismash_shard_web_bundle() {
+  local genome_id="$1"
+  local canonical_json="$2"
+  local ant_out="$3"
+  local shard_root="$4"
+  local aggregate_stdout="$5"
+  local aggregate_stderr="$6"
+  local render_json="${shard_root}/assembled_web_results.json"
+  local render_dir="${shard_root}/assembled_web_bundle"
+  local region_record_count=""
+  local preparer_python=""
+
+  preparer_python="$(resolve_python_cmd)"
+  rm -rf "${render_dir}" "${render_json}" 2>/dev/null || true
+  region_record_count="$(
+    "${preparer_python}" "${ANTISMASH_WEB_RESULTS_PREPARER}" \
+      "${canonical_json}" "${render_json}" 2>> "${aggregate_stderr}"
+  )" || return 1
+  [[ "${region_record_count}" =~ ^[0-9]+$ ]] || return 1
+  if [[ "${region_record_count}" -eq 0 ]]; then
+    return 2
+  fi
+
+  log "${genome_id}: rendering complete antiSMASH web bundle from ${region_record_count} region-bearing record(s)"
+  if ! CLUSTERWEAVE_CHILD_DOCKER_CPUS="${ANTISMASH_SHARD_CPUS}" \
+      antismash_exec antismash \
+        --reuse-results "${render_json}" \
+        --output-dir "${render_dir}" \
+        --output-basename "${genome_id}" \
+        --cpus "${ANTISMASH_SHARD_CPUS}" \
+        >> "${aggregate_stdout}" 2>> "${aggregate_stderr}"; then
+    rm -rf "${render_dir}" "${render_json}" 2>/dev/null || true
+    return 1
+  fi
+  if [[ ! -s "${render_dir}/index.html" || ! -s "${render_dir}/regions.js" ]]; then
+    rm -rf "${render_dir}" "${render_json}" 2>/dev/null || true
+    return 1
+  fi
+  # Keep the already assembled canonical JSON and region GBKs byte-for-byte;
+  # only genuinely missing web-bundle files are copied into the result root.
+  cp -a -n "${render_dir}/." "${ant_out}/" || {
+    rm -rf "${render_dir}" "${render_json}" 2>/dev/null || true
+    return 1
+  }
+  # The sharded placeholder index is intentionally replaced by antiSMASH's
+  # real landing page; canonical JSON and assembled region GBKs remain intact.
+  cp -f "${render_dir}/index.html" "${ant_out}/index.html" || {
+    rm -rf "${render_dir}" "${render_json}" 2>/dev/null || true
+    return 1
+  }
+  rm -rf "${render_dir}" "${render_json}" 2>/dev/null || true
+  [[ -s "${ant_out}/index.html" && -s "${ant_out}/regions.js" ]]
+}
+
+html_escape() {
+  printf '%s' "${1:-}" | sed \
+    -e 's/&/\&amp;/g' \
+    -e 's/</\&lt;/g' \
+    -e 's/>/\&gt;/g' \
+    -e 's/"/\&quot;/g' \
+    -e "s/'/\\&#39;/g"
+}
+
+write_antismash_shard_index() {
+  local genome_id="$1"
+  local ant_out="$2"
+  local record_count="$3"
+  local region_count="$4"
+  local display_genome region_name display_region
+  display_genome="$(html_escape "$(safe_antismash_record_id "${genome_id}")")"
+
+  {
+    printf '%s\n' '<!doctype html>'
+    printf '%s\n' '<html lang="en"><head><meta charset="utf-8">'
+    printf '<title>antiSMASH record shards - %s</title></head><body>\n' "${display_genome}"
+    printf '<h1>antiSMASH results: %s</h1>\n' "${display_genome}"
+    printf '<p>Completed %s record shard(s); assembled %s region file(s).</p>\n' "${record_count}" "${region_count}"
+    printf '%s\n' '<p>Shard manifest: <code>shard_manifest.tsv</code></p>'
+    printf '%s\n' '<h2>Region GenBank files</h2><ul>'
+    while IFS= read -r region_name; do
+      [[ -n "${region_name}" ]] || continue
+      display_region="$(html_escape "${region_name}")"
+      printf '<li><code>%s</code></li>\n' "${display_region}"
+    done < <(find "${ant_out}" -maxdepth 1 -type f -name '*region*.gbk' -printf '%f\n' 2>/dev/null | LC_ALL=C sort)
+    printf '%s\n' '</ul></body></html>'
+  } > "${ant_out}/index.html"
+}
+
+cleanup_antismash_assembled_outputs() {
+  local ant_out="$1"
+  local canonical_json="$2"
+  find "${ant_out}" -maxdepth 1 -type f -name '*region*.gbk' -delete 2>/dev/null || true
+  rm -f \
+    "${canonical_json}" \
+    "${canonical_json}.tmp" \
+    "${ant_out}/index.html" \
+    "${ant_out}/.done" \
+    2>/dev/null || true
+}
+
+run_antismash_sharded() {
+  local genome_id="$1"
+  local ant_input="$2"
+  local ant_out="$3"
+  local record_ids_file="$4"
+  local shard_root="$5"
+  local aggregate_stdout="$6"
+  local aggregate_stderr="$7"
+  local total_records active_jobs shard_failure assembled_count
+  local index ordinal record_id base_safe safe_record_id suffix shard_input shard_dir row_file split_manifest
+  local shard_stdout shard_stderr row_status row_elapsed row_regions row_record row_dir
+  local region_file source_name destination_name destination collision expected_json canonical_json
+  local -a record_ids=() safe_record_ids=() shard_inputs=() shard_dirs=() row_files=() stdout_logs=() stderr_logs=()
+  local -a shard_json_args=() fallback_json_files=()
+  local -A used_safe_record_ids=()
+
+  mapfile -t record_ids < "${record_ids_file}"
+  total_records="${#record_ids[@]}"
+  canonical_json="${ant_out}/${genome_id}.antismash.json"
+  if [[ "${total_records}" -le 1 ]]; then
+    cleanup_antismash_assembled_outputs "${ant_out}" "${canonical_json}"
+    return 2
+  fi
+
+  rm -rf "${shard_root}" 2>/dev/null || true
+  mkdir -p "${shard_root}/manifest_rows" "${shard_root}/record_inputs"
+  : > "${aggregate_stdout}"
+  : > "${aggregate_stderr}"
+
+  for index in "${!record_ids[@]}"; do
+    ordinal=$((index + 1))
+    record_id="${record_ids[${index}]}"
+    base_safe="$(safe_antismash_record_id "${record_id}")"
+    safe_record_id="${base_safe}"
+    suffix=1
+    while [[ -n "${used_safe_record_ids[${safe_record_id}]+set}" ]]; do
+      suffix=$((suffix + 1))
+      safe_record_id="${base_safe}_${suffix}"
+    done
+    used_safe_record_ids["${safe_record_id}"]=1
+    shard_dir="${shard_root}/$(printf '%06d' "${ordinal}")_${safe_record_id}"
+    shard_input="${shard_root}/record_inputs/$(printf '%06d' "${ordinal}")_${safe_record_id}.gbk"
+    row_file="${shard_root}/manifest_rows/$(printf '%06d' "${ordinal}").tsv"
+    shard_stdout="${WORK_ROOT}/logs/${genome_id}.antismash.shard.$(printf '%06d' "${ordinal}").stdout.log"
+    shard_stderr="${WORK_ROOT}/logs/${genome_id}.antismash.shard.$(printf '%06d' "${ordinal}").stderr.log"
+    safe_record_ids+=("${safe_record_id}")
+    shard_inputs+=("${shard_input}")
+    shard_dirs+=("${shard_dir}")
+    row_files+=("${row_file}")
+    stdout_logs+=("${shard_stdout}")
+    stderr_logs+=("${shard_stderr}")
+  done
+
+  split_manifest="${shard_root}/record_inputs.tsv"
+  : > "${split_manifest}"
+  for index in "${!record_ids[@]}"; do
+    printf '%s\t%s\n' "${record_ids[${index}]}" "${shard_inputs[${index}]}" >> "${split_manifest}"
+  done
+  if ! antismash_input_python_exec "${ANTISMASH_INPUT_PREPARER}" split-records \
+      "${ant_input}" "${split_manifest}" >> "${aggregate_stdout}" 2>> "${aggregate_stderr}"; then
+    warn "${genome_id}: failed to isolate antiSMASH record inputs"
+    return 1
+  fi
+
+  active_jobs=0
+  shard_failure=0
+  for index in "${!record_ids[@]}"; do
+    ordinal=$((index + 1))
+    run_antismash_record_shard \
+      "${genome_id}" "${shard_inputs[${index}]}" "${record_ids[${index}]}" "${safe_record_ids[${index}]}" \
+      "${ordinal}" "${total_records}" "${shard_dirs[${index}]}" "${row_files[${index}]}" \
+      "${stdout_logs[${index}]}" "${stderr_logs[${index}]}" &
+    active_jobs=$((active_jobs + 1))
+    while [[ "${active_jobs}" -ge "${ANTISMASH_RECORD_PARALLELISM}" ]]; do
+      if ! wait_for_antismash_shard_job; then shard_failure=1; fi
+      active_jobs=$((active_jobs - 1))
+    done
+  done
+  while [[ "${active_jobs}" -gt 0 ]]; do
+    if ! wait_for_antismash_shard_job; then shard_failure=1; fi
+    active_jobs=$((active_jobs - 1))
+  done
+
+  for index in "${!record_ids[@]}"; do
+    printf '\n===== record %s (%s) =====\n' "$((index + 1))" "${record_ids[${index}]}" >> "${aggregate_stdout}"
+    if [[ -f "${stdout_logs[${index}]}" ]]; then
+      cat "${stdout_logs[${index}]}" >> "${aggregate_stdout}" || true
+    fi
+    printf '\n===== record %s (%s) =====\n' "$((index + 1))" "${record_ids[${index}]}" >> "${aggregate_stderr}"
+    if [[ -f "${stderr_logs[${index}]}" ]]; then
+      cat "${stderr_logs[${index}]}" >> "${aggregate_stderr}" || true
+    fi
+  done
+
+  if ! printf 'record_id\tshard_dir\tstatus\telapsed_seconds\tregion_count\n' > "${ant_out}/shard_manifest.tsv"; then
+    cleanup_antismash_assembled_outputs "${ant_out}" "${canonical_json}"
+    return 1
+  fi
+  for index in "${!record_ids[@]}"; do
+    if [[ ! -s "${row_files[${index}]}" ]]; then
+      shard_failure=1
+      printf '%s\t%s\t%s\t%s\t%s\n' \
+        "${record_ids[${index}]}" "${shard_dirs[${index}]}" "failed" "0" "0" > "${row_files[${index}]}"
+    fi
+    if ! cat "${row_files[${index}]}" >> "${ant_out}/shard_manifest.tsv"; then
+      cleanup_antismash_assembled_outputs "${ant_out}" "${canonical_json}"
+      return 1
+    fi
+  done
+
+  assembled_count=0
+  for index in "${!record_ids[@]}"; do
+    row_record=""
+    row_dir=""
+    row_status="failed"
+    row_elapsed="0"
+    row_regions="0"
+    IFS=$'\t' read -r row_record row_dir row_status row_elapsed row_regions < "${row_files[${index}]}" || true
+    if [[ "${row_status}" != "ok" ]]; then
+      shard_failure=1
+      continue
+    fi
+    expected_json="${shard_dirs[${index}]}/${safe_record_ids[${index}]}.json"
+    if [[ ! -s "${expected_json}" ]]; then
+      fallback_json_files=()
+      mapfile -d '' -t fallback_json_files < <(
+        find "${shard_dirs[${index}]}" -maxdepth 1 -type f -name '*.antismash.json' -print0 2>/dev/null
+      )
+      if [[ "${#fallback_json_files[@]}" -eq 1 && -s "${fallback_json_files[0]}" ]]; then
+        expected_json="${fallback_json_files[0]}"
+      else
+        warn "${genome_id}: missing expected antiSMASH shard JSON for record=${record_ids[${index}]} shard=${shard_dirs[${index}]}"
+        shard_failure=1
+        continue
+      fi
+    fi
+    shard_json_args+=("${record_ids[${index}]}" "${expected_json}")
+    while IFS= read -r -d '' region_file; do
+      source_name="${region_file##*/}"
+      destination_name="${source_name}"
+      case "${destination_name}" in
+        "${safe_record_ids[${index}]}".*) ;;
+        *) destination_name="${safe_record_ids[${index}]}.${destination_name}" ;;
+      esac
+      destination="${ant_out}/${destination_name}"
+      if [[ -e "${destination}" ]]; then
+        if cmp -s "${region_file}" "${destination}"; then
+          log "${genome_id}: deduplicated assembled antiSMASH region ${destination_name}"
+          continue
+        fi
+        warn "${genome_id}: conflicting antiSMASH region collision at ${destination}"
+        shard_failure=1
+        continue
+      fi
+      if cp -f "${region_file}" "${destination}"; then
+        assembled_count=$((assembled_count + 1))
+      else
+        shard_failure=1
+      fi
+    done < <(find "${shard_dirs[${index}]}" -type f -name '*region*.gbk' -print0 2>/dev/null)
+  done
+
+  if [[ "${shard_failure}" -eq 0 ]]; then
+    if ! merge_antismash_shard_jsons "${canonical_json}" "${shard_json_args[@]}" 2>> "${aggregate_stderr}"; then
+      warn "${genome_id}: failed to merge antiSMASH shard JSON into ${canonical_json}"
+      shard_failure=1
+    fi
+  fi
+  if [[ "${shard_failure}" -ne 0 ]]; then
+    cleanup_antismash_assembled_outputs "${ant_out}" "${canonical_json}"
+    return 1
+  fi
+  if [[ "${assembled_count}" -gt 0 ]]; then
+    if ! render_antismash_shard_web_bundle \
+        "${genome_id}" "${canonical_json}" "${ant_out}" "${shard_root}" \
+        "${aggregate_stdout}" "${aggregate_stderr}"; then
+      warn "${genome_id}: failed to render the complete antiSMASH web bundle"
+      cleanup_antismash_assembled_outputs "${ant_out}" "${canonical_json}"
+      return 1
+    fi
+  elif ! write_antismash_shard_index "${genome_id}" "${ant_out}" "${total_records}" "${assembled_count}"; then
+    cleanup_antismash_assembled_outputs "${ant_out}" "${canonical_json}"
+    return 1
+  fi
+  if ! touch "${ant_out}/.done"; then
+    cleanup_antismash_assembled_outputs "${ant_out}" "${canonical_json}"
+    return 1
+  fi
 }
 
 ###############################################################################
@@ -2121,24 +3154,25 @@ PY
 ###############################################################################
 sync_logs_genome() {
   local genome_id="$1"
-  mkdir -p "${RESULTS_ROOT}/summary_tables/logs"
-  rsync -a "${WORK_ROOT}/logs/${genome_id}."* "${RESULTS_ROOT}/summary_tables/logs/" >/dev/null 2>&1 || true
+  mkdir -p "${RESULTS_ROOT}/logs"
+  rsync -a "${WORK_ROOT}/logs/${genome_id}."* "${RESULTS_ROOT}/logs/" >/dev/null 2>&1 || true
 }
 
 MANIFEST="${RESULTS_ROOT}/summary_tables/run_manifest.tsv"
 mkdir -p "$(dirname "${MANIFEST}")"
-printf "genome_id\tfasta\tgbk_used\tgbk_status\tantismash_status\tfunbgcex_status\n" > "${MANIFEST}"
+printf "genome_id\tfasta\tgbk_used\tgbk_status\tantismash_status\tfunbgcex_status\ttaxon_group\tprediction_method\tdetector_profile\tfunbgcex_applicability\n" > "${MANIFEST}"
 
 ###############################################################################
 # CLI
 ###############################################################################
 usage() {
   cat <<EOF
-Usage: $0 [-f] [-t THREADS] [-c CPUS] [-w WORKERS] [-g genome1,genome2,...]
+Usage: $0 [-f] [-t THREADS] [-c CPUS] [-w WORKERS] [-p GENOME_PARALLELISM] [-g genome1,genome2,...]
   -f            Force re-run even if outputs exist (sets FORCE=1; clears staged + outputs per genome)
   -t THREADS    Threads (alias; recorded). If CPUS not set, CPUS=THREADS.
   -c CPUS       antiSMASH cpus (default: ${CPUS})
-  -w WORKERS    funbgcex workers (default: ${WORKERS})
+  -w WORKERS    funbgcex workers per genome (default: ${WORKERS})
+  -p N          Concurrent genomes to process in annotation stage (default: ${GENOME_PARALLELISM})
   -g LIST       Comma-separated stems to process. If omitted, auto-discover in GENOME_ROOT.
   -h            Help
 
@@ -2159,7 +3193,24 @@ Annotation env vars:
   BRAKER_PROT_SEQ=...           Optional protein FASTA for BRAKER3
 
 Annotation threading:
-  ANNO_CPUS=...                 Threads for BRAKER3/funannotate (default: ${ANNO_CPUS})
+  ANNO_CPUS=...                 Threads for BRAKER3/funannotate per genome (default: ${ANNO_CPUS})
+  GENOME_PARALLELISM=...        Concurrent genomes for annotation fan-out/regroup (default: ${GENOME_PARALLELISM})
+  ANTISMASH_RECORD_PARALLELISM=... Concurrent antiSMASH record shards per genome (default: ${ANTISMASH_RECORD_PARALLELISM})
+  ANTISMASH_SHARD_CPUS=...      CPUs per record shard (bounded to the per-genome CPU lane)
+  ANTISMASH_LEGACY_CPUS=...     CPUs for the legacy single-run path (bounded to the per-genome CPU lane)
+  ANTISMASH_RETAIN_SHARD_WORK=0|1 Retain full raw shard HTML/data for debugging (default: 0; compact after success)
+  Funannotate is never split by GenBank record; it scales via whole-genome fan-out and its native --cpus.
+
+Resource planning:
+  PIPELINE_RESOURCE_MODE=conservative|auto Opt in to cgroup-aware automatic planning (manual is an alias; default: conservative)
+  PIPELINE_MEMORY_BUDGET_MB=... Optional hard memory ceiling considered by auto mode
+  PIPELINE_AUTO_MAX_CPUS=...    Auto-mode job CPU ceiling (default: ${PIPELINE_AUTO_MAX_CPUS})
+  PIPELINE_AUTO_MAX_GENOME_PARALLELISM=... Auto-mode whole-genome fan-out ceiling (default: ${PIPELINE_AUTO_MAX_GENOME_PARALLELISM})
+  PIPELINE_AUTO_MEMORY_PER_GENOME_MB=... Conservative memory reservation per active genome (default: ${PIPELINE_AUTO_MEMORY_PER_GENOME_MB})
+  PIPELINE_AUTO_MAX_ANNO_CPUS=... Max native BRAKER3/funannotate CPUs per genome (default: ${PIPELINE_AUTO_MAX_ANNO_CPUS})
+  CLUSTERWEAVE_TOOL_DOCKER_CPUS=... Optional hard --cpus limit on every Docker tool child
+  CLUSTERWEAVE_TOOL_DOCKER_MEMORY=... Optional hard --memory limit on every Docker tool child
+  CLUSTERWEAVE_TOOL_DOCKER_PIDS_LIMIT=... Optional hard --pids-limit on every Docker tool child
 
 Image bootstrap:
   AUTO_PULL_IMAGES=ask|always|never (default: ${AUTO_PULL_IMAGES})
@@ -2182,35 +3233,68 @@ EOF
 
 GENOMES=""
 CPUS_SET_BY_FLAG=0
-while getopts "fht:c:w:g:" opt; do
+THREADS_SET_BY_FLAG=0
+while getopts "fht:c:w:p:g:" opt; do
   case "${opt}" in
     f) FORCE=1 ;;
-    t) THREADS="${OPTARG}" ;;
-    c) CPUS="${OPTARG}"; CPUS_SET_BY_FLAG=1 ;;
+    t) THREADS="${OPTARG}"; THREADS_SET_BY_FLAG=1 ;;
+    c) CPUS="${OPTARG}"; CPUS_SET_BY_FLAG=1; CPUS_REQUEST_EXPLICIT=1 ;;
     w) WORKERS="${OPTARG}" ;;
+    p) GENOME_PARALLELISM="${OPTARG}" ;;
     g) GENOMES="${OPTARG}" ;;
     h) usage; exit 0 ;;
     *) usage; exit 2 ;;
   esac
 done
-if [[ "${CPUS_SET_BY_FLAG}" -eq 0 && -n "${THREADS}" ]]; then
-  CPUS="${CPUS:-${THREADS}}"
+if [[ "${CPUS_SET_BY_FLAG}" -eq 0 && "${THREADS_SET_BY_FLAG}" -eq 1 ]]; then
+  CPUS="${THREADS}"
+  CPUS_REQUEST_EXPLICIT=1
 fi
+case "${PIPELINE_RESOURCE_MODE}" in
+  manual|conservative) PIPELINE_RESOURCE_MODE="conservative" ;;
+  auto) ;;
+  *) die "PIPELINE_RESOURCE_MODE must be conservative/manual or auto; got '${PIPELINE_RESOURCE_MODE}'" ;;
+esac
+CPUS="$(positive_int_or_default "${CPUS}" 6)"
+THREADS="$(positive_int_or_default "${THREADS}" "${CPUS}")"
+WORKERS="$(positive_int_or_default "${WORKERS}" 2)"
+ANNO_CPUS="$(positive_int_or_default "${ANNO_CPUS}" 6)"
+GENOME_PARALLELISM="$(positive_int_or_default "${GENOME_PARALLELISM}" 1)"
+ANTISMASH_RECORD_PARALLELISM="$(positive_int_or_default "${ANTISMASH_RECORD_PARALLELISM}" 1)"
+ANTISMASH_SHARD_CPUS_REQUESTED="${ANTISMASH_SHARD_CPUS}"
+ANTISMASH_LEGACY_CPUS_REQUESTED="${ANTISMASH_LEGACY_CPUS}"
+CLUSTERWEAVE_NUMERIC_LIBRARY_THREADS="$(positive_int_or_default "${CLUSTERWEAVE_NUMERIC_LIBRARY_THREADS}" 1)"
+export OMP_NUM_THREADS="${CLUSTERWEAVE_NUMERIC_LIBRARY_THREADS}"
+export OPENBLAS_NUM_THREADS="${CLUSTERWEAVE_NUMERIC_LIBRARY_THREADS}"
+export MKL_NUM_THREADS="${CLUSTERWEAVE_NUMERIC_LIBRARY_THREADS}"
+export NUMEXPR_NUM_THREADS="${CLUSTERWEAVE_NUMERIC_LIBRARY_THREADS}"
+export VECLIB_MAXIMUM_THREADS="${CLUSTERWEAVE_NUMERIC_LIBRARY_THREADS}"
+export BLIS_NUM_THREADS="${CLUSTERWEAVE_NUMERIC_LIBRARY_THREADS}"
+case "${ANTISMASH_RETAIN_SHARD_WORK}" in
+  1) ;;
+  *) ANTISMASH_RETAIN_SHARD_WORK=0 ;;
+esac
 
 ###############################################################################
 # Preconditions
 ###############################################################################
 [[ -d "${PROJECT_DIR}" ]] || die "PROJECT_DIR not found: ${PROJECT_DIR}"
-[[ -d "${GENOME_ROOT}"  ]] || die "GENOME_ROOT not found: ${GENOME_ROOT}"
+[[ -d "${FUNGI_GENOME_ROOT}" ]] || die "FUNGI_GENOME_ROOT not found: ${FUNGI_GENOME_ROOT}"
+[[ -d "${BACTERIA_GENOME_ROOT}" ]] || die "BACTERIA_GENOME_ROOT not found: ${BACTERIA_GENOME_ROOT}"
+[[ -s "${ANTISMASH_SHARD_COMPACTOR}" ]] || die "antiSMASH shard compactor not found: ${ANTISMASH_SHARD_COMPACTOR}"
+[[ -s "${ANTISMASH_INPUT_PREPARER}" ]] || die "antiSMASH input preparer not found: ${ANTISMASH_INPUT_PREPARER}"
+[[ -s "${BACTERIAL_GENBANK_SANITIZER}" ]] || die "bacterial GenBank sanitizer not found: ${BACTERIAL_GENBANK_SANITIZER}"
+[[ -s "${GENBANK_TRANSLATION_CHECKER}" ]] || die "GenBank translation checker not found: ${GENBANK_TRANSLATION_CHECKER}"
 
-setup_converter
+load_taxon_routes
 ensure_primary_tooling
-ensure_annotation_tooling
 
 log "Run started: PID $$"
 log "ENGINE=${ENGINE}"
 log "PROJECT_DIR=${PROJECT_DIR}"
-log "GENOME_ROOT=${GENOME_ROOT}"
+log "FUNGI_GENOME_ROOT=${FUNGI_GENOME_ROOT}"
+log "BACTERIA_GENOME_ROOT=${BACTERIA_GENOME_ROOT}"
+log "GENOME_TAXON_MANIFEST=${GENOME_TAXON_MANIFEST} active=${ROUTE_MANIFEST_ACTIVE}"
 log "RESULTS_ROOT=${RESULTS_ROOT}"
 log "BIND_ARGS=${BIND_ARGS[*]}"
 log "ANTISMASH_SIF=${ANTISMASH_SIF}"
@@ -2225,16 +3309,20 @@ log "AUTO_BUILD_FUNBGCEX_SIF=${AUTO_BUILD_FUNBGCEX_SIF} FUNBGCEX_BOOTSTRAP=${FUN
 log "BRAKER_SIF=${BRAKER_SIF} FUNANNOTATE_SIF=${FUNANNOTATE_SIF}"
 log "FUNANNOTATE_IMAGE_URI=${FUNANNOTATE_IMAGE_URI} FUNANNOTATE_BASE_IMAGE_URI=${FUNANNOTATE_BASE_IMAGE_URI}"
 log "FUNANNOTATE_BUILD_SCRIPT=${FUNANNOTATE_BUILD_SCRIPT} AUTO_BUILD_FUNANNOTATE_SIF=${AUTO_BUILD_FUNANNOTATE_SIF} AUTO_BUILD_FUNANNOTATE_DOCKER=${AUTO_BUILD_FUNANNOTATE_DOCKER}"
-log "ANNO_CPUS=${ANNO_CPUS} AUTO_PULL_IMAGES=${AUTO_PULL_IMAGES}"
+log "RESOURCE_REQUEST mode=${PIPELINE_RESOURCE_MODE} cpus=${CPUS} cpus_explicit=${CPUS_REQUEST_EXPLICIT} genome_parallelism=${GENOME_PARALLELISM} anno_cpus=${ANNO_CPUS} funbgcex_workers=${WORKERS} antismash_record_parallelism=${ANTISMASH_RECORD_PARALLELISM} antismash_shard_cpus=${ANTISMASH_SHARD_CPUS_REQUESTED:-auto} antismash_legacy_cpus=${ANTISMASH_LEGACY_CPUS_REQUESTED:-auto}"
+log "RESOURCE_DOCKER_LIMITS cpus=${CLUSTERWEAVE_TOOL_DOCKER_CPUS:-unset} memory=${CLUSTERWEAVE_TOOL_DOCKER_MEMORY:-unset} pids=${CLUSTERWEAVE_TOOL_DOCKER_PIDS_LIMIT:-unset} numeric_library_threads=${CLUSTERWEAVE_NUMERIC_LIBRARY_THREADS}"
+log "AUTO_PULL_IMAGES=${AUTO_PULL_IMAGES} ANTISMASH_RETAIN_SHARD_WORK=${ANTISMASH_RETAIN_SHARD_WORK}"
 log "ANNOTATION_FALLBACK_ORDER=${ANNOTATION_FALLBACK_ORDER}"
 log "BRAKER3_ENABLED=${BRAKER3_ENABLED}"
-log "FORCE=${FORCE} CPUS=${CPUS} WORKERS=${WORKERS} THREADS=${THREADS}"
-log "Converter python: ${VENV_PY}"
-log "Converter script: ${CONVERT_PY}"
+log "FORCE=${FORCE} THREADS=${THREADS}"
+if [[ "${HAS_FUNGAL_ROUTES}" -eq 1 ]]; then
+  log "Converter python: ${VENV_PY}"
+  log "Converter script: ${CONVERT_PY}"
+fi
 log "WORK_ROOT=${WORK_ROOT}"
 
 log "Detecting supported antiSMASH flags..."
-mapfile -t ANT_FLAGS_ARRAY < <(antismash_supported_flags)
+mapfile -t ANT_FLAGS_ARRAY < <(antismash_supported_flags fungi none)
 if [[ ${#ANT_FLAGS_ARRAY[@]} -eq 0 ]]; then
   log "antiSMASH flags enabled: none"
 else
@@ -2245,30 +3333,126 @@ fi
 # Determine genomes to process
 ###############################################################################
 if [[ -z "${GENOMES}" ]]; then
-  log "No genomes specified with -g; auto-discovering in GENOME_ROOT"
+  log "No genomes specified with -g; discovering from the canonical taxon manifest or fungal compatibility root"
   mapfile -t GEN_ARR < <(discover_stems)
-  [[ ${#GEN_ARR[@]} -gt 0 ]] || die "No genome inputs found in ${GENOME_ROOT}"
+  [[ ${#GEN_ARR[@]} -gt 0 ]] || die "No routed genome inputs found"
 else
   IFS=',' read -r -a GEN_ARR <<< "${GENOMES}"
 fi
+if [[ "${ROUTE_MANIFEST_ACTIVE}" -eq 1 ]]; then
+  for genome_id in "${GEN_ARR[@]}"; do
+    [[ -n "${ROUTE_TAXON_BY_GENOME[${genome_id}]+set}" ]] \
+      || die "Requested genome is absent from immutable taxon manifest: ${genome_id}"
+  done
+fi
 log "Genomes to process ($((${#GEN_ARR[@]}))): $(join_by ', ' "${GEN_ARR[@]}")"
+taxon_summary_fungi=0
+taxon_summary_bacteria=0
+taxon_summary_unresolved=0
+for genome_id in "${GEN_ARR[@]}"; do
+  case "$(route_taxon_for_genome "${genome_id}")" in
+    fungi) taxon_summary_fungi=$((taxon_summary_fungi + 1)) ;;
+    bacteria) taxon_summary_bacteria=$((taxon_summary_bacteria + 1)) ;;
+    *) taxon_summary_unresolved=$((taxon_summary_unresolved + 1)) ;;
+  esac
+done
+log "TAXON_SUMMARY scope=${ANALYSIS_SCOPE} fungi=${taxon_summary_fungi} bacteria=${taxon_summary_bacteria} unresolved=${taxon_summary_unresolved}"
+
+fungal_annotation_fallback_needed() {
+  local candidate root staged source_gbk source_fasta
+  for candidate in "$@"; do
+    [[ "$(route_taxon_for_genome "${candidate}")" == "fungi" ]] || continue
+    root="$(route_root_for_genome "${candidate}")"
+    staged="${RESULTS_ROOT}/input_gbks/${candidate}.gbk"
+    if [[ "${FORCE}" != "1" && -s "${staged}" ]] && gbk_has_cds_and_translation "${staged}"; then
+      continue
+    fi
+    source_gbk=""
+    if source_gbk="$(resolve_genbank_for_stem "${candidate}" "${root}")" \
+        && gbk_has_cds_and_translation "${source_gbk}"; then
+      continue
+    fi
+    source_fasta=""
+    if source_fasta="$(resolve_fasta_for_stem "${candidate}" "${root}")" && [[ -s "${source_fasta}" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+FUNGAL_ANNOTATION_FALLBACK_NEEDED=0
+if [[ "${HAS_FUNGAL_ROUTES}" -eq 1 ]] \
+    && fungal_annotation_fallback_needed "${GEN_ARR[@]}"; then
+  FUNGAL_ANNOTATION_FALLBACK_NEEDED=1
+  log "Fungal input inspection selected an annotation fallback; bootstrapping configured annotation tooling."
+  setup_converter
+  ensure_annotation_tooling
+elif [[ "${HAS_FUNGAL_ROUTES}" -eq 1 ]]; then
+  log "Skipping fungal annotation runtime bootstrap: every reusable fungal GenBank already has complete non-empty CDS translations, or no fallback-capable FASTA is present."
+else
+  log "Skipping fungal annotation runtime bootstrap: no fungal routes are present."
+fi
+freeze_resource_plan "${#GEN_ARR[@]}"
 
 ###############################################################################
 # Main loop
 ###############################################################################
 total=0; dropped=0; processed=0
+MANIFEST_ROW_DIR="${WORK_ROOT}/tmp/manifest_rows"
+mkdir -p "${MANIFEST_ROW_DIR}"
+rm -f "${MANIFEST_ROW_DIR}"/*.tsv 2>/dev/null || true
+MANIFEST_ROW_FILES=()
 
-for genome_id in "${GEN_ARR[@]}"; do
-  total=$((total + 1))
+write_genome_manifest_row() {
+  local row_file="$1"
+  shift
+  printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" "$@" > "${row_file}"
+}
+
+process_genome() {
+  local genome_id="$1"
+  local ordinal="$2"
+  local row_file="$3"
+  local total_genomes="$4"
+  local GENLOG fasta gb_src staged_gbk ant_out fbx_out ant_err ant_stdout fbx_err fbx_stdout
+  local gbk_used gbk_status fallback_method antismash_status funbgcex_status ant_done fbx_done
+  local per_tmp ant_filtered_input ant_input antismash_input_sanitized ant_sanitize_summary antismash_duplicate_cds_dropped
+  local fbx_input gbk_dir antismash_record_ids_file antismash_record_count antismash_record_ids_stable antismash_shard_root antismash_run_mode antismash_run_ok
+  local taxon_group taxon_source route_status prediction_method detector_profile funbgcex_applicability genome_input_root
+  local bacteria_source bacterial_record_map bacterial_sanitize_summary python_cmd
+  local GENOME_ROOT GENOME_MAPPING_FILE
+  local -a antismash_record_ids=()
+  local -a ANT_FLAGS_ARRAY=()
+  taxon_group="$(route_taxon_for_genome "${genome_id}")"
+  taxon_source="$(route_source_for_genome "${genome_id}")"
+  route_status="$(route_status_for_genome "${genome_id}")"
+  genome_input_root="$(route_root_for_genome "${genome_id}")"
+  prediction_method="$(route_prediction_for_genome "${genome_id}")"
+  detector_profile="$(route_detector_for_genome "${genome_id}")"
+  GENOME_ROOT="${genome_input_root}"
+  GENOME_MAPPING_FILE="$(mapping_file_for_taxon "${taxon_group}")"
+  if [[ "${taxon_group}" == "bacteria" ]]; then
+    prediction_method="prodigal"
+    detector_profile="antismash"
+    funbgcex_applicability="not_applicable_taxon"
+    mapfile -t ANT_FLAGS_ARRAY < <(antismash_supported_flags bacteria prodigal)
+  else
+    funbgcex_applicability="applicable"
+    mapfile -t ANT_FLAGS_ARRAY < <(antismash_supported_flags fungi none)
+  fi
   log "===================================================================="
-  log "[${total}/${#GEN_ARR[@]}] genome=${genome_id}"
+  log "[${ordinal}/${total_genomes}] genome=${genome_id} taxon=${taxon_group} prediction=${prediction_method}"
+  log "TAXON_ROUTE genome=${genome_id} taxon=${taxon_group} source=${taxon_source} status=${route_status} message=\"prediction=${prediction_method} detector=${detector_profile}\""
 
   GENLOG="${WORK_ROOT}/logs/${genome_id}.log"
   : > "${GENLOG}"
+  genome_stage_progress "${genome_id}" "annotation" 0 "Queued genome ${ordinal}/${total_genomes}"
 
   fasta=""
   if ! fasta="$(resolve_fasta_for_stem "${genome_id}")"; then
-    warn "${genome_id}: no FASTA found; cannot run annotation fallback tools. Will only proceed if an annotated GBK exists."
+    if [[ "${taxon_group}" == "fungi" ]]; then
+      warn "${genome_id}: no FASTA found; cannot run annotation fallback tools. Will only proceed if an annotated GBK exists."
+    fi
   fi
 
   gb_src=""
@@ -2298,13 +3482,53 @@ for genome_id in "${GEN_ARR[@]}"; do
 
   gbk_used=""
   gbk_status="missing"
+  per_tmp="${WORK_ROOT}/tmp/${genome_id}"
+  mkdir -p "${per_tmp}"
+
+  if [[ "${taxon_group}" == "bacteria" ]]; then
+    ant_input="${per_tmp}/${genome_id}.bacteria.antismash.gbk"
+    antismash_record_ids_file="${per_tmp}/antismash_record_ids.txt"
+    bacterial_record_map="${RESULTS_ROOT}/summary_tables/bacterial_record_maps/${genome_id}.record_map.tsv"
+    bacteria_source=""
+    if [[ -n "${gb_src}" && -s "${gb_src}" ]]; then
+      bacteria_source="${gb_src}"
+    elif [[ -n "${fasta}" && -s "${fasta}" ]]; then
+      bacteria_source="${fasta}"
+    fi
+    if [[ -z "${bacteria_source}" ]]; then
+      gbk_status="no_bacterial_sequence_input"
+    else
+      python_cmd="$(resolve_python_cmd)" || true
+      if [[ -n "${python_cmd}" ]] && bacterial_sanitize_summary="$(
+          "${python_cmd}" "${BACTERIAL_GENBANK_SANITIZER}" \
+            --input "${bacteria_source}" \
+            --output "${ant_input}" \
+            --record-map "${bacterial_record_map}" \
+            --record-ids "${antismash_record_ids_file}" \
+            --genome-id "${genome_id}" \
+            --min-record-bp "${ANTISMASH_MIN_RECORD_BP}" \
+            --max-record-bp "${ANTISMASH_MAX_RECORD_BP}" 2>> "${GENLOG}"
+        )"; then
+        printf '%s\n' "${bacterial_sanitize_summary}" | tee -a "${GENLOG}"
+        gbk_used="${ant_input}"
+        gbk_status="bacterial_sequence_sanitized"
+        antismash_input_sanitized=1
+        genome_stage_progress "${genome_id}" "annotation" 25 "Feature-free bacterial GenBank ready"
+      else
+        gbk_status="bacterial_sanitizer_failed"
+      fi
+    fi
+  else
 
   # 1) Reuse staged GBK if present
   if [[ -s "${staged_gbk}" ]] && gbk_has_cds_and_translation "${staged_gbk}"; then
     normalize_gbk_record_headers_in_place "${staged_gbk}" || true
     gbk_used="${staged_gbk}"
     gbk_status="staged_ok"
+    prediction_method="existing_cds"
     log "${genome_id}: using staged GBK: ${staged_gbk}" | tee -a "${GENLOG}"
+    genome_annotation_decision "${genome_id}" "no" "existing_cds" "Complete CDS translations already available"
+    genome_stage_progress "${genome_id}" "annotation" 20 "Staged GenBank ready"
   fi
 
   # 2) If no staged GBK, try original annotated GenBank, else annotation fallback chain
@@ -2315,7 +3539,9 @@ for genome_id in "${GEN_ARR[@]}"; do
         normalize_gbk_record_headers_in_place "${staged_gbk}" || true
         gbk_used="${staged_gbk}"
         gbk_status="original_ok"
+        prediction_method="existing_cds"
         log "${genome_id}: staged original GBK (has CDS+translation): ${gb_src}" | tee -a "${GENLOG}"
+        genome_annotation_decision "${genome_id}" "no" "existing_cds" "Complete CDS translations already available"
       else
         gbk_status="original_missing_translations"
         log "${genome_id}: original GBK lacks usable CDS translations; using annotation workflow (${ANNOTATION_FALLBACK_ORDER})" | tee -a "${GENLOG}"
@@ -2328,12 +3554,15 @@ for genome_id in "${GEN_ARR[@]}"; do
     if [[ -z "${gbk_used}" ]]; then
       if [[ -n "${fasta}" && -s "${fasta}" ]]; then
         fallback_method=""
+        genome_stage_progress "${genome_id}" "annotation" 10 "Running annotation fallback"
         if annotate_genome_with_fallbacks "${genome_id}" "${fasta}" "${staged_gbk}"; then
           fallback_method="${ANNOTATION_FALLBACK_METHOD:-annotation}"
+          prediction_method="${fallback_method}"
           normalize_gbk_record_headers_in_place "${staged_gbk}" || true
           if gbk_has_cds_and_translation "${staged_gbk}"; then
             gbk_used="${staged_gbk}"
             gbk_status="${fallback_method}_fixed"
+            genome_stage_progress "${genome_id}" "annotation" 25 "Annotation fallback produced GenBank"
           else
             gbk_status="${fallback_method}_no_translations"
             rm -f "${staged_gbk}" 2>/dev/null || true
@@ -2349,97 +3578,182 @@ for genome_id in "${GEN_ARR[@]}"; do
       fi
     fi
   fi
+  fi
 
   antismash_status="skipped"
-  funbgcex_status="skipped"
+  if [[ "${taxon_group}" == "bacteria" ]]; then
+    funbgcex_status="not_applicable_taxon"
+  else
+    funbgcex_status="skipped"
+  fi
 
   if [[ -z "${gbk_used}" ]]; then
-    dropped=$((dropped + 1))
     warn "${genome_id}: DROPPED (gbk_status=${gbk_status})" | tee -a "${GENLOG}"
-    printf "%s\t%s\t%s\t%s\t%s\t%s\n" \
-      "${genome_id}" "${fasta}" "" "${gbk_status}" "${antismash_status}" "${funbgcex_status}" >> "${MANIFEST}"
+    genome_stage_progress "${genome_id}" "annotation" 100 "Dropped: ${gbk_status}"
+    write_genome_manifest_row "${row_file}" \
+      "${genome_id}" "${fasta}" "" "${gbk_status}" "${antismash_status}" "${funbgcex_status}" \
+      "${taxon_group}" "${prediction_method}" "${detector_profile}" "${funbgcex_applicability}"
     sync_logs_genome "${genome_id}"
-    continue
+    return 0
   fi
 
   ant_done=0; fbx_done=0
   if antismash_done "${ant_out}"; then ant_done=1; fi
-  if funbgcex_done "${fbx_out}"; then fbx_done=1; fi
+  if [[ "${taxon_group}" == "fungi" ]] && funbgcex_done "${fbx_out}"; then fbx_done=1; fi
 
-  if [[ -s "${gbk_used}" && "${ant_done}" -eq 1 && "${fbx_done}" -eq 1 ]]; then
+  if [[ -s "${gbk_used}" && "${ant_done}" -eq 1 ]] \
+      && { [[ "${taxon_group}" == "bacteria" ]] || [[ "${fbx_done}" -eq 1 ]]; }; then
     antismash_status="skipped_done"
-    funbgcex_status="skipped_done"
+    if [[ "${taxon_group}" == "fungi" ]]; then
+      funbgcex_status="skipped_done"
+    fi
     log "${genome_id}: outputs already present in RESULTS_ROOT; skipping genome" | tee -a "${GENLOG}"
-    printf "%s\t%s\t%s\t%s\t%s\t%s\n" \
-      "${genome_id}" "${fasta}" "${gbk_used}" "${gbk_status}" "${antismash_status}" "${funbgcex_status}" >> "${MANIFEST}"
+    genome_stage_progress "${genome_id}" "annotation" 100 "Outputs already complete"
+    write_genome_manifest_row "${row_file}" \
+      "${genome_id}" "${fasta}" "${gbk_used}" "${gbk_status}" "${antismash_status}" "${funbgcex_status}" \
+      "${taxon_group}" "${prediction_method}" "${detector_profile}" "${funbgcex_applicability}"
     sync_logs_genome "${genome_id}"
-    rsync -a "${MANIFEST}" "${RESULTS_ROOT}/summary_tables/" >/dev/null 2>&1 || true
-    continue
+    return 0
   fi
 
-  log "${genome_id}: DIAG gbk_used summary" | tee -a "${GENLOG}"
-  gbk_diag_summary "${gbk_used}" "gbk_used" | tee -a "${GENLOG}"
+  if [[ "${taxon_group}" == "fungi" ]]; then
+    log "${genome_id}: DIAG gbk_used summary" | tee -a "${GENLOG}"
+    gbk_diag_summary "${gbk_used}" "gbk_used" | tee -a "${GENLOG}"
 
-  per_tmp="${WORK_ROOT}/tmp/${genome_id}"
-  mkdir -p "${per_tmp}"
+    ant_filtered_input="${per_tmp}/${genome_id}.antismash.filtered.gbk"
+    ant_input="${per_tmp}/${genome_id}.antismash.gbk"
+    antismash_input_sanitized=0
+    log "${genome_id}: filtering GBK to drop gene-less records for antiSMASH" | tee -a "${GENLOG}"
+    filter_gbk_drop_gene_less_records "${gbk_used}" "${ant_filtered_input}" | tee -a "${GENLOG}"
 
-  ant_filtered_input="${per_tmp}/${genome_id}.antismash.filtered.gbk"
-  ant_input="${per_tmp}/${genome_id}.antismash.gbk"
-  antismash_input_sanitized=0
-  log "${genome_id}: filtering GBK to drop gene-less records for antiSMASH" | tee -a "${GENLOG}"
-  filter_gbk_drop_gene_less_records "${gbk_used}" "${ant_filtered_input}" | tee -a "${GENLOG}"
+    log "${genome_id}: sanitizing antiSMASH-only GenBank features" | tee -a "${GENLOG}"
+    ant_sanitize_summary="$(sanitize_antismash_duplicate_cds_locations "${ant_filtered_input}" "${ant_input}" "${genome_id}")" || {
+      warn "${genome_id}: antiSMASH input sanitizer failed; using gene-less-filtered GBK unchanged" | tee -a "${GENLOG}"
+      cp -f "${ant_filtered_input}" "${ant_input}"
+      ant_sanitize_summary="${genome_id}: antismash_input_duplicate_cds_locations sanitizer_failed=1 dropped_duplicate_cds=0"
+    }
+    printf '%s\n' "${ant_sanitize_summary}" | tee -a "${GENLOG}"
+    antismash_duplicate_cds_dropped="$(printf '%s\n' "${ant_sanitize_summary}" | sed -nE 's/.*dropped_duplicate_cds=([0-9]+).*/\1/p' | head -n1)"
+    antismash_invalid_non_cds_dropped="$(printf '%s\n' "${ant_sanitize_summary}" | sed -nE 's/.*dropped_invalid_non_cds_compound_features[^0-9]*([0-9]+).*/\1/p' | head -n1)"
+    if [[ "${antismash_duplicate_cds_dropped:-0}" -gt 0 || "${antismash_invalid_non_cds_dropped:-0}" -gt 0 ]]; then
+      antismash_input_sanitized=1
+    fi
 
-  log "${genome_id}: sanitizing antiSMASH GBK duplicate CDS locations" | tee -a "${GENLOG}"
-  ant_sanitize_summary="$(sanitize_antismash_duplicate_cds_locations "${ant_filtered_input}" "${ant_input}" "${genome_id}")" || {
-    warn "${genome_id}: antiSMASH duplicate-CDS sanitizer failed; using gene-less-filtered GBK unchanged" | tee -a "${GENLOG}"
-    cp -f "${ant_filtered_input}" "${ant_input}"
-    ant_sanitize_summary="${genome_id}: antismash_input_duplicate_cds_locations sanitizer_failed=1 dropped_duplicate_cds=0"
-  }
-  printf '%s\n' "${ant_sanitize_summary}" | tee -a "${GENLOG}"
-  antismash_duplicate_cds_dropped="$(printf '%s\n' "${ant_sanitize_summary}" | sed -nE 's/.*dropped_duplicate_cds=([0-9]+).*/\1/p' | head -n1)"
-  if [[ "${antismash_duplicate_cds_dropped:-0}" -gt 0 ]]; then
-    antismash_input_sanitized=1
+    log "${genome_id}: DIAG ant_input summary" | tee -a "${GENLOG}"
+    gbk_diag_summary "${ant_input}" "ant_input" | tee -a "${GENLOG}"
+
+    fbx_input="${per_tmp}/${genome_id}.funbgcex.gbk"
+    cp -f "${ant_filtered_input}" "${fbx_input}"
   fi
-
-  log "${genome_id}: DIAG ant_input summary" | tee -a "${GENLOG}"
-  gbk_diag_summary "${ant_input}" "ant_input" | tee -a "${GENLOG}"
-
-  fbx_input="${per_tmp}/${genome_id}.funbgcex.gbk"
-  cp -f "${ant_filtered_input}" "${fbx_input}"
 
   # ---------------- antiSMASH ----------------
   if [[ "${ant_done}" -eq 1 ]]; then
     antismash_status="skipped_done"
     log "${genome_id}: antiSMASH already done -> ${ant_out}" | tee -a "${GENLOG}"
+    genome_stage_progress "${genome_id}" "antismash" 70 "antiSMASH already complete"
   else
     rm -rf "${ant_out}" 2>/dev/null || true
     mkdir -p "${ant_out}"
 
     log "${genome_id}: running antiSMASH (outdir=${ant_out})" | tee -a "${GENLOG}"
+    genome_stage_progress "${genome_id}" "antismash" 35 "Running antiSMASH"
     : > "${ant_stdout}"
     : > "${ant_err}"
-    if run_tool_with_activity "${genome_id}" "antismash" "detect" "${ant_stdout}" "${ant_err}" antismash_exec antismash \
-        "${ant_input}" \
-        --output-dir "${ant_out}" \
-        --cpus "${CPUS}" \
-        "${ANT_FLAGS_ARRAY[@]}"; then
+
+    antismash_record_ids=()
+    antismash_record_ids_stable=0
+    if [[ "${taxon_group}" == "bacteria" ]]; then
+      mapfile -t antismash_record_ids < "${antismash_record_ids_file}"
+      if antismash_record_ids_are_stable "${antismash_record_ids_file}" 2>> "${ant_err}"; then
+        antismash_record_ids_stable=1
+      else
+        warn "${genome_id}: bacterial sanitizer emitted an unstable antiSMASH record ID; using legacy single-run mode" | tee -a "${GENLOG}"
+      fi
+    else
+      antismash_record_ids_file="${per_tmp}/antismash_record_ids.txt"
+      if list_genbank_record_ids "${ant_input}" "${ANTISMASH_MIN_RECORD_BP}" > "${antismash_record_ids_file}" 2>> "${ant_err}"; then
+        mapfile -t antismash_record_ids < "${antismash_record_ids_file}"
+        if antismash_record_ids_are_stable "${antismash_record_ids_file}" 2>> "${ant_err}"; then
+          antismash_record_ids_stable=1
+        else
+          antismash_unstable_record_display="$(tool_activity_clean_line "${ANTISMASH_UNSTABLE_RECORD_ID}")"
+          antismash_unstable_record_display="${antismash_unstable_record_display//\"/ }"
+          antismash_unstable_safe_display="$(tool_activity_clean_line "${ANTISMASH_UNSTABLE_SAFE_ID}")"
+          antismash_unstable_safe_display="${antismash_unstable_safe_display//\"/ }"
+          warn "ANTISMASH_RECORD_SHARD_FALLBACK genome=${genome_id} reason=record_id_not_output_basename_stable record=\"${antismash_unstable_record_display}\" output_basename=\"${antismash_unstable_safe_display}\" message=\"Using legacy single-run mode to preserve record identity\"" | tee -a "${GENLOG}"
+        fi
+      else
+        warn "${genome_id}: could not list antiSMASH record IDs; using legacy single-run mode" | tee -a "${GENLOG}"
+        : > "${antismash_record_ids_file}"
+      fi
+    fi
+    antismash_record_count="${#antismash_record_ids[@]}"
+    antismash_shard_root="${per_tmp}/antismash_shards"
+    antismash_run_mode="legacy"
+    if [[ "${ANTISMASH_RECORD_PARALLELISM}" -gt 1 && "${antismash_record_count}" -gt 1 && "${antismash_record_ids_stable}" -eq 1 ]]; then
+      antismash_run_mode="sharded"
+    fi
+
+    antismash_run_ok=0
+    if [[ "${antismash_run_mode}" == "sharded" ]]; then
+      log "${genome_id}: antiSMASH record sharding enabled records=${antismash_record_count} parallelism=${ANTISMASH_RECORD_PARALLELISM} shard_cpus=${ANTISMASH_SHARD_CPUS} shard_root=${antismash_shard_root}" | tee -a "${GENLOG}"
+      if run_antismash_sharded \
+          "${genome_id}" "${ant_input}" "${ant_out}" "${antismash_record_ids_file}" \
+          "${antismash_shard_root}" "${ant_stdout}" "${ant_err}"; then
+        antismash_run_ok=1
+      fi
+    else
+      log "${genome_id}: antiSMASH legacy single-run mode records=${antismash_record_count} record_parallelism=${ANTISMASH_RECORD_PARALLELISM} legacy_cpus=${ANTISMASH_LEGACY_CPUS}" | tee -a "${GENLOG}"
+      if CLUSTERWEAVE_CHILD_DOCKER_CPUS="${ANTISMASH_LEGACY_CPUS}" run_tool_with_activity "${genome_id}" "antismash" "detect" "${ant_stdout}" "${ant_err}" antismash_exec antismash \
+          "${ant_input}" \
+          --minlength "${ANTISMASH_MIN_RECORD_BP}" \
+          --output-dir "${ant_out}" \
+          --cpus "${ANTISMASH_LEGACY_CPUS}" \
+          "${ANT_FLAGS_ARRAY[@]}"; then
+        antismash_run_ok=1
+      fi
+    fi
+
+    if [[ "${antismash_run_ok}" -eq 1 ]] && touch "${ant_out}/.done" && antismash_done "${ant_out}"; then
       if [[ "${antismash_input_sanitized:-0}" -eq 1 ]]; then
         antismash_status="ran_ok_sanitized"
       else
         antismash_status="ran_ok"
       fi
-      touch "${ant_out}/.done" || true
       log "${genome_id}: antiSMASH OK" | tee -a "${GENLOG}"
+      genome_stage_progress "${genome_id}" "antismash" 70 "antiSMASH complete"
     else
       antismash_status="failed"
       warn "${genome_id}: antiSMASH FAILED (see ${ant_err})" | tee -a "${GENLOG}"
+      antismash_failure_message="$(antismash_public_failure_message "${ant_err}")"
+      genome_stage_progress "${genome_id}" "antismash" 70 "${antismash_failure_message}"
     fi
   fi
 
   # ---------------- FunBGCeX ----------------
-  if [[ "${fbx_done}" -eq 1 ]]; then
+  if [[ "${taxon_group}" == "bacteria" ]]; then
+    funbgcex_status="not_applicable_taxon"
+    log "${genome_id}: FunBGCeX not applicable to bacterial route; skipping." | tee -a "${GENLOG}"
+    case "${antismash_status}" in
+      ran_ok|ran_ok_sanitized|skipped_done)
+        genome_stage_progress "${genome_id}" "antismash" 100 "BGC detection complete"
+        ;;
+      failed)
+        # Bacteria have no downstream FunBGCeX stage that could provide a
+        # terminal marker. Keep the lane terminal without replacing the
+        # actual antiSMASH failure with a misleading success message.
+        antismash_failure_message="$(antismash_public_failure_message "${ant_err}")"
+        genome_stage_progress "${genome_id}" "antismash" 100 "${antismash_failure_message}"
+        ;;
+      *)
+        warn "${genome_id}: antiSMASH ended with unexpected status=${antismash_status}" | tee -a "${GENLOG}"
+        genome_stage_progress "${genome_id}" "antismash" 100 "antiSMASH failed"
+        ;;
+    esac
+  elif [[ "${fbx_done}" -eq 1 ]]; then
     funbgcex_status="skipped_done"
     log "${genome_id}: FunBGCeX already done -> ${fbx_out}" | tee -a "${GENLOG}"
+    genome_stage_progress "${genome_id}" "funbgcex" 100 "FunBGCeX already complete"
   else
     rm -rf "${fbx_out}" 2>/dev/null || true
     mkdir -p "${fbx_out}"
@@ -2450,26 +3764,75 @@ for genome_id in "${GEN_ARR[@]}"; do
     cp -f "${fbx_input}" "${gbk_dir}/"
 
     log "${genome_id}: running FunBGCeX (outdir=${fbx_out})" | tee -a "${GENLOG}"
-    if run_funbgcex_cli "${gbk_dir}" "${fbx_out}" >"${fbx_stdout}" 2>"${fbx_err}"; then
+    genome_stage_progress "${genome_id}" "funbgcex" 80 "Running FunBGCeX"
+    if run_funbgcex_cli "${gbk_dir}" "${fbx_out}" >"${fbx_stdout}" 2>"${fbx_err}" \
+        && funbgcex_outputs_valid "${fbx_out}" \
+        && touch "${fbx_out}/.done"; then
       funbgcex_status="ran_ok"
       log "${genome_id}: FunBGCeX OK" | tee -a "${GENLOG}"
+      genome_stage_progress "${genome_id}" "funbgcex" 100 "FunBGCeX complete"
     else
       funbgcex_status="failed"
       warn "${genome_id}: FunBGCeX FAILED (see ${fbx_err})" | tee -a "${GENLOG}"
+      genome_stage_progress "${genome_id}" "funbgcex" 100 "FunBGCeX failed"
     fi
   fi
 
-  processed=$((processed + 1))
-  printf "%s\t%s\t%s\t%s\t%s\t%s\n" \
-    "${genome_id}" "${fasta}" "${gbk_used}" "${gbk_status}" "${antismash_status}" "${funbgcex_status}" >> "${MANIFEST}"
+  write_genome_manifest_row "${row_file}" \
+    "${genome_id}" "${fasta}" "${gbk_used}" "${gbk_status}" "${antismash_status}" "${funbgcex_status}" \
+    "${taxon_group}" "${prediction_method}" "${detector_profile}" "${funbgcex_applicability}"
 
   sync_logs_genome "${genome_id}"
-  rsync -a "${MANIFEST}" "${RESULTS_ROOT}/summary_tables/" >/dev/null 2>&1 || true
+  return 0
+
+}
+
+idx=0
+genome_job_failure=0
+for genome_id in "${GEN_ARR[@]}"; do
+  idx=$((idx + 1))
+  row_file="${MANIFEST_ROW_DIR}/$(printf '%06d' "${idx}").tsv"
+  MANIFEST_ROW_FILES+=("${row_file}")
+  if [[ "${GENOME_PARALLELISM}" -gt 1 ]]; then
+    process_genome "${genome_id}" "${idx}" "${row_file}" "${#GEN_ARR[@]}" &
+    while [[ "$(running_genome_job_count)" -ge "${GENOME_PARALLELISM}" ]]; do
+      if ! wait_for_genome_job; then genome_job_failure=1; fi
+    done
+  else
+    if ! process_genome "${genome_id}" "${idx}" "${row_file}" "${#GEN_ARR[@]}"; then
+      genome_job_failure=1
+    fi
+  fi
 done
+
+while [[ "$(running_genome_job_count)" -gt 0 ]]; do
+  if ! wait_for_genome_job; then genome_job_failure=1; fi
+done
+
+if [[ "${genome_job_failure}" -ne 0 ]]; then
+  die "One or more per-genome annotation jobs failed before manifest regroup; see ${WORK_ROOT}/logs"
+fi
+
+for row_file in "${MANIFEST_ROW_FILES[@]}"; do
+  [[ -s "${row_file}" ]] || die "Missing per-genome manifest row: ${row_file}"
+  cat "${row_file}" >> "${MANIFEST}"
+  row_line="$(<"${row_file}")"
+  IFS=$'\034' read -r \
+    row_genome row_fasta row_gbk row_gbk_status row_antismash row_funbgcex \
+    row_taxon row_prediction row_detector row_funbgcex_applicability \
+    <<< "${row_line//$'\t'/$'\034'}" || true
+  total=$((total + 1))
+  if [[ -n "${row_gbk:-}" ]]; then
+    processed=$((processed + 1))
+  else
+    dropped=$((dropped + 1))
+  fi
+done
+rsync -a "${MANIFEST}" "${RESULTS_ROOT}/summary_tables/" >/dev/null 2>&1 || true
 
 log "Complete."
 log "summary_tables: ${RESULTS_ROOT}/summary_tables"
 log "manifest: ${MANIFEST}"
 log "total=${total} processed=${processed} dropped=${dropped}"
-rsync -a "${WORK_ROOT}/logs/" "${RESULTS_ROOT}/summary_tables/logs/" >/dev/null 2>&1 || true
-log "Logs synced to: ${RESULTS_ROOT}/summary_tables/logs"
+rsync -a "${WORK_ROOT}/logs/" "${RESULTS_ROOT}/logs/" >/dev/null 2>&1 || true
+log "Logs synced to: ${RESULTS_ROOT}/logs"

@@ -6,6 +6,19 @@ import csv
 import re
 from collections import Counter, defaultdict
 from pathlib import Path
+import sys
+
+BIN_DIR = str(Path(__file__).resolve().parent)
+if BIN_DIR not in sys.path:
+    sys.path.insert(0, BIN_DIR)
+
+from gcf_view import (
+    GCF_PROVENANCE_FIELDS,
+    materialized_gcf_provenance,
+    selected_gcf_id,
+    selected_gcf_ids,
+    selected_gcf_view,
+)
 
 
 def clean(value: object) -> str:
@@ -102,14 +115,36 @@ def classes_from_terms(terms: list[str]) -> set[str]:
     return out
 
 
-def parse_consensus(antismash_region: str, funbgcex_cluster: str) -> tuple[str, int]:
+def parse_consensus(
+    antismash_region: str,
+    funbgcex_cluster: str,
+    funbgcex_applicability: str = "applicable",
+) -> tuple[str, int]:
     has_antismash = bool(clean(antismash_region))
     has_funbgcex = bool(clean(funbgcex_cluster))
+    if has_antismash and clean(funbgcex_applicability) == "not_applicable_taxon":
+        # Bacteria have satisfied their full applicable detector set. Do not
+        # score them like a fungal cluster that unexpectedly lacks FunBGCeX.
+        return "antiSMASH (complete applicable detector set)", 4
     if has_antismash and has_funbgcex:
         return "antiSMASH+FunBGCeX", 4
     if has_antismash:
         return "antiSMASH-only", 2
     return "FunBGCeX-only", 1
+
+
+def applicable_detector_set_complete(
+    antismash_region: str,
+    funbgcex_cluster: str,
+    funbgcex_applicability: str = "applicable",
+) -> bool:
+    """Return whether every detector applicable to this taxon produced a call."""
+
+    if not clean(antismash_region):
+        return False
+    if clean(funbgcex_applicability) == "not_applicable_taxon":
+        return True
+    return bool(clean(funbgcex_cluster))
 
 
 def gcf_ecology_pattern(focus_count: int, nonfocus_count: int, focus_label: str) -> str:
@@ -214,7 +249,7 @@ def build_gcf_context_text(gcf_id: str, focus_count: int, nonfocus_count: int, f
 
 def determine_review_bucket(row: dict[str, object]) -> str:
     priority_tier = clean(row.get("priority_tier"))
-    gcf_id = clean(row.get("gcf_id"))
+    gcf_id = selected_gcf_id(row)
     class_logic_support = clean(row.get("class_logic_support"))
     annotation_support_tier = clean(row.get("annotation_support_tier"))
     if priority_tier == "tier_1" and gcf_id and annotation_support_tier in {
@@ -233,7 +268,7 @@ def determine_review_bucket(row: dict[str, object]) -> str:
 def build_safe_claim_text(row: dict[str, object], target_genome: str, focus_label: str) -> str:
     region_id = clean(row.get("antismash_region")) or clean(row.get("funbgcex_cluster")) or "unresolved region"
     bgc_class = clean(row.get("antismash_class")) or "unclassified"
-    gcf_id = clean(row.get("gcf_id"))
+    gcf_id = selected_gcf_id(row)
     gcf_context = build_gcf_context_text(
         gcf_id,
         to_int(row.get("gcf_focus_genome_count")),
@@ -258,7 +293,7 @@ def build_safe_claim_text(row: dict[str, object], target_genome: str, focus_labe
 def build_comparator_strategy(row: dict[str, object], focus_label: str) -> str:
     focus_count = to_int(row.get("gcf_focus_genome_count"))
     nonfocus_count = to_int(row.get("gcf_nonfocus_genome_count"))
-    gcf_id = clean(row.get("gcf_id"))
+    gcf_id = selected_gcf_id(row)
     if not gcf_id:
         return "review local architecture first; no clear GCF comparator set"
     if not clean(focus_label):
@@ -380,6 +415,15 @@ def main() -> None:
         help="Project name used under data/results and Code/.",
     )
     parser.add_argument(
+        "--metadata",
+        type=Path,
+        default=None,
+        help=(
+            "Explicit normalized metadata TSV. Defaults to the historical "
+            "summary_tables/ecofun_metadata_normalized.tsv path."
+        ),
+    )
+    parser.add_argument(
         "--target-genome",
         default="",
         help="Optional genome ID to prioritize for reviewer-facing shortlist outputs.",
@@ -400,7 +444,7 @@ def main() -> None:
     summary_root = results_root / "summary"
     summary_tables_root = results_root / "summary_tables"
 
-    metadata_path = summary_tables_root / "ecofun_metadata_normalized.tsv"
+    metadata_path = args.metadata or (summary_tables_root / "ecofun_metadata_normalized.tsv")
     summary_path = summary_root / "all_tools_shared_unshared_summary.csv"
     crosswalk_path = summary_root / "candidate_bgc_gcf_crosswalk.tsv"
     comparison_path = summary_root / "all_tools_bgc_comparison.csv"
@@ -426,12 +470,21 @@ def main() -> None:
         genome = clean(row.get("genome_id_current"))
         if not genome:
             continue
-        primary_label = ecology_group(clean(row.get(args.ecology_field)))
+        primary_value = clean(row.get(args.ecology_field))
+        secondary_field = (
+            f"{args.ecology_field[:-len('_primary')]}_secondary"
+            if args.ecology_field.endswith("_primary")
+            else "ecofun_secondary"
+        )
+        primary_label = ecology_group(primary_value)
         metadata_by_genome[genome] = {
             "accession": clean(row.get("accession")),
             "genome": genome,
-            "ecofun_primary": clean(row.get("ecofun_primary")) or primary_label,
-            "ecofun_secondary": clean(row.get("ecofun_secondary")),
+            # Preserve the established output column names while allowing the
+            # canonical ecobac (or another explicit) ecology schema to drive
+            # the generic ranking logic.
+            "ecofun_primary": primary_value or primary_label,
+            "ecofun_secondary": clean(row.get(secondary_field)),
             "ecology_group": ecology_group(primary_label),
         }
 
@@ -547,7 +600,7 @@ def main() -> None:
         )
         comparison_lookup[key] = row
 
-    gcf_stats: dict[str, dict[str, object]] = defaultdict(
+    gcf_stats: dict[tuple[str, str, str], dict[str, object]] = defaultdict(
         lambda: {
             "genomes": set(),
             "focus_genomes": set(),
@@ -562,38 +615,41 @@ def main() -> None:
     for row in crosswalk_rows:
         genome = clean(row.get("genome"))
         meta = metadata_by_genome.setdefault(genome, fallback_metadata_row(genome))
-        gcf_id = clean(row.get("gcf_id"))
-        if not gcf_id:
+        families = selected_gcf_ids(row)
+        if not families:
             continue
+        category, threshold = selected_gcf_view(row)
 
         consensus_label, _ = parse_consensus(
             clean(row.get("antismash_region")),
             clean(row.get("funbgcex_cluster")),
+            clean(row.get("funbgcex_applicability")) or "applicable",
         )
         class_norm = clean(row.get("antismash_class")) or "UNCLASSIFIED"
         annotation = clean(row.get("nearest_mibig_or_annotation_if_available"))
 
-        bucket = gcf_stats[gcf_id]
-        bucket["genomes"].add(genome)
-        if matches_focus_ecology(meta["ecology_group"], focus_ecology_label):
-            bucket["focus_genomes"].add(genome)
-        else:
-            bucket["other_genomes"].add(genome)
-        bucket["classes"][class_norm] += 1
-        if annotation:
-            bucket["annotations"][annotation] += 1
-        bucket["consensus"][consensus_label] += 1
-        bucket["candidate_keys"].add(
-            (
-                genome,
-                clean(row.get("antismash_region")),
-                clean(row.get("funbgcex_cluster")),
-                gcf_id,
+        for family in families:
+            bucket = gcf_stats[(category, threshold, family)]
+            bucket["genomes"].add(genome)
+            if matches_focus_ecology(meta["ecology_group"], focus_ecology_label):
+                bucket["focus_genomes"].add(genome)
+            else:
+                bucket["other_genomes"].add(genome)
+            bucket["classes"][class_norm] += 1
+            if annotation:
+                bucket["annotations"][annotation] += 1
+            bucket["consensus"][consensus_label] += 1
+            bucket["candidate_keys"].add(
+                (
+                    genome,
+                    clean(row.get("antismash_region")),
+                    clean(row.get("funbgcex_cluster")),
+                    family,
+                )
             )
-        )
 
     gcf_context_rows: list[dict[str, object]] = []
-    for gcf_id, bucket in gcf_stats.items():
+    for (category, threshold, gcf_id), bucket in gcf_stats.items():
         focus_count = len(bucket["focus_genomes"])
         other_count = len(bucket["other_genomes"])
         example_annotation = bucket["annotations"].most_common(1)[0][0] if bucket["annotations"] else ""
@@ -601,6 +657,8 @@ def main() -> None:
         gcf_context_rows.append(
             {
                 "gcf_id": gcf_id,
+                "gcf_selected_category": category,
+                "gcf_selected_threshold": threshold,
                 "candidate_row_count": len(bucket["candidate_keys"]),
                 "genome_count": len(bucket["genomes"]),
                 "focus_ecology_label": focus_ecology_label,
@@ -626,17 +684,39 @@ def main() -> None:
         comparison = comparison_lookup.get((genome, antismash_region, funbgcex_cluster), {})
 
         antismash_class = clean(row.get("antismash_class")) or clean(comparison.get("antismash_bgc_class")) or "UNCLASSIFIED"
-        gcf_id = clean(row.get("gcf_id"))
-        gcf_components = split_multi(gcf_id)
-        gcf_bucket = gcf_stats.get(gcf_id)
-        gcf_genome_count = len(gcf_bucket["genomes"]) if gcf_bucket else 0
-        gcf_focus_count = len(gcf_bucket["focus_genomes"]) if gcf_bucket else 0
-        gcf_other_count = len(gcf_bucket["other_genomes"]) if gcf_bucket else 0
+        gcf_provenance = materialized_gcf_provenance(row)
+        selected_id = selected_gcf_id(row)
+        gcf_components = list(selected_gcf_ids(row))
+        category, threshold = selected_gcf_view(row)
+        gcf_buckets = [
+            gcf_stats[(category, threshold, family)]
+            for family in gcf_components
+            if (category, threshold, family) in gcf_stats
+        ]
+        gcf_genomes: set[str] = set()
+        gcf_focus_genomes: set[str] = set()
+        gcf_other_genomes: set[str] = set()
+        for bucket in gcf_buckets:
+            gcf_genomes.update(bucket["genomes"])
+            gcf_focus_genomes.update(bucket["focus_genomes"])
+            gcf_other_genomes.update(bucket["other_genomes"])
+        gcf_genome_count = len(gcf_genomes)
+        gcf_focus_count = len(gcf_focus_genomes)
+        gcf_other_count = len(gcf_other_genomes)
         gcf_pattern = gcf_ecology_pattern(gcf_focus_count, gcf_other_count, focus_ecology_label)
 
-        consensus_label, consensus_points = parse_consensus(antismash_region, funbgcex_cluster)
+        funbgcex_applicability = (
+            clean(row.get("funbgcex_applicability"))
+            or clean(comparison.get("funbgcex_applicability"))
+            or "applicable"
+        )
+        consensus_label, consensus_points = parse_consensus(
+            antismash_region,
+            funbgcex_cluster,
+            funbgcex_applicability,
+        )
         gcf_points = 0
-        if gcf_id:
+        if selected_id:
             gcf_points += 1
         if gcf_genome_count >= 2:
             gcf_points += 1
@@ -687,7 +767,15 @@ def main() -> None:
             + product_points
         )
 
-        if priority_score >= 11 and consensus_label == "antiSMASH+FunBGCeX" and bool(gcf_id):
+        if (
+            priority_score >= 11
+            and applicable_detector_set_complete(
+                antismash_region,
+                funbgcex_cluster,
+                funbgcex_applicability,
+            )
+            and bool(selected_id)
+        ):
             priority_tier = "tier_1"
         elif priority_score >= 8:
             priority_tier = "tier_2"
@@ -717,6 +805,9 @@ def main() -> None:
                 "priority_score": priority_score,
                 "priority_tier": priority_tier,
                 "genome": genome,
+                "taxon_group": clean(row.get("taxon_group")) or clean(comparison.get("taxon_group")) or "fungi",
+                "prediction_method": clean(row.get("prediction_method")) or clean(comparison.get("prediction_method")),
+                "funbgcex_applicability": funbgcex_applicability,
                 "accession": meta["accession"],
                 "ecofun_primary": meta["ecofun_primary"],
                 "ecofun_secondary": meta["ecofun_secondary"],
@@ -726,7 +817,7 @@ def main() -> None:
                 "antismash_class": antismash_class,
                 "class_logic_support": class_logic_support,
                 "overlap_bp": to_int(comparison.get("overlap_bp")),
-                "gcf_id": gcf_id,
+                **gcf_provenance,
                 "resolved_gcf_ids": ";".join(gcf_components),
                 "gcf_family_count": len(gcf_components),
                 "gcf_genome_count": gcf_genome_count,
@@ -760,7 +851,7 @@ def main() -> None:
                 "recommended_followup": build_recommended_followup(
                     priority_tier,
                     consensus_label,
-                    bool(gcf_id),
+                    bool(selected_id),
                     class_logic_support,
                 ),
                 "ranking_rationale": ranking_rationale,
@@ -799,14 +890,17 @@ def main() -> None:
                 "priority_tier": clean(row.get("priority_tier")),
                 "review_bucket": determine_review_bucket(row),
                 "genome": clean(row.get("genome")),
+                "taxon_group": clean(row.get("taxon_group")) or "fungi",
+                "prediction_method": clean(row.get("prediction_method")),
+                "funbgcex_applicability": clean(row.get("funbgcex_applicability")) or "applicable",
                 "antismash_region": antismash_region,
                 "region_gbk_path": str(region_gbk_path) if antismash_region else "",
                 "region_gbk_exists": "yes" if antismash_region and region_gbk_path.exists() else "no",
                 "funbgcex_cluster": clean(row.get("funbgcex_cluster")),
                 "antismash_class": clean(row.get("antismash_class")),
-                "gcf_id": clean(row.get("gcf_id")),
+                **materialized_gcf_provenance(row),
                 "gcf_context": build_gcf_context_text(
-                    clean(row.get("gcf_id")),
+                    selected_gcf_id(row),
                     to_int(row.get("gcf_focus_genome_count")),
                     to_int(row.get("gcf_nonfocus_genome_count")),
                     focus_ecology_label,
@@ -883,6 +977,8 @@ def main() -> None:
         gcf_context_out,
         [
             "gcf_id",
+            "gcf_selected_category",
+            "gcf_selected_threshold",
             "candidate_row_count",
             "genome_count",
             "focus_ecology_label",
@@ -903,6 +999,9 @@ def main() -> None:
             "priority_score",
             "priority_tier",
             "genome",
+            "taxon_group",
+            "prediction_method",
+            "funbgcex_applicability",
             "accession",
             "ecofun_primary",
             "ecofun_secondary",
@@ -912,7 +1011,7 @@ def main() -> None:
             "antismash_class",
             "class_logic_support",
             "overlap_bp",
-            "gcf_id",
+            *GCF_PROVENANCE_FIELDS,
             "resolved_gcf_ids",
             "gcf_family_count",
             "gcf_genome_count",
@@ -953,12 +1052,15 @@ def main() -> None:
                 "priority_tier",
                 "review_bucket",
                 "genome",
+                "taxon_group",
+                "prediction_method",
+                "funbgcex_applicability",
                 "antismash_region",
                 "region_gbk_path",
                 "region_gbk_exists",
                 "funbgcex_cluster",
                 "antismash_class",
-                "gcf_id",
+                *GCF_PROVENANCE_FIELDS,
                 "gcf_context",
                 "focus_ecology_label",
                 "gcf_focus_genome_count",

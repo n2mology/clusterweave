@@ -1,78 +1,234 @@
-# Web Runtime Strategy
+# Web runtime
 
-ClusterWeave remains a shell-first workflow. The web/API layer stages inputs and owns job orchestration, but the scientific stages still run through the canonical scripts.
+ClusterWeave remains a shell-first workflow. The standard-library web/API
+service validates and stages inputs, the filesystem job store publishes bounded
+queue metadata, one worker/admission layer claims a job, and
+`web/canonical_pipeline.py` invokes the canonical shell entrypoints. Focused
+Python helpers transform or render declared outputs. The shipped runtime does
+not contain a second scientific implementation.
 
-## Runtime Slices
+Project-hosted access is **coming soon**. Version 1.0.0 can be run locally or
+through a separately administered institutional deployment.
 
-### Short Term: Lab QA Bridge
+## Shipped execution profiles
 
-The dev/lab compose file (`docker-compose.yml`) uses `CLUSTERWEAVE_RUNTIME_MODE=lab-docker` and `ENGINE=docker`. In this mode the worker mounts the host Docker socket and launches stage containers with named Docker volumes mounted back at the same in-container paths:
+### Trusted single-user local profile
 
-- `clusterweave_job_data` -> `/data`
-- `clusterweave_antismash_db` -> `/databases/antismash`
-- `clusterweave_pfam_db` -> `/databases/pfam`
+`docker-compose.yml` uses `CLUSTERWEAVE_RUNTIME_MODE=lab-docker` and
+`ENGINE=docker`. Its worker contains the pinned Docker 29.6.1 CLI, mounts the
+host Docker socket, and launches sibling scientific-tool containers with the
+same named volumes at the same in-container paths:
 
-This is intentionally a lab convenience. It lets the current web UI run the canonical scripts without installing Apptainer inside the worker container.
+- `clusterweave_job_data` at `/data`;
+- `clusterweave_antismash_db` at `/databases/antismash`;
+- `clusterweave_pfam_db` at `/databases/pfam`.
 
-The worker processes one job at a time by default. For lab machines with enough CPU, memory, and disk I/O, set `WORKER_CONCURRENCY=2` or higher before starting compose. Each job still keeps an isolated `/data/jobs/<job-id>` workspace, but shared caches under `/data/software` and database volumes are common to all jobs.
+This profile lets the browser run the canonical workflow without installing the
+scientific tools directly on the host. It is a trusted local convenience, not a
+public isolation boundary.
 
-Current Docker-native bridge paths:
+The worker processes one job at a time by default. `WORKER_CONCURRENCY` is an
+upper bound rather than a promise to start that many jobs: aggregate admission
+also reserves CPU and estimated memory for every active job and can hold queued
+work until capacity returns. Each job has an isolated `/data/jobs/<job-id>`
+workspace, while `/data/software` and the database volumes are shared caches.
 
-- `run_annotation_and_detection.sh`: uses local worker antiSMASH when present and a repo-built `clusterweave-funbgcex:latest` Docker image for FunBGCeX; optional funannotate/BRAKER fallbacks can run via Docker images when enabled.
-- `run_bigscape.sh`: supports `ENGINE=docker` with `BIGSCAPE_DOCKER_IMAGE`.
-- `run_clinker.sh`: supports `CLINKER_USE_DOCKER_IMAGE=1` and passes Docker settings into generated panel scripts.
-- `run_nplinker.sh`: supports `ENGINE=docker` with a Python base image and a persistent `/data/software/nplinker` venv.
-- `run_figures.sh`: renders the Python BGC overlap figure, BiG-SCAPE multipanel SVG/PNG, and GraphML/node/edge attribute exports by default. Legacy R summary SVGs are available with `RUN_SUMMARY_FIGURES=1`.
+The initialized profile gives the worker 4 CPUs and 16 GiB. It also writes
+`CLUSTERWEAVE_MAX_CPUS_PER_JOB=4`, so the local web service cannot accept a
+public job above the default `CLUSTERWEAVE_WORKER_CPU_LIMIT=4`. Keep
+`CLUSTERWEAVE_MAX_CPUS_PER_JOB` at or below the worker limit. A deliberate
+larger installation must also reconcile `PIPELINE_CPUS`, `WORKER_CPU_BUDGET`,
+worker memory, process limits, disk floors, and measured stage behavior.
 
-HPC/Singularity behavior remains the default when `ENGINE` is unset and Singularity/Apptainer is available.
+Current Docker paths use the same shell scripts as direct runs:
 
-### Pilot: CADES/Slurm Scheduler Backend
+- `run_annotation_and_detection.sh` handles fungal/bacterial preparation,
+  antiSMASH, fungal FunBGCeX, and optional annotation fallbacks. Successful
+  antiSMASH shards are compacted during the per-genome run.
+- `run_bigscape.sh` uses `BIGSCAPE_DOCKER_IMAGE` when `ENGINE=docker`.
+- `run_clinker.sh` can run the pinned clinker image and passes the Docker volume
+  settings into the generated panel commands.
+- `run_nplinker.sh` can use its pinned Python base and persistent environment.
+- `run_figures.sh` renders the BGC overlap, taxon-specific multipanel,
+  taxonomy/BGC/GCF, and graph-ready outputs.
+- `run_phylogeny.sh` is an optional, bounded sequence-inference follow-up using
+  a prebuilt runtime; it never installs or pulls tools from a job.
 
-`CLUSTERWEAVE_EXECUTOR=local` remains the default worker mode. Set `CLUSTERWEAVE_EXECUTOR=slurm` to run the scheduler-backed pilot submitter while preserving the existing filesystem queue.
+### Socket-free external executor profile
 
-In Slurm mode the worker process claims `/data/queue/<job-id>.json`, writes `/data/jobs/<job-id>/slurm/submit.sbatch`, submits it with `sbatch --parsable`, records `slurm_job_id` and scheduler metadata in `job.json`, polls `squeue`/`sacct`, and uses `scancel` for admin cancellation. The compute node runs exactly one job through `python3 web/worker.py --once <job-id> --queue-payload ...`, which reuses the current canonical pipeline.
+`clusterweave.yml` uses `CLUSTERWEAVE_RUNTIME_MODE=public-queue` with the Docker
+socket disabled. It requires an external executor and reports unavailable
+required stages through `/api/system/status` when that executor or a prepared
+runtime is missing. The API rejects a job that requests an unavailable required
+stage.
 
-See `docs/CADES_SLURM_BACKEND.md` for the CADES pilot env contract, dry-run test, smoke-test procedure, cache guidance, and security notes.
+The shipped scheduler backend uses `CLUSTERWEAVE_EXECUTOR=slurm`. The submitter
+claims the same filesystem queue records, writes an sbatch script under the job
+workspace, submits with `sbatch --parsable`, records scheduler metadata, polls
+`squeue` and `sacct`, and uses `scancel` for an administrator cancellation. A
+compute node runs one job with `web/worker.py --once`, which invokes the same
+canonical pipeline and shell stages. The current environment, shared-storage,
+Apptainer/Singularity, and preflight contract is documented in
+[CADES_SLURM_BACKEND.md](CADES_SLURM_BACKEND.md).
 
-### Long Term: Public Hosted Runtime
+## Bounded resource planning
 
-Public hosting should not expose the host Docker socket to a web-facing worker. The target model is:
+ClusterWeave enforces two independent resource boundaries:
 
-- web/API service accepts uploads, validates settings, and owns the job DAG
-- queue stores stage-ready work items and state transitions
-- stage-specific workers run prebuilt, constrained images
-- workers receive declared inputs and write declared outputs only
-- downstream tool containers never launch sibling containers themselves
+1. The per-job planner fits whole-genome lanes, funannotate/BRAKER CPUs,
+   FunBGCeX workers, antiSMASH record shards, and the legacy single-record path
+   inside the accepted job CPU budget. Public targets are read from
+   `CLUSTERWEAVE_PUBLIC_GENOME_PARALLELISM`,
+   `CLUSTERWEAVE_PUBLIC_ANTISMASH_RECORD_PARALLELISM`,
+   `CLUSTERWEAVE_PUBLIC_FUNANNOTATE_CPUS_PER_GENOME`, and
+   `CLUSTERWEAVE_PUBLIC_FUNBGCEX_WORKERS_PER_GENOME`, then clamped as one plan.
+2. Worker admission starts a job only when active CPU reservations and estimated
+   memory reservations fit `WORKER_CPU_BUDGET` and
+   `WORKER_MEMORY_BUDGET_MB`. `WORKER_MIN_FREE_DISK_GB` can hold work before the
+   job filesystem reaches its floor, while `CLUSTERWEAVE_MIN_FREE_DISK_GB`
+   applies at submission time.
 
-The published compose file (`clusterweave.yml`) is deliberately socket-free. It surfaces unavailable stages through `/api/system/status`; the UI disables those stages and the API rejects jobs that request them.
+Queue publication is atomic. The worker republishes sufficiently old pending
+metadata after a web-process interruption, with a grace window that avoids
+racing a live submission. A malformed queue record is quarantined. A job that
+cannot fit the worker's total CPU or memory budget fails with a scheduling
+explanation, so one impossible record cannot block later FIFO work indefinitely.
 
-## Stage DAG Boundary
+`PIPELINE_RESOURCE_MODE=conservative` is the portable default. It starts from
+explicit settings and reduces a stage shape that would exceed the declared job
+CPU budget. `PIPELINE_RESOURCE_MODE=auto` is an operator opt-in that derives and
+freezes one bounded plan from the available CPU and memory limits. Auto mode does
+not expand a running job or bypass worker admission.
 
-| Stage | Depends On | Declared Inputs | Declared Outputs | Key Knobs |
-| --- | --- | --- | --- | --- |
-| prepare | uploads | accession list, optional NCBI CLI cache | `data/genomes/fungi/<project>` | `ACCESSIONS_FILE`, `RUN_GENOME_PREP` |
-| annotation/FunBGCeX | prepare or uploaded genomes | FASTA/GenBank files | `antismash/`, `funbgcex/`, staged GBKs, manifest | `CPUS`, `ANNO_CPUS`, `WORKERS`, `ANNOTATION_FALLBACK_ORDER`, `BRAKER3_ENABLED` |
-| BiG-SCAPE | annotation | antiSMASH region GBKs, Pfam, optional MiBIG | `big_scape/` | `THREADS`, `AUTO_DOWNLOAD_PFAM`, `MIBIG_AUTO_DOWNLOAD`, `BIGSCAPE_*` |
-| summarize/crosswalk | annotation, optional BiG-SCAPE | antiSMASH, FunBGCeX, BiG-SCAPE outputs, metadata | `summary/`, `summary_tables/` | `RUN_ECOLOGY_ANALYSIS`, `ECOLOGY_FIELD`, `FOCUS_ECOLOGY_LABEL` |
-| clinker | summarize, optional BiG-SCAPE | shortlist tables, region GBKs, optional MiBIG | `clinker/` panel HTML/TSV/manifests | `CLINKER_MODE`, `PANEL_TARGET_SET`, `ATLAS_STAGE_LIMIT`, `RUN_CLINKER` |
-| figures | summarize | summary tables | `figures/` | `FIGURES_REQUIRED`, `R_BIN` |
-| NPLinker | annotation, BiG-SCAPE, GNPS/PODP inputs | target strain, antiSMASH, GNPS/PODP assets, strain mapping | `nplinker/` ranked link tables | `RUN_MODE`, `TARGET_STRAIN`, `PODP_ID`, `GNPS_VERSION` |
+Funannotate remains a whole-assembly operation because its training, evidence
+integration, reconciliation, and locus assignment are genome-wide. The safe CPU
+relationship is `GENOME_PARALLELISM * ANNO_CPUS <= CPUS`. Throughput comes from
+independent whole-genome lanes and native funannotate CPUs, not record-level
+reassembly that could change biological output and identifiers.
 
-`web/canonical_pipeline.py` is the current bridge that prepares this layout and invokes `run_clusterweave.sh`. It is not the final DAG engine, but it now passes enough explicit runtime settings for each stage to be split out later.
+The memory estimator uses configurable base, per-genome, antiSMASH-shard,
+annotation-CPU, FunBGCeX-worker, and optional-phylogeny terms, then applies a
+safety factor and minimum. The corresponding `WORKER_MEMORY_*` settings are
+operator calibration inputs, not scientific parallelism controls. Compose also
+sets common numerical thread variables to one, bounds the worker process tree,
+and can apply hard CPU, memory, and process ceilings to Docker tool children.
 
-## Safety Rules
+## Taxonomy figure and optional sequence phylogeny
 
-- `docker-compose.yml` is dev/lab only because it mounts `/var/run/docker.sock`.
-- `clusterweave.yml` is socket-free and should be the baseline for public demos.
-- Public deployments should run prebuilt stage images through a queue worker model, not Docker-from-Docker.
-- Runtime capabilities are reported through `/api/system/status`; the API rejects jobs requesting unavailable required stages.
-- Failed or completed jobs can be re-queued in place with selected stages. This reuses the existing job workspace so expensive completed stages such as antiSMASH do not need to be repeated unless selected with force rerun.
-- Public API hardening is opt-in with `CLUSTERWEAVE_PUBLIC_MODE=1`. In public mode, job creation is open when `CLUSTERWEAVE_SUBMIT_TOKEN` is unset and submissions are open; invite-only deployments can set `CLUSTERWEAVE_SUBMIT_TOKEN`, which then requires that token or `CLUSTERWEAVE_ADMIN_TOKEN` for job creation. Job list, rerun, delete, and full worker telemetry require `CLUSTERWEAVE_ADMIN_TOKEN`; job detail/log/file reads require the per-job read token returned at submission or the admin token.
-- Per-job read tokens are random bearer tokens. The server stores only a digest derived from `CLUSTERWEAVE_JOB_TOKEN_SECRET`; keep that secret stable across web service restarts so result links remain valid.
-- Anonymous public `/api/system/status` is redacted to service online/offline, submissions open/paused, and aggregate jobs processed. Full worker runtime, capabilities, queue details, logs, and job IDs are admin-only.
-- Public-mode CORS no longer uses wildcard access. Set `CLUSTERWEAVE_ALLOWED_ORIGINS` to a comma-separated list of hosted browser origins when cross-origin API calls are required.
-- Public-mode uploads require the data-use acknowledgment for non-admin submissions and are constrained to one-accession-per-line `.txt` files, genome files `.fasta`, `.fa`, `.fna`, `.fsa`, `.gb`, `.gbk`, `.gbff`, and the UI-generated `ecofun_metadata_normalized.tsv` only when ecology-aware analysis is enabled. TSV/CSV accession tables, auxiliary formats, generic archives, raw metadata paths, public NPLinker settings, and public raw environment overrides are rejected before worker execution.
-- Public quotas are controlled by `CLUSTERWEAVE_MAX_ACCESSIONS`, `CLUSTERWEAVE_MAX_GENOME_FILES`, `CLUSTERWEAVE_MAX_UPLOAD_FILE_MB`, `CLUSTERWEAVE_MAX_UPLOAD_TOTAL_MB`, `CLUSTERWEAVE_MAX_QUEUED_JOBS`, and `CLUSTERWEAVE_MAX_CPUS_PER_JOB`. CPU-related request fields are clamped to the accepted CPU count.
-- Job metadata includes `retention_days` and `expires_at`; when the worker marks a job `success` or `failed`, `completed_at` or `failed_at` is set and the expiration date is refreshed from that terminal timestamp. The default retention window is `CLUSTERWEAVE_JOB_RETENTION_DAYS=30`.
-- Optional completion/failure email is enabled only with `CLUSTERWEAVE_SMTP_ENABLED=1`. The UI discovers this through redacted `/api/system/status`; email addresses are stored only in job metadata, and terminal notifications send a private fragment result link plus expiration date. Set `CLUSTERWEAVE_PUBLIC_BASE_URL` for hosted links and `CLUSTERWEAVE_SMTP_FROM` or `CLUSTERWEAVE_EMAIL_FROM` for the sender address. Use `CLUSTERWEAVE_SMTP_SSL=1` for implicit TLS providers on port 465, or leave it off and use `CLUSTERWEAVE_SMTP_TLS=1` for STARTTLS on port 587.
-- Expired jobs are removed with `python3 web/maintenance.py sweep-expired-jobs`. The sweeper deletes uploads, logs, work directories, result files, email metadata, and read-token hashes, then keeps only aggregate deletion counters under the data directory. `CLUSTERWEAVE_JOB_RETENTION_DAYS=0` or `never` requires `CLUSTERWEAVE_ALLOW_NEVER_EXPIRE_JOBS=1` and public admin documentation.
+`/api/system/status` reports `taxon_tree_figure` and `sequence_phylogeny`
+separately. The normal taxonomy/BGC/GCF renderer needs only the worker Python
+environment and writes a static SVG, data bundle, Newick, tables, and GraphML.
+Optional PNG export may use CairoSVG, but the core bundle does not require a
+sequence-inference runtime.
+
+Sequence phylogeny becomes available only when preflight can inspect an
+already-built Docker image or a pinned SIF. The portable defaults keep
+`RUN_PHYLOGENY=0`, `PHYLOGENY_REQUIRED=0`, `PHYLOGENY_CPUS=1`,
+`PHYLOGENY_PARALLELISM=1`, and `RUN_CROSS_KINGDOM_EVIDENCE=0`. Submit-token jobs
+cannot enable sequence inference or cross-kingdom evidence; administrator
+authorization is required.
+
+A requested sequence run prepares only bounded families from shortlisted
+cross-domain GCF regions and matching antiSMASH annotations. It does not perform
+sequence-similarity clustering or download a runtime. Computational tree or GCF
+context does not establish an evolutionary event, mechanism, or direction. A
+missing optional result does not invalidate the core taxonomy/BGC/GCF workflow
+unless an operator explicitly set the optional stage as required.
+
+## Capacity, uploads, and retention
+
+A concurrency value is not a queue-size setting. Operators must measure
+aggregate CPU, memory, process, and disk reservations on representative fungal,
+bacterial, and mixed jobs before increasing active work. The portable local
+profile deliberately begins with one job, one genome/record lane, a four-CPU
+worker, and no retained raw shard work.
+
+Streaming shard compaction reduces temporary antiSMASH growth but does not
+replace retention planning. Final antiSMASH regions, FunBGCeX outputs,
+annotation products, BiG-SCAPE data, figures, uploads, and packages remain
+per-job data. Monitor the filesystem mounted at `/data`, set both disk floors,
+and export or back up declared results before cleanup.
+
+Multipart uploads are spooled under `/data/.upload_staging`, copied and
+validated in bounded chunks, rejected from `Content-Length` before parsing when
+the configured total plus form overhead is too large, and limited by
+`CLUSTERWEAVE_MAX_CONCURRENT_UPLOADS` (two by default). Retention sweeping
+applies only to terminal `success` or `failed` jobs; queued and running work is
+not removed solely because it is old.
+
+## Interactive metadata and operator logs
+
+The administrator job drawer reads bounded `job_summary.v1.json` records rather
+than loading each full `job.json`. Selecting a job loads metadata and the
+declared result index, while opening the QA Console requests the newest bounded
+log page. Earlier pages are fetched explicitly. Existing administrator and
+per-job authorization still controls those reads.
+
+Completed runs write a private, HMAC-signed result index beside the public
+manifest. The completion path has verified and hashed the manifest contents, so
+interactive file-list requests validate the signed index and manifest identity.
+Direct downloads retain their digest check, family allowlists, path containment,
+and private/raw BiG-SCAPE database policy. Keep
+`CLUSTERWEAVE_JOB_TOKEN_SECRET` stable because it signs result access and the
+completion indexes.
+
+After upgrading an installation with legacy jobs, an operator may run
+`python3 bin/backfill_result_attestations.py` in the web service environment. It
+writes bounded summaries and hashes terminal manifests once. Run it outside
+interactive request handling with the same data volume and stable secret as the
+web service.
+
+## Opaque public result delivery
+
+New jobs receive a random 128-bit `public_run_id`; legacy jobs receive a stable
+HMAC alias, and every artifact ID is generation-bound. Browser result actions
+use opaque result and artifact routes. Public JSON and links do not contain the
+private worker-directory ID or a storage-relative path. In public mode, legacy
+internal-ID file, archive, and viewer routes are administrator-only.
+
+A read token is a bearer capability delivered in the initial URL fragment,
+removed from browser history, and retained only in session storage. Generated
+antiSMASH and FunBGCeX HTML is fetched through opaque artifact routes and runs
+only in the existing scripts-only opaque-origin sandbox. HTTPS is required for a
+hosted deployment to protect tokens and result bytes in transit; TLS termination
+is outside this application-layer runtime.
+
+## Security and access rules
+
+- Keep `docker-compose.yml` bound to loopback because its worker mounts
+  `/var/run/docker.sock`. Never expose that profile as an unaudited service.
+- The socket-free `clusterweave.yml` profile requires a configured external
+  executor and pre-prepared runtimes. It does not silently fall back to the host
+  Docker socket.
+- Rebuild or recreate services without deleting named volumes. Never run
+  `docker compose down -v` during an upgrade unless permanent deletion is the
+  explicit, reviewed intent.
+- Failed or completed jobs can be re-queued with selected stages in the same
+  workspace, preserving completed expensive stages unless an administrator
+  requests a forced rerun.
+- In `CLUSTERWEAVE_PUBLIC_MODE=1`, submission is open only according to
+  `CLUSTERWEAVE_SUBMISSIONS_OPEN` and the optional submit-token policy. Job
+  lists, reruns, deletes, full telemetry, raw logs, and legacy internal-ID file
+  routes require administrator credentials. Opaque results require the per-job
+  read token or administrator credential.
+- Prefer SHA-256 token inputs for app-side verification. Plaintext submit and
+  administrator environment variables remain compatibility inputs, but secrets
+  must stay outside source and browser-visible state.
+- Anonymous `/api/system/status` is redacted to service state, submission state,
+  and aggregate completed work. Detailed queue, capability, job, and worker
+  information is private.
+- Public-mode CORS is not a wildcard. Configure
+  `CLUSTERWEAVE_ALLOWED_ORIGINS` only for reviewed browser origins.
+- Public uploads are limited to one-accession-per-line `.txt`, bounded FASTA or
+  GenBank genomes, and the UI-generated normalized ecology table when that mode
+  is enabled. Generic archives, arbitrary environment overrides, and public
+  NPLinker settings are rejected.
+- Canonical quotas include 50 NCBI accessions and 50 uploaded genome files.
+  `CLUSTERWEAVE_MAX_CPUS_PER_JOB` clamps all CPU-related request fields; in the
+  initialized local profile its value is 4.
+- Terminal jobs receive a retention deadline (30 days by default). Optional
+  completion email is enabled only through the SMTP settings and sends a private
+  fragment result link. Hosted links require a reviewed HTTPS base URL.
+- `python3 web/maintenance.py sweep-expired-jobs` removes expired terminal job
+  data and retains only aggregate deletion counters. A never-expire policy
+  requires the explicit allow setting and operator documentation.

@@ -4,6 +4,10 @@ This agreement is a maintainer and deployment checklist for anyone operating a p
 institution-facing ClusterWeave web portal. It is not legal advice. Operators should ask their
 institution, counsel, or technology-transfer office to review the final deployment if the service
 will be public, commercial, fee-supported, or used for restricted data.
+Project-hosted access is **coming soon**. This agreement describes requirements
+for that service and for separately operated institutional services; it is not
+an availability announcement.
+
 
 ## Operator Responsibilities
 
@@ -46,18 +50,14 @@ components unless they have rights for the hosted-service context.
 ## Third-Party Credits
 
 The public UI should state that ClusterWeave depends on public/open-access tools and reference data
-made by other teams. The current public credit surface covers:
+made by other teams. Its current credit panels cover the implemented NCBI acquisition/taxonomy path,
+fungal and Prodigal-backed bacterial annotation, BGC/GCF and synteny tools, reference datasets, optional
+local phylogeny/evidence tools, and rendering dependencies. `THIRD_PARTY.md` records the corresponding
+licenses, citations, immutable release pins, and redistribution boundaries; vendored browser-library
+license files remain beside their assets under `web/static/vendor/`.
 
-- antiSMASH
-- FunBGCeX
-- funannotate
-- BiG-SCAPE
-- clinker
-- MIBiG
-- Pfam
-
-When new tools are added, update the UI, `THIRD_PARTY.md`, and this agreement before launch. This
-includes future bacterial and Prodigal-backed antiSMASH workflows.
+When tools or data sources change, update the UI, `THIRD_PARTY.md`, vendor notices, and this agreement
+before launch.
 
 ## Metrics And Upstream Stewardship
 
@@ -90,11 +90,12 @@ third-party notices bundle with:
 
 Before public-live launch:
 
-- Read `THIRD_PARTY.md`, `DATA_SOURCES.md`, `web/STYLE.md`, and `web/STAN.md`.
+- Read `THIRD_PARTY.md`, `docs/DATA_SOURCES.md`, `SECURITY.md`, and `docs/WEB_RUNTIME.md`.
 - Confirm the hosted web runtime has no restricted annotation fallback visible or enabled.
 - Confirm the reverse proxy enforces upload and rate limits before requests reach the Python app.
 - Confirm result links use the final HTTPS origin.
 - Confirm public users see third-party credits and citation guidance.
 - Confirm the service is invite-only or rate-limited until the operator is comfortable opening
   anonymous submissions.
-- Confirm the upstream maintainer note has been sent or intentionally deferred with an owner.
+- Record any upstream-maintainer coordination decision in private operator tracking; do not add private
+  contacts, job identifiers, or correspondence to the public source archive.

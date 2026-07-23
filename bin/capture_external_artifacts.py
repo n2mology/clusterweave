@@ -20,6 +20,7 @@ FIELDNAMES = [
     "source_uri",
     "local_path",
     "version_or_tag",
+    "tool_versions",
     "resolved_digest",
     "sha256",
     "size_bytes",
@@ -155,6 +156,8 @@ def add_row(
     source_uri: str,
     local_path: Path,
     version_or_tag: str = "",
+    tool_versions: str = "",
+    resolved_digest: str = "",
     captured_at: str,
 ) -> None:
     source_uri = clean(source_uri)
@@ -167,7 +170,8 @@ def add_row(
             "source_uri": source_uri,
             "local_path": str(local_path),
             "version_or_tag": version_or_tag,
-            "resolved_digest": digest_from_source(source_uri),
+            "tool_versions": clean(tool_versions)[:800],
+            "resolved_digest": clean(resolved_digest) or digest_from_source(source_uri),
             "sha256": sha256,
             "size_bytes": size_bytes,
             "captured_at": captured_at,
@@ -184,6 +188,7 @@ def add_virtual_row(
     local_path: str = "",
     version_or_tag: str = "",
     resolved_digest: str = "",
+    tool_versions: str = "",
     captured_at: str,
 ) -> None:
     source_uri = clean(source_uri)
@@ -194,6 +199,7 @@ def add_virtual_row(
             "source_uri": source_uri,
             "local_path": clean(local_path),
             "version_or_tag": clean(version_or_tag) or tag_from_source(source_uri),
+            "tool_versions": clean(tool_versions)[:800],
             "resolved_digest": clean(resolved_digest) or digest_from_source(source_uri),
             "sha256": "",
             "size_bytes": "",
@@ -236,6 +242,76 @@ def add_funannotate_runtime_row(
         local_path=funannotate_sif,
         captured_at=captured_at,
     )
+
+
+def add_phylogeny_runtime_row(
+    rows: list[dict[str, str]],
+    *,
+    results_root: Path,
+    captured_at: str,
+) -> None:
+    manifest_path = Path(
+        env(
+            "PHYLOGENY_MANIFEST_JSON",
+            str(results_root / "phylogeny" / "phylogeny_run_manifest.json"),
+        )
+    )
+    if not manifest_path.is_file():
+        return
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    if not isinstance(payload, dict):
+        return
+    runtime = clean(payload.get("runtime")).lower()
+    runtime_identity = clean(payload.get("runtime_identity"))[:300]
+    tool_versions = clean(payload.get("tool_versions"))[:800]
+    if runtime == "docker":
+        image_ref = env(
+            "PHYLOGENY_DOCKER_IMAGE", "clusterweave-phylogeny:1.0.0"
+        ).removeprefix("docker://")
+        if not runtime_identity:
+            runtime_identity = docker_image_identifier(image_ref)
+        if not runtime_identity:
+            return
+        add_virtual_row(
+            rows,
+            stage="optional_sequence_phylogeny",
+            artifact="phylogeny_docker_image",
+            source_uri=f"docker://{image_ref}",
+            local_path=f"docker-image://{image_ref}",
+            resolved_digest=runtime_identity,
+            tool_versions=tool_versions,
+            captured_at=captured_at,
+        )
+    elif runtime in {"apptainer", "singularity", "sif"}:
+        sif_path = Path(
+            env(
+                "PHYLOGENY_SIF_PATH",
+                str(
+                    Path(__file__).resolve().parents[1]
+                    / "software"
+                    / "phylogeny"
+                    / "clusterweave_phylogeny_1.0.0.sif"
+                ),
+            )
+        )
+        if not sif_path.is_file():
+            return
+        add_row(
+            rows,
+            stage="optional_sequence_phylogeny",
+            artifact="phylogeny_sif",
+            source_uri=env(
+                "PHYLOGENY_SIF_SOURCE",
+                "local-pinned-sif:clusterweave_phylogeny_1.0.0.sif",
+            ),
+            local_path=sif_path,
+            resolved_digest=runtime_identity,
+            tool_versions=tool_versions,
+            captured_at=captured_at,
+        )
 
 
 def main() -> None:
@@ -311,7 +387,7 @@ def main() -> None:
             rows,
             stage="stage1_annotation_detection",
             artifact="braker3_sif",
-            source_uri=env("BRAKER_IMAGE_URI", "docker://teambraker/braker3:latest"),
+            source_uri=env("BRAKER_IMAGE_URI", "docker://teambraker/braker3:v3.0.7.6@sha256:5f8b3c508a9fe1bbc2e9a74dcc013eeed82f91dd5945adca7823514d9c8aecf8"),
             local_path=braker_sif,
             captured_at=captured_at,
         )
@@ -335,9 +411,9 @@ def main() -> None:
         (
             "stage2_bigscape",
             "fasttree_binary",
-            env("FASTTREE_URL", "https://github.com/morgannprice/fasttree/raw/main/FastTree"),
+            env("FASTTREE_URL", "https://raw.githubusercontent.com/morgannprice/fasttree/29c5e62fbcd93230ee325f9c6a17b81f00e3c72a/FastTree"),
             fasttree_host,
-            env("FASTTREE_VERSION", ""),
+            env("FASTTREE_VERSION", "2.2.0"),
         ),
         ("stage2_bigscape", "mibig_cache", mibig_url, mibig_cache, mibig_version),
         (
@@ -368,6 +444,12 @@ def main() -> None:
             local_path=nplinker_sif,
             captured_at=captured_at,
         )
+
+    add_phylogeny_runtime_row(
+        rows,
+        results_root=results_root,
+        captured_at=captured_at,
+    )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", newline="", encoding="utf-8") as handle:

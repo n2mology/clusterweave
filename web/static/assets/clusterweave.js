@@ -4,16 +4,30 @@ let acceptedManualAccessions = [];
 let accessionFileSources = [];
 let accessionFileSourceSerial = 0;
 let genomeCheckCache = new Map();
+let genbankTaxonomyAuthorityCache = new Map();
 let brutalInputNotices = new Map();
+let stagedAnalysisScope = 'fungi';
+let stagedTaxonAssignments = new Map();
+let stagedTaxonAssignmentSources = new Map();
+let taxonAssignmentSidecar = null;
+let taxonAssignmentSidecarIssues = [];
+let activeSavedAnalysisContext = null;
 let activeJobId   = null;
 let pendingReadTokens = new Map();
 let jobLoadSeq = 0;
 let pollTimerId = null;
 let logCursor     = 0;
+let logWindowStart = 0;
+let logTotal = 0;
+let logGeneration = '';
+let logHydratedJobId = '';
+let logHydrationInFlight = null;
+const QA_LOG_PAGE_SIZE = 500;
 let systemLogCursor = 0;
 let workerStatus = 'unknown'; // unknown, starting, ready, processing
 let lastWorkerTelemetry = { runningCount: 0, pendingCount: 0, activeCount: 0, concurrency: 0, status: 'unknown' };
 let systemPollTimer = null;
+let publicImpactPollTimer = null;
 let runtimeCapabilities = null;
 let runtimeStatusSnapshot = {
   server: 'Checking',
@@ -54,17 +68,31 @@ let resultFocusMode = 'overview';
 let activeResultCategory = 'figures';
 let activeResultFiles = [];
 let activeResultArtifacts = null;
+// Public result surfaces use opaque run and artifact identifiers. The
+// presentation keys below are generated in-memory from server descriptors so
+// legacy reader/classifier code never receives a storage-relative path.
+let activePublicRunId = '';
+let activeResultArtifactByKey = new Map();
+let activeResultArtifactById = new Map();
+let publicResultRunIds = new Set();
 let resultArchiveObjectUrl = '';
 let resultArchiveRequestSeq = 0;
 let activeArchiveDownload = null;
 let resultHelperObjectUrls = [];
 let summaryReaderSeq = 0;
+let summaryReaderJobId = '';
+let activeSummaryView = 'all_bgcs';
+let allBgcTableState = null;
+let syntenyReaderJobId = '';
+let activeSyntenyTaxon = '';
+let figureReaderJobId = '';
+let activeFigureView = '';
 let resultAccessCollapsed = false;
 let runStackOpen = false;
 let runStackDismissalWired = false;
 let publicQuota = {
-  max_accessions: 25,
-  max_genome_files: 25,
+  max_accessions: 50,
+  max_genome_files: 50,
   max_upload_file_mb: 500,
   max_upload_total_mb: 1024,
 };
@@ -81,9 +109,22 @@ let motionLifecycleWired = false;
 let bgcWorkflowDna = null;
 let bgcWorkflowDnaLoading = false;
 let bgcWorkflowPendingPayload = null;
+let clusterweaveGameEpoch = 0;
+let clusterweaveGameDnaSuspended = false;
+let bgcWorkflowDnaGenomeLayerSuspended = false;
+let clusterweaveGameAdapterWired = false;
+let genomeProgressSnapshotKey = '';
+let genomeProgressSnapshot = new Map();
 
 const GSAP_BROWSER_PATH = 'vendor/gsap-3.15.0/gsap.min.js';
-const WORKFLOW_DNA_MODULE_PATH = new URL('assets/workflow-dna-progress.js?v=20260628-dna-smooth', window.location.href).toString();
+const WORKFLOW_DNA_MODULE_PATH = new URL('assets/workflow-dna-progress.js?v=20260713-fanout-ui1', window.location.href).toString();
+const JOB_POLL_BASE_DELAY_MS = 1500;
+const JOB_POLL_RETRY_DELAY_MS = 3000;
+const JOB_POLL_LONG_LOG_DELAY_MS = 3000;
+const JOB_POLL_LONG_LOG_THRESHOLD = 5000;
+const JOB_POLL_TIMEOUT_MS = 12000;
+const JOB_INITIAL_LOAD_TIMEOUT_MS = 45000;
+const TRANSIENT_JOB_POLL = Object.freeze({ status: 'pending', transient: true });
 const PUBLIC_CANONICAL_CPUS = 8;
 const PUBLIC_CANONICAL_STAGE_DEFAULTS = {
   'run-genome-prep': true,
@@ -147,6 +188,19 @@ const WORKFLOW_PROGRESS_WEIGHTS = {
   figures: 0.04,
   nplinker: 0.04,
 };
+
+const GENOME_PROGRESS_TERMINAL_STATES = new Set([
+  'complete', 'completed', 'done', 'success', 'succeeded',
+  'complete_with_warning',
+  'warning', 'dropped', 'failed', 'error', 'skipped',
+  'not_applicable', 'not_applicable_taxon', 'not-applicable', 'not applicable',
+]);
+const GENOME_PROGRESS_WARNING_STATES = new Set([
+  'complete_with_warning', 'warning', 'dropped', 'failed', 'error',
+]);
+const GENOME_PROGRESS_ACTIVE_STATES = new Set([
+  'running', 'active', 'processing',
+]);
 
 const STAGE_DETAILS = {
   prep: {
@@ -297,6 +351,9 @@ function switchOpsTab(tab, options = {}) {
   const next = OPS_TABS.includes(tab) ? tab : 'jobs';
   activeOpsTab = next;
   syncOpsTabs();
+  if (next === 'qa') {
+    void hydrateQaLogs({ tail: logHydratedJobId !== activeJobId, autoScroll: true });
+  }
   if (next === 'jobs') refreshJobHistory();
   if (next === 'worker') pollSystemStatus();
   if (next === 'rerun') renderRerunPanel(activeJobId, activeJobMeta);
@@ -654,7 +711,9 @@ function currentNavTarget() {
 }
 
 function runHasKnownResultFiles(job) {
-  return Array.isArray(job?.result_files) && job.result_files.map(normalizedResultPath).filter(Boolean).length > 0;
+  const listed = Array.isArray(job?.result_files)
+    ? job.result_files.map(normalizedResultPath).filter(Boolean).length : 0;
+  return listed > 0 || Number(job?.result_file_count || 0) > 0;
 }
 
 function shouldPreserveResultsDashboardForJobLoad(jobId, options = {}) {
@@ -873,14 +932,18 @@ function navigateToSection(event, target, focusId = null) {
   closePrimaryNav();
   if (el) {
     el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    window.history.replaceState(null, '', `#${cfg.anchor}`);
+    const outputRunId = activePublicRunId || publicRunIdFromJob(activeJobMeta, '');
+    const route = target === 'outputs' && outputRunId
+      ? `#/results/${encodeURIComponent(outputRunId)}`
+      : `#${cfg.anchor}`;
+    window.history.replaceState(null, '', route);
     window.setTimeout(() => focusSection(el, focusId || cfg.focus), 220);
   }
 }
 
 function syncNavFromHash() {
   const hash = window.location.hash.replace(/^#/, '');
-  if (/^\/?job\//i.test(hash)) {
+  if (/^\/?(?:job|results)\//i.test(hash)) {
     setActiveNav('outputs');
     return;
   }
@@ -890,9 +953,32 @@ function syncNavFromHash() {
 
 function parseResultHash() {
   const hash = window.location.hash || '';
-  const match = hash.match(/^#\/?job\/([^/\s#?]+)\/([^/\s#?]+)/i);
+  const match = hash.match(/^#\/?(job|results)\/([^/\s#?]+)(?:\/([^/\s#?]+))?\/?$/i);
   if (!match) return null;
-  return { jobId: decodeURIComponent(match[1]), token: decodeURIComponent(match[2]) };
+  const routeKind = String(match[1] || '').toLowerCase();
+  const jobId = decodeURIComponent(match[2]);
+  const token = match[3] ? decodeURIComponent(match[3]) : readTokenForJob(jobId);
+  if (!token && !canUseAdminSurfaces()) return null;
+  if (routeKind === 'results') publicResultRunIds.add(jobId);
+  return { jobId, token, publicResult: routeKind === 'results' };
+}
+
+function captureInitialResultHash() {
+  const hash = window.location.hash || '';
+  const match = hash.match(/^#\/?(job|results)\/([^/\s#?]+)(?:\/([^/\s#?]+))?\/?$/i);
+  const parsed = parseResultHash();
+  if (!parsed || !match?.[3]) return parsed;
+  const token = String(parsed.token || '');
+  if (!token) return parsed;
+  pendingReadTokens.set(parsed.jobId, token);
+  if (parsed.publicResult) {
+    const runs = loadOpenedRuns().filter(run => String(run.id || '') !== parsed.jobId);
+    runs.unshift({ id: parsed.jobId, token, name: parsed.jobId, status: '', updatedAt: new Date().toISOString() });
+    saveOpenedRuns(runs);
+  }
+  const routeKind = parsed.publicResult ? 'results' : 'job';
+  window.history.replaceState(null, '', `#/${routeKind}/${encodeURIComponent(parsed.jobId)}`);
+  return parsed;
 }
 
 function runtimeMetricText(value, fallback = 'Not available') {
@@ -937,6 +1023,10 @@ function updateRuntimeStatusPanel(system = null, counts = {}) {
     scope: diagnosticsVisible ? 'diagnostics' : 'public',
   };
 
+  setRuntimePanelValue('public-impact-server', runtimeStatusSnapshot.server);
+  setRuntimePanelValue('public-impact-running', runtimeMetricText(runningJobs, '0'));
+  setRuntimePanelValue('public-impact-queued', runtimeMetricText(queuedJobs, '0'));
+  setRuntimePanelValue('public-impact-completed', runtimeMetricText(jobsProcessed, '0'));
   setRuntimePanelValue('runtime-server-status', runtimeStatusSnapshot.server);
   setRuntimePanelValue('runtime-submissions-status', runtimeStatusSnapshot.submissions);
   setRuntimePanelValue('runtime-jobs-processed', runtimeMetricText(jobsProcessed));
@@ -1071,18 +1161,21 @@ function resetToIdleWorkbench() {
   stopPolling();
   activeJobId = null;
   activeJobMeta = null;
+  activeSavedAnalysisContext = null;
   activeStageState = null;
   logCursor = 0;
   rerunScopeOpenJobId = '';
   resultDashboardOpen = false;
   activeResultCategory = 'figures';
   activeResultFiles = [];
+  document.body.dataset.resultsAvailable = 'false';
   activeResultArtifacts = null;
   const logTerminal = document.getElementById('log-terminal');
   if (logTerminal) logTerminal.innerHTML = '';
   setDrawerText('log-count', '0 lines');
   const rerunPanel = document.getElementById('rerun-panel');
   if (rerunPanel) rerunPanel.innerHTML = '';
+  resetStagedAnalysisState('fungi');
   markActiveJobCard('');
   showEmptyResults();
   document.getElementById('upload-card')?.classList.remove('upload-card-locked');
@@ -1221,6 +1314,34 @@ function toggleCard(id) {
   hdr.classList.toggle('collapsed');
 }
 
+function switchToolCreditTab(name) {
+  const selected = name === 'local' ? 'local' : 'web';
+  document.querySelectorAll('.tool-credit-tab').forEach(tab => {
+    const active = tab.id === `tool-credit-${selected}-tab`;
+    tab.setAttribute('aria-selected', active ? 'true' : 'false');
+    tab.tabIndex = active ? 0 : -1;
+  });
+  document.querySelectorAll('.tool-credit-group[role="tabpanel"]').forEach(panel => {
+    panel.hidden = panel.id !== `tool-credit-${selected}-panel`;
+  });
+}
+
+function handleToolCreditTabKeydown(event) {
+  const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End'];
+  if (!keys.includes(event.key)) return;
+  event.preventDefault();
+  const tabs = Array.from(document.querySelectorAll('.tool-credit-tab'));
+  const current = tabs.indexOf(event.currentTarget);
+  let next = current;
+  if (event.key === 'ArrowLeft') next = (current + tabs.length - 1) % tabs.length;
+  if (event.key === 'ArrowRight') next = (current + 1) % tabs.length;
+  if (event.key === 'Home') next = 0;
+  if (event.key === 'End') next = tabs.length - 1;
+  const selected = tabs[next]?.id.includes('-local-') ? 'local' : 'web';
+  switchToolCreditTab(selected);
+  tabs[next]?.focus();
+}
+
 function switchEntryTab(name) {
   const tabs = Array.from(document.querySelectorAll('.entry-tab'));
   const panels = Array.from(document.querySelectorAll('.entry-panel'));
@@ -1308,6 +1429,18 @@ function updateAccessTokenStatus(message = '') {
   status.textContent = bits.length ? bits.join(', ') : 'No access code saved for this tab.';
 }
 
+async function validateAccessCode(value) {
+  sessionSet(STORAGE_KEYS.submitToken, value);
+  sessionSet(STORAGE_KEYS.adminToken, value);
+  try {
+    const resp = await apiFetch('api/access/validate', { cache: 'no-store' }, { kind: 'admin' });
+    if (!resp.ok) return { admin: false, submit: false, accepted: false };
+    return await resp.json();
+  } catch (err) {
+    return { admin: false, submit: false, accepted: false, error: err?.message || String(err) };
+  }
+}
+
 async function saveAccessTokens() {
   const accessInput = document.getElementById('access-code-input');
   const typedValue = accessInput && !/^•+$/.test(accessInput.value) ? accessInput.value.trim() : '';
@@ -1317,21 +1450,33 @@ async function saveAccessTokens() {
     return;
   }
 
-  sessionSet(STORAGE_KEYS.submitToken, accessValue);
-  sessionSet(STORAGE_KEYS.adminToken, accessValue);
   updateAccessTokenStatus('Checking access code...');
-  const system = await fetchSystemStatus();
-  if (isFullSystemStatus(system)) {
-    updateAccessTokenStatus('Diagnostic gutter available.');
-    refreshJobHistory();
-    startSystemConsolePolling();
+  const access = await validateAccessCode(accessValue);
+  if (access?.admin) {
+    const system = await fetchSystemStatus({ cache: 'no-store' });
+    if (isFullSystemStatus(system)) {
+      updateAccessTokenStatus('Diagnostics drawer opened for this tab.');
+      openOpsPanel({ tab: 'jobs', focusPanel: true, returnFocus: accessInput || document.getElementById('apply-access-code') });
+      refreshJobHistory();
+      startSystemConsolePolling();
+      return;
+    }
+  }
+
+  if (access?.submit) {
+    sessionSet(STORAGE_KEYS.adminToken, '');
+    sessionSet(STORAGE_KEYS.submitToken, accessValue);
+    setAccessMode('public');
+    stopSystemConsolePolling();
+    updateAccessTokenStatus('Submission code saved. Diagnostics require an admin code.');
     return;
   }
 
+  sessionSet(STORAGE_KEYS.submitToken, '');
   sessionSet(STORAGE_KEYS.adminToken, '');
   setAccessMode('public');
   stopSystemConsolePolling();
-  updateAccessTokenStatus('Submission access saved for this tab.');
+  updateAccessTokenStatus('Access code was not accepted. Check the code and try again.');
 }
 
 function clearAccessTokens() {
@@ -1352,7 +1497,7 @@ function updateEmailNotificationPanel() {
   panel.setAttribute('aria-disabled', smtpEnabled ? 'false' : 'true');
   if (!input) return;
   input.disabled = !smtpEnabled;
-  input.placeholder = smtpEnabled ? 'name@example.com' : 'email off';
+  input.placeholder = smtpEnabled ? 'name@example.com' : 'EMAIL OFF - server mail not configured';
   if (!smtpEnabled) input.value = '';
 }
 
@@ -1366,12 +1511,20 @@ function parseExistingRunInput() {
     const url = new URL(raw, window.location.href);
     text = url.hash || url.pathname || raw;
   } catch (e) {}
-  const fragmentMatch = text.match(/#?\/?job\/([^/\s#?]+)\/([^/\s#?]+)/i);
-  if (fragmentMatch) return { jobId: decodeURIComponent(fragmentMatch[1]), token: decodeURIComponent(fragmentMatch[2]) };
+  const fragmentMatch = text.match(/#\/?(job|results)\/([^/\s#?]+)\/([^/\s#?]+)/i);
+  if (fragmentMatch) return {
+    jobId: decodeURIComponent(fragmentMatch[2]),
+    token: decodeURIComponent(fragmentMatch[3]),
+    publicResult: String(fragmentMatch[1]).toLowerCase() === 'results',
+  };
 
   const parts = raw.split(/[\s,]+/).filter(Boolean);
-  if (parts.length >= 2) return { jobId: parts[0], token: parts[1] };
-  if (parts.length === 1 && explicitToken) return { jobId: parts[0], token: explicitToken };
+  if (parts.length >= 2) return {
+    jobId: parts[0], token: parts[1], publicResult: !/^[0-9a-f]{8}$/i.test(parts[0]),
+  };
+  if (parts.length === 1 && explicitToken) return {
+    jobId: parts[0], token: explicitToken, publicResult: !/^[0-9a-f]{8}$/i.test(parts[0]),
+  };
   return null;
 }
 
@@ -1384,7 +1537,7 @@ async function unlockExistingRun() {
     return;
   }
   if (status) status.textContent = 'Opening private results...';
-  const job = await loadJob(parsed.jobId, true, { readToken: parsed.token, source: 'existing-run', deferResultsShell: true });
+  const job = await loadJob(parsed.jobId, true, { readToken: parsed.token, publicResult: parsed.publicResult, source: 'existing-run', deferResultsShell: true });
   if (status) status.textContent = job ? 'Results opened in this tab.' : 'No run matched that job ID and result access code.';
   document.body.dataset.existingRunLoaded = job ? 'true' : 'false';
   if (job) {
@@ -1452,6 +1605,104 @@ function defaultApiBaseUrl() {
   return url.toString();
 }
 
+function publicRunIdFromJob(job = activeJobMeta, fallback = activeJobId) {
+  const candidate = String(
+    job?.public_run_id || job?.publicRunId || job?.run_id || job?.runId || fallback || '',
+  ).trim();
+  return candidate;
+}
+
+function publicRunIdForJob(jobId = activeJobId) {
+  const id = String(jobId || '').trim();
+  if (id && id === String(activeJobId || '')) {
+    return activePublicRunId || publicRunIdFromJob(activeJobMeta, id);
+  }
+  return publicRunIdFromJob(jobHistoryById.get(id), id);
+}
+
+function artifactCategoryFromDescriptor(descriptor) {
+  const raw = String(descriptor?.category || descriptor?.family || 'other').toLowerCase();
+  return resultCategoryKey(raw);
+}
+
+function safeArtifactFilename(value, fallback = 'artifact') {
+  const basename = String(value || fallback).replace(/\\/g, '/').split('/').pop() || fallback;
+  return basename.replace(/[^A-Za-z0-9._()+ -]/g, '_').slice(0, 240) || fallback;
+}
+
+function artifactPresentationKey(descriptor) {
+  const id = String(descriptor?.id || '').trim();
+  if (!/^[A-Za-z0-9_-]{16,}$/.test(id)) return '';
+  const category = artifactCategoryFromDescriptor(descriptor);
+  const filename = safeArtifactFilename(descriptor?.filename || descriptor?.name || descriptor?.label);
+  return `artifact/${category}/${id}/${filename}`;
+}
+
+function resultArtifactMaps(resultContext = null) {
+  if (
+    resultContext
+    && resultContext.byKey instanceof Map
+    && resultContext.byId instanceof Map
+  ) {
+    return { byKey: resultContext.byKey, byId: resultContext.byId };
+  }
+  return { byKey: activeResultArtifactByKey, byId: activeResultArtifactById };
+}
+
+function installResultArtifactDescriptor(rawDescriptor, resultContext = null) {
+  if (!rawDescriptor || typeof rawDescriptor !== 'object') return '';
+  const id = String(rawDescriptor.id || '').trim();
+  const key = artifactPresentationKey(rawDescriptor);
+  if (!id || !key) return '';
+  const descriptor = Object.freeze({
+    ...rawDescriptor,
+    id,
+    filename: safeArtifactFilename(rawDescriptor.filename || rawDescriptor.name || rawDescriptor.label),
+    category: artifactCategoryFromDescriptor(rawDescriptor),
+    mime: String(rawDescriptor.mime || rawDescriptor.media_type || 'application/octet-stream'),
+  });
+  const maps = resultArtifactMaps(resultContext);
+  maps.byKey.set(key, descriptor);
+  maps.byId.set(id, descriptor);
+  return key;
+}
+
+function installResultArtifactDescriptors(rawDescriptors, options = {}) {
+  if (options.replace !== false) {
+    activeResultArtifactByKey = new Map();
+    activeResultArtifactById = new Map();
+  }
+  return (Array.isArray(rawDescriptors) ? rawDescriptors : [])
+    .map(installResultArtifactDescriptor)
+    .filter(Boolean);
+}
+
+function resultArtifactDescriptor(value, resultContext = null) {
+  const maps = resultArtifactMaps(resultContext);
+  const key = normalizedResultPath(value);
+  if (maps.byKey.has(key)) return maps.byKey.get(key);
+  const id = String(value || '').trim();
+  return maps.byId.get(id) || null;
+}
+
+function resultArtifactId(value, resultContext = null) {
+  return String(resultArtifactDescriptor(value, resultContext)?.id || '').trim();
+}
+
+function resultArtifactName(value, resultContext = null) {
+  return resultArtifactDescriptor(value, resultContext)?.filename || fileNameFromPath(value);
+}
+
+function createResultArtifactContext(jobId) {
+  const runId = String(publicRunIdForJob(jobId) || '').trim();
+  if (!runId) throw new Error('The result preview is missing its opaque run identifier.');
+  return Object.freeze({
+    runId,
+    byKey: new Map(activeResultArtifactByKey),
+    byId: new Map(activeResultArtifactById),
+  });
+}
+
 function apiUrl(path) {
   const cleanPath = String(path || '').replace(/^\/+/, '');
   const configuredBase = window.CLUSTERWEAVE_API_BASE || '';
@@ -1459,14 +1710,17 @@ function apiUrl(path) {
   return new URL(cleanPath, base).toString();
 }
 
-function resultHref(jobId, relPath, options = {}) {
-  const base = apiUrl(`api/jobs/${encodeURIComponent(jobId)}/files/${normalizedResultPath(relPath).split('/').map(encodeURIComponent).join('/')}`);
-  return options.download ? `${base}?download=1` : base;
+function resultHref(jobId, artifactKey, options = {}) {
+  const resultContext = options.resultContext || null;
+  const runId = resultContext?.runId || publicRunIdForJob(jobId);
+  const artifactId = resultArtifactId(artifactKey, resultContext);
+  const base = apiUrl(`api/results/${encodeURIComponent(runId)}/artifacts/${encodeURIComponent(artifactId || 'unavailable')}`);
+  return options.download ? `${base}/download` : base;
 }
 
 function privateResultLink(jobId, token, serverUrl = '') {
-  if (serverUrl) return serverUrl;
-  return `${defaultApiBaseUrl()}#/job/${encodeURIComponent(jobId)}/${encodeURIComponent(token)}`;
+  if (serverUrl && /#\/?results\//i.test(serverUrl)) return serverUrl;
+  return `${defaultApiBaseUrl()}#/results/${encodeURIComponent(jobId)}${token ? `/${encodeURIComponent(token)}` : ''}`;
 }
 
 function sessionGet(key) {
@@ -1521,6 +1775,36 @@ function rememberOpenedRun(jobId, token, meta = {}) {
   pendingReadTokens.delete(id);
   renderOpenedRuns();
 }
+function adoptPublicRunIdentity(requestedId, job) {
+  const requested = String(requestedId || '').trim();
+  const publicId = String(
+    job?.public_run_id || job?.publicRunId || job?.run_id || job?.runId || '',
+  ).trim();
+  if (!publicId) return requested;
+  activePublicRunId = publicId;
+  publicResultRunIds.add(publicId);
+  const token = readTokenForJob(requested) || readTokenForJob(publicId);
+  if (token) {
+    pendingReadTokens.set(publicId, token);
+    const runs = loadOpenedRuns()
+      .filter(run => ![requested, publicId].includes(String(run.id || '')));
+    runs.unshift({
+      id: publicId,
+      token,
+      name: job?.name || job?.project_name || job?.projectName || publicId,
+      status: job?.status || '',
+      updatedAt: new Date().toISOString(),
+    });
+    saveOpenedRuns(runs);
+  }
+  const hash = window.location.hash || '';
+  const requestedEncoded = encodeURIComponent(requested);
+  if (new RegExp(`^#\\/?(?:job|results)/${requestedEncoded}(?:/|$)`, 'i').test(hash)) {
+    window.history.replaceState(null, '', `#/results/${encodeURIComponent(publicId)}`);
+  }
+  return publicId;
+}
+
 
 async function copyTextToClipboard(text, successMessage) {
   const status = document.getElementById('submission-confirmation-status');
@@ -1637,16 +1921,33 @@ function ecologyReceiptRows() {
 
 function collectRunSetupAcceptedInputs() {
   const rows = [];
-  acceptedManualAccessions.forEach((accession) => {
-    rows.push({ label: accession, kind: 'NCBI accession', source: 'manual entry' });
-  });
+  const scope = normalizeAnalysisScope(stagedAnalysisScope);
+  const declaredGroup = scope === 'both' ? '' : scope;
+  const accessionSource = new Map();
   accessionFileSources.forEach((source) => {
     source.accessions.forEach((accession) => {
-      rows.push({ label: accession, kind: 'NCBI accession', source: source.name });
+      const normalized = normalizeAccessionDraft(accession);
+      if (normalized && !accessionSource.has(normalized)) accessionSource.set(normalized, source.name);
     });
   });
-  selectedFiles.forEach((file) => {
-    rows.push({ label: file.name, kind: 'Genome upload', source: 'uploaded file' });
+  manualAccessionLines().forEach((accession) => {
+    rows.push({
+      label: accession,
+      kind: 'NCBI accession',
+      source: accessionSource.get(normalizeAccessionDraft(accession)) || 'manual entry',
+      taxonGroup: declaredGroup,
+    });
+  });
+  logicalGenomeInputs().forEach((item) => {
+    const decision = logicalGenomeTaxonAssignmentDecision(item);
+    rows.push({
+      label: item.inputKey,
+      kind: 'Genome upload',
+      source: item.files.map(file => file.name).join(' + '),
+      taxonGroup: scope === 'both'
+        ? decision.taxonGroup
+        : scope,
+    });
   });
   return rows;
 }
@@ -1656,6 +1957,9 @@ function currentRunSetupOrganismName() {
 }
 
 function currentRunSetupTaxaLabel() {
+  const scope = normalizeAnalysisScope(stagedAnalysisScope);
+  if (scope === 'bacteria') return 'bacterial genome intake / Prodigal';
+  if (scope === 'both') return 'fungi + bacteria genome intake';
   const buscoDb = document.getElementById('funannotate-busco-db')?.value.trim();
   return buscoDb ? `${buscoDb} / fungal genome intake` : 'fungal genome intake';
 }
@@ -1675,6 +1979,8 @@ function collectRunSetupAccessReceipt(options = {}) {
     ecologyRows: ecologyReceiptRows(),
     organismName: currentRunSetupOrganismName(),
     taxa: currentRunSetupTaxaLabel(),
+    analysisScope: normalizeAnalysisScope(stagedAnalysisScope),
+    taxonAssignments: taxonAssignmentsPayload(),
   };
 }
 
@@ -1744,6 +2050,15 @@ function receiptAccessionMetadataByInput(receipt) {
 function receiptAcceptedInputItems(receipt) {
   const sourceByAccession = receiptSourceByAccession(receipt);
   const metadataByInput = receiptAccessionMetadataByInput(receipt);
+  const assignmentByInput = new Map();
+  const receiptAssignments = receipt.taxonAssignments || receipt.taxon_assignments || {};
+  if (receiptAssignments && typeof receiptAssignments === 'object' && !Array.isArray(receiptAssignments)) {
+    Object.entries(receiptAssignments).forEach(([key, value]) => {
+      const group = normalizeTaxonGroup(value);
+      if (group) assignmentByInput.set(receiptInputKey(receiptGenomeStem(key)), group);
+    });
+  }
+  const receiptScope = normalizeAnalysisScope(receipt.analysisScope || receipt.analysis_scope);
   const items = [];
   const seen = new Set();
   const targetKey = receiptInputKey(receipt.targetGenome);
@@ -1765,6 +2080,14 @@ function receiptAcceptedInputItems(receipt) {
       isTarget: !!item.isTarget || (!!targetKey && targetKey === labelKey),
       organismName: item.organismName || item.fungusName || metadata.organism_name || metadata.organismName || '',
       taxa: item.taxa || item.taxonomy || item.taxonomyLabel || metadata.taxa || metadata.taxonomy || (taxId ? `NCBI taxon ${taxId}` : ''),
+      taxonGroup: normalizeTaxonGroup(
+        item.taxonGroup
+          || item.taxon_group
+          || metadata.taxon_group
+          || metadata.taxonGroup
+          || assignmentByInput.get(receiptInputKey(receiptGenomeStem(label)))
+          || (receiptScope === 'both' ? '' : receiptScope),
+      ),
       taxId,
       orderName: item.orderName || item.order_name || metadata.order_name || metadata.orderName || '',
       familyName: item.familyName || item.family_name || metadata.family_name || metadata.familyName || '',
@@ -1832,6 +2155,11 @@ function receiptTaxaLine(receipt, item) {
   if (itemTaxa) return itemTaxa;
   const receiptTaxa = String(receipt.taxa || receipt.taxonomy || receipt.taxonomyLabel || '').trim();
   if (receiptTaxa) return receiptTaxa;
+  if (item.taxonGroup === 'bacteria') return item.kind === 'NCBI accession' ? 'bacteria / NCBI taxonomy' : 'bacterial genome intake';
+  if (item.taxonGroup === 'fungi') return item.kind === 'NCBI accession' ? 'fungi / NCBI taxonomy' : 'fungal genome intake';
+  const scope = normalizeAnalysisScope(receipt.analysisScope || receipt.analysis_scope);
+  if (scope === 'bacteria') return item.kind === 'NCBI accession' ? 'bacteria / NCBI taxonomy' : 'bacterial genome intake';
+  if (scope === 'both') return item.kind === 'NCBI accession' ? 'NCBI taxonomy pending' : 'mixed genome intake';
   if (item.kind === 'NCBI accession') return 'fungi / NCBI taxonomy';
   if (item.kind === 'Genome upload') return 'fungal genome intake';
   return 'input taxonomy from stored run';
@@ -1889,8 +2217,11 @@ function renderRunSetupInputReceipt(receipt) {
     rows.push(`
     <div class="receipt-row${item.isTarget ? ' is-target' : ''}${item.summary ? ' is-summary' : ''}">
       <b class="receipt-line-text" title="${escapeHtml(receiptInlineDisplayLine(receipt, item))}">${escapeHtml(receiptInlineDisplayLine(receipt, item))}</b>
-      <span class="receipt-dot" aria-hidden="true"></span>
-      <div class="receipt-eco">${chips.join('')}</div>
+      <span class="receipt-row-status">
+        ${item.taxonGroup ? `<span class="receipt-chip receipt-taxon-chip">${escapeHtml(analysisScopeLabel(item.taxonGroup))}</span>` : ''}
+        <span class="receipt-dot" role="img" aria-label="Accepted input"></span>
+      </span>
+      ${chips.length ? `<div class="receipt-eco">${chips.join('')}</div>` : ''}
     </div>`);
   });
   return rows.length ? rows.join('') : '<div class="submitted-input-empty">No accepted input captured.</div>';
@@ -1920,6 +2251,7 @@ function runSetupTargetGenomeFromJob(job) {
 function runSetupReceiptFromJob(job) {
   const settings = (job && (job.submission_settings || job.settings)) || {};
   const inputSummary = (job && (job.input_summary || job.inputSummary)) || {};
+  const context = analysisContextFromJob(job);
   const metadataAccessions = Array.isArray(inputSummary.accession_metadata)
     ? inputSummary.accession_metadata.map(record => record && record.accession)
     : [];
@@ -1937,7 +2269,7 @@ function runSetupReceiptFromJob(job) {
   const accessionSources = [];
   const accessionCount = positiveInteger(inputSummary.accession_count || inputSummary.accessions || settings.accession_count || settings.accessionCount);
   if (!accessions.length && accessionCount) {
-    accessionSources.push({ name: MANUAL_ACCESSIONS_FILENAME, count: accessionCount, accessions: [] });
+    accessionSources.push({ name: 'NCBI accessions', count: accessionCount, accessions: [] });
   }
   const genomeFileCount = positiveInteger(inputSummary.genome_file_count || inputSummary.upload_file_count || settings.genome_file_count || settings.upload_file_count);
   if (!uploadFiles.length && genomeFileCount) {
@@ -1956,7 +2288,14 @@ function runSetupReceiptFromJob(job) {
     accessionMetadata: Array.isArray(inputSummary.accession_metadata) ? inputSummary.accession_metadata : [],
     inputSummary,
     organismName: String(settings.funannotate_organism_name || settings.funannotateOrganismName || '').trim(),
-    taxa: 'fungal genome intake',
+    taxa: context.scope === 'bacteria'
+      ? 'bacterial genome intake / Prodigal'
+      : context.scope === 'both'
+        ? 'fungi + bacteria genome intake'
+        : 'fungal genome intake',
+    analysisScope: context.scope,
+    taxonCounts: context.taxonCounts,
+    taxonAssignments: inputSummary.taxon_assignments || inputSummary.taxonAssignments || {},
     inputNotes,
   };
 }
@@ -1965,28 +2304,67 @@ function runSetupReceiptInputCount(receipt) {
   return receiptAcceptedInputItems(receipt || {}).length;
 }
 
+function runSetupJobHref(jobId) {
+  const id = String(jobId || '').trim();
+  return id ? `${defaultApiBaseUrl()}#/results/${encodeURIComponent(id)}` : '';
+}
+
+function configureRunSetupResultLink(link, jobId) {
+  if (!link) return;
+  const id = String(jobId || '').trim();
+  if (!id) {
+    link.textContent = 'Pending';
+    link.removeAttribute('href');
+    link.removeAttribute('data-job-id');
+    link.removeAttribute('aria-label');
+    return;
+  }
+  const runId = publicRunIdForJob(id);
+  const href = runSetupJobHref(runId);
+  link.textContent = href;
+  link.href = href;
+  link.dataset.jobId = runId;
+  link.setAttribute('aria-label', `Open results for run ${runId}`);
+}
+
+async function openRunSetupResultAccess(event) {
+  if (event) event.preventDefault();
+  const link = (event && event.currentTarget) || document.getElementById('run-setup-result-link');
+  const jobId = String(link?.dataset.jobId || '').trim();
+  if (!jobId) return;
+  const openCurrentJob = () => {
+    navigateToSection(null, 'outputs');
+    window.history.replaceState(null, '', `#/results/${encodeURIComponent(publicRunIdForJob(jobId))}`);
+  };
+  if (activeJobId === jobId && activeJobMeta) {
+    openCurrentJob();
+    return;
+  }
+  const job = await loadJob(jobId, true, {
+    readToken: readTokenForJob(jobId),
+    source: 'run-setup-access',
+    deferResultsShell: true,
+  });
+  if (job) openCurrentJob();
+}
+
 function renderRunSetupAccessPanel(payload = {}) {
   const panel = document.getElementById('run-setup-access-panel');
   const jobId = String(payload.jobId || payload.job_id || payload.id || '').trim();
   if (!panel || !jobId) return;
-  const readToken = payload.readToken || payload.read_token || payload.token || '';
-  const suppliedUrl = payload.resultUrl || payload.result_url || '';
-  const resultUrl = suppliedUrl || (readToken ? privateResultLink(jobId, readToken) : '');
   const existingReceipt = submittedRunReceipt && String(submittedRunReceipt.jobId || '') === jobId
     ? submittedRunReceipt.receipt
     : null;
   const receipt = payload.receipt || existingReceipt || collectRunSetupAccessReceipt({ projectName: payload.projectName });
   submittedRunReceipt = {
-    ...payload,
     jobId,
-    readToken,
-    resultUrl,
     receipt,
     jobState: payload.jobState || payload.status || 'queued',
   };
   const inputList = document.getElementById('run-setup-input-list');
   const inputCount = document.getElementById('run-setup-input-count');
   const project = document.getElementById('run-setup-project');
+  const analysisScope = document.getElementById('run-setup-analysis-scope');
   const target = document.getElementById('run-setup-target');
   const link = document.getElementById('run-setup-result-link');
   const job = document.getElementById('run-setup-job-id');
@@ -1996,8 +2374,17 @@ function renderRunSetupAccessPanel(payload = {}) {
   if (inputList) inputList.innerHTML = renderRunSetupInputReceipt(receipt);
   if (inputCount) inputCount.textContent = String(count);
   if (project) project.textContent = receipt.projectName || payload.projectName || 'ClusterWeave run';
+  if (analysisScope) {
+    const context = {
+      scope: receipt.analysisScope || receipt.analysis_scope || payload.analysisScope || payload.analysis_scope,
+      taxonCounts: receipt.taxonCounts || receipt.taxon_counts || payload.taxonCounts || payload.taxon_counts || {},
+    };
+    const counts = normalizeTaxonCounts(context.taxonCounts);
+    const countLabel = counts.known ? ` · ${counts.fungi} fungi / ${counts.bacteria} bacteria` : '';
+    analysisScope.textContent = `${analysisScopeLabel(context.scope)}${countLabel}`;
+  }
   if (target) target.textContent = receipt.targetGenome || 'Not selected';
-  if (link) link.textContent = resultUrl || 'Pending';
+  configureRunSetupResultLink(link, jobId);
   if (job) job.textContent = jobId;
   if (state) state.textContent = submittedRunReceipt.jobState;
   const expiresAt = payload.expiresAt || payload.expires_at || '';
@@ -2083,6 +2470,11 @@ function openSubmittedRun() {
 
 function authHeadersFor(kind, jobId = null) {
   const headers = {};
+  if (kind === 'admin') {
+    const admin = adminToken();
+    if (admin) headers.Authorization = `Bearer ${admin}`;
+    return headers;
+  }
   if (kind === 'job' && jobId) {
     const token = readTokenForJob(jobId);
     if (token) {
@@ -2118,11 +2510,12 @@ function apiFetch(path, options = {}, auth = {}) {
 }
 
 function resultNeedsAuth(jobId) {
-  return !!adminToken() || (accessMode === 'public' && !!readTokenForJob(jobId));
+  return !!adminToken()
+    || (accessMode === 'public' && !!readTokenForJob(publicRunIdForJob(jobId)));
 }
 
 function canOpenRichHtmlArtifacts(jobId = activeJobId) {
-  return canUseAdminSurfaces() || !!readTokenForJob(jobId);
+  return canUseAdminSurfaces() || !!readTokenForJob(publicRunIdForJob(jobId));
 }
 
 function inlineResultMime(relPath, fallback = '') {
@@ -2163,268 +2556,251 @@ function inlineResultMime(relPath, fallback = '') {
   return 'text/plain;charset=utf-8';
 }
 
+const TOOL_RESULT_RUNTIME_MAX_ACTIVE = 4;
+const TOOL_RESULT_RUNTIME_MAX_QUEUE = 64;
+const TOOL_RESULT_RUNTIME_MAX_PER_DOCUMENT = 512;
+const TOOL_RESULT_RUNTIME_RESOLVE_TIMEOUT_MS = 15000;
+
+function toolResultPreviewChannel() {
+  if (typeof window.crypto?.getRandomValues !== 'function') {
+    throw new Error('A cryptographically secure result-preview channel is unavailable.');
+  }
+  const bytes = new Uint8Array(16);
+  window.crypto.getRandomValues(bytes);
+  return Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('');
+}
+
 const RESULT_PREVIEW_NAVIGATOR_SCRIPT = String.raw`
 (function () {
   const scriptEl = document.currentScript || document.querySelector('script[data-clusterweave-result-preview]');
   if (!scriptEl || scriptEl.dataset.ready === '1') return;
   scriptEl.dataset.ready = '1';
+  const channel = scriptEl.dataset.channel || '';
+  const owner = scriptEl.dataset.owner || '';
+  const pending = new Map();
+  const prepared = new WeakMap();
+  const maxPending = 64;
+  const maxRequests = 512;
+  const resolveTimeoutMs = 15000;
+  let requestSequence = 0;
 
-  function normalizePath(value) {
-    return String(value || '')
-      .replace(/\\/g, '/')
-      .replace(/^\/+/, '')
-      .split('/')
-      .filter(part => part && part !== '.')
-      .join('/');
-  }
-
-  const config = {
-    jobId: scriptEl.dataset.jobId || '',
-    ownerPath: normalizePath(scriptEl.dataset.ownerPath || ''),
-    apiBase: scriptEl.dataset.apiBase || window.location.origin + '/',
-    authorization: scriptEl.dataset.authorization || '',
-  };
-  const helperObjectUrls = [];
-
-  function textDataUrl(text, mime) {
-    return 'data:' + (mime || 'text/plain;charset=utf-8') + ',' + encodeURIComponent(String(text || ''));
-  }
-
-  function blobDataUrl(blob) {
-    return new Promise(function (resolve, reject) {
-      const reader = new FileReader();
-      reader.onload = function () { resolve(String(reader.result || '')); };
-      reader.onerror = function () { reject(reader.error || new Error('Could not read result asset.')); };
-      reader.readAsDataURL(blob);
-    });
-  }
-
-  function fileName(path) {
-    const parts = normalizePath(path).split('/');
-    return parts[parts.length - 1] || '';
-  }
-
-  function pathExt(path) {
-    const name = fileName(path).toLowerCase();
-    return name.includes('.') ? name.split('.').pop() : '';
-  }
-
-  function inlineMime(relPath, fallback) {
-    const mimeMap = {
-      css: 'text/css;charset=utf-8',
-      gif: 'image/gif',
-      htm: 'text/html;charset=utf-8',
-      html: 'text/html;charset=utf-8',
-      jpeg: 'image/jpeg',
-      jpg: 'image/jpeg',
-      js: 'text/javascript;charset=utf-8',
-      json: 'application/json',
-      pdf: 'application/pdf',
-      png: 'image/png',
-      svg: 'image/svg+xml',
-      txt: 'text/plain;charset=utf-8',
-      webp: 'image/webp',
+  function relativeReference(element) {
+    const value = String(element && element.getAttribute('href') || '').trim();
+    if (!value || value.startsWith('#')) return null;
+    if (value.startsWith('/') || value.includes('\\')
+        || /^(?:[a-z][a-z0-9+.-]*:)?\/\//i.test(value)
+        || /^(?:data|blob|mailto|tel|javascript):/i.test(value)) {
+      return { value: value, supported: false };
+    }
+    const path = value.split(/[?#]/, 1)[0];
+    const match = path.match(/\.([a-z0-9]+)$/i);
+    const extension = match ? match[1].toLowerCase() : '';
+    return {
+      value: value,
+      supported: ['html', 'htm', 'png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(extension),
     };
-    const ext = pathExt(relPath);
-    if (mimeMap[ext]) return mimeMap[ext];
-    if (fallback && fallback !== 'application/octet-stream') return fallback;
-    return 'text/plain;charset=utf-8';
   }
 
-  function shouldStayExternal(rawUrl) {
-    const value = String(rawUrl || '').trim();
-    return !value ||
-      value.startsWith('#') ||
-      /^(?:[a-z][a-z0-9+.-]*:)?\/\//i.test(value) ||
-      /^(?:data|blob|mailto|tel|javascript):/i.test(value) ||
-      value.startsWith('/');
+  function disableLocalLink(element) {
+    prepared.delete(element);
+    element.removeAttribute('href');
+    element.removeAttribute('target');
+    element.removeAttribute('rel');
+    element.removeAttribute('aria-busy');
+    element.removeAttribute('data-clusterweave-result-pending');
+    element.removeAttribute('data-clusterweave-result-request');
+    element.setAttribute('aria-disabled', 'true');
+    element.setAttribute('title', 'This link is outside the generated result bundle.');
   }
 
-  function splitUrl(rawUrl) {
-    const value = String(rawUrl || '').trim();
-    const match = value.match(/^([^?#]*)([?#].*)?$/);
-    return { path: match ? match[1] : value, suffix: match && match[2] ? match[2] : '' };
-  }
-
-  function hashSuffix(rawUrl) {
-    const value = String(rawUrl || '').trim();
-    const hashIndex = value.indexOf('#');
-    return hashIndex >= 0 ? value.slice(hashIndex) : '';
-  }
-
-  function relativePath(ownerPath, rawUrl) {
-    const value = String(rawUrl || '').trim();
-    if (shouldStayExternal(value)) return '';
-    try {
-      const ownerParts = normalizePath(ownerPath).split('/').filter(Boolean);
-      ownerParts.pop();
-      const basePath = ownerParts.map(part => encodeURIComponent(part)).join('/');
-      const base = 'https://clusterweave.invalid/' + basePath + (basePath ? '/' : '');
-      const parsed = new URL(value, base);
-      if (parsed.origin !== 'https://clusterweave.invalid') return '';
-      return decodeURIComponent(parsed.pathname.replace(/^\/+/, ''));
-    } catch (e) {
-      return '';
+  function prepareLocalLink(element) {
+    if (!element
+        || element.hasAttribute('data-clusterweave-result-artifact')
+        || element.hasAttribute('data-clusterweave-result-fragment')
+        || element.getAttribute('aria-disabled') === 'true') return;
+    const reference = relativeReference(element);
+    if (!reference) return;
+    if (!reference.supported || !channel || !owner) {
+      disableLocalLink(element);
+      return;
     }
-  }
-
-  function apiFileUrl(relPath) {
-    const encodedPath = normalizePath(relPath).split('/').filter(Boolean).map(encodeURIComponent).join('/');
-    return new URL('api/jobs/' + encodeURIComponent(config.jobId) + '/files/' + encodedPath, config.apiBase).toString();
-  }
-
-  function authHeaders() {
-    return config.authorization ? { Authorization: config.authorization } : {};
-  }
-
-  async function fetchResult(relPath) {
-    return fetch(apiFileUrl(relPath), {
-      credentials: 'same-origin',
-      headers: authHeaders(),
+    const addedRole = !element.hasAttribute('role');
+    const addedTabIndex = !element.hasAttribute('tabindex');
+    prepared.set(element, {
+      value: reference.value,
+      addedRole: addedRole,
+      addedTabIndex: addedTabIndex,
     });
+    element.removeAttribute('href');
+    element.removeAttribute('target');
+    element.removeAttribute('rel');
+    element.setAttribute('data-clusterweave-result-pending', '');
+    if (addedRole) element.setAttribute('role', 'link');
+    if (addedTabIndex) element.setAttribute('tabindex', '0');
   }
 
-  async function resultAssetUrl(ownerPath, rawUrl, cache) {
-    const parts = splitUrl(rawUrl);
-    const assetPath = relativePath(ownerPath, parts.path);
-    if (!assetPath) return '';
-    const cacheKey = normalizePath(assetPath);
-    if (cache.has(cacheKey)) return cache.get(cacheKey);
-    const promise = (async function () {
-      const resp = await fetchResult(cacheKey);
-      if (!resp.ok) return '';
-      const contentType = resp.headers.get('Content-Type') || '';
-      const ext = pathExt(cacheKey);
-      let url;
-      if (ext === 'css' || /^text\/css\b/i.test(contentType)) {
-        const cssText = await resp.text();
-        const rewrittenCss = await rewriteCssUrls(cssText, cacheKey, cache);
-        url = textDataUrl(rewrittenCss, inlineMime(cacheKey, 'text/css;charset=utf-8'));
-      } else if (ext === 'html' || ext === 'htm' || /^text\/html\b/i.test(contentType)) {
-        const htmlText = await resp.text();
-        const rewrittenHtml = await rewriteHtml(htmlText, cacheKey);
-        url = textDataUrl(rewrittenHtml, inlineMime(cacheKey, 'text/html;charset=utf-8'));
+  function finishPreparedLink(element) {
+    const state = prepared.get(element);
+    prepared.delete(element);
+    element.removeAttribute('data-clusterweave-result-pending');
+    if (state && state.addedRole) element.removeAttribute('role');
+    if (state && state.addedTabIndex) element.removeAttribute('tabindex');
+  }
+
+  function requestResolution(element, activate) {
+    const existing = element.getAttribute('data-clusterweave-result-request') || '';
+    if (existing && pending.has(existing)) {
+      if (activate) pending.get(existing).activate = true;
+      return;
+    }
+    const reference = prepared.get(element);
+    if (!reference || pending.size >= maxPending || requestSequence >= maxRequests) {
+      disableLocalLink(element);
+      return;
+    }
+    const request = 'r' + String(++requestSequence);
+    const timer = window.setTimeout(function () {
+      const entry = pending.get(request);
+      if (!entry) return;
+      pending.delete(request);
+      disableLocalLink(entry.element);
+    }, resolveTimeoutMs);
+    pending.set(request, { element: element, activate: !!activate, timer: timer });
+    element.setAttribute('data-clusterweave-result-request', request);
+    element.setAttribute('aria-busy', 'true');
+    window.parent.postMessage({
+      type: 'clusterweave:result-bundle-resolve',
+      channel: channel,
+      owner: owner,
+      request: request,
+      reference: reference.value,
+    }, '*');
+  }
+
+  function scan(root) {
+    const elements = [];
+    if (root && root.matches && root.matches('a[href],area[href]')) elements.push(root);
+    if (root && root.querySelectorAll) elements.push.apply(elements, root.querySelectorAll('a[href],area[href]'));
+    elements.forEach(prepareLocalLink);
+  }
+
+  function navigateArtifact(artifact, fragment) {
+    window.parent.postMessage({
+      type: 'clusterweave:result-bundle-navigate',
+      channel: channel,
+      owner: owner,
+      artifact: artifact,
+      fragment: fragment || '',
+    }, '*');
+  }
+
+  window.addEventListener('message', function (event) {
+    const payload = event && event.data;
+    if (event.source !== window.parent || !payload
+        || payload.type !== 'clusterweave:result-bundle-resolved'
+        || payload.channel !== channel || payload.owner !== owner) return;
+    const request = String(payload.request || '');
+    const entry = pending.get(request);
+    if (!entry) return;
+    pending.delete(request);
+    window.clearTimeout(entry.timer);
+    const element = entry.element;
+    element.removeAttribute('data-clusterweave-result-request');
+    element.removeAttribute('aria-busy');
+    const artifact = String(payload.artifact || '');
+    const href = String(payload.href || '');
+    const fragment = String(payload.fragment || '');
+    if (!/^[A-Za-z0-9_-]{16,}$/.test(artifact) || !href) {
+      disableLocalLink(element);
+      return;
+    }
+    finishPreparedLink(element);
+    element.setAttribute('href', href);
+    element.setAttribute('data-clusterweave-result-artifact', artifact);
+    element.setAttribute('data-clusterweave-result-fragment', fragment);
+    if (entry.activate) navigateArtifact(artifact, fragment);
+  });
+
+  function interactiveTarget(event) {
+    return event.target && event.target.closest
+      ? event.target.closest('a,area')
+      : null;
+  }
+
+  function activateTarget(event, target) {
+    const pendingRequest = target.getAttribute('data-clusterweave-result-request') || '';
+    if (pendingRequest && pending.has(pendingRequest)) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      pending.get(pendingRequest).activate = true;
+      return;
+    }
+    const artifact = target.getAttribute('data-clusterweave-result-artifact') || '';
+    const fragment = target.getAttribute('data-clusterweave-result-fragment') || '';
+    if (!artifact && !fragment) {
+      if (!prepared.has(target)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      requestResolution(target, true);
+      return;
+    }
+    if (!artifact && fragment.startsWith('#')) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const anchor = fragment.slice(1);
+      const previousHash = window.location.hash;
+      if (window.viewer && typeof window.viewer.switchToRegion === 'function') {
+        window.viewer.switchToRegion(anchor);
       } else {
-        const sourceBlob = await resp.blob();
-        url = await blobDataUrl(new Blob([sourceBlob], { type: inlineMime(cacheKey, sourceBlob.type || contentType) }));
+        try {
+          window.location.hash = anchor;
+          const destination = document.getElementById(anchor) || document.querySelector('[name="' + CSS.escape(anchor) + '"]');
+          if (destination && typeof destination.scrollIntoView === 'function') destination.scrollIntoView({ block: 'start' });
+          if (previousHash === '#' + anchor) {
+            window.dispatchEvent(new HashChangeEvent('hashchange'));
+          }
+        } catch (error) {}
       }
-      return url;
-    })();
-    cache.set(cacheKey, promise);
-    return promise;
-  }
-
-  async function rewriteCssUrls(cssText, ownerPath, cache) {
-    const source = String(cssText || '');
-    const regex = /url\(\s*(['"]?)([^'")]+)\1\s*\)/gi;
-    let output = '';
-    let lastIndex = 0;
-    for (const match of source.matchAll(regex)) {
-      output += source.slice(lastIndex, match.index);
-      const quote = match[1] || '';
-      const rawUrl = match[2] || '';
-      let rewritten = '';
-      if (!shouldStayExternal(rawUrl)) rewritten = await resultAssetUrl(ownerPath, rawUrl, cache);
-      output += rewritten ? 'url(' + quote + rewritten + hashSuffix(rawUrl) + quote + ')' : match[0];
-      lastIndex = match.index + match[0].length;
+      return;
     }
-    return output + source.slice(lastIndex);
-  }
-
-  function injectNavigator(doc, ownerPath) {
-    Array.from(doc.querySelectorAll('script[data-clusterweave-result-preview]')).forEach(node => node.remove());
-    const script = doc.createElement('script');
-    script.setAttribute('data-clusterweave-result-preview', '');
-    script.setAttribute('data-job-id', config.jobId);
-    script.setAttribute('data-owner-path', normalizePath(ownerPath));
-    script.setAttribute('data-api-base', config.apiBase);
-    script.setAttribute('data-authorization', config.authorization);
-    script.textContent = scriptEl.textContent || '';
-    (doc.body || doc.head || doc.documentElement).appendChild(script);
-  }
-
-  async function rewriteHtml(htmlText, ownerPath) {
-    const source = String(htmlText || '');
-    const doc = new DOMParser().parseFromString(source, 'text/html');
-    const cache = new Map();
-    const assetAttrs = [
-      ['link[href]', 'href'],
-      ['script[src]', 'src'],
-      ['img[src]', 'src'],
-      ['source[src]', 'src'],
-      ['video[poster]', 'poster'],
-      ['audio[src]', 'src'],
-      ['video[src]', 'src'],
-      ['object[data]', 'data'],
-      ['embed[src]', 'src'],
-      ['iframe[src]', 'src'],
-      ['input[src]', 'src'],
-      ['track[src]', 'src'],
-    ];
-    for (const pair of assetAttrs) {
-      for (const el of Array.from(doc.querySelectorAll(pair[0]))) {
-        const value = el.getAttribute(pair[1]) || '';
-        if (shouldStayExternal(value)) continue;
-        const rewritten = await resultAssetUrl(ownerPath, value, cache);
-        if (rewritten) el.setAttribute(pair[1], rewritten + hashSuffix(value));
-      }
-    }
-    for (const styleEl of Array.from(doc.querySelectorAll('style'))) {
-      styleEl.textContent = await rewriteCssUrls(styleEl.textContent || '', ownerPath, cache);
-    }
-    for (const el of Array.from(doc.querySelectorAll('[style]'))) {
-      const value = el.getAttribute('style') || '';
-      const rewritten = await rewriteCssUrls(value, ownerPath, cache);
-      if (rewritten !== value) el.setAttribute('style', rewritten);
-    }
-    for (const el of Array.from(doc.querySelectorAll('a[href],area[href]'))) {
-      const value = el.getAttribute('href') || '';
-      if (!shouldStayExternal(value)) el.setAttribute('data-clusterweave-result-href', value);
-    }
-    injectNavigator(doc, ownerPath);
-    const doctype = source.match(/^\s*<!doctype[^>]*>/i);
-    return (doctype ? doctype[0] : '<!doctype html>') + '\n' + doc.documentElement.outerHTML;
-  }
-
-  async function openRelativeResult(rawUrl) {
-    const parts = splitUrl(rawUrl);
-    const targetPath = relativePath(config.ownerPath, parts.path);
-    if (!targetPath) return false;
-    const resp = await fetchResult(targetPath);
-    if (!resp.ok) throw new Error('Result file could not be opened.');
-    const contentType = resp.headers.get('Content-Type') || '';
-    const ext = pathExt(targetPath);
-    let blob;
-    if (ext === 'html' || ext === 'htm' || /^text\/html\b/i.test(contentType)) {
-      const htmlText = await resp.text();
-      const rewrittenHtml = await rewriteHtml(htmlText, targetPath);
-      blob = new Blob([rewrittenHtml], { type: inlineMime(targetPath, 'text/html;charset=utf-8') });
-    } else {
-      const sourceBlob = await resp.blob();
-      blob = new Blob([sourceBlob], { type: inlineMime(targetPath, sourceBlob.type || contentType) });
-    }
-    const url = URL.createObjectURL(blob);
-    helperObjectUrls.push(url);
-    window.location.href = url + (parts.suffix || '');
-    return true;
-  }
-
-  let opening = false;
-  document.addEventListener('click', function (event) {
-    const target = event.target && event.target.closest ? event.target.closest('a[href],area[href]') : null;
-    if (!target || event.defaultPrevented) return;
-    const rawUrl = target.getAttribute('data-clusterweave-result-href') || target.getAttribute('href') || '';
-    if (shouldStayExternal(rawUrl)) return;
-    if (!relativePath(config.ownerPath, splitUrl(rawUrl).path)) return;
     event.preventDefault();
-    if (opening) return;
-    opening = true;
-    openRelativeResult(rawUrl).catch(function (err) {
-      opening = false;
-      console.error('ClusterWeave preview link could not be opened', err);
-      window.alert('ClusterWeave could not open this linked result file.');
-    });
+    event.stopImmediatePropagation();
+    navigateArtifact(artifact, fragment);
+  }
+
+  function warmLink(event) {
+    if (!event.isTrusted) return;
+    const target = interactiveTarget(event);
+    if (target && prepared.has(target)) requestResolution(target, false);
+  }
+
+  document.addEventListener('pointerover', warmLink, true);
+  document.addEventListener('focusin', warmLink, true);
+  document.addEventListener('click', function (event) {
+    if (!event.isTrusted || event.defaultPrevented) return;
+    const target = interactiveTarget(event);
+    if (target) activateTarget(event, target);
   }, true);
+  document.addEventListener('keydown', function (event) {
+    if (!event.isTrusted || event.defaultPrevented || event.key !== 'Enter') return;
+    const target = interactiveTarget(event);
+    if (target && (prepared.has(target) || target.hasAttribute('data-clusterweave-result-artifact'))) {
+      activateTarget(event, target);
+    }
+  }, true);
+  const observer = new MutationObserver(function (mutations) {
+    mutations.forEach(function (mutation) {
+      if (mutation.type === 'attributes') scan(mutation.target);
+      else Array.prototype.forEach.call(mutation.addedNodes || [], scan);
+    });
+  });
+  observer.observe(document.documentElement, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeFilter: ['href'],
+  });
+  scan(document);
 })();
 `;
 
@@ -2453,6 +2829,38 @@ function resultRelativeAssetPath(ownerPath, rawUrl) {
   }
 }
 
+function resultArtifactFamilyRoot(path) {
+  const parts = normalizedResultPath(path).split('/');
+  if (
+    parts.length < 6
+    || parts[0] !== 'data'
+    || parts[1] !== 'results'
+    || !parts[2]
+    || !['antismash', 'funbgcex'].includes(String(parts[3]).toLowerCase())
+    || !parts[4]
+    || parts.slice(0, 5).some(part => !part || part === '.' || part === '..')
+  ) return '';
+  return parts.slice(0, 5).join('/');
+}
+
+function resultArtifactFamilyAssetPath(ownerPath, rawUrl) {
+  const familyRoot = resultArtifactFamilyRoot(ownerPath);
+  if (!familyRoot || resultUrlShouldStayExternal(rawUrl)) return '';
+  const resolved = normalizedResultPath(resultRelativeAssetPath(ownerPath, rawUrl));
+  const parts = resolved.split('/');
+  if (
+    !resolved.startsWith(`${familyRoot}/`)
+    || parts.some(part => !part || part === '.' || part === '..')
+  ) return '';
+  return resolved;
+}
+
+function isToolResultBundleHtml(path, resultContext = null) {
+  const descriptor = resultArtifactDescriptor(path, resultContext);
+  return ['antismash', 'funbgcex'].includes(String(descriptor?.category || ''))
+    && ['html', 'htm'].includes(resultPathExt(path));
+}
+
 function splitResultAssetUrl(rawUrl) {
   const value = String(rawUrl || '').trim();
   const match = value.match(/^([^?#]*)([?#].*)?$/);
@@ -2465,48 +2873,287 @@ function resultAssetHashSuffix(rawUrl) {
   return hashIndex >= 0 ? value.slice(hashIndex) : '';
 }
 
-function injectResultPreviewNavigator(doc, jobId, htmlPath) {
-  if (!doc || !doc.documentElement) return;
-  Array.from(doc.querySelectorAll('script[data-clusterweave-result-preview]')).forEach(node => node.remove());
-  const scriptEl = doc.createElement('script');
-  scriptEl.setAttribute('data-clusterweave-result-preview', '');
-  scriptEl.setAttribute('data-job-id', String(jobId || ''));
-  scriptEl.setAttribute('data-owner-path', normalizedResultPath(htmlPath));
-  scriptEl.setAttribute('data-api-base', apiUrl(''));
-  scriptEl.setAttribute('data-authorization', authHeadersFor('job', jobId).Authorization || '');
-  scriptEl.textContent = RESULT_PREVIEW_NAVIGATOR_SCRIPT;
-  (doc.body || doc.head || doc.documentElement).appendChild(scriptEl);
+const TOOL_RESULT_PREVIEW_ASSET_MAX_BYTES = 16 * 1024 * 1024;
+const TOOL_RESULT_PREVIEW_TOTAL_ASSET_MAX_BYTES = 64 * 1024 * 1024;
+const BIGSCAPE_PREVIEW_ASSET_MAX_BYTES = 16 * 1024 * 1024;
+const BIGSCAPE_PREVIEW_TOTAL_ASSET_MAX_BYTES = 64 * 1024 * 1024;
+const BIGSCAPE_PORTABLE_ASSET_EXTENSIONS = new Set([
+  'css',
+  'png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico',
+  'woff', 'woff2', 'ttf', 'otf', 'eot',
+]);
+
+function bigscapeHtmlContentRoot(ownerPath) {
+  const parts = normalizedResultPath(ownerPath).split('/');
+  if (
+    parts.length < 5
+    || parts.some(part => !part || part === '.' || part === '..')
+    || parts[0] !== 'data'
+    || parts[1] !== 'results'
+    || !parts[2]
+    || !['big_scape', 'bigscape', 'big-scape'].includes(String(parts[3]).toLowerCase())
+  ) return '';
+  const htmlContentIndex = parts.indexOf('html_content', 4);
+  const rootParts = htmlContentIndex >= 0
+    ? parts.slice(0, htmlContentIndex)
+    : parts.slice(0, -1);
+  return rootParts.length >= 4 ? `${rootParts.join('/')}/html_content` : '';
 }
 
-async function resultAssetObjectUrl(jobId, ownerPath, rawUrl, cache) {
+function bigscapeHtmlContentAssetPath(ownerPath, rawUrl) {
+  const contentRoot = bigscapeHtmlContentRoot(ownerPath);
+  if (!contentRoot || resultUrlShouldStayExternal(rawUrl)) return '';
+  const resolved = normalizedResultPath(resultRelativeAssetPath(ownerPath, rawUrl));
+  const parts = resolved.split('/');
+  if (
+    !resolved.startsWith(`${contentRoot}/`)
+    || parts.some(part => !part || part === '.' || part === '..')
+  ) return '';
+  return resolved;
+}
+
+function bigscapePortableAssetPathAllowed(path) {
+  return BIGSCAPE_PORTABLE_ASSET_EXTENSIONS.has(resultPathExt(path));
+}
+
+function assertBigscapeAssetDeclaredSize(response, budget = null) {
+  const raw = response?.headers?.get?.('Content-Length');
+  const declared = Number(raw);
+  if (
+    raw === null
+    || String(raw).trim() === ''
+    || !Number.isSafeInteger(declared)
+    || declared < 0
+    || declared > BIGSCAPE_PREVIEW_ASSET_MAX_BYTES
+  ) {
+    throw new Error('A BiG-SCAPE preview asset is missing a safe Content-Length or exceeds 16 MiB.');
+  }
+  if (budget) {
+    budget.declaredBytes += declared;
+    if (budget.declaredBytes > BIGSCAPE_PREVIEW_TOTAL_ASSET_MAX_BYTES) {
+      throw new Error('The BiG-SCAPE preview asset bundle exceeds the 64 MiB browser limit.');
+    }
+  }
+  return declared;
+}
+
+function assertBigscapeAssetActualSize(size, budget = null) {
+  if (!Number.isSafeInteger(size) || size < 0 || size > BIGSCAPE_PREVIEW_ASSET_MAX_BYTES) {
+    throw new Error('A BiG-SCAPE preview asset exceeds the 16 MiB browser limit.');
+  }
+  if (budget) {
+    budget.actualBytes += size;
+    if (budget.actualBytes > BIGSCAPE_PREVIEW_TOTAL_ASSET_MAX_BYTES) {
+      throw new Error('The BiG-SCAPE preview asset bundle exceeds the 64 MiB browser limit.');
+    }
+  }
+}
+
+function assertToolResultAssetSize(response, actualSize, budget) {
+  const raw = response?.headers?.get?.('Content-Length');
+  const declared = Number(raw);
+  if (
+    raw === null
+    || String(raw).trim() === ''
+    || !Number.isSafeInteger(declared)
+    || declared < 0
+    || declared > TOOL_RESULT_PREVIEW_ASSET_MAX_BYTES
+    || !Number.isSafeInteger(actualSize)
+    || actualSize < 0
+    || actualSize > TOOL_RESULT_PREVIEW_ASSET_MAX_BYTES
+  ) {
+    throw new Error('A result preview asset is missing a safe size or exceeds 16 MiB.');
+  }
+  budget.declaredBytes += declared;
+  budget.actualBytes += actualSize;
+  if (
+    budget.declaredBytes > TOOL_RESULT_PREVIEW_TOTAL_ASSET_MAX_BYTES
+    || budget.actualBytes > TOOL_RESULT_PREVIEW_TOTAL_ASSET_MAX_BYTES
+  ) {
+    throw new Error('The result preview asset bundle exceeds the 64 MiB browser limit.');
+  }
+}
+
+
+const STATIC_RESULT_PREVIEW_CSP = "default-src 'none'; img-src data: blob:; style-src 'unsafe-inline' data: blob:; font-src data: blob:; media-src data: blob:; connect-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; form-action 'none'; base-uri 'none'";
+const TOOL_RESULT_PREVIEW_CSP = "default-src 'none'; script-src 'unsafe-inline'; img-src data: blob:; style-src 'unsafe-inline' data: blob:; font-src data: blob:; media-src data: blob:; connect-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; form-action 'none'; base-uri 'none'";
+const TOOL_RESULT_PREVIEW_SANDBOX = 'allow-scripts';
+const CLINKER_RESULT_PREVIEW_CSP = "default-src 'none'; script-src 'unsafe-inline'; img-src data: blob:; style-src 'unsafe-inline' data: blob:; font-src data: blob:; media-src data: blob:; connect-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; form-action 'none'; base-uri 'none'";
+const CLINKER_PREVIEW_SANDBOX = 'allow-scripts';
+const BIGSCAPE_RESULT_PREVIEW_CSP = "default-src 'none'; script-src 'unsafe-inline'; img-src data: blob:; style-src 'unsafe-inline' data: blob:; font-src data: blob:; media-src data: blob:; connect-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; form-action 'none'; base-uri 'none'";
+const BIGSCAPE_PREVIEW_SANDBOX = 'allow-scripts';
+const BIGSCAPE_KINETIC_GLOBAL_EVAL_SHIM = '(1,eval)("this")';
+const BIGSCAPE_KINETIC_GLOBAL_EVAL_SHIM_COUNT = 2;
+
+function isExactPublicClinkerPanelHtml(path) {
+  const descriptor = resultArtifactDescriptor(path);
+  return descriptor?.category === 'synteny' && /^panel\.html$/i.test(resultArtifactName(path));
+}
+
+function injectResultPreviewNavigator(doc, jobId, htmlPath) {
+  // Result HTML is rendered as a static, network-isolated document.  Bearer
+  // credentials must never be copied into tool-generated DOM.
+  void doc;
+  void jobId;
+  void htmlPath;
+}
+
+function resultBlobDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('Could not read result asset.'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function resultAssetObjectUrl(jobId, ownerPath, rawUrl, cache, options = {}) {
   const parts = splitResultAssetUrl(rawUrl);
-  const assetPath = resultRelativeAssetPath(ownerPath, parts.path);
-  if (!assetPath) return '';
-  const cacheKey = normalizedResultPath(assetPath);
+  const bigscapeMode = options.bigscapeMode === true;
+  const toolBundleMode = options.toolBundleMode === true;
+  const resultContext = options.resultContext || null;
+  const cacheKey = `${resultArtifactId(ownerPath, resultContext)}:${parts.path}`;
   if (cache.has(cacheKey)) return cache.get(cacheKey);
   const promise = (async () => {
-    const resp = await resultFetch(jobId, cacheKey);
+    const resolved = await resolveResultArtifact(jobId, ownerPath, parts.path, {
+      optional: true,
+      resultContext,
+    });
+    if (!resolved) return '';
+    const assetKey = resolved.key;
+    if (bigscapeMode && !bigscapePortableAssetPathAllowed(resultArtifactName(assetKey, resultContext))) return '';
+    const resp = await resultFetch(jobId, assetKey, { resultContext });
     if (!resp.ok) return '';
+    if (bigscapeMode) assertBigscapeAssetDeclaredSize(resp, options.bigscapeAssetBudget);
     const contentType = resp.headers.get('Content-Type') || '';
     let blob;
-    if (resultPathExt(cacheKey) === 'css' || /^text\/css\b/i.test(contentType)) {
+    if (resultPathExt(assetKey) === 'css' || /^text\/css\b/i.test(contentType)) {
       const cssText = await resp.text();
-      const rewrittenCss = await rewriteCssResultUrls(cssText, jobId, cacheKey, cache);
-      blob = new Blob([rewrittenCss], { type: inlineResultMime(cacheKey, 'text/css;charset=utf-8') });
+      const cssSize = new Blob([cssText]).size;
+      if (bigscapeMode) assertBigscapeAssetActualSize(cssSize, options.bigscapeAssetBudget);
+      if (toolBundleMode) assertToolResultAssetSize(resp, cssSize, options.toolBundleAssetBudget);
+      const rewrittenCss = await rewriteCssResultUrls(cssText, jobId, assetKey, cache, options);
+      blob = new Blob([rewrittenCss], { type: inlineResultMime(assetKey, 'text/css;charset=utf-8') });
     } else {
       const sourceBlob = await resp.blob();
-      blob = new Blob([sourceBlob], { type: inlineResultMime(cacheKey, sourceBlob.type || contentType) });
+      if (bigscapeMode) assertBigscapeAssetActualSize(sourceBlob.size, options.bigscapeAssetBudget);
+      if (toolBundleMode) assertToolResultAssetSize(resp, sourceBlob.size, options.toolBundleAssetBudget);
+      blob = new Blob([sourceBlob], { type: inlineResultMime(assetKey, sourceBlob.type || contentType) });
     }
-    const url = URL.createObjectURL(blob);
-    resultHelperObjectUrls.push(url);
+    const url = options.portableDataUrls === true
+      ? await resultBlobDataUrl(blob)
+      : URL.createObjectURL(blob);
+    if (options.portableDataUrls !== true) resultHelperObjectUrls.push(url);
     return url;
   })();
   cache.set(cacheKey, promise);
   return promise;
 }
 
-async function rewriteCssResultUrls(cssText, jobId, ownerPath, cache) {
+function stripToolResultCssImports(cssText) {
   const source = String(cssText || '');
+  let output = '';
+  let cursor = 0;
+  let index = 0;
+  let quote = '';
+  let inComment = false;
+  while (index < source.length) {
+    const current = source[index];
+    const next = source[index + 1] || '';
+    if (inComment) {
+      if (current === '*' && next === '/') {
+        inComment = false;
+        index += 2;
+      } else {
+        index += 1;
+      }
+      continue;
+    }
+    if (quote) {
+      if (current === '\\') {
+        index += 2;
+      } else {
+        if (current === quote) quote = '';
+        index += 1;
+      }
+      continue;
+    }
+    if (current === '/' && next === '*') {
+      inComment = true;
+      index += 2;
+      continue;
+    }
+    if (current === '"' || current === "'") {
+      quote = current;
+      index += 1;
+      continue;
+    }
+    if (
+      current === '@'
+      && source.slice(index, index + 7).toLowerCase() === '@import'
+      && !/[A-Za-z0-9_-]/.test(source[index + 7] || '')
+    ) {
+      output += source.slice(cursor, index);
+      let ruleIndex = index + 7;
+      let ruleQuote = '';
+      let ruleComment = false;
+      let parenDepth = 0;
+      while (ruleIndex < source.length) {
+        const ruleCurrent = source[ruleIndex];
+        const ruleNext = source[ruleIndex + 1] || '';
+        if (ruleComment) {
+          if (ruleCurrent === '*' && ruleNext === '/') {
+            ruleComment = false;
+            ruleIndex += 2;
+          } else {
+            ruleIndex += 1;
+          }
+          continue;
+        }
+        if (ruleQuote) {
+          if (ruleCurrent === '\\') {
+            ruleIndex += 2;
+          } else {
+            if (ruleCurrent === ruleQuote) ruleQuote = '';
+            ruleIndex += 1;
+          }
+          continue;
+        }
+        if (ruleCurrent === '/' && ruleNext === '*') {
+          ruleComment = true;
+          ruleIndex += 2;
+          continue;
+        }
+        if (ruleCurrent === '"' || ruleCurrent === "'") {
+          ruleQuote = ruleCurrent;
+          ruleIndex += 1;
+          continue;
+        }
+        if (ruleCurrent === '(') parenDepth += 1;
+        if (ruleCurrent === ')' && parenDepth > 0) parenDepth -= 1;
+        ruleIndex += 1;
+        if (ruleCurrent === ';' && parenDepth === 0) break;
+      }
+      output += '/* ClusterWeave removed a result-bundle import rule. */';
+      index = ruleIndex;
+      cursor = ruleIndex;
+      quote = '';
+      inComment = false;
+      continue;
+    }
+    index += 1;
+  }
+  return output + source.slice(cursor);
+}
+
+async function rewriteCssResultUrls(cssText, jobId, ownerPath, cache, options = {}) {
+  const originalSource = String(cssText || '');
+  if (options.bigscapeMode && /@import\b/i.test(originalSource)) {
+    throw new Error('BiG-SCAPE preview CSS @import rules are not supported.');
+  }
+  const source = options.toolBundleMode
+    ? stripToolResultCssImports(originalSource)
+    : originalSource;
   const regex = /url\(\s*([\'\"]?)([^\'\")]+)\1\s*\)/gi;
   let output = '';
   let lastIndex = 0;
@@ -2515,54 +3162,321 @@ async function rewriteCssResultUrls(cssText, jobId, ownerPath, cache) {
     const quote = match[1] || '';
     const rawUrl = match[2] || '';
     let rewritten = '';
-    if (!resultUrlShouldStayExternal(rawUrl)) {
-      rewritten = await resultAssetObjectUrl(jobId, ownerPath, rawUrl, cache);
+    if (options.bigscapeMode || !resultUrlShouldStayExternal(rawUrl)) {
+      rewritten = await resultAssetObjectUrl(jobId, ownerPath, rawUrl, cache, options);
     }
-    output += rewritten ? `url(${quote}${rewritten}${resultAssetHashSuffix(rawUrl)}${quote})` : match[0];
+    output += rewritten
+      ? `url(${quote}${rewritten}${resultAssetHashSuffix(rawUrl)}${quote})`
+      : options.bigscapeMode || options.toolBundleMode
+        ? 'none'
+        : match[0];
     lastIndex = match.index + match[0].length;
   }
   return output + source.slice(lastIndex);
 }
 
-async function rewriteHtmlResultAssets(htmlText, jobId, htmlPath) {
+function isClassicResultScript(script) {
+  const type = String(script?.getAttribute?.('type') || '').trim().toLowerCase();
+  return !type || [
+    'text/javascript',
+    'application/javascript',
+    'text/ecmascript',
+    'application/ecmascript',
+  ].includes(type);
+}
+
+function rewriteToolResultScriptForSandbox(assetPath, sourceText, resultContext = null) {
+  const source = String(sourceText || '');
+  if (!/^antismash\.js$/i.test(resultArtifactName(assetPath, resultContext))) return source;
+  const getter = 'function T(){const t=window.location.hash.substring(1);return t||"overview"}';
+  const switcher = 'function k(){setTimeout((()=>{$(".page").hide()';
+  if (source.split(getter).length !== 2 || source.split(switcher).length !== 2) {
+    throw new Error('The antiSMASH region navigator does not match the sandbox compatibility profile.');
+  }
+  return source
+    .replace(
+      getter,
+      'let clusterweaveAnchor="";function T(){const t=clusterweaveAnchor||window.location.hash.substring(1);return t||"overview"}',
+    )
+    .replace(
+      switcher,
+      'function k(t){if(t)clusterweaveAnchor=t;setTimeout((()=>{$(".page").hide()',
+    );
+}
+
+function rewriteBigscapeScriptForSandbox(assetPath, sourceText) {
+  const source = String(sourceText || '');
+  if (!/^kinetic-v5\.1\.0\.min\.js$/i.test(resultArtifactName(assetPath))) {
+    return source;
+  }
+  const occurrences = source.split(BIGSCAPE_KINETIC_GLOBAL_EVAL_SHIM).length - 1;
+  if (occurrences !== BIGSCAPE_KINETIC_GLOBAL_EVAL_SHIM_COUNT) {
+    throw new Error('The bundled BiG-SCAPE Kinetic runtime does not match the CSP-safe compatibility profile.');
+  }
+  return source.replaceAll(BIGSCAPE_KINETIC_GLOBAL_EVAL_SHIM, 'globalThis');
+}
+
+async function inlineBigscapeResultScripts(doc, jobId, htmlPath, options = {}) {
+  const scripts = Array.from(doc.querySelectorAll('script[src]'));
+  await Promise.all(scripts.map(async script => {
+    const rawUrl = script.getAttribute('src') || '';
+    if (resultUrlShouldStayExternal(rawUrl)) {
+      script.remove();
+      return;
+    }
+    if (
+      !isClassicResultScript(script)
+      || script.hasAttribute?.('async')
+      || script.hasAttribute?.('defer')
+    ) {
+      script.remove();
+      throw new Error('BiG-SCAPE preview requires local synchronous classic JavaScript assets.');
+    }
+    const parts = splitResultAssetUrl(rawUrl);
+    const resolved = await resolveResultArtifact(jobId, htmlPath, parts.path, { optional: true });
+    const assetKey = resolved?.key || '';
+    if (!assetKey || resultArtifactDescriptor(assetKey)?.category !== 'bigscape'
+        || resultPathExt(assetKey) !== 'js') {
+      script.remove();
+      throw new Error('A local BiG-SCAPE script is outside its html_content JavaScript bundle.');
+    }
+    try {
+      const resp = await resultFetch(jobId, assetKey);
+      if (!resp.ok) {
+        script.remove();
+        throw new Error('A required local BiG-SCAPE script could not be loaded.');
+      }
+      assertBigscapeAssetDeclaredSize(resp, options.bigscapeAssetBudget);
+      const source = rewriteBigscapeScriptForSandbox(
+        assetKey,
+        String(await resp.text()),
+      ).replace(/<\/script/gi, '<\\/script');
+      assertBigscapeAssetActualSize(new Blob([source]).size, options.bigscapeAssetBudget);
+      script.textContent = source;
+      for (const attr of [
+        'src', 'integrity', 'crossorigin', 'referrerpolicy',
+        'nonce', 'async', 'defer',
+      ]) {
+        script.removeAttribute(attr);
+      }
+    } catch (error) {
+      script.remove();
+      throw error instanceof Error
+        ? error
+        : new Error('A required local BiG-SCAPE script could not be loaded.');
+    }
+  }));
+}
+
+async function inlineToolResultScripts(doc, jobId, htmlPath, options = {}) {
+  const scripts = Array.from(doc.querySelectorAll('script[src]'));
+  const deferredScripts = [];
+  const resultContext = options.resultContext || null;
+  for (const script of scripts) {
+    const wasDeferred = script.hasAttribute('defer');
+    const rawUrl = script.getAttribute('src') || '';
+    const resolved = await resolveResultArtifact(
+      jobId,
+      htmlPath,
+      splitResultAssetUrl(rawUrl).path,
+      { optional: true, resultContext },
+    );
+    const assetKey = resolved?.key || '';
+    const ownerDescriptor = resultArtifactDescriptor(htmlPath, resultContext);
+    const assetDescriptor = resultArtifactDescriptor(assetKey, resultContext);
+    if (!assetKey || !isClassicResultScript(script) || resultPathExt(assetKey) !== 'js'
+        || assetDescriptor?.category !== ownerDescriptor?.category
+        || assetDescriptor?.bundle_id !== ownerDescriptor?.bundle_id) {
+      script.remove();
+      continue;
+    }
+    const resp = await resultFetch(jobId, assetKey, { resultContext });
+    if (!resp.ok) {
+      script.remove();
+      throw new Error('A required result-bundle script could not be loaded.');
+    }
+    const source = rewriteToolResultScriptForSandbox(
+      assetKey,
+      String(await resp.text()),
+      resultContext,
+    ).replace(/<\/script/gi, '<\\/script');
+    assertToolResultAssetSize(resp, new Blob([source]).size, options.toolBundleAssetBudget);
+    script.textContent = source;
+    for (const attr of [
+      'src', 'integrity', 'crossorigin', 'referrerpolicy',
+      'nonce', 'async', 'defer',
+    ]) script.removeAttribute(attr);
+    if (wasDeferred) deferredScripts.push(script);
+  }
+  const deferredTarget = doc.body || doc.documentElement;
+  deferredScripts.forEach(script => deferredTarget.appendChild(script));
+}
+
+async function rewriteHtmlResultAssets(htmlText, jobId, htmlPath, options = {}) {
   const source = String(htmlText || '');
   const doc = new DOMParser().parseFromString(source, 'text/html');
   const cache = new Map();
+  const resultContext = options.resultContext || null;
+  const allowClinkerInlineScripts = options.allowClinkerInlineScripts === true && isExactPublicClinkerPanelHtml(htmlPath);
+  const allowBigscapeScripts = options.allowBigscapeScripts === true && isBigscapeHtmlArtifact(htmlPath);
+  const allowToolBundleScripts = options.allowToolBundleScripts === true
+    && isToolResultBundleHtml(htmlPath, resultContext);
+  const bigscapeAssetBudget = allowBigscapeScripts
+    ? { declaredBytes: 0, actualBytes: 0 }
+    : null;
+  const toolBundleAssetBudget = allowToolBundleScripts
+    ? { declaredBytes: 0, actualBytes: 0 }
+    : null;
+  const assetOptions = {
+    portableDataUrls: allowBigscapeScripts || allowToolBundleScripts,
+    bigscapeMode: allowBigscapeScripts,
+    bigscapeAssetBudget,
+    toolBundleMode: allowToolBundleScripts,
+    toolBundleAssetBudget,
+    resultContext,
+  };
+  const blockedElements = allowBigscapeScripts
+    ? 'iframe,object,embed,base'
+    : allowToolBundleScripts
+      ? 'iframe,object,embed,base'
+      : allowClinkerInlineScripts
+        ? 'script[src],iframe,object,embed,base'
+        : 'script,iframe,object,embed,base';
+  Array.from(doc.querySelectorAll(blockedElements)).forEach(node => node.remove());
+  Array.from(doc.querySelectorAll('meta[http-equiv="Content-Security-Policy" i]')).forEach(node => node.remove());
+  Array.from(doc.querySelectorAll('meta[http-equiv="refresh" i]')).forEach(node => node.remove());
+  Array.from(doc.querySelectorAll('[srcset]')).forEach(node => node.removeAttribute('srcset'));
+  Array.from(doc.querySelectorAll('[autofocus]')).forEach(node => node.removeAttribute('autofocus'));
+  Array.from(doc.querySelectorAll('form[action], [formaction]')).forEach(node => {
+    node.removeAttribute('action');
+    node.removeAttribute('formaction');
+  });
+  const csp = doc.createElement('meta');
+  csp.setAttribute('http-equiv', 'Content-Security-Policy');
+  csp.setAttribute(
+    'content',
+    allowBigscapeScripts
+      ? BIGSCAPE_RESULT_PREVIEW_CSP
+      : allowToolBundleScripts
+        ? TOOL_RESULT_PREVIEW_CSP
+        : allowClinkerInlineScripts
+          ? CLINKER_RESULT_PREVIEW_CSP
+          : STATIC_RESULT_PREVIEW_CSP,
+  );
+  (doc.head || doc.documentElement).prepend(csp);
   const assetAttrs = [
     ['link[href]', 'href'],
-    ['script[src]', 'src'],
     ['img[src]', 'src'],
     ['source[src]', 'src'],
     ['video[poster]', 'poster'],
     ['audio[src]', 'src'],
     ['video[src]', 'src'],
-    ['object[data]', 'data'],
-    ['embed[src]', 'src'],
-    ['iframe[src]', 'src'],
     ['input[src]', 'src'],
     ['track[src]', 'src'],
   ];
+  const scriptTask = allowBigscapeScripts
+    ? inlineBigscapeResultScripts(doc, jobId, htmlPath, assetOptions)
+    : allowToolBundleScripts
+      ? inlineToolResultScripts(doc, jobId, htmlPath, assetOptions)
+      : Promise.resolve();
+  const assetTasks = [];
   for (const [selector, attr] of assetAttrs) {
     for (const el of Array.from(doc.querySelectorAll(selector))) {
-      const value = el.getAttribute(attr) || '';
-      if (resultUrlShouldStayExternal(value)) continue;
-      const rewritten = await resultAssetObjectUrl(jobId, htmlPath, value, cache);
-      if (rewritten) el.setAttribute(attr, rewritten + resultAssetHashSuffix(value));
+      assetTasks.push((async () => {
+        const value = el.getAttribute(attr) || '';
+        if (/^javascript:/i.test(value)) {
+          el.removeAttribute(attr);
+          return;
+        }
+        if (resultUrlShouldStayExternal(value)) {
+          el.removeAttribute(attr);
+          return;
+        }
+        const rewritten = await resultAssetObjectUrl(jobId, htmlPath, value, cache, assetOptions);
+        if (rewritten) {
+          el.setAttribute(attr, rewritten + resultAssetHashSuffix(value));
+        } else {
+          el.removeAttribute(attr);
+        }
+      })());
     }
   }
-  for (const styleEl of Array.from(doc.querySelectorAll('style'))) {
-    styleEl.textContent = await rewriteCssResultUrls(styleEl.textContent || '', jobId, htmlPath, cache);
-  }
-  for (const el of Array.from(doc.querySelectorAll('[style]'))) {
+  await Promise.all([scriptTask, ...assetTasks]);
+  await Promise.all(Array.from(doc.querySelectorAll('style')).map(async styleEl => {
+    styleEl.textContent = await rewriteCssResultUrls(
+      styleEl.textContent || '', jobId, htmlPath, cache, assetOptions,
+    );
+  }));
+  await Promise.all(Array.from(doc.querySelectorAll('[style]')).map(async el => {
     const value = el.getAttribute('style') || '';
-    const rewritten = await rewriteCssResultUrls(value, jobId, htmlPath, cache);
+    const rewritten = await rewriteCssResultUrls(value, jobId, htmlPath, cache, assetOptions);
     if (rewritten !== value) el.setAttribute('style', rewritten);
-  }
+  }));
   for (const el of Array.from(doc.querySelectorAll('a[href],area[href]'))) {
     const value = el.getAttribute('href') || '';
-    if (!resultUrlShouldStayExternal(value)) el.setAttribute('data-clusterweave-result-href', value);
+    if (/^javascript:/i.test(value)) {
+      el.removeAttribute('href');
+    } else if (allowToolBundleScripts && value.startsWith('#')) {
+      el.setAttribute('href', `${resultHref(jobId, htmlPath, { resultContext })}${value}`);
+      el.setAttribute('data-clusterweave-result-fragment', value);
+    } else if (allowToolBundleScripts && resultUrlShouldStayExternal(value)) {
+      el.removeAttribute('href');
+      el.removeAttribute('target');
+      el.removeAttribute('rel');
+      el.setAttribute('aria-disabled', 'true');
+      el.setAttribute('title', 'This link is outside the generated result bundle.');
+    } else if (!resultUrlShouldStayExternal(value)) {
+      if (allowToolBundleScripts) {
+        const localReferencePath = splitResultAssetUrl(value).path;
+        if (!['html', 'htm'].includes(resultPathExt(localReferencePath))) {
+          el.removeAttribute('href');
+          el.setAttribute('aria-disabled', 'true');
+          el.setAttribute('title', 'This link is outside the generated result bundle.');
+          continue;
+        }
+        const resolved = await resolveResultArtifact(
+          jobId,
+          htmlPath,
+          value,
+          { optional: true, resultContext },
+        );
+        if (resolved && isToolResultBundleHtml(resolved.key, resultContext)) {
+          const fragment = resolved.fragment || resultAssetHashSuffix(value);
+          const cleanHref = `${resultHref(jobId, resolved.key, { resultContext })}${fragment}`;
+          el.setAttribute('href', cleanHref);
+          el.setAttribute('data-clusterweave-result-artifact', resolved.descriptor.id);
+          el.setAttribute('data-clusterweave-result-fragment', fragment);
+        } else {
+          el.removeAttribute('href');
+          el.setAttribute('aria-disabled', 'true');
+          el.setAttribute('title', 'This link is outside the generated result bundle.');
+        }
+      } else {
+        el.removeAttribute('href');
+        el.setAttribute('aria-disabled', 'true');
+        el.setAttribute('title', 'This link is outside the generated result bundle.');
+      }
+    } else if (/^(?:[a-z][a-z0-9+.-]*:)?\/\//i.test(value)) {
+      if (allowBigscapeScripts) {
+        el.removeAttribute('href');
+        el.setAttribute('aria-disabled', 'true');
+      } else {
+        el.setAttribute('rel', 'noopener noreferrer');
+        el.setAttribute('target', '_blank');
+      }
+    } else if (allowBigscapeScripts && !value.startsWith('#')) {
+      el.removeAttribute('href');
+      el.setAttribute('aria-disabled', 'true');
+    }
   }
-  injectResultPreviewNavigator(doc, jobId, htmlPath);
+  if (allowToolBundleScripts) {
+    const navigator = doc.createElement('script');
+    navigator.setAttribute('data-clusterweave-result-preview', '');
+    navigator.setAttribute('data-channel', String(options.toolPreviewChannel || ''));
+    navigator.setAttribute('data-owner', resultArtifactId(htmlPath, resultContext));
+    navigator.textContent = RESULT_PREVIEW_NAVIGATOR_SCRIPT;
+    (doc.body || doc.head || doc.documentElement).appendChild(navigator);
+  }
   const doctype = source.match(/^\s*<!doctype[^>]*>/i);
   return `${doctype ? doctype[0] : '<!doctype html>'}
 ${doc.documentElement.outerHTML}`;
@@ -2577,6 +3491,403 @@ async function buildHtmlResultObjectUrl(jobId, htmlPath, htmlText, options = {})
   return url;
 }
 
+function renderSandboxedClinkerPreview(targetWindow, relPath, htmlText) {
+  const doc = targetWindow.document;
+  const title = fileNameFromPath(relPath) || 'Clinker panel';
+  doc.open();
+  doc.write(`<!doctype html>
+<html><head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-src 'self'; child-src 'self'; connect-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'">
+<meta name="referrer" content="no-referrer">
+<title>${escapeHtml(title)}</title>
+<style>html,body{height:100%;margin:0;background:#fff}iframe{display:block;width:100%;height:100%;border:0}</style>
+</head><body></body></html>`);
+  doc.close();
+  const frame = doc.createElement('iframe');
+  frame.id = 'clusterweave-clinker-preview';
+  frame.setAttribute('sandbox', CLINKER_PREVIEW_SANDBOX);
+  frame.setAttribute('referrerpolicy', 'no-referrer');
+  frame.setAttribute('title', title);
+  frame.srcdoc = htmlText;
+  doc.body.appendChild(frame);
+  return frame;
+}
+
+function renderSandboxedBigscapePreview(targetWindow, relPath, htmlText, databaseBuffer, channel) {
+  const doc = targetWindow.document;
+  const title = fileNameFromPath(relPath) || 'BiG-SCAPE';
+  doc.open();
+  doc.write(`<!doctype html>
+<html><head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; img-src data: blob:; style-src 'unsafe-inline' data: blob:; font-src data: blob:; media-src data: blob:; frame-src 'self'; child-src 'self'; connect-src 'none'; object-src 'none'; worker-src 'none'; form-action 'none'; base-uri 'none'">
+<meta name="referrer" content="no-referrer">
+<title>${escapeHtml(title)}</title>
+<style>html,body{height:100%;margin:0;background:#fff}iframe{display:block;width:100%;height:100%;border:0}</style>
+<script>(function(){
+  let transferBuffer = null;
+  let transferChannel = '';
+  let transferFrameId = '';
+  let transferTimeout = null;
+
+  function cleanupTransfer() {
+    window.removeEventListener('message', transferDatabase);
+    window.removeEventListener('pagehide', cleanupTransfer);
+    window.removeEventListener('beforeunload', cleanupTransfer);
+    if (transferTimeout) window.clearTimeout(transferTimeout);
+    transferTimeout = null;
+    transferBuffer = null;
+    transferChannel = '';
+    transferFrameId = '';
+    window.CLUSTERWEAVE_BIGSCAPE_INSTALL_TRANSFER = null;
+  }
+
+  function transferDatabase(event) {
+    const frame = document.getElementById(transferFrameId);
+    const payload = event && event.data;
+    if (!frame
+        || event.source !== frame.contentWindow
+        || !payload
+        || payload.type !== 'clusterweave:bigscape-database-ready'
+        || payload.channel !== transferChannel) return;
+    const buffer = transferBuffer;
+    const isArrayBuffer = Object.prototype.toString.call(buffer) === '[object ArrayBuffer]';
+    if (!isArrayBuffer || !Number.isFinite(buffer.byteLength) || buffer.byteLength <= 0) return;
+    const selectedChannel = transferChannel;
+    cleanupTransfer();
+    try {
+      frame.contentWindow.postMessage({
+        type: 'clusterweave:bigscape-database',
+        channel: selectedChannel,
+        buffer,
+      }, '*', [buffer]);
+    } catch (error) {
+      frame.contentWindow.postMessage({
+        type: 'clusterweave:bigscape-database-error',
+        channel: selectedChannel,
+      }, '*');
+    }
+  }
+
+  window.CLUSTERWEAVE_BIGSCAPE_INSTALL_TRANSFER = function(buffer, channel, frameId) {
+    const isArrayBuffer = Object.prototype.toString.call(buffer) === '[object ArrayBuffer]';
+    if (!isArrayBuffer || !Number.isFinite(buffer.byteLength) || buffer.byteLength <= 0) {
+      throw new Error('The compact BiG-SCAPE viewer transfer buffer is invalid.');
+    }
+    transferBuffer = buffer;
+    transferChannel = String(channel || '');
+    transferFrameId = String(frameId || '');
+    window.addEventListener('message', transferDatabase);
+    window.addEventListener('pagehide', cleanupTransfer, { once: true });
+    window.addEventListener('beforeunload', cleanupTransfer, { once: true });
+    transferTimeout = window.setTimeout(cleanupTransfer, 120000);
+  };
+})();<\/script>
+</head><body></body></html>`);
+  doc.close();
+  const frame = doc.createElement('iframe');
+  frame.id = 'clusterweave-bigscape-preview';
+  frame.setAttribute('sandbox', BIGSCAPE_PREVIEW_SANDBOX);
+  frame.setAttribute('referrerpolicy', 'no-referrer');
+  frame.setAttribute('title', title);
+  const installTransfer = targetWindow.CLUSTERWEAVE_BIGSCAPE_INSTALL_TRANSFER;
+  if (typeof installTransfer !== 'function') {
+    throw new Error('The compact BiG-SCAPE popup transfer relay could not be installed.');
+  }
+  // The relay is defined in the popup realm so the sandbox receives the
+  // database message from window.parent, never from the application opener.
+  installTransfer(databaseBuffer, channel, frame.id);
+  databaseBuffer = null;
+  frame.srcdoc = htmlText;
+  doc.body.appendChild(frame);
+  return frame;
+}
+
+function renderSandboxedToolResultPreview(
+  targetWindow,
+  jobId,
+  relPath,
+  htmlText,
+  channel,
+  resultContext,
+) {
+  if (!resultContext?.runId) {
+    throw new Error('The result-bundle popup is missing its immutable artifact context.');
+  }
+  const doc = targetWindow.document;
+  const title = resultArtifactName(relPath, resultContext) || 'Result bundle';
+  doc.open();
+  doc.write(`<!doctype html>
+<html><head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; img-src data: blob:; style-src 'unsafe-inline' data: blob:; font-src data: blob:; media-src data: blob:; frame-src blob:; child-src blob:; connect-src 'none'; object-src 'none'; worker-src 'none'; form-action 'none'; base-uri 'none'">
+<meta name="referrer" content="no-referrer">
+<title>${escapeHtml(title)}</title>
+<style>html,body{height:100%;margin:0;background:#fff}iframe{display:block;width:100%;height:100%;border:0}</style>
+<script>(function(){
+  window.CLUSTERWEAVE_TOOL_RESULT_POST = function(frameId, payload) {
+    const selectedFrame = document.getElementById(String(frameId || ''));
+    if (!selectedFrame || !selectedFrame.contentWindow) return;
+    selectedFrame.contentWindow.postMessage(payload, '*');
+  };
+  window.addEventListener('pagehide', function() {
+    window.CLUSTERWEAVE_TOOL_RESULT_POST = null;
+  }, { once: true });
+})();<\/script>
+</head><body></body></html>`);
+  doc.close();
+  const frame = doc.createElement('iframe');
+  frame.id = 'clusterweave-tool-result-preview';
+  frame.setAttribute('sandbox', TOOL_RESULT_PREVIEW_SANDBOX);
+  frame.setAttribute('referrerpolicy', 'no-referrer');
+  frame.setAttribute('title', title);
+  const postToFrame = targetWindow.CLUSTERWEAVE_TOOL_RESULT_POST;
+  if (typeof postToFrame !== 'function') {
+    throw new Error('The result-bundle popup relay could not be installed.');
+  }
+  let currentPath = normalizedResultPath(relPath);
+  let currentChannel = String(channel || '');
+  let navigating = false;
+  let frameDocumentUrl = '';
+  let runtimeState = null;
+
+  function closeRuntimeState(state) {
+    if (!state || state.closed) return;
+    state.closed = true;
+    state.queue.length = 0;
+    state.pending.clear();
+    state.controllers.forEach(controller => controller.abort());
+    state.controllers.clear();
+  }
+
+  function rotateRuntimeState(nextChannel, nextOwner) {
+    closeRuntimeState(runtimeState);
+    currentChannel = String(nextChannel || '');
+    runtimeState = {
+      channel: currentChannel,
+      owner: String(nextOwner || ''),
+      queue: [],
+      pending: new Set(),
+      controllers: new Set(),
+      active: 0,
+      total: 0,
+      closed: false,
+    };
+    return runtimeState;
+  }
+
+  function setFrameHtml(value, fragment = '', nextPath = currentPath, nextChannel = currentChannel) {
+    currentPath = normalizedResultPath(nextPath);
+    rotateRuntimeState(nextChannel, resultArtifactId(currentPath, resultContext));
+    const previous = frameDocumentUrl;
+    frameDocumentUrl = targetWindow.URL.createObjectURL(new targetWindow.Blob(
+      [String(value || '')],
+      { type: 'text/html;charset=utf-8' },
+    ));
+    frame.addEventListener('load', () => {
+      if (previous) targetWindow.URL.revokeObjectURL(previous);
+    }, { once: true });
+    frame.src = `${frameDocumentUrl}${String(fragment || '')}`;
+  }
+
+  function sendResolved(source, state, request, payload = {}) {
+    if (
+      !frame.contentWindow
+      || source !== frame.contentWindow
+      || state !== runtimeState
+      || state.closed
+    ) return;
+    postToFrame(frame.id, {
+      type: 'clusterweave:result-bundle-resolved',
+      channel: state.channel,
+      owner: state.owner,
+      request: String(request || ''),
+      artifact: '',
+      href: '',
+      fragment: '',
+      ...payload,
+    }, '*');
+  }
+
+  async function processRuntimeReference(state, task) {
+    if (state.closed || state !== runtimeState) return;
+    state.active += 1;
+    const controller = new AbortController();
+    state.controllers.add(controller);
+    const timeout = targetWindow.setTimeout(
+      () => controller.abort(),
+      TOOL_RESULT_RUNTIME_RESOLVE_TIMEOUT_MS,
+    );
+    try {
+      const resolved = await resolveResultArtifact(
+        jobId,
+        currentPath,
+        task.reference,
+        { optional: true, resultContext, signal: controller.signal },
+      );
+      if (state.closed || state !== runtimeState) return;
+      const currentDescriptor = resultArtifactDescriptor(currentPath, resultContext);
+      const descriptor = resolved?.descriptor;
+      const allowedKind = descriptor?.kind === 'html' || descriptor?.kind === 'image';
+      if (
+        !resolved
+        || !allowedKind
+        || !currentDescriptor?.bundle_id
+        || descriptor?.bundle_id !== currentDescriptor.bundle_id
+        || descriptor?.category !== currentDescriptor.category
+      ) {
+        sendResolved(task.source, state, task.request);
+        return;
+      }
+      const fragment = resolved.fragment || resultAssetHashSuffix(task.reference);
+      sendResolved(task.source, state, task.request, {
+        artifact: descriptor.id,
+        href: `${resultHref(jobId, resolved.key, { resultContext })}${fragment}`,
+        fragment,
+      });
+    } catch (error) {
+      sendResolved(task.source, state, task.request);
+    } finally {
+      targetWindow.clearTimeout(timeout);
+      state.controllers.delete(controller);
+      state.pending.delete(task.request);
+      state.active = Math.max(0, state.active - 1);
+      pumpRuntimeReferences(state);
+    }
+  }
+
+  function pumpRuntimeReferences(state) {
+    if (state.closed || state !== runtimeState) return;
+    while (
+      state.active < TOOL_RESULT_RUNTIME_MAX_ACTIVE
+      && state.queue.length
+      && !state.closed
+    ) {
+      const task = state.queue.shift();
+      void processRuntimeReference(state, task);
+    }
+  }
+
+  function resolveRuntimeReference(event) {
+    const state = runtimeState;
+    if (
+      event.source !== frame.contentWindow
+      || !event.data
+      || event.data.type !== 'clusterweave:result-bundle-resolve'
+      || !state
+      || state.closed
+      || event.data.channel !== state.channel
+      || event.data.owner !== state.owner
+    ) return;
+    const reference = String(event.data.reference || '');
+    const request = String(event.data.request || '');
+    if (!/^r[1-9][0-9]{0,8}$/.test(request) || state.pending.has(request)) return;
+    state.total += 1;
+    if (
+      !reference
+      || reference.length > 2048
+      || state.total > TOOL_RESULT_RUNTIME_MAX_PER_DOCUMENT
+      || state.queue.length >= TOOL_RESULT_RUNTIME_MAX_QUEUE
+    ) {
+      sendResolved(event.source, state, request);
+      return;
+    }
+    state.pending.add(request);
+    state.queue.push({
+      source: event.source,
+      request,
+      reference,
+    });
+    pumpRuntimeReferences(state);
+  }
+
+  async function navigate(event) {
+    const state = runtimeState;
+    if (
+      event.source !== frame.contentWindow
+      || !event.data
+      || event.data.type !== 'clusterweave:result-bundle-navigate'
+      || !state
+      || state.closed
+      || event.data.channel !== state.channel
+      || event.data.owner !== state.owner
+      || navigating
+    ) return;
+    const targetDescriptor = resultArtifactDescriptor(event.data.artifact || '', resultContext);
+    const targetPath = artifactPresentationKey(targetDescriptor);
+    const currentDescriptor = resultArtifactDescriptor(currentPath, resultContext);
+    const targetIsHtml = isToolResultBundleHtml(targetPath, resultContext);
+    const targetIsImage = targetDescriptor?.kind === 'image'
+      && ['antismash', 'funbgcex'].includes(String(targetDescriptor?.category || ''));
+    if (!targetPath || (!targetIsHtml && !targetIsImage)) return;
+    if (
+      !currentDescriptor?.bundle_id
+      || !targetDescriptor?.bundle_id
+      || currentDescriptor.bundle_id !== targetDescriptor.bundle_id
+      || currentDescriptor.category !== targetDescriptor.category
+    ) return;
+    navigating = true;
+    try {
+      const response = await resultFetch(jobId, targetPath, { resultContext });
+      const contentType = response.headers.get('Content-Type') || '';
+      if (!response.ok) throw new Error('The linked result page is unavailable.');
+      if (targetIsImage) {
+        if (!/^image\//i.test(contentType)) {
+          throw new Error('The linked result image has an invalid media type.');
+        }
+        const blob = await response.blob();
+        assertToolResultAssetSize(
+          response,
+          blob.size,
+          { declaredBytes: 0, actualBytes: 0 },
+        );
+        const dataUrl = await resultBlobDataUrl(blob);
+        const imageName = resultArtifactName(targetPath, resultContext) || 'Result image';
+        const imageHtml = `<!doctype html>
+<html><head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>${escapeHtml(imageName)}</title>
+<style>html,body{min-height:100%;margin:0;background:#fff}body{display:grid;place-items:center}img{display:block;max-width:100%;height:auto}</style>
+</head><body><img src="${escapeHtml(dataUrl)}" alt="${escapeHtml(imageName)}"></body></html>`;
+        setFrameHtml(imageHtml, '', targetPath, '');
+        targetWindow.document.title = imageName;
+        return;
+      }
+      if (!/^text\/html\b/i.test(contentType)) {
+        throw new Error('The linked result page has an invalid media type.');
+      }
+      const nextChannel = toolResultPreviewChannel();
+      const nestedHtml = await rewriteHtmlResultAssets(await response.text(), jobId, targetPath, {
+        allowToolBundleScripts: true,
+        toolPreviewChannel: nextChannel,
+        resultContext,
+      });
+      if (state.closed || state !== runtimeState) return;
+      setFrameHtml(nestedHtml, event.data.fragment || '', targetPath, nextChannel);
+      targetWindow.document.title = resultArtifactName(targetPath, resultContext) || title;
+    } catch (error) {
+      console.error('ClusterWeave result-bundle navigation failed', error);
+    } finally {
+      navigating = false;
+    }
+  }
+
+  targetWindow.addEventListener('message', resolveRuntimeReference);
+  targetWindow.addEventListener('message', navigate);
+  targetWindow.addEventListener('pagehide', () => {
+    targetWindow.removeEventListener('message', resolveRuntimeReference);
+    targetWindow.removeEventListener('message', navigate);
+    closeRuntimeState(runtimeState);
+    if (frameDocumentUrl) targetWindow.URL.revokeObjectURL(frameDocumentUrl);
+  }, { once: true });
+  doc.body.appendChild(frame);
+  setFrameHtml(htmlText, '', relPath, channel);
+  return frame;
+}
+
 async function openHtmlResultWithAssets(event, jobId, relPath, previewWindow = null) {
   event?.preventDefault?.();
   const ownsWindow = !previewWindow;
@@ -2586,9 +3897,32 @@ async function openHtmlResultWithAssets(event, jobId, relPath, previewWindow = n
   targetWindow.document.title = fileNameFromPath(relPath);
   targetWindow.document.body.textContent = 'Loading preview...';
   try {
-    const resp = await resultFetch(jobId, relPath);
+    const resultContext = createResultArtifactContext(jobId);
+    const resp = await resultFetch(jobId, relPath, { resultContext });
     if (!resp.ok) throw new Error('Result HTML could not be opened with the saved result access code.');
     const htmlText = await resp.text();
+    if (isExactPublicClinkerPanelHtml(relPath)) {
+      const rewrittenHtml = await rewriteHtmlResultAssets(htmlText, jobId, relPath, { allowClinkerInlineScripts: true });
+      renderSandboxedClinkerPreview(targetWindow, relPath, rewrittenHtml);
+      return false;
+    }
+    if (isToolResultBundleHtml(relPath, resultContext)) {
+      const channel = toolResultPreviewChannel();
+      const rewrittenHtml = await rewriteHtmlResultAssets(htmlText, jobId, relPath, {
+        allowToolBundleScripts: true,
+        toolPreviewChannel: channel,
+        resultContext,
+      });
+      renderSandboxedToolResultPreview(
+        targetWindow,
+        jobId,
+        relPath,
+        rewrittenHtml,
+        channel,
+        resultContext,
+      );
+      return false;
+    }
     const url = await buildHtmlResultObjectUrl(jobId, relPath, htmlText);
     targetWindow.location.href = url;
   } catch (err) {
@@ -2598,10 +3932,56 @@ async function openHtmlResultWithAssets(event, jobId, relPath, previewWindow = n
   return false;
 }
 
-function resultFetch(jobId, relPath, options = {}) {
-  const { download = false, ...fetchOptions } = options;
-  const path = `api/jobs/${encodeURIComponent(jobId)}/files/${normalizedResultPath(relPath).split('/').map(encodeURIComponent).join('/')}${download ? '?download=1' : ''}`;
-  return apiFetch(path, fetchOptions, { kind: 'job', jobId });
+function resultFetch(jobId, artifactKey, options = {}) {
+  const { download = false, resultContext = null, ...fetchOptions } = options;
+  const runId = resultContext?.runId || publicRunIdForJob(jobId);
+  const artifactId = resultArtifactId(artifactKey, resultContext);
+  const suffix = download ? '/download' : '';
+  const path = `api/results/${encodeURIComponent(runId)}/artifacts/${encodeURIComponent(artifactId || 'unavailable')}${suffix}`;
+  return apiFetch(path, fetchOptions, { kind: 'job', jobId: runId });
+}
+
+async function resolveResultArtifact(jobId, ownerKey, reference, options = {}) {
+  const resultContext = options.resultContext || null;
+  const runId = resultContext?.runId || publicRunIdForJob(jobId);
+  const ownerId = resultArtifactId(ownerKey, resultContext);
+  const rawReference = String(reference || '').trim();
+  if (!runId || !ownerId || !rawReference || resultUrlShouldStayExternal(rawReference)) return null;
+  const resp = await apiFetch(
+    `api/results/${encodeURIComponent(runId)}/artifacts/${encodeURIComponent(ownerId)}/resolve`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: options.signal,
+      body: JSON.stringify({
+        reference: rawReference,
+        optional: options.optional === true,
+      }),
+    },
+    { kind: 'job', jobId: runId },
+  );
+  if (!resp.ok) return null;
+  const payload = await resp.json();
+  if (Object.prototype.hasOwnProperty.call(payload || {}, 'artifact') && !payload.artifact) {
+    return null;
+  }
+  const descriptor = payload?.artifact || payload;
+  const key = installResultArtifactDescriptor(descriptor, resultContext);
+  if (!key) return null;
+  return {
+    key,
+    descriptor: resultArtifactDescriptor(key, resultContext),
+    fragment: String(payload?.fragment || resultAssetHashSuffix(rawReference) || ''),
+  };
+}
+
+function bigscapeViewerFetch(jobId, options = {}) {
+  const runId = publicRunIdForJob(jobId);
+  return apiFetch(
+    `api/results/${encodeURIComponent(runId)}/bigscape-viewer-database`,
+    options,
+    { kind: 'job', jobId: runId },
+  );
 }
 
 async function handleResultLinkClick(event, jobId, relPath, download = false) {
@@ -2703,6 +4083,9 @@ function applyEnvProfileValues(cfg) {
   setText('metadata-tsv', 'METADATA_TSV');
   setBool('force-rerun', 'FORCE', false);
   setNum('workers', 'WORKERS');
+  setNum('genome-parallelism', 'GENOME_PARALLELISM');
+  setNum('antismash-record-parallelism', 'ANTISMASH_RECORD_PARALLELISM');
+  setNum('antismash-shard-cpus', 'ANTISMASH_SHARD_CPUS');
   setNum('anno-cpus', 'ANNO_CPUS');
   setText('annotation-fallback-order', 'ANNOTATION_FALLBACK_ORDER');
   setText('funannotate-busco-db', 'FUNANNOTATE_BUSCO_DB');
@@ -2754,6 +4137,9 @@ function currentEnvProfileText() {
     `RUN_ECOLOGY_ANALYSIS=${document.getElementById('run-ecology').checked ? '1' : '0'}`,
     `FORCE=${document.getElementById('force-rerun').checked ? '1' : '0'}`,
     `WORKERS=${document.getElementById('workers').value || '2'}`,
+    `GENOME_PARALLELISM=${document.getElementById('genome-parallelism').value || '1'}`,
+    `ANTISMASH_RECORD_PARALLELISM=${document.getElementById('antismash-record-parallelism').value || '1'}`,
+    `ANTISMASH_SHARD_CPUS=${document.getElementById('antismash-shard-cpus').value || ''}`,
     `ANNO_CPUS=${document.getElementById('anno-cpus').value || document.getElementById('cpus').value || '4'}`,
     `ANNOTATION_FALLBACK_ORDER=${document.getElementById('annotation-fallback-order').value.trim()}`,
     `FUNANNOTATE_BUSCO_DB=${document.getElementById('funannotate-busco-db').value.trim() || 'dikarya'}`,
@@ -2781,7 +4167,7 @@ function currentEnvProfileText() {
     `CLINKER_USE_DOCKER_IMAGE=${document.getElementById('clinker-use-docker-image').checked ? '1' : '0'}`,
     `CLINKER_DOCKER_IMAGE=${document.getElementById('clinker-docker-image').value.trim()}`,
     `CLINKER_DOCKER_DATA_VOLUME=${document.getElementById('clinker-docker-data-volume').value.trim()}`,
-    `ATLAS_STAGE_LIMIT=${document.getElementById('clinker-max-regions').value || '12'}`,
+    `ATLAS_STAGE_LIMIT=${document.getElementById('clinker-max-regions').value || '20'}`,
     `RUN_MODE=${document.getElementById('nplinker-run-mode').value}`,
     `TARGET_STRAIN=${document.getElementById('target-strain').value.trim()}`,
     `PODP_ID=${document.getElementById('nplinker-podp-id').value.trim()}`,
@@ -2838,7 +4224,7 @@ function updateRunSummary() {
   if (!summary || summary.classList.contains('hidden')) return;
   const manualCount = manualAccessionLines().length;
   const inputLabels = selectedFiles.map(f => f.name);
-  if (manualCount) inputLabels.push(`${MANUAL_ACCESSIONS_FILENAME} generated (${manualCount} accession${manualCount === 1 ? '' : 's'})`);
+  if (manualCount) inputLabels.push(`${manualCount} NCBI accession${manualCount === 1 ? '' : 's'}`);
   const shownInputs = inputLabels.slice(0, 3).join(', ');
   const moreCount = Math.max(0, inputLabels.length - 3);
   const selectedLabel = inputLabels.length
@@ -2846,6 +4232,7 @@ function updateRunSummary() {
     : 'No inputs selected';
   const targetGenome = document.getElementById('target-genome').value.trim() || 'None';
   const projectName = document.getElementById('project-name').value.trim() || 'Project required';
+  const analysisScope = analysisScopeLabel(stagedAnalysisScope);
   const cpus = effectiveCpuCount();
   const annotationStrategy = effectiveAnnotationStrategy();
   const computeLabel = publicWorkflowLocked()
@@ -2874,6 +4261,10 @@ function updateRunSummary() {
     <div class="summary-item">
       <div class="summary-label">Input sources</div>
       <div class="summary-value">${escapeHtml(selectedLabel)}</div>
+    </div>
+    <div class="summary-item">
+      <div class="summary-label">Analysis scope</div>
+      <div class="summary-value">${escapeHtml(analysisScope)}</div>
     </div>
     <div class="summary-item">
       <div class="summary-label">Compute</div>
@@ -3068,7 +4459,7 @@ function applyPreset(name) {
     set('run-figures', true);
     set('run-nplinker', false);
     set('figures-required', false);
-    set('clinker-max-regions', 12);
+    set('clinker-max-regions', 20);
     set('bigscape-mix-mode', 1);
   }
   syncControlState();
@@ -3089,6 +4480,514 @@ const PUBLIC_GENOME_STEM_RE = /^[A-Za-z0-9._-]{1,120}$/;
 const PUBLIC_NUCLEOTIDE_CHARS = new Set('ACGTRYSWKMBDHVNU-.'.split(''));
 const CLIENT_GENOME_PRECHECK_BYTES = 4 * 1024 * 1024;
 const CLIENT_GENOME_PRECHECK_TAIL_BYTES = 512 * 1024;
+const ANALYSIS_SCOPES = new Set(['fungi', 'both', 'bacteria']);
+const TAXON_GROUPS = new Set(['fungi', 'bacteria']);
+const TAXON_ASSIGNMENTS_FILENAME = 'taxon_assignments.tsv';
+const MAX_TAXON_ASSIGNMENT_SIDECAR_BYTES = 256 * 1024;
+const MAX_TAXON_ASSIGNMENTS = 500;
+
+function ncbiAssemblyAccessionHelp() {
+  const scope = normalizeAnalysisScope(stagedAnalysisScope);
+  if (scope === 'bacteria') return 'Use current bacterial NCBI assembly accessions like GCA_000005845.2.';
+  if (scope === 'both') return 'Use current fungal or bacterial NCBI assembly accessions; the server resolves authoritative NCBI taxonomy.';
+  return NCBI_ASSEMBLY_ACCESSION_HELP;
+}
+
+function normalizeAnalysisScope(value, fallback = 'fungi') {
+  const scope = String(value || '').trim().toLowerCase();
+  return ANALYSIS_SCOPES.has(scope) ? scope : fallback;
+}
+
+function analysisScopeLabel(value) {
+  const scope = normalizeAnalysisScope(value);
+  if (scope === 'bacteria') return 'Bacteria';
+  if (scope === 'both') return 'Both';
+  return 'Fungi';
+}
+
+function normalizeTaxonGroup(value) {
+  const group = String(value || '').trim().toLowerCase();
+  return TAXON_GROUPS.has(group) ? group : '';
+}
+
+function normalizeTaxonCounts(value) {
+  const counts = value && typeof value === 'object' ? value : {};
+  const fungiValue = counts.fungi ?? counts.fungal ?? counts.fungi_count ?? counts.fungal_count;
+  const bacteriaValue = counts.bacteria ?? counts.bacterial ?? counts.bacteria_count ?? counts.bacterial_count;
+  const known = fungiValue !== undefined || bacteriaValue !== undefined;
+  const finiteCount = raw => {
+    const number = Number(raw || 0);
+    return Number.isFinite(number) && number > 0 ? Math.trunc(number) : 0;
+  };
+  return {
+    fungi: finiteCount(fungiValue),
+    bacteria: finiteCount(bacteriaValue),
+    known,
+  };
+}
+
+function analysisContextFromJob(job) {
+  const saved = job && typeof job === 'object' ? job : {};
+  const settings = saved.submission_settings || saved.settings || {};
+  const inputSummary = saved.input_summary || saved.inputSummary || {};
+  const scope = normalizeAnalysisScope(
+    saved.analysis_scope
+      ?? saved.analysisScope
+      ?? settings.analysis_scope
+      ?? settings.analysisScope,
+    'fungi',
+  );
+  const taxonCounts = normalizeTaxonCounts(
+    saved.taxon_counts
+      || saved.taxonCounts
+      || inputSummary.taxon_counts
+      || inputSummary.taxonCounts
+      || inputSummary,
+  );
+  return { scope, taxonCounts, source: 'saved_job' };
+}
+
+function stagedAnalysisContext() {
+  return {
+    scope: normalizeAnalysisScope(stagedAnalysisScope),
+    taxonCounts: normalizeTaxonCounts({}),
+    source: 'staged_new_run',
+  };
+}
+
+function activeAnalysisContext() {
+  if (activeJobId && activeSavedAnalysisContext) return activeSavedAnalysisContext;
+  return stagedAnalysisContext();
+}
+
+function analysisCapabilities(context = activeAnalysisContext()) {
+  const scope = normalizeAnalysisScope(context?.scope);
+  const counts = normalizeTaxonCounts(context?.taxonCounts);
+  const countsKnown = counts.known && (counts.fungi + counts.bacteria > 0);
+  const hasFungi = countsKnown ? counts.fungi > 0 : scope !== 'bacteria';
+  const hasBacteria = countsKnown ? counts.bacteria > 0 : scope !== 'fungi';
+  return Object.freeze({
+    scope,
+    taxonCounts: counts,
+    hasFungi,
+    hasBacteria,
+    mixedDomain: hasFungi && hasBacteria,
+    funannotate: hasFungi,
+    funbgcex: hasFungi,
+    antismash: hasFungi || hasBacteria,
+    bigscape: hasFungi || hasBacteria,
+    fungalFigures: hasFungi,
+    bacterialFigures: hasBacteria,
+    taxonomyTree: hasFungi || hasBacteria,
+  });
+}
+
+function activeAnalysisCapabilities() {
+  return analysisCapabilities(activeAnalysisContext());
+}
+
+function setActiveSavedAnalysisContext(jobOrContext) {
+  if (!jobOrContext) {
+    activeSavedAnalysisContext = null;
+  } else if (jobOrContext.scope && jobOrContext.taxonCounts) {
+    activeSavedAnalysisContext = {
+      scope: normalizeAnalysisScope(jobOrContext.scope),
+      taxonCounts: normalizeTaxonCounts(jobOrContext.taxonCounts),
+      source: 'saved_job',
+    };
+  } else {
+    activeSavedAnalysisContext = analysisContextFromJob(jobOrContext);
+  }
+  applyAnalysisCapabilityVisibility();
+}
+
+function clearActiveSavedAnalysisContext() {
+  activeSavedAnalysisContext = null;
+  applyAnalysisCapabilityVisibility();
+}
+
+function analysisCapabilityEnabled(key, capabilities = activeAnalysisCapabilities()) {
+  if (!key) return true;
+  return capabilities[key] !== false;
+}
+
+function applyAnalysisCapabilityVisibility() {
+  const capabilities = activeAnalysisCapabilities();
+  document.body.dataset.analysisScope = capabilities.scope;
+  document.querySelectorAll('[data-analysis-capability]').forEach((element) => {
+    const visible = analysisCapabilityEnabled(element.dataset.analysisCapability, capabilities);
+    element.hidden = !visible;
+    element.toggleAttribute('inert', !visible);
+    element.setAttribute('aria-hidden', visible ? 'false' : 'true');
+  });
+  document.querySelectorAll('[data-analysis-both-note]').forEach((element) => {
+    element.hidden = !capabilities.mixedDomain;
+  });
+}
+
+function resultCategoryApplicable(category, capabilities = activeAnalysisCapabilities()) {
+  const key = resultCategoryKey(category);
+  if (key === 'funbgcex') return capabilities.funbgcex;
+  return true;
+}
+
+function isLegacyFungalFigure(path) {
+  const name = fileNameFromPath(path).toLowerCase();
+  return [
+    'fungi_big_scape_multipanel.svg',
+    'fungi_big_scape_multipanel.png',
+    'big_scape_multipanel.svg',
+    'big_scape_multipanel.png',
+    'bgc_overlap.svg',
+    'bgc_overlap.png',
+  ].includes(name);
+}
+
+function isBacterialMultipanelFigure(path) {
+  const name = fileNameFromPath(path).toLowerCase();
+  return [
+    'bacteria_big_scape_multipanel.svg',
+    'bacteria_big_scape_multipanel.png',
+    'bacterial_multipanel.svg',
+    'bacterial_multipanel.png',
+  ].includes(name);
+}
+
+function figureApplicableToAnalysis(path, capabilities = activeAnalysisCapabilities()) {
+  if (isLegacyFungalFigure(path)) return capabilities.fungalFigures;
+  if (isBacterialMultipanelFigure(path)) return capabilities.bacterialFigures;
+  if (isTaxonTreeVisualAsset(path)) return capabilities.taxonomyTree;
+  return true;
+}
+
+function analysisScopeRadioValue() {
+  const selected = document.querySelector('input[name="analysis-scope"]:checked');
+  return normalizeAnalysisScope(selected?.value, stagedAnalysisScope);
+}
+
+function syncAnalysisScopeControls() {
+  const scope = normalizeAnalysisScope(stagedAnalysisScope);
+  document.querySelectorAll('input[name="analysis-scope"]').forEach((input) => {
+    input.checked = input.value === scope;
+  });
+}
+
+function updateAnalysisScopeCopy() {
+  const scope = normalizeAnalysisScope(stagedAnalysisScope);
+  const hero = document.querySelector('#overview h1');
+  const project = document.getElementById('project-name');
+  if (hero) {
+    if (scope === 'bacteria') {
+      hero.setAttribute('aria-label', 'Discover the hidden potential of bacteria');
+      hero.innerHTML = '<span>Discover</span><span>the</span><span>hidden</span><span>potential</span><span>of</span><span>bacteria</span>';
+    } else if (scope === 'both') {
+      hero.setAttribute('aria-label', 'Discover the hidden potential of microbes');
+      hero.innerHTML = '<span>Discover</span><span>the</span><span>hidden</span><span>potential</span><span>of</span><span>microbes</span>';
+    } else {
+      hero.setAttribute('aria-label', 'Discover the hidden potential of fungi');
+      hero.innerHTML = '<span>Discover</span><span>the</span><span>hidden</span><span>potential</span><span>of</span><span>fungi</span>';
+    }
+  }
+  if (project) {
+    project.placeholder = scope === 'bacteria' ? 'bacterial_survey' : scope === 'both' ? 'microbial_survey' : 'fungal_survey';
+  }
+}
+
+function isTaxonAssignmentsSidecarName(name) {
+  return String(name || '').trim().toLowerCase() === TAXON_ASSIGNMENTS_FILENAME;
+}
+
+function isGenomeUploadFile(file) {
+  const fileExt = ext(file?.name || '');
+  return PUBLIC_FASTA_EXTENSIONS.has(fileExt) || PUBLIC_GENBANK_EXTENSIONS.has(fileExt);
+}
+
+function canonicalGenomeInputKey(value) {
+  return publicGenomeStem(value).toLowerCase();
+}
+
+function logicalGenomeInputs(files = selectedFiles) {
+  const logical = new Map();
+  (files || []).forEach((file) => {
+    if (!isGenomeUploadFile(file)) return;
+    const inputKey = publicGenomeStem(file.name);
+    const canonicalKey = canonicalGenomeInputKey(inputKey);
+    if (!canonicalKey) return;
+    if (!logical.has(canonicalKey)) {
+      logical.set(canonicalKey, {
+        canonicalKey,
+        inputKey,
+        files: [],
+        kinds: new Set(),
+      });
+    }
+    const row = logical.get(canonicalKey);
+    row.files.push(file);
+    row.kinds.add(publicGenomeUploadKind(ext(file.name)));
+  });
+  return Array.from(logical.values());
+}
+
+function pruneManualTaxonAssignments() {
+  const currentKeys = new Set(logicalGenomeInputs().map(item => item.canonicalKey));
+  Array.from(stagedTaxonAssignments.keys()).forEach((key) => {
+    if (currentKeys.has(key) || stagedTaxonAssignmentSources.get(key) === 'sidecar') return;
+    stagedTaxonAssignments.delete(key);
+    stagedTaxonAssignmentSources.delete(key);
+  });
+}
+
+function stagedTaxonGroupForFileName(name) {
+  const scope = normalizeAnalysisScope(stagedAnalysisScope);
+  if (scope !== 'both') return scope;
+  const canonicalKey = canonicalGenomeInputKey(name);
+  const logicalInput = logicalGenomeInputs().find(item => item.canonicalKey === canonicalKey);
+  const authority = logicalInput ? logicalGenomeAuthority(logicalInput) : null;
+  if (authority?.status === 'resolved') return authority.taxonGroup;
+  return normalizeTaxonGroup(stagedTaxonAssignments.get(canonicalKey));
+}
+
+function logicalGenomeAuthority(item) {
+  const authorities = (item?.files || [])
+    .filter(file => PUBLIC_GENBANK_EXTENSIONS.has(ext(file?.name || '')))
+    .map(file => clientGenbankAuthorityForFile(file));
+  return mergeClientGenbankAuthorities(authorities);
+}
+
+function logicalGenomeTaxonAssignmentDecision(item) {
+  const assigned = normalizeTaxonGroup(stagedTaxonAssignments.get(item.canonicalKey));
+  return clientTaxonAssignmentDecision(logicalGenomeAuthority(item), assigned, item.inputKey);
+}
+
+function taxonAssignmentsPayload() {
+  if (normalizeAnalysisScope(stagedAnalysisScope) !== 'both') return {};
+  const payload = {};
+  logicalGenomeInputs().forEach((item) => {
+    const decision = logicalGenomeTaxonAssignmentDecision(item);
+    if (decision.requiresAssignment && decision.assigned) {
+      payload[item.inputKey] = decision.assigned;
+    }
+  });
+  return payload;
+}
+
+function taxonAssignmentValidation() {
+  const logical = logicalGenomeInputs();
+  const decisions = logical.map(item => ({ item, ...logicalGenomeTaxonAssignmentDecision(item) }));
+  const assignable = decisions.filter(decision => decision.requiresAssignment);
+  const currentKeys = new Set(logical.map(item => item.canonicalKey));
+  const unresolved = normalizeAnalysisScope(stagedAnalysisScope) === 'both'
+    ? assignable.filter(decision => !decision.assigned).map(decision => decision.item)
+    : [];
+  const unknownSidecarKeys = [];
+  stagedTaxonAssignmentSources.forEach((source, key) => {
+    if (source === 'sidecar' && !currentKeys.has(key)) unknownSidecarKeys.push(key);
+  });
+  const authorityIssues = decisions
+    .filter(decision => decision.issue)
+    .map(decision => ({ inputKey: decision.item.inputKey, issue: decision.issue }));
+  const sidecarIssues = taxonAssignmentSidecarIssues.slice();
+  unknownSidecarKeys.forEach(key => sidecarIssues.push(`Unknown taxon assignment key: ${key}.`));
+  const generalIssues = [];
+  if (logical.length > MAX_TAXON_ASSIGNMENTS) {
+    generalIssues.push(`Taxon assignments are limited to ${MAX_TAXON_ASSIGNMENTS} logical genomes.`);
+  }
+  const issues = [
+    ...authorityIssues.map(item => item.issue),
+    ...sidecarIssues,
+    ...generalIssues,
+  ];
+  return {
+    logical,
+    decisions,
+    assignable,
+    unresolved,
+    unknownSidecarKeys,
+    authorityIssues,
+    sidecarIssues,
+    generalIssues,
+    issues,
+  };
+}
+
+function renderTaxonAssignmentPanel() {
+  pruneManualTaxonAssignments();
+  const panel = document.getElementById('taxon-assignment-panel');
+  const list = document.getElementById('taxon-assignment-list');
+  const status = document.getElementById('taxon-assignment-status');
+  if (!panel || !list || !status) return;
+  const validation = taxonAssignmentValidation();
+  const visible = normalizeAnalysisScope(stagedAnalysisScope) === 'both' && validation.assignable.length > 0;
+  panel.hidden = !visible;
+  panel.classList.toggle('hidden', !visible);
+  if (!visible) {
+    list.innerHTML = '';
+    status.textContent = '0 unresolved';
+    return;
+  }
+  list.innerHTML = validation.assignable.map((decision, index) => {
+    const item = decision.item;
+    const assigned = normalizeTaxonGroup(stagedTaxonAssignments.get(item.canonicalKey));
+    const fileSummary = item.files.map(file => file.name).join(' + ');
+    const jsKey = escapeJsString(item.canonicalKey);
+    const groupName = `taxon-assignment-${index}`;
+    return `
+      <div class="taxon-assignment-row${assigned ? '' : ' is-unresolved'}" data-input-key="${escapeHtml(item.inputKey)}" role="row">
+        <span class="taxon-assignment-genome" role="cell">
+          <b title="${escapeHtml(fileSummary)}">${escapeHtml(item.inputKey)}</b>
+        </span>
+        <label class="taxon-assignment-cell" role="cell"><input type="radio" name="${escapeHtml(groupName)}" value="fungi" aria-label="Assign ${escapeHtml(item.inputKey)} to fungi" ${assigned === 'fungi' ? 'checked' : ''} onchange="setLogicalGenomeTaxonAssignment('${escapeHtml(jsKey)}','fungi')" /><span class="sr-only">Fungi</span></label>
+        <label class="taxon-assignment-cell" role="cell"><input type="radio" name="${escapeHtml(groupName)}" value="bacteria" aria-label="Assign ${escapeHtml(item.inputKey)} to bacteria" ${assigned === 'bacteria' ? 'checked' : ''} onchange="setLogicalGenomeTaxonAssignment('${escapeHtml(jsKey)}','bacteria')" /><span class="sr-only">Bacteria</span></label>
+      </div>`;
+  }).join('');
+  const issueCount = validation.issues.length;
+  const unresolvedCount = validation.unresolved.length;
+  status.textContent = issueCount
+    ? `${issueCount} routing issue${issueCount === 1 ? '' : 's'}`
+    : `${unresolvedCount} unresolved`;
+}
+
+async function refreshSelectedGenomeChecks() {
+  const genomeFiles = selectedFiles.filter(isGenomeUploadFile);
+  await Promise.all(
+    genomeFiles
+      .filter(file => PUBLIC_GENBANK_EXTENSIONS.has(ext(file.name)))
+      .map(file => cacheGenomeFileCheck(file)),
+  );
+  await Promise.all(genomeFiles.map(file => cacheGenomeFileCheck(file)));
+}
+
+async function setLogicalGenomeTaxonAssignment(canonicalKey, taxonGroup) {
+  const key = String(canonicalKey || '').trim().toLowerCase();
+  const group = normalizeTaxonGroup(taxonGroup);
+  const item = logicalGenomeInputs().find(candidate => candidate.canonicalKey === key);
+  if (!group || !item || !logicalGenomeTaxonAssignmentDecision(item).requiresAssignment) return;
+  stagedTaxonAssignments.set(key, group);
+  stagedTaxonAssignmentSources.set(key, 'user');
+  await refreshSelectedGenomeChecks();
+  renderFileList();
+}
+
+async function markAllTaxonAssignments(taxonGroup) {
+  const group = normalizeTaxonGroup(taxonGroup);
+  if (!group) return;
+  logicalGenomeInputs().forEach((item) => {
+    if (!logicalGenomeTaxonAssignmentDecision(item).requiresAssignment) return;
+    stagedTaxonAssignments.set(item.canonicalKey, group);
+    stagedTaxonAssignmentSources.set(item.canonicalKey, 'user');
+  });
+  await refreshSelectedGenomeChecks();
+  renderFileList();
+}
+
+function parseTaxonAssignmentSidecarText(text) {
+  const issues = [];
+  const assignments = new Map();
+  const displayKeys = new Map();
+  const lines = String(text || '').replace(/^\uFEFF/, '').split(/\r?\n/);
+  const headerLine = lines.shift() || '';
+  const header = headerLine.split('\t').map(value => value.trim().toLowerCase());
+  const inputIndex = header.indexOf('input_key');
+  const taxonIndex = header.indexOf('taxon_group');
+  if (inputIndex < 0 || taxonIndex < 0) {
+    return { assignments, displayKeys, issues: ['taxon_assignments.tsv requires input_key and taxon_group columns.'] };
+  }
+  let parsedRows = 0;
+  lines.forEach((line, offset) => {
+    if (!line.trim()) return;
+    parsedRows += 1;
+    if (parsedRows > MAX_TAXON_ASSIGNMENTS) return;
+    const columns = line.split('\t');
+    const rawKey = String(columns[inputIndex] || '').trim();
+    const inputKey = publicGenomeStem(rawKey);
+    const canonicalKey = canonicalGenomeInputKey(rawKey);
+    const taxonGroup = normalizeTaxonGroup(columns[taxonIndex]);
+    const lineNumber = offset + 2;
+    if (!inputKey || !PUBLIC_GENOME_STEM_RE.test(inputKey)) {
+      issues.push(`Invalid input_key on line ${lineNumber}.`);
+      return;
+    }
+    if (!taxonGroup) {
+      issues.push(`Unsupported taxon_group on line ${lineNumber}; use fungi or bacteria.`);
+      return;
+    }
+    const previous = assignments.get(canonicalKey);
+    if (previous && previous !== taxonGroup) {
+      issues.push(`Contradictory duplicate assignment for ${inputKey} on line ${lineNumber}.`);
+      return;
+    }
+    assignments.set(canonicalKey, taxonGroup);
+    displayKeys.set(canonicalKey, inputKey);
+  });
+  if (parsedRows > MAX_TAXON_ASSIGNMENTS) {
+    issues.push(`taxon_assignments.tsv exceeds ${MAX_TAXON_ASSIGNMENTS} assignment rows.`);
+  }
+  return { assignments, displayKeys, issues };
+}
+
+async function loadTaxonAssignmentSidecar(file) {
+  Array.from(stagedTaxonAssignmentSources.entries()).forEach(([key, source]) => {
+    if (source !== 'sidecar') return;
+    stagedTaxonAssignments.delete(key);
+    stagedTaxonAssignmentSources.delete(key);
+  });
+  taxonAssignmentSidecar = {
+    name: TAXON_ASSIGNMENTS_FILENAME,
+    size: Number(file?.size || 0),
+    lastModified: Number(file?.lastModified || 0),
+  };
+  taxonAssignmentSidecarIssues = [];
+  if (taxonAssignmentSidecar.size > MAX_TAXON_ASSIGNMENT_SIDECAR_BYTES) {
+    taxonAssignmentSidecarIssues.push('taxon_assignments.tsv exceeds the 256 KB browser limit.');
+    return;
+  }
+  let text = '';
+  try {
+    text = await file.text();
+  } catch (error) {
+    taxonAssignmentSidecarIssues.push('taxon_assignments.tsv could not be read in this browser.');
+    return;
+  }
+  const parsed = parseTaxonAssignmentSidecarText(text);
+  taxonAssignmentSidecarIssues = parsed.issues;
+  parsed.assignments.forEach((group, key) => {
+    stagedTaxonAssignments.set(key, group);
+    stagedTaxonAssignmentSources.set(key, 'sidecar');
+  });
+}
+
+function removeTaxonAssignmentSidecar() {
+  taxonAssignmentSidecar = null;
+  taxonAssignmentSidecarIssues = [];
+  Array.from(stagedTaxonAssignmentSources.entries()).forEach(([key, source]) => {
+    if (source !== 'sidecar') return;
+    stagedTaxonAssignments.delete(key);
+    stagedTaxonAssignmentSources.delete(key);
+  });
+  renderFileList();
+}
+
+async function handleAnalysisScopeChange() {
+  stagedAnalysisScope = analysisScopeRadioValue();
+  syncAnalysisScopeControls();
+  updateAnalysisScopeCopy();
+  await refreshSelectedGenomeChecks();
+  applyAnalysisCapabilityVisibility();
+  renderFileList();
+}
+
+function resetStagedAnalysisState(scope = 'fungi') {
+  stagedAnalysisScope = normalizeAnalysisScope(scope);
+  stagedTaxonAssignments = new Map();
+  stagedTaxonAssignmentSources = new Map();
+  taxonAssignmentSidecar = null;
+  taxonAssignmentSidecarIssues = [];
+  syncAnalysisScopeControls();
+  updateAnalysisScopeCopy();
+  renderTaxonAssignmentPanel();
+  applyAnalysisCapabilityVisibility();
+}
+
 const ECOLOGY_LABELS = [
   'soil',
   'plant_associated',
@@ -3108,7 +5007,8 @@ const ECOLOGY_LABELS = [
 ];
 
 const BRUTAL_ACCESSION_PLACEHOLDERS = ['GCA_000011425.1', 'GCA_030770425.1'];
-let brutalAccessionDrafts = Array.from({ length: 25 }, () => '');
+const BRUTAL_ACCESSION_PREVIEW_ROWS = 6;
+let brutalAccessionDrafts = Array.from({ length: 50 }, () => '');
 let brutalAccessionCommitted = new Set();
 let brutalSyncingAccepted = false;
 let brutalEcoSelections = new Map();
@@ -3116,7 +5016,7 @@ let brutalEcoContext = null;
 let brutalRowsInitialized = false;
 
 function accessionLimit() {
-  return Math.max(1, Math.min(25, publicQuotaLimits().max_accessions || 25));
+  return Math.max(1, Math.min(50, publicQuotaLimits().max_accessions || 50));
 }
 
 function normalizeAccessionDraft(value) {
@@ -3145,13 +5045,15 @@ function projectNameValue() {
   return document.getElementById('project-name')?.value.trim() || '';
 }
 
-function setProjectNameRequiredState(invalid, message = '') {
+function setProjectNameRequiredState(missing) {
   const input = document.getElementById('project-name');
   const card = document.getElementById('project-name-card') || input?.closest?.('.project-name-card');
+  const shell = document.getElementById('submit-button-shell');
   const error = document.getElementById('project-name-error');
-  if (card) card.classList.toggle('is-invalid', !!invalid);
-  if (input) input.setAttribute('aria-invalid', invalid ? 'true' : 'false');
-  if (error) error.textContent = invalid ? (message || 'Project name required') : '';
+  if (card) card.classList.toggle('is-project-blank', !!missing);
+  if (shell) shell.classList.toggle('is-project-locked', !!missing);
+  if (input) input.setAttribute('aria-invalid', 'false');
+  if (error) error.textContent = '';
 }
 
 function requireProjectNameForSubmit() {
@@ -3162,9 +5064,7 @@ function requireProjectNameForSubmit() {
     setProjectNameRequiredState(false);
     return name;
   }
-  setProjectNameRequiredState(true, 'Project name required before submit');
-  const status = document.getElementById('upload-status');
-  if (status) status.textContent = 'Project name required before submit.';
+  setProjectNameRequiredState(true);
   input?.focus();
   return '';
 }
@@ -3179,7 +5079,7 @@ function brutalDraftDuplicate(index, value) {
 }
 
 function brutalRowVisible(index) {
-  if (index < BRUTAL_ACCESSION_PLACEHOLDERS.length) return true;
+  if (index === 0) return true;
   for (let prior = 0; prior < index; prior += 1) {
     const priorAccession = normalizeAccessionDraft(brutalAccessionDrafts[prior]);
     if (!rowIsAccepted(priorAccession, prior)) return false;
@@ -3191,13 +5091,18 @@ function updateBrutalTargetButton() {
   const targetInput = document.getElementById('target-genome');
   const button = document.getElementById('target-genome-toggle');
   const value = targetInput ? targetInput.value.trim() : '';
-  if (!button) return;
-  button.classList.toggle('has-target', !!value);
-  button.setAttribute('aria-pressed', value ? 'true' : 'false');
-  button.textContent = 'TARGET GENOME';
+  if (button) {
+    button.classList.toggle('has-target', !!value);
+    button.setAttribute('aria-pressed', value ? 'true' : 'false');
+    button.textContent = 'TARGET GENOME';
+  }
   document.querySelectorAll('.brutal-accession-line').forEach((row) => {
     const input = row.querySelector('.brutal-accession-input');
     row.classList.toggle('is-target', !!value && input?.value.trim().toUpperCase() === value.toUpperCase());
+  });
+  document.querySelectorAll('.file-item[data-target-genome]').forEach((row) => {
+    const selected = !!value && String(row.dataset.targetGenome || '').toLowerCase() === value.toLowerCase();
+    row.classList.toggle('is-target', selected);
   });
 }
 
@@ -3209,6 +5114,46 @@ function setBrutalTarget(value) {
   targetInput.dispatchEvent(new Event('input', { bubbles: true }));
   updateBrutalTargetButton();
   updateRunSummary();
+}
+
+function setUploadedGenomeTarget(value) {
+  const targetInput = document.getElementById('target-genome');
+  const normalized = String(value || '').trim();
+  if (!targetInput || !normalized) return;
+  targetInput.value = targetInput.value.trim().toLowerCase() === normalized.toLowerCase() ? '' : normalized;
+  targetInput.dispatchEvent(new Event('input', { bubbles: true }));
+  updateBrutalTargetButton();
+  updateRunSummary();
+}
+
+function targetGenomeCandidates() {
+  const values = new Set(acceptedDraftAccessions().map(value => value.toLowerCase()));
+  selectedFiles.forEach((file) => {
+    if (isGenomeUploadName(file.name)) values.add(genomeStemFromName(file.name).toLowerCase());
+  });
+  return values;
+}
+
+function clearStaleTargetGenome() {
+  const targetInput = document.getElementById('target-genome');
+  const value = targetInput?.value.trim() || '';
+  if (!value || targetGenomeCandidates().has(value.toLowerCase())) return;
+  targetInput.value = '';
+  targetInput.dispatchEvent(new Event('input', { bubbles: true }));
+  updateBrutalTargetButton();
+  updateRunSummary();
+}
+
+function handleUploadedGenomeTargetClick(event) {
+  if (event.target.closest?.('.file-remove')) return;
+  const ecoButton = event.target.closest?.('.file-eco-button');
+  if (ecoButton) {
+    openUploadedGenomeEcoPicker(ecoButton);
+    return;
+  }
+  const row = event.target.closest?.('.file-item[data-target-genome]');
+  if (!row) return;
+  setUploadedGenomeTarget(row.dataset.targetGenome || '');
 }
 
 function ecologySelectionFor(key) {
@@ -3224,6 +5169,7 @@ function inputEcologyEnabled() {
 function updateBrutalEcologyToggle() {
   const button = document.getElementById('brutal-ecology-toggle');
   const card = document.getElementById('brutal-accession-card');
+  const uploadCard = document.getElementById('genome-upload-card');
   const enabled = inputEcologyEnabled();
   if (button) {
     button.classList.toggle('is-on', enabled);
@@ -3231,8 +5177,23 @@ function updateBrutalEcologyToggle() {
     button.textContent = 'ADD ECOLOGY';
   }
   if (card) card.classList.toggle('show-ecology', enabled);
+  if (uploadCard) uploadCard.classList.toggle('show-ecology', enabled);
   document.querySelectorAll('.brutal-eco-button').forEach((buttonEl) => {
     buttonEl.disabled = !enabled || !buttonEl.closest('.brutal-accession-line')?.classList.contains('has-valid-accession');
+  });
+  updateUploadedGenomeEcoButtons();
+}
+
+function updateUploadedGenomeEcoButtons() {
+  const enabled = inputEcologyEnabled();
+  document.querySelectorAll('.file-eco-button').forEach((button) => {
+    const row = button.closest('.file-item[data-target-genome]');
+    const key = row?.dataset.targetGenome || '';
+    const field = button.dataset.ecoField || 'primary';
+    const saved = brutalEcoSelections.get(String(key).trim().toUpperCase())?.[field] || '';
+    button.disabled = !enabled || !key;
+    button.classList.toggle('is-saved', !!saved);
+    button.setAttribute('aria-label', `${field === 'primary' ? 'Primary' : 'Secondary'} ecology for ${key}${saved ? `: ${saved}` : ''}`);
   });
 }
 
@@ -3303,6 +5264,7 @@ function updateBrutalRowState(row, index) {
   row.classList.toggle('has-input', hasInput);
   row.classList.toggle('has-valid-accession', valid);
   row.classList.toggle('has-invalid-accession', showInvalid);
+  if (input) input.setAttribute('aria-invalid', showInvalid ? 'true' : 'false');
   if (status) {
     status.classList.toggle('waiting', !hasInput || (hasInput && !valid && !committed));
     status.classList.toggle('ok', valid);
@@ -3321,11 +5283,14 @@ function updateBrutalRowState(row, index) {
 function updateBrutalRowVisibility() {
   document.querySelectorAll('.brutal-accession-line').forEach((row) => {
     const index = Number(row.dataset.accessionIndex || '0');
-    const visible = index < accessionLimit() && brutalRowVisible(index);
-    row.classList.toggle('is-locked', !visible);
-    row.setAttribute('aria-hidden', visible ? 'false' : 'true');
+    const enabled = index < accessionLimit() && brutalRowVisible(index);
+    const presented = index < Math.min(accessionLimit(), BRUTAL_ACCESSION_PREVIEW_ROWS) || enabled;
+    row.classList.toggle('is-locked', !enabled);
+    row.classList.toggle('is-concealed', !presented);
+    row.setAttribute('aria-hidden', presented ? 'false' : 'true');
+    row.setAttribute('aria-disabled', enabled ? 'false' : 'true');
     const input = row.querySelector('.brutal-accession-input');
-    if (input) input.disabled = !visible;
+    if (input) input.disabled = !enabled;
   });
 }
 
@@ -3342,7 +5307,9 @@ function acceptedDraftAccessions() {
 }
 
 function syncBrutalAcceptedFromDrafts() {
-  acceptedManualAccessions = acceptedDraftAccessions();
+  const fileOwned = accessionFileOwnedAccessions();
+  acceptedManualAccessions = acceptedDraftAccessions().filter(accession => !fileOwned.has(accession));
+  clearStaleTargetGenome();
   if (manualAccessionsInput) manualAccessionsInput.value = '';
   brutalSyncingAccepted = true;
   renderAcceptedAccessions();
@@ -3354,7 +5321,7 @@ function syncBrutalAcceptedFromDrafts() {
 }
 
 function resetBrutalAccessionDrafts() {
-  brutalAccessionDrafts = Array.from({ length: 25 }, () => '');
+  brutalAccessionDrafts = Array.from({ length: 50 }, () => '');
   brutalAccessionCommitted = new Set();
   brutalEcoSelections = new Map();
   renderBrutalAccessionRows();
@@ -3364,7 +5331,8 @@ function resetBrutalAccessionDrafts() {
 function syncBrutalRowsFromAccepted() {
   const rows = document.getElementById('brutal-accession-rows');
   if (!rows || rows.contains(document.activeElement)) return;
-  const nextDrafts = Array.from({ length: 25 }, (_, index) => acceptedManualAccessions[index] || '');
+  const accepted = manualAccessionLines();
+  const nextDrafts = Array.from({ length: 50 }, (_, index) => accepted[index] || '');
   const same = nextDrafts.every((value, index) => value === brutalAccessionDrafts[index]);
   if (!same || !brutalRowsInitialized) {
     brutalAccessionDrafts = nextDrafts;
@@ -3405,7 +5373,9 @@ function handleBrutalAccessionInput(event) {
   const row = input.closest('.brutal-accession-line');
   const index = Number(row?.dataset.accessionIndex || '0');
   const normalized = normalizeAccessionDraft(input.value);
+  const prior = normalizeAccessionDraft(brutalAccessionDrafts[index] || '');
   if (input.value !== normalized) input.value = normalized;
+  if (prior && prior !== normalized) detachAccessionFromFileSources(prior);
   brutalAccessionDrafts[index] = normalized;
   brutalAccessionCommitted.delete(index);
   updateBrutalRowState(row, index);
@@ -3433,6 +5403,8 @@ function commitAllBrutalAccessionDrafts({ render = true } = {}) {
 }
 
 function removeBrutalAccession(index) {
+  const removedAccession = normalizeAccessionDraft(brutalAccessionDrafts[index] || '');
+  if (removedAccession) detachAccessionFromFileSources(removedAccession);
   brutalAccessionDrafts.splice(index, 1);
   brutalAccessionDrafts.push('');
   const nextCommitted = new Set();
@@ -3441,9 +5413,7 @@ function removeBrutalAccession(index) {
     else if (committedIndex > index) nextCommitted.add(committedIndex - 1);
   });
   brutalAccessionCommitted = nextCommitted;
-  const targetInput = document.getElementById('target-genome');
-  const remaining = new Set(acceptedDraftAccessions());
-  if (targetInput && targetInput.value && !remaining.has(targetInput.value.trim().toUpperCase())) targetInput.value = '';
+  clearStaleTargetGenome();
   syncBrutalAcceptedFromDrafts();
   renderBrutalAccessionRows();
 }
@@ -3490,7 +5460,18 @@ function openBrutalEcoPicker(button) {
   const index = Number(row?.dataset.accessionIndex || '0');
   const accession = normalizeAccessionDraft(row?.querySelector('.brutal-accession-input')?.value || '');
   if (!rowIsAccepted(accession, index)) return;
-  const field = button.dataset.ecoField || 'primary';
+  openEcoPickerForInput(button, accession, button.dataset.ecoField || 'primary');
+}
+
+function openUploadedGenomeEcoPicker(button) {
+  if (!button || button.disabled) return;
+  const row = button.closest('.file-item[data-target-genome]');
+  const accession = String(row?.dataset.targetGenome || '').trim();
+  if (!accession) return;
+  openEcoPickerForInput(button, accession, button.dataset.ecoField || 'primary');
+}
+
+function openEcoPickerForInput(button, accession, field) {
   brutalEcoContext = { accession, field, button };
   const picker = document.getElementById('brutal-eco-picker');
   const title = document.getElementById('brutal-eco-picker-title');
@@ -3565,19 +5546,33 @@ function applyBrutalEcologyToMetadataTable() {
   updateEcologyLabelStatus();
 }
 
+function conciseInputNotice(message) {
+  return String(message || '')
+    .replace(/\s+/g, ' ')
+    .replace(/Use current fungal NCBI assembly accessions like/g, 'Use accessions like')
+    .trim();
+}
+
 function renderBrutalInputLog() {
   const drawer = document.getElementById('input-log-drawer');
   const list = document.getElementById('input-log-list');
   if (!drawer || !list) return;
   const messages = [];
-  const draftMessages = new Set(brutalAccessionDraftIssues().map(issue => issue.message));
-  messages.push(...draftMessages);
-  brutalInputNotices.forEach((message) => messages.push(message));
+  const seen = new Set();
+  const addMessage = (message) => {
+    const concise = conciseInputNotice(message);
+    if (!concise || seen.has(concise)) return;
+    seen.add(concise);
+    messages.push(concise);
+  };
+  const draftMessages = new Set(brutalAccessionDraftIssues().map(issue => conciseInputNotice(issue.message)));
+  draftMessages.forEach(addMessage);
+  brutalInputNotices.forEach(addMessage);
   document.querySelectorAll('#input-checker-list .input-check-row.blocked').forEach((row) => {
     const label = row.querySelector('.input-check-label')?.textContent?.trim() || 'Input';
     const reason = row.querySelector('.input-check-reason')?.textContent?.trim() || 'Blocked before run.';
-    const message = `${label}: ${reason}`;
-    if (!draftMessages.has(message) && !label.startsWith('Row ')) messages.push(message);
+    const message = conciseInputNotice(`${label}: ${reason}`);
+    if (!draftMessages.has(message) && !label.startsWith('Row ')) addMessage(message);
   });
   drawer.hidden = messages.length === 0;
   list.innerHTML = messages.map(message => `<div class="input-log-note">${escapeHtml(message)}</div>`).join('');
@@ -3585,6 +5580,7 @@ function renderBrutalInputLog() {
 
 function initializeBrutalInputStation() {
   const rows = document.getElementById('brutal-accession-rows');
+  const fileList = document.getElementById('file-list');
   if (!rows || rows.dataset.wired === '1') return;
   rows.dataset.wired = '1';
   renderBrutalAccessionRows();
@@ -3592,6 +5588,9 @@ function initializeBrutalInputStation() {
   rows.addEventListener('click', handleBrutalAccessionClick);
   rows.addEventListener('keydown', handleBrutalAccessionKeydown);
   rows.addEventListener('focusout', handleBrutalAccessionFocusout);
+  if (fileList) {
+    fileList.addEventListener('click', handleUploadedGenomeTargetClick);
+  }
   document.getElementById('target-genome-toggle')?.addEventListener('click', () => {
     const targetInput = document.getElementById('target-genome');
     if (targetInput?.value) {
@@ -3638,8 +5637,7 @@ function initializeBrutalInputStation() {
   });
   document.getElementById('project-name')?.addEventListener('input', () => {
     normalizeProjectNameInput();
-    if (projectNameValue()) setProjectNameRequiredState(false);
-    updateRunSummary();
+    renderFileList();
   });
   document.getElementById('target-genome')?.addEventListener('input', updateBrutalTargetButton);
   document.getElementById('run-ecology')?.addEventListener('change', () => {
@@ -3722,6 +5720,27 @@ function mergedAcceptedAccessions() {
   return merged;
 }
 
+function accessionFileOwnedAccessions() {
+  const owned = new Set();
+  accessionFileSources.forEach((source) => {
+    (Array.isArray(source.accessions) ? source.accessions : []).forEach((accession) => {
+      const normalized = normalizeAccessionDraft(accession);
+      if (normalized) owned.add(normalized);
+    });
+  });
+  return owned;
+}
+
+function detachAccessionFromFileSources(accession) {
+  const normalized = normalizeAccessionDraft(accession);
+  if (!normalized) return;
+  accessionFileSources.forEach((source) => {
+    source.accessions = (Array.isArray(source.accessions) ? source.accessions : [])
+      .filter(value => normalizeAccessionDraft(value) !== normalized);
+  });
+  accessionFileSources = accessionFileSources.filter(source => source.accessions.length > 0);
+}
+
 function manualAccessionLines() {
   return mergedAcceptedAccessions();
 }
@@ -3736,13 +5755,13 @@ function manualAccessionErrorMessage(parsed) {
   if (first.kind === 'header') {
     return `Header row "accession" on line ${first.line} is not allowed. Enter one NCBI assembly accession per line.`;
   }
-  return `Invalid accession "${first.token}" on line ${first.line}${more}. ${NCBI_ASSEMBLY_ACCESSION_HELP}`;
+  return `Invalid accession "${first.token}" on line ${first.line}${more}. ${ncbiAssemblyAccessionHelp()}`;
 }
 
 function publicQuotaLimits() {
   return {
-    max_accessions: Number(publicQuota.max_accessions) || 25,
-    max_genome_files: Number(publicQuota.max_genome_files) || 25,
+    max_accessions: Number(publicQuota.max_accessions) || 50,
+    max_genome_files: Number(publicQuota.max_genome_files) || 50,
     max_upload_file_mb: Number(publicQuota.max_upload_file_mb) || 500,
     max_upload_total_mb: Number(publicQuota.max_upload_total_mb) || 1024,
   };
@@ -3775,25 +5794,199 @@ function publicTotalLimitMessage(quota = publicQuotaLimits()) {
 function updateInputLimitGuidance() {
   const quota = publicQuotaLimits();
   const summary = publicQuotaSummary(quota);
-  const header = document.getElementById('input-station-limit');
-  if (header) {
-    header.innerHTML = `Public limits: ${escapeHtml(formatQuotaMb(quota.max_upload_file_mb))}/file · ${escapeHtml(formatQuotaMb(quota.max_upload_total_mb))}/run · <a href="${PUBLIC_WEB_FAQ_URL}" target="_blank" rel="noopener">FAQ / local workflow</a>`;
-  }
   const note = document.getElementById('upload-limit-note');
   if (note) {
-    note.innerHTML = `Public upload limit: ${escapeHtml(summary)}. ${escapeHtml(localWorkflowPrompt())} <a href="${PUBLIC_WEB_FAQ_URL}" target="_blank" rel="noopener">FAQ</a>`;
+    note.innerHTML = `Limits: ${escapeHtml(summary)}. <a href="${PUBLIC_WEB_FAQ_URL}" target="_blank" rel="noopener">FAQ / local workflow</a>`;
   }
 }
 
 function genomeFileCheckKey(file) {
-  return `${file.name}|${file.size}|${file.lastModified || 0}`;
+  const route = stagedTaxonGroupForFileName(file.name) || `unresolved-${normalizeAnalysisScope(stagedAnalysisScope)}`;
+  return `${file.name}|${file.size}|${file.lastModified || 0}|${route}`;
 }
 
 function publicGenomeStem(name) {
   return String(name || '').replace(/\.(gbk|gb|gbff|fasta|fa|fna|fsa)$/i, '').trim();
 }
 
-function classifyClientFastaText(name, text) {
+// BEGIN CLIENT_GENBANK_TAXONOMY_PURE
+function clientLineageHas(lineage, name) {
+  const escaped = String(name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return !!escaped && new RegExp(`(^|[^A-Za-z])${escaped}($|[^A-Za-z])`, 'i').test(String(lineage || ''));
+}
+
+function parseClientGenbankTaxonomy(text) {
+  const organisms = [];
+  const taxids = [];
+  const lineageParts = [];
+  let inHeaderLineage = false;
+
+  String(text || '').split(/\r?\n/).forEach((line) => {
+    const organismMatch = line.match(/^\s{0,4}ORGANISM\s+(.+?)\s*$/);
+    if (organismMatch) {
+      organisms.push(organismMatch[1].trim());
+      inHeaderLineage = true;
+      return;
+    }
+
+    if (inHeaderLineage) {
+      const stripped = line.trim();
+      if (line.startsWith('            ') && stripped && !stripped.startsWith('/')) {
+        lineageParts.push(stripped);
+        return;
+      }
+      inHeaderLineage = false;
+    }
+
+    const qualifierOrganism = line.match(/\/organism\s*=\s*"([^"]+)"/i);
+    if (qualifierOrganism) organisms.push(qualifierOrganism[1].trim());
+    const taxidPattern = /\/db_xref\s*=\s*"taxon:(\d+)"/ig;
+    let taxidMatch = null;
+    while ((taxidMatch = taxidPattern.exec(line)) !== null) taxids.push(Number(taxidMatch[1]));
+    const qualifierLineage = line.match(/\/lineage\s*=\s*"([^"]+)"/i);
+    if (qualifierLineage) lineageParts.push(qualifierLineage[1].trim());
+  });
+
+  const lineage = lineageParts.join(' ');
+  const hasFungi = taxids.includes(4751) || clientLineageHas(lineage, 'Fungi');
+  const hasBacteria = taxids.includes(2) || clientLineageHas(lineage, 'Bacteria');
+  const hasArchaea = clientLineageHas(lineage, 'Archaea');
+  const hasVirus = clientLineageHas(lineage, 'Viruses') || clientLineageHas(lineage, 'Viroids');
+  const hasEukaryota = clientLineageHas(lineage, 'Eukaryota');
+  const hasNonfungalEukaryote = ['Metazoa', 'Viridiplantae'].some(name => clientLineageHas(lineage, name));
+  const conflicting = (
+    (hasFungi && hasBacteria)
+    || (hasFungi && (hasArchaea || hasVirus || hasNonfungalEukaryote))
+    || (hasBacteria && (hasArchaea || hasVirus || hasEukaryota))
+  );
+  if (conflicting) {
+    return {
+      status: 'conflicting',
+      taxonGroup: '',
+      reason: 'GenBank source taxonomy contains conflicting supported/unsupported lineages',
+    };
+  }
+
+  let taxonGroup = '';
+  if (hasFungi) taxonGroup = 'fungi';
+  else if (hasBacteria) taxonGroup = 'bacteria';
+  else if (hasArchaea || hasVirus || hasEukaryota || hasNonfungalEukaryote) {
+    return {
+      status: 'unsupported',
+      taxonGroup: 'unsupported',
+      reason: 'GenBank source taxonomy is outside the supported Fungi/Bacteria scope',
+    };
+  }
+  if (!taxonGroup) {
+    return {
+      status: 'ambiguous',
+      taxonGroup: '',
+      reason: 'GenBank source taxonomy does not resolve to Fungi or Bacteria',
+    };
+  }
+  return {
+    status: 'resolved',
+    taxonGroup,
+    taxonSource: 'genbank_source',
+    taxid: taxids.length ? taxids[0] : null,
+    organismName: organisms[0] || '',
+    lineage,
+    reason: `Authoritative GenBank source taxonomy resolved ${taxonGroup}`,
+  };
+}
+
+function mergeClientGenbankAuthorities(authorities) {
+  const values = (authorities || []).filter(authority => authority && authority.status !== 'ambiguous');
+  const conflict = values.find(authority => authority.status === 'conflicting');
+  if (conflict) return conflict;
+  const resolved = values.filter(authority => authority.status === 'resolved');
+  const unsupported = values.find(authority => authority.status === 'unsupported');
+  const groups = new Set(resolved.map(authority => authority.taxonGroup));
+  if (groups.size > 1 || (resolved.length && unsupported)) {
+    return {
+      status: 'conflicting',
+      taxonGroup: '',
+      reason: 'Same-stem GenBank inputs contain conflicting authoritative taxonomy',
+    };
+  }
+  if (unsupported) return unsupported;
+  if (resolved.length) return resolved[0];
+  return {
+    status: 'ambiguous',
+    taxonGroup: '',
+    reason: 'No authoritative GenBank taxonomy is available for this logical genome',
+  };
+}
+
+function clientTaxonAssignmentDecision(authority, assignedGroup = '', inputKey = 'genome') {
+  const assigned = ['fungi', 'bacteria'].includes(String(assignedGroup || '').trim().toLowerCase())
+    ? String(assignedGroup).trim().toLowerCase()
+    : '';
+  const resolvedAuthority = authority && typeof authority === 'object'
+    ? authority
+    : { status: 'ambiguous', taxonGroup: '' };
+  if (resolvedAuthority.status === 'resolved') {
+    const conflict = !!assigned && assigned !== resolvedAuthority.taxonGroup;
+    return {
+      assigned,
+      authority: resolvedAuthority,
+      issue: conflict
+        ? `Taxon assignment for '${inputKey}' conflicts with authoritative GenBank taxonomy`
+        : '',
+      requiresAssignment: false,
+      taxonGroup: resolvedAuthority.taxonGroup,
+    };
+  }
+  if (resolvedAuthority.status === 'unsupported' || resolvedAuthority.status === 'conflicting') {
+    return {
+      assigned,
+      authority: resolvedAuthority,
+      issue: `GenBank input '${inputKey}': ${resolvedAuthority.reason}`,
+      requiresAssignment: false,
+      taxonGroup: '',
+    };
+  }
+  return {
+    assigned,
+    authority: resolvedAuthority,
+    issue: '',
+    requiresAssignment: true,
+    taxonGroup: assigned,
+  };
+}
+// END CLIENT_GENBANK_TAXONOMY_PURE
+
+function genomeFileIdentityKey(file) {
+  return `${String(file?.name || '')}|${Number(file?.size || 0)}|${Number(file?.lastModified || 0)}`;
+}
+
+function clientGenbankAuthorityForFile(file) {
+  return genbankTaxonomyAuthorityCache.get(genomeFileIdentityKey(file)) || {
+    status: 'ambiguous',
+    taxonGroup: '',
+    reason: 'GenBank taxonomy has not been inspected in this browser',
+  };
+}
+
+function rememberClientGenbankAuthority(file, result) {
+  if (!PUBLIC_GENBANK_EXTENSIONS.has(ext(file?.name || ''))) return;
+  const authority = result?.genbankAuthority || {
+    status: 'ambiguous',
+    taxonGroup: '',
+    reason: 'GenBank taxonomy could not be inspected in this browser',
+  };
+  genbankTaxonomyAuthorityCache.set(genomeFileIdentityKey(file), authority);
+}
+
+function clientGenbankAuthorityProblem(authority, declaredGroup) {
+  if (authority.status === 'conflicting' || authority.status === 'unsupported') return authority.reason;
+  if (authority.status === 'resolved' && declaredGroup && authority.taxonGroup !== declaredGroup) {
+    return `Selected ${analysisScopeLabel(declaredGroup)} scope conflicts with authoritative GenBank ${analysisScopeLabel(authority.taxonGroup)} taxonomy`;
+  }
+  return '';
+}
+
+function classifyClientFastaText(name, text, taxonGroup = stagedTaxonGroupForFileName(name)) {
   const lines = String(text || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
   if (!lines.length) return { readiness: 'invalid', reason: `FASTA genome ${name} is empty.` };
   if (!lines[0].startsWith('>')) {
@@ -3816,7 +6009,20 @@ function classifyClientFastaText(name, text) {
     return { readiness: 'invalid', reason: `FASTA genome ${name} needs at least one nucleotide sequence line.` };
   }
   if (nucleotideCount / sequenceChars < 0.85) {
-    return { readiness: 'invalid', reason: 'Looks like protein FASTA or arbitrary text; upload a nucleotide fungal genome assembly FASTA.' };
+    const domain = taxonGroup === 'bacteria' ? 'bacterial' : taxonGroup === 'fungi' ? 'fungal' : 'genome';
+    return { readiness: 'invalid', reason: `Looks like protein FASTA or arbitrary text; upload a nucleotide ${domain} assembly FASTA.` };
+  }
+  if (taxonGroup === 'bacteria') {
+    return {
+      readiness: 'raw_fasta_requires_prodigal',
+      reason: 'Nucleotide bacterial FASTA accepted; antiSMASH will use Prodigal for predictable bacterial gene finding.',
+    };
+  }
+  if (!taxonGroup) {
+    return {
+      readiness: 'taxon_assignment_required',
+      reason: 'Nucleotide FASTA structure passed. Choose Fungi or Bacteria for this logical genome before submission.',
+    };
   }
   return {
     readiness: 'raw_fasta_requires_annotation',
@@ -3824,9 +6030,10 @@ function classifyClientFastaText(name, text) {
   };
 }
 
-function classifyClientGenbankText(name, text) {
+function classifyClientGenbankText(name, text, taxonGroup = stagedTaxonGroupForFileName(name)) {
   const raw = String(text || '');
-  if (!raw.trim()) return { readiness: 'invalid', reason: `GenBank genome ${name} is empty.` };
+  const genbankAuthority = parseClientGenbankTaxonomy(raw);
+  if (!raw.trim()) return { readiness: 'invalid', reason: `GenBank genome ${name} is empty.`, genbankAuthority };
   const markers = [
     ['LOCUS', /^LOCUS\s+/m],
     ['FEATURES', /^FEATURES\b/m],
@@ -3835,16 +6042,44 @@ function classifyClientGenbankText(name, text) {
   ];
   const missing = markers.filter(([, pattern]) => !pattern.test(raw)).map(([label]) => label);
   if (missing.length) {
-    return { readiness: 'invalid', reason: `GenBank genome ${name} is missing ${missing.join(', ')}.` };
+    return { readiness: 'invalid', reason: `GenBank genome ${name} is missing ${missing.join(', ')}.`, genbankAuthority };
   }
+  const authorityProblem = clientGenbankAuthorityProblem(genbankAuthority, taxonGroup);
+  if (authorityProblem) return { readiness: 'invalid', reason: authorityProblem, genbankAuthority };
+  const effectiveTaxonGroup = genbankAuthority.status === 'resolved' ? genbankAuthority.taxonGroup : taxonGroup;
   const hasCds = /^\s+CDS\b/m.test(raw);
   const hasTranslation = /\/translation\s*=/.test(raw);
+  if (effectiveTaxonGroup === 'bacteria') {
+    return {
+      readiness: 'bacterial_genbank_prodigal_ready',
+      reason: genbankAuthority.status === 'resolved'
+        ? 'Authoritative bacterial GenBank taxonomy accepted; supplied features will be removed from the antiSMASH work input and Prodigal will predict genes consistently.'
+        : hasCds || hasTranslation
+          ? 'Bacterial GenBank accepted; supplied features will be removed from the antiSMASH work input and Prodigal will predict genes consistently.'
+          : 'Feature-free bacterial GenBank accepted; antiSMASH will use Prodigal for gene finding.',
+      genbankAuthority,
+    };
+  }
+  if (!effectiveTaxonGroup) {
+    return {
+      readiness: 'taxon_assignment_required',
+      reason: 'GenBank structure passed. Choose Fungi or Bacteria for this logical genome before submission.',
+      genbankAuthority,
+    };
+  }
   if (hasCds && hasTranslation) {
-    return { readiness: 'annotated_genbank_ready', reason: 'Annotated GenBank with CDS translations is ready for antiSMASH and FunBGCeX.' };
+    return {
+      readiness: 'annotated_genbank_ready',
+      reason: genbankAuthority.status === 'resolved'
+        ? 'Authoritative fungal GenBank taxonomy accepted; CDS translations are ready for antiSMASH and FunBGCeX.'
+        : 'Annotated GenBank with CDS translations is ready for antiSMASH and FunBGCeX.',
+      genbankAuthority,
+    };
   }
   return {
     readiness: 'genbank_requires_fallback_or_translations',
     reason: 'GenBank structure is present, but CDS translations were not detected; submit a same-stem nucleotide FASTA or translated GenBank so funannotate can produce proteins before downstream BGC tools run.',
+    genbankAuthority,
   };
 }
 
@@ -3854,32 +6089,51 @@ function publicGenomeUploadKind(fileExt) {
 
 function classifyClientGenomeText(file, text) {
   const fileExt = ext(file.name);
-  if (PUBLIC_FASTA_EXTENSIONS.has(fileExt)) return classifyClientFastaText(file.name, text);
-  if (PUBLIC_GENBANK_EXTENSIONS.has(fileExt)) return classifyClientGenbankText(file.name, text);
+  const taxonGroup = stagedTaxonGroupForFileName(file.name);
+  if (PUBLIC_FASTA_EXTENSIONS.has(fileExt)) return classifyClientFastaText(file.name, text, taxonGroup);
+  if (PUBLIC_GENBANK_EXTENSIONS.has(fileExt)) return classifyClientGenbankText(file.name, text, taxonGroup);
   return { readiness: 'invalid', reason: `Unsupported public genome extension .${fileExt}.` };
 }
 
 function classifyClientGenomePreview(file, text) {
   const fileExt = ext(file.name);
+  const taxonGroup = stagedTaxonGroupForFileName(file.name);
   if (PUBLIC_FASTA_EXTENSIONS.has(fileExt)) {
-    const fasta = classifyClientFastaText(file.name, text);
+    const fasta = classifyClientFastaText(file.name, text, taxonGroup);
     if (fasta.readiness === 'invalid') return fasta;
     return {
       readiness: 'client_preflight_unconfirmed',
-      reason: 'Large FASTA preview passed in the browser; full server validation runs when you submit.',
+      reason: taxonGroup === 'bacteria'
+        ? 'Large bacterial FASTA preview passed; full server validation will confirm sequence structure before the Prodigal route.'
+        : !taxonGroup
+          ? 'Large FASTA preview passed; choose Fungi or Bacteria, then full server validation runs on submission.'
+          : 'Large fungal FASTA preview passed in the browser; full server validation runs when you submit.',
     };
   }
   if (PUBLIC_GENBANK_EXTENSIONS.has(fileExt)) {
     const raw = String(text || '');
-    if (!raw.trim()) return { readiness: 'invalid', reason: `GenBank genome ${file.name} is empty.` };
+    const genbankAuthority = parseClientGenbankTaxonomy(raw);
+    if (!raw.trim()) return { readiness: 'invalid', reason: `GenBank genome ${file.name} is empty.`, genbankAuthority };
     const missing = [
       ['LOCUS', /^LOCUS\s+/m],
       ['FEATURES', /^FEATURES\b/m],
     ].filter(([, pattern]) => !pattern.test(raw)).map(([label]) => label);
-    if (missing.length) return { readiness: 'invalid', reason: `GenBank genome ${file.name} is missing ${missing.join(', ')}.` };
+    if (missing.length) return { readiness: 'invalid', reason: `GenBank genome ${file.name} is missing ${missing.join(', ')}.`, genbankAuthority };
+    const authorityProblem = clientGenbankAuthorityProblem(genbankAuthority, taxonGroup);
+    if (authorityProblem) return { readiness: 'invalid', reason: authorityProblem, genbankAuthority };
+    const effectiveTaxonGroup = genbankAuthority.status === 'resolved' ? genbankAuthority.taxonGroup : taxonGroup;
     return {
       readiness: 'client_preflight_unconfirmed',
-      reason: 'Large GenBank preview passed in the browser; full server validation will confirm ORIGIN, CDS translations, and same-stem FASTA pairing when you submit.',
+      reason: effectiveTaxonGroup === 'bacteria'
+        ? genbankAuthority.status === 'resolved'
+          ? 'Large GenBank preview contains authoritative bacterial taxonomy; the server will verify every record before feature stripping and Prodigal.'
+          : 'Large bacterial GenBank preview passed; full server validation will confirm sequence structure before feature stripping and Prodigal.'
+        : !effectiveTaxonGroup
+          ? 'Large GenBank preview passed; choose Fungi or Bacteria, then full server validation runs on submission.'
+          : genbankAuthority.status === 'resolved'
+            ? 'Large GenBank preview contains authoritative fungal taxonomy; the server will verify every record, ORIGIN, and CDS readiness.'
+            : 'Large fungal GenBank preview passed; full server validation will confirm ORIGIN, CDS translations, and same-stem FASTA pairing.',
+      genbankAuthority,
     };
   }
   return { readiness: 'invalid', reason: `Unsupported public genome extension .${fileExt}.` };
@@ -3900,21 +6154,28 @@ function browserGenomePrecheckUnavailableReason(file) {
 
 async function cacheGenomeFileCheck(file) {
   const key = genomeFileCheckKey(file);
-  if (genomeCheckCache.has(key)) return genomeCheckCache.get(key);
+  if (genomeCheckCache.has(key)) {
+    const cached = genomeCheckCache.get(key);
+    rememberClientGenbankAuthority(file, cached);
+    return cached;
+  }
   const quota = publicQuotaLimits();
   if (file.size > quota.max_upload_file_mb * 1048576) {
     const result = { readiness: 'invalid', reason: publicFileLimitMessage(quota) };
     genomeCheckCache.set(key, result);
+    rememberClientGenbankAuthority(file, result);
     return result;
   }
   try {
     const preview = await readClientGenomePreview(file);
     const result = preview.partial ? classifyClientGenomePreview(file, preview.text) : classifyClientGenomeText(file, preview.text);
     genomeCheckCache.set(key, result);
+    rememberClientGenbankAuthority(file, result);
     return result;
   } catch (err) {
     const result = { readiness: 'client_preflight_unconfirmed', reason: browserGenomePrecheckUnavailableReason(file) };
     genomeCheckCache.set(key, result);
+    rememberClientGenbankAuthority(file, result);
     return result;
   }
 }
@@ -3986,6 +6247,7 @@ function clearAcceptedAccessions() {
   acceptedManualAccessions = [];
   accessionFileSources = [];
   resetBrutalAccessionDrafts();
+  clearStaleTargetGenome();
   renderAcceptedAccessions();
   updateManualAccessionsStatus();
   renderFileList();
@@ -3994,6 +6256,7 @@ function clearAcceptedAccessions() {
 function clearAcceptedManualAccessions() {
   acceptedManualAccessions = [];
   resetBrutalAccessionDrafts();
+  clearStaleTargetGenome();
   renderAcceptedAccessions();
   updateManualAccessionsStatus();
   renderFileList();
@@ -4018,7 +6281,7 @@ function loadDemoAccessions(event) {
 function importAccessionsToLoader(accessions) {
   const limit = accessionLimit();
   const existing = new Set(manualAccessionLines());
-  const nextDrafts = Array.from({ length: 25 }, (_, index) => brutalAccessionDrafts[index] || '');
+  const nextDrafts = Array.from({ length: 50 }, (_, index) => brutalAccessionDrafts[index] || '');
   const added = [];
   accessions.forEach((raw) => {
     const accession = normalizeAccessionDraft(raw);
@@ -4070,6 +6333,9 @@ async function addAccessionFileSource(file) {
     setBrutalInputNotice(noticeKey, `Accession list ${file.name} could not fit in the accession loader.`);
     return false;
   }
+  accessionFileSources.push({ name: String(file.name || 'accessions.txt'), accessions: imported.slice() });
+  const fileOwned = accessionFileOwnedAccessions();
+  acceptedManualAccessions = acceptedManualAccessions.filter(accession => !fileOwned.has(normalizeAccessionDraft(accession)));
   setBrutalInputNotice(noticeKey, '');
   const skipped = parsed.accessions.length - imported.length + parsed.duplicateCount;
   const status = document.getElementById('upload-status');
@@ -4083,7 +6349,7 @@ async function addAccessionFileSource(file) {
 
 function inputCheckLevel(readiness) {
   if (readiness === 'invalid') return 'blocked';
-  if (readiness === 'annotated_genbank_ready') return 'ready';
+  if (readiness === 'annotated_genbank_ready' || readiness === 'bacterial_genbank_prodigal_ready') return 'ready';
   return 'warning';
 }
 
@@ -4114,6 +6380,21 @@ function updateInputCheckerLimits(quota) {
   const limits = document.getElementById('input-checker-limits');
   if (!limits) return;
   limits.textContent = `Limits: ${quota.max_accessions} accessions, ${quota.max_genome_files} genome files, ${formatQuotaMb(quota.max_upload_file_mb)} per file, ${formatQuotaMb(quota.max_upload_total_mb)} total`;
+}
+
+function accessionPreflightPendingReason(sourceName = '') {
+  const source = sourceName ? ` from ${sourceName}` : '';
+  const scope = normalizeAnalysisScope(stagedAnalysisScope);
+  if (scope === 'bacteria') {
+    return `FORMAT OK${source} - NCBI CHECK PENDING. Authoritative taxonomy is verified before job creation, then bacterial sequence routes to antiSMASH with Prodigal.`;
+  }
+  if (scope === 'both') {
+    return `FORMAT OK${source} - NCBI CHECK PENDING. Authoritative NCBI taxonomy will route each accepted accession to Fungi or Bacteria.`;
+  }
+  if (!sourceName) {
+    return 'FORMAT OK - NCBI CHECK PENDING. Genome FASTA is verified before job creation and can route through funannotate if translations are missing.';
+  }
+  return `FORMAT OK from ${sourceName} - NCBI CHECK PENDING. Genome FASTA is verified before job creation and can route through funannotate if translations are missing.`;
 }
 
 function renderInputChecker() {
@@ -4147,11 +6428,11 @@ function renderInputChecker() {
   });
 
   acceptedManualAccessions.forEach((accession) => {
-    addInputCheckRow(rows, 'ready', 'NCBI accession', accession, 'Accepted fungal assembly accession; NCBI genome FASTA is checked before job creation and can route through funannotate if translations are missing.');
+    addInputCheckRow(rows, 'ready', 'NCBI accession', accession, accessionPreflightPendingReason());
   });
   accessionFileSources.forEach((source) => {
     source.accessions.forEach((accession) => {
-      addInputCheckRow(rows, 'ready', 'NCBI accession', accession, `Accepted from ${source.name}; NCBI fungal assembly metadata is checked before job creation, then FASTA can feed funannotate if translations are missing.`);
+      addInputCheckRow(rows, 'ready', 'NCBI accession', accession, accessionPreflightPendingReason(source.name));
     });
   });
 
@@ -4174,8 +6455,8 @@ function renderInputChecker() {
     if (!isPublicGenome) {
       const level = canUseAdminSurfaces() ? 'ready' : 'blocked';
       const reason = canUseAdminSurfaces()
-        ? 'Admin/local auxiliary input; not part of public fungal-genome intake.'
-        : 'This file type is not supported by the public fungal-genome intake.';
+        ? 'Admin/local auxiliary input; not part of public genome intake.'
+        : 'This file type is not supported by the public genome intake.';
       addInputCheckRow(rows, level, 'Auxiliary file', file.name, reason);
       return;
     }
@@ -4221,6 +6502,35 @@ function renderInputChecker() {
     addInputCheckRow(rows, level, type, stem || file.name, reason);
   });
 
+  const assignmentValidation = taxonAssignmentValidation();
+  assignmentValidation.unresolved.forEach((item) => {
+    addInputCheckRow(
+      rows,
+      'blocked',
+      'Taxon assignment',
+      item.inputKey,
+      'Both mode requires a Fungi or Bacteria declaration for this logical genome before submission.',
+    );
+  });
+  assignmentValidation.authorityIssues.forEach(({ inputKey, issue }) => {
+    addInputCheckRow(rows, 'blocked', 'GenBank taxonomy', inputKey, issue);
+  });
+  assignmentValidation.sidecarIssues.forEach((issue) => {
+    addInputCheckRow(rows, 'blocked', 'Taxon assignment sidecar', TAXON_ASSIGNMENTS_FILENAME, issue);
+  });
+  assignmentValidation.generalIssues.forEach((issue) => {
+    addInputCheckRow(rows, 'blocked', 'Taxon assignment', 'Both mode', issue);
+  });
+  if (taxonAssignmentSidecar && !assignmentValidation.issues.length) {
+    addInputCheckRow(
+      rows,
+      'ready',
+      'Taxon assignment sidecar',
+      TAXON_ASSIGNMENTS_FILENAME,
+      `${Object.keys(taxonAssignmentsPayload()).length} assignment row(s) loaded.`,
+    );
+  }
+
   if (acceptedAccessions.length > quota.max_accessions) {
     addInputCheckRow(rows, 'blocked', 'Quota', `${acceptedAccessions.length} accessions`, `Public runs accept at most ${quota.max_accessions} NCBI assembly accessions. ${localWorkflowPrompt()}`);
   }
@@ -4251,6 +6561,11 @@ async function addFiles(files) {
     : '.gbk, .gb, .gbff, .fasta, .fa, .fna, .fsa, .txt';
   for (const f of files) {
     const fileExt = ext(f.name);
+    if (isTaxonAssignmentsSidecarName(f.name)) {
+      await loadTaxonAssignmentSidecar(f);
+      setBrutalInputNotice(`file:${f.name}`, '');
+      continue;
+    }
     if (!allowed.has(fileExt)) {
       setBrutalInputNotice(`file:${f.name}`, `Unsupported file type: ${f.name}. Allowed: ${allowedCopy}. ${canUseAdminSurfaces() ? '' : localWorkflowPrompt()}`.trim());
       continue;
@@ -4265,58 +6580,140 @@ async function addFiles(files) {
       selectedFiles.push(f);
     }
   }
+  await refreshSelectedGenomeChecks();
   renderAcceptedAccessions();
   renderFileList();
 }
 
-function removeFile(index) {
-  selectedFiles.splice(index, 1);
+async function removeFile(index) {
+  const [removed] = selectedFiles.splice(index, 1);
+  if (removed) genbankTaxonomyAuthorityCache.delete(genomeFileIdentityKey(removed));
+  const targetInput = document.getElementById('target-genome');
+  const removedTarget = removed && isGenomeUploadName(removed.name)
+    ? genomeStemFromName(removed.name)
+    : '';
+  const sameTargetRemains = removedTarget && selectedFiles.some((file) => (
+    isGenomeUploadName(file.name)
+    && genomeStemFromName(file.name).toLowerCase() === removedTarget.toLowerCase()
+  ));
+  if (targetInput && removedTarget && !sameTargetRemains
+      && targetInput.value.trim().toLowerCase() === removedTarget.toLowerCase()) {
+    targetInput.value = '';
+    targetInput.dispatchEvent(new Event('input', { bubbles: true }));
+    updateBrutalTargetButton();
+  }
+  clearStaleTargetGenome();
+  await refreshSelectedGenomeChecks();
   renderFileList();
 }
 
 function removeAccessionFileSource(index) {
-  accessionFileSources.splice(index, 1);
-  renderAcceptedAccessions();
-  renderFileList();
+  const [removed] = accessionFileSources.splice(index, 1);
+  if (!removed) return;
+  const removedSet = new Set((removed.accessions || []).map(normalizeAccessionDraft));
+  const retained = acceptedDraftAccessions().filter(accession => !removedSet.has(accession));
+  brutalAccessionDrafts = Array.from({ length: 50 }, (_, draftIndex) => retained[draftIndex] || '');
+  brutalAccessionCommitted = new Set(
+    retained.map((value, draftIndex) => normalizeAccessionDraft(value) ? draftIndex : -1).filter(draftIndex => draftIndex >= 0),
+  );
+  removedSet.forEach(accession => brutalEcoSelections.delete(accession));
+  acceptedManualAccessions = acceptedManualAccessions.filter(accession => !removedSet.has(normalizeAccessionDraft(accession)));
+  renderBrutalAccessionRows();
+  syncBrutalAcceptedFromDrafts();
+}
+
+function submissionsPausedForPublic() {
+  const state = String(runtimeStatusSnapshot.submissions || '').trim().toLowerCase();
+  return !canUseAdminSurfaces() && ['paused', 'closed', 'disabled', 'false', '0'].includes(state);
+}
+
+function uploadedInputRequiresAcknowledgment() {
+  return !canUseAdminSurfaces() && (
+    selectedFiles.length > 0
+    || accessionFileSources.length > 0
+    || !!taxonAssignmentSidecar
+  );
+}
+
+function syncDataUseAcknowledgment() {
+  const panel = document.getElementById('data-use-ack-panel');
+  const checkbox = document.getElementById('data-use-ack');
+  const required = uploadedInputRequiresAcknowledgment();
+  if (panel) {
+    panel.hidden = !required;
+    panel.toggleAttribute('inert', !required);
+    panel.setAttribute('aria-hidden', required ? 'false' : 'true');
+  }
+  if (!required && checkbox) checkbox.checked = false;
+  return required && !checkbox?.checked;
 }
 
 function renderFileList() {
   const list = document.getElementById('file-list');
   const btn  = document.getElementById('run-btn');
   const stat = document.getElementById('upload-status');
+  const submitShell = document.getElementById('submit-button-shell');
   const accessionLines = manualAccessionLines();
-  const manualItem = acceptedManualAccessions.length ? `
-    <div class="file-item">
-      <span class="file-icon" aria-hidden="true"></span>
-      <span class="file-name">Manual entry &rarr; ${MANUAL_ACCESSIONS_FILENAME}</span>
-      <span class="file-size">${acceptedManualAccessions.length} accession${acceptedManualAccessions.length === 1 ? '' : 's'}</span>
-      <button class="file-remove" onclick="clearAcceptedManualAccessions()" title="Remove">✕</button>
-    </div>` : '';
   const accessionFileItems = accessionFileSources.map((source, idx) => `
     <div class="file-item">
       <span class="file-icon" aria-hidden="true"></span>
-      <span class="file-name">${escapeHtml(source.name)} &rarr; ${MANUAL_ACCESSIONS_FILENAME}</span>
+      <span class="file-name">${escapeHtml(source.name)}</span>
       <span class="file-size">${source.accessions.length} accession${source.accessions.length === 1 ? '' : 's'}</span>
       <button class="file-remove" onclick="removeAccessionFileSource(${idx})" title="Remove">✕</button>
     </div>`).join('');
-  list.innerHTML = selectedFiles.map((f, idx) => `
+  const sidecarItem = taxonAssignmentSidecar ? `
     <div class="file-item">
       <span class="file-icon" aria-hidden="true"></span>
-      <span class="file-name">${escapeHtml(f.name)}</span>
-      <span class="file-size">${fmt_size(f.size)}</span>
-      <button class="file-remove" onclick="removeFile(${idx})" title="Remove">✕</button>
-    </div>`).join('') + manualItem + accessionFileItems;
+      <span class="file-name">${TAXON_ASSIGNMENTS_FILENAME}</span>
+      <span class="file-size">${taxonAssignmentSidecarIssues.length ? 'Needs review' : `${Object.keys(taxonAssignmentsPayload()).length} assignments`}</span>
+      <button class="file-remove" type="button" onclick="removeTaxonAssignmentSidecar()" title="Remove" aria-label="Remove taxon assignments sidecar">✕</button>
+    </div>` : '';
+  list.innerHTML = selectedFiles.map((f, idx) => {
+    const target = isGenomeUploadName(f.name) ? genomeStemFromName(f.name) : '';
+    const targetAttrs = target
+      ? ` data-target-genome="${escapeHtml(target)}"`
+      : '';
+    const ecologyControls = target
+      ? `<span class="file-eco-cell"><button class="eco-button file-eco-button" type="button" data-eco-field="primary">ECO 1</button></span>
+        <span class="file-eco-cell"><button class="eco-button file-eco-button secondary" type="button" data-eco-field="secondary">ECO 2</button></span>`
+      : '';
+    return `
+      <div class="file-item"${targetAttrs}>
+        <span class="file-icon" aria-hidden="true"></span>
+        <span class="file-name">${escapeHtml(f.name)}</span>
+        <span class="file-size">${fmt_size(f.size)}</span>
+        ${ecologyControls}
+        <button class="file-remove" onclick="removeFile(${idx})" title="Remove" aria-label="Remove ${escapeHtml(f.name)}">✕</button>
+      </div>`;
+  }).join('') + accessionFileItems + sidecarItem;
+  renderTaxonAssignmentPanel();
   const draftPending = !!(manualAccessionsInput && manualAccessionsInput.value.trim());
   const inputSourceCount = selectedFiles.length + (accessionLines.length ? 1 : 0);
-  const dataUseAck = document.getElementById('data-use-ack');
-  const ackMissing = !canUseAdminSurfaces() && dataUseAck && !dataUseAck.checked;
+  const ackMissing = syncDataUseAcknowledgment();
+  const projectMissing = !projectNameValue();
+  const queuePaused = inputSourceCount > 0 && submissionsPausedForPublic();
+  setBrutalInputNotice('queue-gate', queuePaused ? 'Queue gate: paused before upload.' : '');
+  setBrutalInputNotice('data-use', '');
+  setBrutalInputNotice('project-name', '');
+  setProjectNameRequiredState(projectMissing);
+  if (submitShell) submitShell.classList.toggle('is-project-locked', projectMissing);
+  const assignmentValidation = taxonAssignmentValidation();
+  const assignmentBlocked = normalizeAnalysisScope(stagedAnalysisScope) === 'both'
+    && (assignmentValidation.unresolved.length > 0 || assignmentValidation.issues.length > 0);
+  const assignmentMessage = assignmentValidation.issues[0]
+    || (assignmentValidation.unresolved.length
+      ? `${assignmentValidation.unresolved.length} logical genome assignment${assignmentValidation.unresolved.length === 1 ? '' : 's'} required in Both mode.`
+      : '');
+  setBrutalInputNotice('taxon-assignment', '');
   const checkerState = renderInputChecker();
   const checkerBlocked = !canUseAdminSurfaces() && checkerState.blocked > 0;
-  btn.disabled = inputSourceCount === 0 || draftPending || ackMissing || checkerBlocked;
-  if (draftPending) {
+  btn.disabled = inputSourceCount === 0 || draftPending || ackMissing || projectMissing || queuePaused || checkerBlocked || assignmentBlocked;
+  if (queuePaused) {
+    stat.textContent = 'SUBMISSIONS PAUSED - QUEUE LOCKED BY OPERATOR';
+  } else if (draftPending) {
     stat.textContent = 'Press Add accessions to accept the draft before starting.';
-  } else if (inputSourceCount && ackMissing) {
-    stat.textContent = 'Confirm the data-use statement before starting.';
+  } else if (inputSourceCount && assignmentBlocked) {
+    stat.textContent = '';
   } else if (inputSourceCount && checkerBlocked) {
     stat.textContent = `${checkerState.blocked} blocked input source${checkerState.blocked === 1 ? '' : 's'} must be fixed before starting.`;
   } else if (inputSourceCount && checkerState.warning) {
@@ -4330,6 +6727,7 @@ function renderFileList() {
   updateBrutalEcologyToggle();
   updateBrutalTargetButton();
   renderBrutalInputLog();
+  applyAnalysisCapabilityVisibility();
   updateRunSummary();
 }
 
@@ -4509,12 +6907,21 @@ async function startAnalysis() {
     return;
   }
   const dataUseAck = document.getElementById('data-use-ack');
-  if (!canUseAdminSurfaces() && dataUseAck && !dataUseAck.checked) {
-    document.getElementById('upload-status').textContent = 'Confirm the data-use statement before starting.';
+  if (uploadedInputRequiresAcknowledgment() && !dataUseAck?.checked) {
+    dataUseAck?.focus();
     renderFileList();
     return;
   }
   if (selectedFiles.length === 0 && manualLines.length === 0) return;
+  const assignmentValidation = taxonAssignmentValidation();
+  if (normalizeAnalysisScope(stagedAnalysisScope) === 'both'
+      && (assignmentValidation.unresolved.length || assignmentValidation.issues.length)) {
+    const message = assignmentValidation.issues[0]
+      || `${assignmentValidation.unresolved.length} logical genome assignment${assignmentValidation.unresolved.length === 1 ? '' : 's'} required in Both mode.`;
+    document.getElementById('upload-status').textContent = message;
+    renderFileList();
+    return;
+  }
   const checkerState = renderInputChecker();
   if (!canUseAdminSurfaces() && checkerState.blocked > 0) {
     document.getElementById('upload-status').textContent = `${checkerState.blocked} blocked input source${checkerState.blocked === 1 ? '' : 's'} must be fixed before starting.`;
@@ -4544,7 +6951,12 @@ async function startAnalysis() {
     fd.append('files', new File([metadataText], 'ecofun_metadata_normalized.tsv', { type: 'text/tab-separated-values' }));
   }
   fd.append('project_name', name);
-  fd.append('data_use_ack', boolToFlag(canUseAdminSurfaces() || !!document.getElementById('data-use-ack')?.checked));
+  fd.append('analysis_scope', normalizeAnalysisScope(stagedAnalysisScope));
+  const taxonAssignments = taxonAssignmentsPayload();
+  if (Object.keys(taxonAssignments).length) {
+    fd.append('taxon_assignments', JSON.stringify(taxonAssignments));
+  }
+  fd.append('data_use_ack', boolToFlag(!!dataUseAck?.checked));
   fd.append('cpus', cpus);
   fd.append('target_genome', document.getElementById('target-genome').value.trim());
   fd.append('run_ncbi_install', boolToFlag(effectiveCheckboxValue('run-ncbi-install', false)));
@@ -4565,6 +6977,9 @@ async function startAnalysis() {
   fd.append('bigscape_mix_mode', document.getElementById('bigscape-mix-mode').value);
   fd.append('force', boolToFlag(effectiveCheckboxValue('force-rerun', false)));
   fd.append('workers', document.getElementById('workers').value || '2');
+  fd.append('genome_parallelism', document.getElementById('genome-parallelism').value || '1');
+  fd.append('antismash_record_parallelism', document.getElementById('antismash-record-parallelism').value || '1');
+  fd.append('antismash_shard_cpus', document.getElementById('antismash-shard-cpus').value || '0');
   fd.append('threads', String(cpus));
   fd.append('anno_cpus', publicFixed ? String(cpus) : (document.getElementById('anno-cpus').value || String(cpus)));
   fd.append('annotation_fallback_order', fallbackOrder);
@@ -4575,8 +6990,8 @@ async function startAnalysis() {
   fd.append('clinker_use_docker_image', boolToFlag(document.getElementById('clinker-use-docker-image').checked));
   fd.append('clinker_docker_image', document.getElementById('clinker-docker-image').value.trim());
   fd.append('clinker_docker_data_volume', document.getElementById('clinker-docker-data-volume').value.trim());
-  fd.append('clinker_max_regions', document.getElementById('clinker-max-regions').value || '0');
-  fd.append('atlas_stage_limit', document.getElementById('clinker-max-regions').value || '12');
+  fd.append('clinker_max_regions', document.getElementById('clinker-max-regions').value || '20');
+  fd.append('atlas_stage_limit', document.getElementById('clinker-max-regions').value || '20');
   fd.append('atlas_min_records', document.getElementById('atlas-min-records').value || '2');
   fd.append('shortlist_limit', document.getElementById('shortlist-limit').value || '12');
   fd.append('shared_family_stage_limit', document.getElementById('shared-family-stage-limit').value || '12');
@@ -4616,15 +7031,24 @@ async function startAnalysis() {
       const err = await resp.json();
       throw new Error(err.detail || 'Upload failed');
     }
-    const { job_id, read_token, expires_at, result_url, input_summary } = await resp.json();
+    const { job_id, public_run_id, read_token, expires_at, result_url, input_summary } = await resp.json();
+    const submittedRunId = String(public_run_id || job_id || '').trim();
+    if (submittedRunId) publicResultRunIds.add(submittedRunId);
     if (input_summary) {
       runSetupReceipt.inputSummary = input_summary;
       runSetupReceipt.accessionMetadata = Array.isArray(input_summary.accession_metadata) ? input_summary.accession_metadata : [];
+      runSetupReceipt.taxonCounts = normalizeTaxonCounts(input_summary.taxon_counts || input_summary.taxonCounts || input_summary);
     }
-    if (read_token) rememberOpenedRun(job_id, read_token, { name, status: 'pending' });
+    if (read_token) rememberOpenedRun(submittedRunId, read_token, { name, status: 'pending' });
     selectedFiles = [];
     acceptedManualAccessions = [];
     accessionFileSources = [];
+    genomeCheckCache = new Map();
+    genbankTaxonomyAuthorityCache = new Map();
+    stagedTaxonAssignments = new Map();
+    stagedTaxonAssignmentSources = new Map();
+    taxonAssignmentSidecar = null;
+    taxonAssignmentSidecarIssues = [];
     brutalInputNotices.clear();
     if (manualAccessionsInput) manualAccessionsInput.value = '';
     resetBrutalAccessionDrafts();
@@ -4633,7 +7057,7 @@ async function startAnalysis() {
     document.getElementById('upload-status').textContent = expires_at ? `Run submitted. Results expire ${new Date(expires_at).toLocaleDateString()}.` : 'Run submitted.';
     renderSubmissionConfirmation({
       projectName: name,
-      jobId: job_id,
+      jobId: submittedRunId,
       readToken: read_token || '',
       resultUrl: result_url || '',
       expiresAt: expires_at || '',
@@ -4642,7 +7066,13 @@ async function startAnalysis() {
       status: 'queued',
     });
     lockSubmittedIntake();
-    await loadJob(job_id, true, { readToken: read_token || '', source: 'submit' });
+    await loadJob(submittedRunId, true, {
+      publicResult: true,
+      readToken: read_token || '',
+      source: 'submit',
+      analysisScope: runSetupReceipt.analysisScope,
+      taxonCounts: input_summary?.taxon_counts || {},
+    });
     if (canUseAdminSurfaces()) refreshJobHistory();
   } catch (err) {
     const message = err?.message || 'Upload failed';
@@ -4681,7 +7111,7 @@ function jobHistoryRenderKey(jobs) {
     j.stage,
     jobStageSignature(j),
     j.rerun_count || 0,
-    Array.isArray(j.result_files) ? j.result_files.length : 0,
+    Array.isArray(j.result_files) ? j.result_files.length : Number(j.result_file_count || 0),
     j.id === activeJobId,
     j.id === rerunScopeOpenJobId,
   ]));
@@ -4824,6 +7254,31 @@ async function queueJobRerun(jobId, payload) {
   return resp.json();
 }
 
+function diagnosticRerunDisclosureId(jobId) {
+  const safe = String(jobId || '').replace(/[^A-Za-z0-9_-]+/g, '-');
+  return `diagnostic-rerun-${safe || 'job'}`;
+}
+
+function diagnosticRerunDetails(jobId) {
+  return document.getElementById(diagnosticRerunDisclosureId(jobId));
+}
+
+function syncDiagnosticRerunDisclosure(event, jobId) {
+  const details = event?.currentTarget;
+  if (!details) return;
+  const item = details.closest('[data-diagnostic-job-item]');
+  const button = item?.querySelector('[data-rerun-open]');
+  if (details.open) {
+    if (button) button.setAttribute('aria-expanded', 'true');
+    item?.classList.add('has-open-rerun');
+    animateRerunPanelOpen(details);
+    return;
+  }
+  if (rerunScopeOpenJobId === String(jobId || '')) rerunScopeOpenJobId = '';
+  if (button) button.setAttribute('aria-expanded', 'false');
+  item?.classList.remove('has-open-rerun');
+}
+
 async function toggleJobRerunScope(event, jobId) {
   event?.preventDefault?.();
   event?.stopPropagation?.();
@@ -4833,23 +7288,24 @@ async function toggleJobRerunScope(event, jobId) {
 
   if (rerunScopeOpenJobId === safeJobId) {
     rerunScopeOpenJobId = '';
-    renderRerunPanel(activeJobId, activeJobMeta);
-    renderQaDrawer(activeJobMeta, activeResultFiles);
-    refreshJobHistory();
-    switchOpsTab('jobs', { focus: false });
+    const openDetails = diagnosticRerunDetails(safeJobId);
+    if (openDetails) openDetails.open = false;
+    event?.currentTarget?.setAttribute?.('aria-expanded', 'false');
     return;
   }
 
+  const previousDetails = diagnosticRerunDetails(rerunScopeOpenJobId);
+  if (previousDetails) previousDetails.open = false;
   rerunScopeOpenJobId = safeJobId;
   openOpsPanel({ tab: 'jobs', focusPanel: false, returnFocus: event?.currentTarget || document.activeElement });
-  if (activeJobId !== safeJobId) {
-    await loadJob(safeJobId, true, { source: 'job-rerun' });
-  } else {
-    renderRerunPanel(safeJobId, activeJobMeta || jobHistoryById.get(safeJobId));
-  }
-  renderQaDrawer(activeJobMeta, activeResultFiles);
-  refreshJobHistory();
+  lastJobHistoryRenderKey = '';
+  renderJobHistory([...jobHistoryById.values()]);
   switchOpsTab('jobs', { focus: false });
+  const details = diagnosticRerunDetails(safeJobId);
+  window.requestAnimationFrame(() => {
+    details?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    details?.querySelector('summary')?.focus({ preventScroll: true });
+  });
 }
 
 async function rerunJobFromHistory(event, jobId) {
@@ -4873,33 +7329,41 @@ function renderDiagnosticRerunRail(jobId, job, displayLabel) {
   const status = String((job && job.status) || '').toLowerCase();
   const unavailable = status === 'pending' || status === 'running' || !jobCanRerun(job);
   const labels = {
-    prep: 'Prep',
-    annotation: 'Annotation',
+    prep: 'Genome prep',
+    annotation: 'Annotation & BGC',
     bigscape: 'BiG-SCAPE',
     summary: 'Summary',
-    clinker: 'clinker',
+    clinker: 'Clinker',
     figures: 'Figures',
     nplinker: 'NPLinker',
   };
   const checks = STAGES.map(stage => {
     const enabled = !unavailable && jobStageEnabled(job, stage.key) && rerunStageAllowed(stage.key);
     const checked = enabled && rerunDefaultChecked(job, stage.key);
-    return `<label class="rerun-check"><input type="checkbox" data-diagnostic-rerun-stage="${escapeHtml(stage.key)}" ${checked ? 'checked' : ''} ${enabled ? '' : 'disabled'} onchange="updateDiagnosticRerunSubmit()" /> ${escapeHtml(labels[stage.key] || stage.label)}</label>`;
-  }).join('') + `<label class="rerun-check rerun-force"><input type="checkbox" data-diagnostic-rerun-force ${unavailable ? 'disabled' : ''} onchange="updateDiagnosticRerunSubmit()" /> Force</label>`;
-  const statusText = unavailable ? 'Rerun unavailable for this state.' : 'Choose at least one stage.';
+    return `<label class="rerun-check${enabled ? '' : ' is-unavailable'}"><input type="checkbox" data-diagnostic-rerun-stage="${escapeHtml(stage.key)}" ${checked ? 'checked' : ''} ${enabled ? '' : 'disabled'} onchange="updateDiagnosticRerunSubmit(event)" /> <span>${escapeHtml(labels[stage.key] || stage.label)}</span></label>`;
+  }).join('') + `<label class="rerun-check rerun-force"><input type="checkbox" data-diagnostic-rerun-force ${unavailable ? 'disabled' : ''} onchange="updateDiagnosticRerunSubmit(event)" /> <span>Force overwrite</span></label>`;
+  const statusText = unavailable ? 'Rerun unavailable for this state.' : 'Choose one or more stages.';
+  const safeJobId = escapeHtml(escapeJsString(jobId));
   return `
-    <section class="rerun-rail" id="diagnostic-rerun-rail" data-rerun-rail aria-live="polite">
-      <div class="rerun-head"><b>Rerun scope: <span data-rerun-selected>${escapeHtml(displayLabel)}</span></b><code>POST /api/jobs/{job_id}/rerun</code></div>
-      <div class="rerun-check-grid">${checks}</div>
-      <div class="rerun-actions">
-        <button class="rerun-submit" type="button" data-queue-rerun onclick="queueDiagnosticRerun(event,'${escapeHtml(escapeJsString(jobId))}')" ${unavailable ? 'disabled' : ''}>Queue selected stages</button>
-        <span class="rerun-status" id="diagnostic-rerun-status" data-rerun-status>${escapeHtml(statusText)}</span>
+    <details class="rerun-rail rerun-disclosure" id="${escapeHtml(diagnosticRerunDisclosureId(jobId))}" data-rerun-rail data-rerun-job-id="${escapeHtml(jobId)}" open ontoggle="syncDiagnosticRerunDisclosure(event,'${safeJobId}')">
+      <summary class="rerun-disclosure-summary">
+        <span><b>Rerun stages</b><small>${escapeHtml(displayLabel)}</small></span>
+        <code>${escapeHtml(jobId)}</code>
+      </summary>
+      <div class="rerun-panel-body rerun-disclosure-body">
+        <div class="rerun-check-grid">${checks}</div>
+        <div class="rerun-actions">
+          <button class="rerun-submit" type="button" data-queue-rerun onclick="queueDiagnosticRerun(event,'${safeJobId}')" ${unavailable ? 'disabled' : ''}>Queue selected stages</button>
+          <span class="rerun-status" id="diagnostic-rerun-status" data-rerun-status aria-live="polite">${escapeHtml(statusText)}</span>
+        </div>
       </div>
-    </section>`;
+    </details>`;
 }
 
-function updateDiagnosticRerunSubmit() {
-  const rail = document.getElementById('diagnostic-rerun-rail');
+function updateDiagnosticRerunSubmit(event = null) {
+  const rail = event?.currentTarget?.closest?.('[data-rerun-rail]')
+    || diagnosticRerunDetails(rerunScopeOpenJobId)
+    || document.querySelector('[data-rerun-rail][open]');
   if (!rail) return;
   const hasSelection = !!rail.querySelector('[data-diagnostic-rerun-stage]:checked:not(:disabled)');
   const submit = rail.querySelector('[data-queue-rerun]');
@@ -4913,14 +7377,15 @@ async function queueDiagnosticRerun(event, jobId) {
   event?.stopPropagation?.();
   if (!canUseAdminSurfaces()) return;
   const targetJobId = String(jobId || rerunScopeOpenJobId || '');
-  const rail = document.getElementById('diagnostic-rerun-rail');
+  const rail = event?.currentTarget?.closest?.('[data-rerun-rail]')
+    || diagnosticRerunDetails(targetJobId);
   const statusEl = rail?.querySelector('[data-rerun-status]');
-  const selected = new Set([...document.querySelectorAll('#diagnostic-rerun-rail [data-diagnostic-rerun-stage]:checked:not(:disabled)')].map(el => el.dataset.diagnosticRerunStage));
+  const selected = new Set([...(rail?.querySelectorAll('[data-diagnostic-rerun-stage]:checked:not(:disabled)') || [])].map(el => el.dataset.diagnosticRerunStage));
   if (!targetJobId || !selected.size) {
     if (statusEl) statusEl.textContent = 'Choose at least one stage.';
     return;
   }
-  const payload = rerunPayloadFromStages(selected, !!document.querySelector('#diagnostic-rerun-rail [data-diagnostic-rerun-force]')?.checked);
+  const payload = rerunPayloadFromStages(selected, !!rail?.querySelector('[data-diagnostic-rerun-force]')?.checked);
   if (!rerunPayloadHasStages(payload)) {
     if (statusEl) statusEl.textContent = 'Choose at least one stage.';
     return;
@@ -4969,8 +7434,10 @@ function renderJobHistory(jobs) {
     const rerunCount = Number(job.rerun_count || 0);
     const fileCount = Array.isArray(job.result_files) ? job.result_files.length : Number(job.result_file_count || 0);
     const fileText = `${Number.isFinite(fileCount) ? fileCount : 0} file${fileCount === 1 ? '' : 's'}`;
-    const rerunAttrs = `onclick="toggleJobRerunScope(event,'${escapeHtml(jsJobId)}')" aria-expanded="${rerunOpen ? 'true' : 'false'}"`;
+    const disclosureId = diagnosticRerunDisclosureId(jobId);
+    const rerunAttrs = `data-rerun-job-id="${escapeHtml(jobId)}" onclick="toggleJobRerunScope(event,'${escapeHtml(jsJobId)}')" aria-controls="${escapeHtml(disclosureId)}" aria-expanded="${rerunOpen ? 'true' : 'false'}"`;
     return `
+      <div class="diagnostic-job-item${rerunOpen ? ' has-open-rerun' : ''}" data-diagnostic-job-item data-job-id="${escapeHtml(jobId)}">
       <article class="diagnostic-job-card${selected ? ' is-selected' : ''}" tabindex="0" data-diagnostic-job data-job-id="${escapeHtml(jobId)}" data-job-label="${escapeHtml(displayLabel)}" data-open-state="${escapeHtml(displayState)}" data-job-hash="#/job/${escapeHtml(encodeURIComponent(jobId))}" onclick="loadJob('${escapeHtml(jsJobId)}', true, { source: 'job-card' })" onkeydown="handleJobCardKeydown(event,'${escapeHtml(jsJobId)}')">
         <div class="diagnostic-job-main">
           <div class="diagnostic-job-top"><strong>${escapeHtml(displayLabel)}</strong><span class="job-status-pill">${escapeHtml(statusText)}</span></div>
@@ -4984,10 +7451,12 @@ function renderJobHistory(jobs) {
         </div>
         <div class="job-card-actions" aria-label="Job actions">
           <button type="button" data-log-open onclick="openJobLogs(event,'${escapeHtml(jsJobId)}')">Logs</button>
-          <button type="button" data-rerun-open aria-controls="diagnostic-rerun-rail" ${rerunAttrs}>Rerun</button>
+          <button type="button" data-rerun-open ${rerunAttrs}>Rerun</button>
           <button class="job-delete" type="button" aria-label="Delete job ${escapeHtml(jobId)}" onclick="deleteJob(event,'${escapeHtml(jsJobId)}')">X</button>
         </div>
-      </article>${rerunOpen ? renderDiagnosticRerunRail(jobId, job || jobHistoryById.get(jobId), displayLabel) : ''}`;
+      </article>
+      ${rerunOpen ? renderDiagnosticRerunRail(jobId, job || jobHistoryById.get(jobId), displayLabel) : ''}
+      </div>`;
   }).join('');
   updateDiagnosticRerunSubmit();
 }
@@ -5078,13 +7547,18 @@ function setResultsLoaded(loaded) {
 
 function showEmptyResults() {
   activeStageState = null;
+  activeSavedAnalysisContext = null;
   document.body.dataset.workflowState = 'idle';
   document.body.dataset.jobState = 'idle';
+  syncClusterweaveGameHost({ lifecycle: 'idle', job: null });
   document.body.dataset.existingRunLoaded = 'false';
   lastSubmittedRun = null;
   activeResultCategory = 'figures';
   activeResultFiles = [];
   activeResultArtifacts = null;
+  activePublicRunId = '';
+  activeResultArtifactByKey = new Map();
+  activeResultArtifactById = new Map();
   setResultFocusMode('overview');
   document.body.dataset.resultsDashboard = 'closed';
   document.body.dataset.managementView = 'closed';
@@ -5107,6 +7581,7 @@ function showEmptyResults() {
     </div>`;
   document.getElementById('files-container').innerHTML = '<div class="empty-state">No result files yet.</div>';
   renderQaDrawer(null, []);
+  applyAnalysisCapabilityVisibility();
 }
 
 function showResultsShell() {
@@ -5119,6 +7594,7 @@ function lockSubmittedIntake() {
   const card = document.getElementById('upload-card');
   document.body.dataset.workflowState = 'launched';
   document.body.dataset.jobState = 'running';
+  syncClusterweaveGameHost({ lifecycle: 'pending', job: null });
   document.body.dataset.managementView = 'closed';
   if (card) card.classList.add('upload-card-locked');
   setCardCollapsed('upload-card', false);
@@ -5136,6 +7612,7 @@ function publicStageTimingEvent(event) {
 
 function applyStageTimingFromPublicEvents(job) {
   if (!activeStageState || !Array.isArray(job?.public_events)) return;
+  if (Number(job?.rerun_count || 0) > 0) return;
   job.public_events.forEach((event) => {
     const marker = publicStageTimingEvent(event);
     if (!marker) return;
@@ -5203,13 +7680,31 @@ async function deleteJob(event, jobId) {
 // ── Load / watch a job ─────────────────────────────────────────────────────
 async function loadJob(jobId, autoScroll = false, options = {}) {
   if (options.readToken) pendingReadTokens.set(String(jobId), options.readToken);
+  const publicResult = options.publicResult === true
+    || publicResultRunIds.has(String(jobId))
+    || !/^[0-9a-f]{8}$/i.test(String(jobId || ''));
+  if (publicResult) publicResultRunIds.add(String(jobId));
+  activePublicRunId = publicResult ? String(jobId) : '';
   const deferResultsShell = !!options.deferResultsShell;
   const seq = ++jobLoadSeq;
+  hydratePublicResultActivity.lastSignature = '';
+  hydratePublicResultActivity.inFlightSignature = '';
+  clusterweaveGameEpoch += 1;
+  syncClusterweaveGameHost({ lifecycle: 'loading', job: null });
   cancelActiveArchiveDownload();
   activeJobId = jobId;
+  resetGenomeProgressSnapshot(jobId);
+  const loadingContext = options.analysisScope
+    ? { scope: options.analysisScope, taxonCounts: options.taxonCounts || {} }
+    : jobHistoryById.get(String(jobId || ''));
+  setActiveSavedAnalysisContext(loadingContext || { scope: 'fungi', taxonCounts: {} });
   renderRunStack();
   if (rerunScopeOpenJobId && rerunScopeOpenJobId !== String(jobId) && options.source !== 'job-rerun') rerunScopeOpenJobId = '';
   logCursor   = 0;
+  logWindowStart = 0;
+  logTotal = 0;
+  logGeneration = '';
+  logHydratedJobId = '';
   stopPolling();
   markActiveJobCard(jobId);
   if (lastSubmittedRun && lastSubmittedRun.jobId !== jobId) dismissSubmissionConfirmation();
@@ -5223,6 +7718,8 @@ async function loadJob(jobId, autoScroll = false, options = {}) {
   activeResultCategory = 'figures';
   activeResultFiles = [];
   activeResultArtifacts = null;
+  activeResultArtifactByKey = new Map();
+  activeResultArtifactById = new Map();
   setResultFocusMode('overview');
   document.body.dataset.resultsDashboard = preferResultsDashboard ? 'open' : 'closed';
   if (preferResultsDashboard) {
@@ -5241,7 +7738,7 @@ async function loadJob(jobId, autoScroll = false, options = {}) {
   resetStages();
   if (canUseAdminSurfaces() && currentUIMode === 'guided') setUIMode('lab', { preserveDisclosure: true });
 
-  const job = await pollJobFinal(jobId, autoScroll, seq);
+  const job = await pollJobFinal(jobId, autoScroll, seq, JOB_INITIAL_LOAD_TIMEOUT_MS);
   if (!job || seq !== jobLoadSeq || jobId !== activeJobId) {
     if (seq === jobLoadSeq) {
       activeJobId = null;
@@ -5254,48 +7751,75 @@ async function loadJob(jobId, autoScroll = false, options = {}) {
     return null;
   }
   if (job.status === 'running' || job.status === 'pending') {
-    pollTimerId = setInterval(() => {
-      pollJobFinal(jobId, autoScroll, seq);
-    }, 1500);
+    scheduleJobPoll(jobId, autoScroll, seq, jobPollDelay(job));
   }
   return job;
 }
 
-async function pollJobFinal(jobId, autoScroll = false, seq = jobLoadSeq) {
-  const resp = await apiFetch(`api/jobs/${encodeURIComponent(jobId)}`, {}, { kind: 'job', jobId });
+async function pollJobFinal(
+  jobId,
+  autoScroll = false,
+  seq = jobLoadSeq,
+  timeoutMs = JOB_POLL_TIMEOUT_MS,
+) {
+  const abortController = typeof AbortController === 'function' ? new AbortController() : null;
+  const timeoutId = abortController ? setTimeout(() => abortController.abort(), timeoutMs) : null;
+  let resp;
+  try {
+    resp = await apiFetch(
+      publicResultRunIds.has(String(jobId))
+        ? `api/results/${encodeURIComponent(jobId)}`
+        : `api/jobs/${encodeURIComponent(jobId)}?compact=1`,
+      abortController ? { signal: abortController.signal } : {},
+      { kind: 'job', jobId },
+    );
+  } catch (error) {
+    if (seq === jobLoadSeq && jobId === activeJobId) {
+      window.ClusterWeaveGame?.setConnectionState?.('reconnecting');
+      syncClusterweaveGameHost({ lifecycle: 'pending', job: null });
+    }
+    return TRANSIENT_JOB_POLL;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+  if ((resp.status === 429 || resp.status >= 500) && seq === jobLoadSeq && jobId === activeJobId) {
+    window.ClusterWeaveGame?.setConnectionState?.('reconnecting');
+    syncClusterweaveGameHost({ lifecycle: 'pending', job: null });
+    return TRANSIENT_JOB_POLL;
+  }
   if (!resp.ok || seq !== jobLoadSeq || jobId !== activeJobId) return null;
+  window.ClusterWeaveGame?.setConnectionState?.('connected');
   const job = await resp.json();
   if (seq !== jobLoadSeq || jobId !== activeJobId) return null;
   const previousJob = activeJobMeta;
+  if (!Array.isArray(job.public_events) && Array.isArray(previousJob?.public_events)) {
+    job.public_events = previousJob.public_events;
+  }
+  if (!Array.isArray(job.genome_progress) && Array.isArray(previousJob?.genome_progress)) {
+    job.genome_progress = previousJob.genome_progress;
+  }
   activeJobMeta = job;
+  const publicRunId = adoptPublicRunIdentity(jobId, job);
+  setActiveSavedAnalysisContext(job);
   renderRunStack();
   renderQaDrawer(job, activeResultFiles);
+  if (!canUseAdminSurfaces()) renderPublicQaLog(job);
   setWorkflowExperienceState(job);
-  rememberOpenedRun(jobId, readTokenForJob(jobId), job);
+  rememberOpenedRun(publicRunId, readTokenForJob(publicRunId) || readTokenForJob(jobId), job);
   recordWeaveActivity(job);
   if (!activeStageState || activeStageState.jobId !== jobId) initializeStageState(job);
   applyJobStageSnapshot(job);
+  const operationalStatus = String(job.status || '').trim().toLowerCase();
+  if (!canUseAdminSurfaces() || operationalStatus === 'running' || operationalStatus === 'pending') {
+    void hydratePublicResultActivity(jobId, seq);
+  }
   if (canUseAdminSurfaces()) {
-    const logResp = await apiFetch(`api/jobs/${encodeURIComponent(jobId)}/logs?since=${encodeURIComponent(logCursor)}`, {}, { kind: 'job', jobId });
+    await syncActiveAdminLogs(autoScroll);
     if (seq !== jobLoadSeq || jobId !== activeJobId) return null;
-    if (logResp.ok) {
-      const { lines } = await logResp.json();
-      if (seq !== jobLoadSeq || jobId !== activeJobId) return null;
-      for (const line of lines) {
-        appendLogLine(line);
-        updateStageBar(line);
-        logCursor++;
-        if (autoScroll) scrollToBottom();
-      }
-      document.getElementById('log-count').textContent = `${logCursor} lines`;
-      renderQaDrawer(job, activeResultFiles);
-    }
   }
   updateProgressBadge(job.status);
-  if (job.status !== 'running' && job.status !== 'pending') {
-    stopPolling();
-    await loadResults(jobId, job.status, seq, job);
-  } else {
+  if (job.status !== 'running' && job.status !== 'pending') stopPolling();
+  if (!previousJob || previousJob.status !== job.status || previousJob.stage !== job.stage) {
     await loadResults(jobId, job.status, seq, job);
   }
   if (previousJob && (previousJob.status !== job.status || previousJob.stage !== job.stage)) {
@@ -5304,34 +7828,241 @@ async function pollJobFinal(jobId, autoScroll = false, seq = jobLoadSeq) {
   return job;
 }
 
+function jobPollDelay(job) {
+  if (job === TRANSIENT_JOB_POLL) return JOB_POLL_RETRY_DELAY_MS;
+  const logCount = Math.max(0, Number(job?.log_count) || 0);
+  return logCount >= JOB_POLL_LONG_LOG_THRESHOLD ? JOB_POLL_LONG_LOG_DELAY_MS : JOB_POLL_BASE_DELAY_MS;
+}
+
+function scheduleJobPoll(jobId, autoScroll = false, seq = jobLoadSeq, delay = JOB_POLL_BASE_DELAY_MS) {
+  stopPolling();
+  pollTimerId = setTimeout(async () => {
+    pollTimerId = null;
+    if (seq !== jobLoadSeq || jobId !== activeJobId) return;
+    let job;
+    try {
+      job = await pollJobFinal(jobId, autoScroll, seq);
+    } catch (error) {
+      job = TRANSIENT_JOB_POLL;
+      window.ClusterWeaveGame?.setConnectionState?.('reconnecting');
+    }
+    if (seq !== jobLoadSeq || jobId !== activeJobId || !job) return;
+    if (job === TRANSIENT_JOB_POLL || job.status === 'running' || job.status === 'pending') {
+      scheduleJobPoll(
+        jobId,
+        autoScroll,
+        seq,
+        jobPollDelay(job),
+      );
+    }
+  }, Math.max(250, Number(delay) || JOB_POLL_BASE_DELAY_MS));
+}
+
 function stopPolling() {
   if (pollTimerId) {
-    clearInterval(pollTimerId);
+    clearTimeout(pollTimerId);
     pollTimerId = null;
   }
 }
 
 // ── Log rendering ──────────────────────────────────────────────────────────
-function appendLogLine(text) {
+function publicQaEventLine(event) {
+  const marker = normalizePublicWeaveEvent(event);
+  if (!marker) return '';
+  const stage = String(marker.stage || 'prep').replace(/_/g, ' ').toUpperCase();
+  const title = compactActivityChipText(marker.title || marker.status || 'Run update', 72);
+  const meta = compactActivityChipText(marker.meta || marker.time || '', 48);
+  return `[${stage}] ${title}${meta ? ` - ${meta}` : ''}`;
+}
+
+function renderPublicQaLog(job) {
   const term = document.getElementById('log-terminal');
-  if (!term) return;
-  const div  = document.createElement('div');
+  if (!term || canUseAdminSurfaces()) return;
+  const lines = Array.isArray(job?.public_events)
+    ? job.public_events.map(publicQaEventLine).filter(Boolean)
+    : [];
+  if (!lines.length && job) {
+    const fallback = job.error_summary || job.error || queueStatusLabel(job) || jobStageDisplay(job);
+    if (fallback) lines.push(`[${statusLabel(job.status).toUpperCase()}] ${fallback}`);
+  }
+  term.innerHTML = lines.map(line => `<div class="log-line public-event${/failed|error|stopped/i.test(line) ? ' err' : ''}">${escapeHtml(line)}</div>`).join('');
+  const count = lines.length;
+  setDrawerText('log-count', `${count.toLocaleString()} public ${count === 1 ? 'event' : 'events'}`);
+}
+async function hydratePublicResultActivity(jobId, seq = jobLoadSeq) {
+  const runId = publicRunIdForJob(jobId);
+  const signature = `${runId}:${Number(activeJobMeta?.log_count || 0)}:${String(activeJobMeta?.status || '')}:${String(activeJobMeta?.stage || '')}`;
+  const requestSignature = `${seq}:${signature}`;
+  if (!runId
+      || hydratePublicResultActivity.lastSignature === signature
+      || hydratePublicResultActivity.inFlightSignature === requestSignature) return;
+  hydratePublicResultActivity.inFlightSignature = requestSignature;
+  try {
+    const resp = await apiFetch(
+      `api/results/${encodeURIComponent(runId)}/activity`,
+      { cache: 'no-store' },
+      { kind: 'job', jobId: runId },
+    );
+    if (!resp.ok) return;
+    const payload = await resp.json();
+    if (seq !== jobLoadSeq || jobId !== activeJobId || runId !== publicRunIdForJob(jobId)) return;
+    hydratePublicResultActivity.lastSignature = signature;
+    const publicEvents = Array.isArray(payload.public_events) ? payload.public_events : [];
+    const genomeProgress = Array.isArray(payload.genome_progress) ? payload.genome_progress : [];
+    activeJobMeta = {
+      ...(activeJobMeta || {}),
+      public_events: publicEvents,
+      genome_progress: genomeProgress,
+    };
+    renderPublicQaLog(activeJobMeta);
+    renderQaDrawer(activeJobMeta, activeResultFiles);
+    recordWeaveActivity(activeJobMeta);
+    if (!activeStageState || activeStageState.jobId !== jobId) initializeStageState(activeJobMeta);
+    applyJobStageSnapshot(activeJobMeta);
+  } catch (error) {
+  } finally {
+    if (hydratePublicResultActivity.inFlightSignature === requestSignature) {
+      hydratePublicResultActivity.inFlightSignature = '';
+    }
+  }
+}
+
+function createLogLineElement(text) {
+  const div = document.createElement('div');
   div.className = 'log-line';
   if (/error|fatal|failed/i.test(text)) div.classList.add('err');
   else if (/warn/i.test(text)) div.classList.add('warn');
   else if (/=== stage:/i.test(text)) div.classList.add('stage');
   else if (/success|complete|finished/i.test(text)) div.classList.add('ok');
   div.textContent = text;
-  term.appendChild(div);
+  return div;
+}
+
+function appendLogLine(text) {
+  const term = document.getElementById('log-terminal');
+  if (term) term.appendChild(createLogLineElement(text));
+}
+
+function updateAdminLogControls() {
+  const button = document.getElementById('load-earlier-logs');
+  const hydrated = canUseAdminSurfaces() && logHydratedJobId === activeJobId;
+  if (button) {
+    button.hidden = !hydrated || logWindowStart <= 0;
+    button.disabled = !!logHydrationInFlight;
+  }
+  if (!hydrated) return;
+  const visible = Math.max(0, logCursor - logWindowStart);
+  setDrawerText('log-count', `${Number(logTotal).toLocaleString()} total lines`);
+  setDrawerText(
+    'qa-log-count-card',
+    `Showing ${Number(visible).toLocaleString()} of ${Number(logTotal).toLocaleString()} lines`,
+  );
+}
+
+async function hydrateQaLogs({ tail = true, before = null, autoScroll = false } = {}) {
+  if (!canUseAdminSurfaces() || !activeJobId || activeOpsTab !== 'qa') return;
+  if (logHydrationInFlight) return logHydrationInFlight;
+  const jobId = String(activeJobId);
+  const seq = jobLoadSeq;
+  const previousGeneration = logGeneration;
+  const query = before === null
+    ? `tail=${QA_LOG_PAGE_SIZE}`
+    : `before=${Math.max(0, Number(before) || 0)}&limit=${QA_LOG_PAGE_SIZE}`;
+  const request = (async () => {
+    const resp = await apiFetch(
+      `api/jobs/${encodeURIComponent(jobId)}/logs?${query}`,
+      {},
+      { kind: 'admin' },
+    );
+    if (!resp.ok || seq !== jobLoadSeq || jobId !== activeJobId) return;
+    const page = await resp.json();
+    if (seq !== jobLoadSeq || jobId !== activeJobId) return;
+    const generation = String(page.generation || '');
+    const prepend = before !== null && previousGeneration && generation === previousGeneration;
+    const term = document.getElementById('log-terminal');
+    if (!term) return;
+    const previousHeight = term.scrollHeight;
+    const fragment = document.createDocumentFragment();
+    (page.lines || []).forEach(line => {
+      fragment.appendChild(createLogLineElement(line));
+      if (!prepend) updateStageBar(line);
+    });
+    if (prepend) term.prepend(fragment);
+    else {
+      term.innerHTML = '';
+      term.appendChild(fragment);
+    }
+    logWindowStart = Math.max(0, Number(page.start) || 0);
+    const pageEnd = Math.max(0, Number(page.end) || 0);
+    logCursor = prepend ? Math.max(logCursor, pageEnd) : pageEnd;
+    logTotal = Math.max(logCursor, Number(page.total) || 0);
+    logGeneration = generation;
+    logHydratedJobId = jobId;
+    if (prepend) term.scrollTop += term.scrollHeight - previousHeight;
+    else if (autoScroll) scrollToBottom();
+    renderQaDrawer(activeJobMeta, activeResultFiles);
+    updateAdminLogControls();
+  })();
+  logHydrationInFlight = request;
+  updateAdminLogControls();
+  try {
+    await request;
+  } finally {
+    if (logHydrationInFlight === request) logHydrationInFlight = null;
+    updateAdminLogControls();
+  }
+}
+
+async function loadEarlierLogs() {
+  if (logWindowStart <= 0) return;
+  await hydrateQaLogs({ tail: false, before: logWindowStart, autoScroll: false });
+}
+
+async function syncActiveAdminLogs(autoScroll = false) {
+  if (!canUseAdminSurfaces() || activeOpsTab !== 'qa' || !activeJobId) return;
+  if (logHydratedJobId !== activeJobId) {
+    await hydrateQaLogs({ tail: true, autoScroll: true });
+    return;
+  }
+  const jobId = String(activeJobId);
+  const resp = await apiFetch(
+    `api/jobs/${encodeURIComponent(jobId)}/logs?since=${encodeURIComponent(logCursor)}`,
+    {},
+    { kind: 'admin' },
+  );
+  if (!resp.ok || jobId !== activeJobId) return;
+  const page = await resp.json();
+  if (logGeneration && page.generation && page.generation !== logGeneration) {
+    logHydratedJobId = '';
+    logGeneration = '';
+    await hydrateQaLogs({ tail: true, autoScroll: true });
+    return;
+  }
+  for (const line of (page.lines || [])) {
+    appendLogLine(line);
+    updateStageBar(line);
+  }
+  logCursor = Math.max(0, Number(page.total) || logCursor);
+  logTotal = logCursor;
+  if (page.generation) logGeneration = page.generation;
+  if (autoScroll && (page.lines || []).length) scrollToBottom();
+  renderQaDrawer(activeJobMeta, activeResultFiles);
+  updateAdminLogControls();
 }
 
 function clearLog() {
   const term = document.getElementById('log-terminal');
   if (term) term.innerHTML = '';
   logCursor = 0;
+  logWindowStart = 0;
+  logTotal = 0;
+  logGeneration = '';
+  logHydratedJobId = '';
   setDrawerText('log-count', '0 lines');
+  updateAdminLogControls();
   renderQaDrawer(activeJobMeta, activeResultFiles);
 }
+
 function scrollElementToBottom(el) {
   if (!el) return;
   el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
@@ -5350,8 +8081,69 @@ function scrollToBottom() {
 }
 
 // ── Stage bar ──────────────────────────────────────────────────────────────
+function jobHasExplicitStageSettings(job) {
+  const settings = jobStageSettings(job);
+  return [
+    'run_annotation', 'run_bigscape', 'run_summary', 'run_crosswalk',
+    'run_clinker', 'run_figures', 'run_nplinker',
+  ].some(key => settings[key] !== undefined && settings[key] !== null && settings[key] !== '');
+}
+
+function jobStageSettings(job) {
+  if (job?.rerun_stage_settings && typeof job.rerun_stage_settings === 'object') {
+    return job.rerun_stage_settings;
+  }
+  if (job?.submission_settings && typeof job.submission_settings === 'object') {
+    return job.submission_settings;
+  }
+  return (job && job.settings) || {};
+}
+
+function resultOrEventIndicatesStage(job, key, files = activeResultFiles) {
+  if (key === 'prep') return true;
+  const eventStages = new Set((Array.isArray(job?.public_events) ? job.public_events : [])
+    .map(normalizePublicWeaveEvent)
+    .filter(Boolean)
+    .map(event => event.stage)
+    .filter(Boolean));
+  if (eventStages.has(key)) return true;
+  const normalizedFiles = (files || []).map(path => normalizedResultPath(path)).filter(Boolean);
+  const hasFile = (pattern) => normalizedFiles.some(path => pattern.test(path));
+  if (key === 'annotation') return hasFile(/(^|\/)(antismash|funbgcex)(\/|$)/i);
+  if (key === 'bigscape') return hasFile(/(^|\/)(bigscape|big-scape)(\/|$)/i);
+  if (key === 'summary') return hasFile(/(^|\/)(summary_tables|summaries|atlas|shared_family|crosswalk)(\/|$)/i);
+  if (key === 'clinker') return hasFile(/(^|\/)(clinker|synteny)(\/|$)/i);
+  if (key === 'figures') return hasFile(/(^|\/)(figures|visuals)(\/|$)/i) || normalizedFiles.some(path => /\.(svg|png|jpe?g|webp)$/i.test(path) && /(^|\/)(figures|plots|summary)(\/|$)/i.test(path));
+  if (key === 'nplinker') return hasFile(/(^|\/)nplinker(\/|$)/i);
+  return false;
+}
+
+function inferredSuccessfulStageSet(job, files = activeResultFiles) {
+  const enabled = new Set(['prep']);
+  STAGES.forEach((stage) => {
+    if (stage.key !== 'prep' && resultOrEventIndicatesStage(job, stage.key, files)) enabled.add(stage.key);
+  });
+  if (enabled.has('summary')) enabled.add('bigscape');
+  if (enabled.has('figures')) enabled.add('summary');
+  return enabled;
+}
+
+function syncInferredStageState(job = activeJobMeta) {
+  if (!activeStageState || !job || activeStageState.jobId !== job.id) return;
+  if (jobHasExplicitStageSettings(job)) return;
+  if (String(job.status || '').toLowerCase() !== 'success') return;
+  const next = inferredSuccessfulStageSet(job, activeResultFiles);
+  const same = next.size === activeStageState.enabled.size && Array.from(next).every(key => activeStageState.enabled.has(key));
+  if (same) return;
+  activeStageState.enabled = next;
+  activeStageState.completed = new Set(Array.from(activeStageState.completed).filter(key => next.has(key)));
+  next.forEach(key => activeStageState.completed.add(key));
+  activeStageState.current = null;
+  activeStageState.failed = null;
+}
+
 function jobStageEnabled(job, key) {
-  const settings = (job && job.settings) || {};
+  const settings = jobStageSettings(job);
   const setting = (name, defaultValue) => {
     if (settings[name] === undefined || settings[name] === null || settings[name] === '') return defaultValue;
     if (typeof settings[name] === 'boolean') return settings[name];
@@ -5635,6 +8427,104 @@ function setWorkflowExperienceState(job = activeJobMeta) {
   else if (status === 'pending' || activeJobId) state = 'launched';
   document.body.dataset.workflowState = state;
   document.body.dataset.jobState = state === 'launched' ? 'running' : state;
+  syncClusterweaveGameHost({ lifecycle: status === 'pending' ? 'pending' : state, job });
+}
+
+const CLUSTERWEAVE_GAME_PHASE_BY_STAGE = Object.freeze({
+  prep: 'excavate',
+  annotation: 'excavate',
+  bigscape: 'classify',
+  summary: 'classify',
+  clinker: 'compare',
+  figures: 'contextualize',
+  nplinker: 'contextualize',
+});
+
+function clusterweaveGamePhase(job = activeJobMeta) {
+  const stage = currentWorkflowStage() || jobCurrentStageKey(job) || 'prep';
+  return CLUSTERWEAVE_GAME_PHASE_BY_STAGE[stage] || 'excavate';
+}
+
+function syncClusterweaveGameHost(options = {}) {
+  const controller = window.ClusterWeaveGame;
+  if (!controller?.setHostState) return;
+  const hasJob = Object.prototype.hasOwnProperty.call(options, 'job');
+  const job = hasJob ? options.job : activeJobMeta;
+  let lifecycle = String(options.lifecycle || '').toLowerCase();
+  if (!lifecycle) {
+    const status = String(job?.status || '').toLowerCase();
+    if (status === 'success' || status === 'failed' || status === 'running' || status === 'pending') lifecycle = status;
+    else lifecycle = activeJobId ? 'loading' : 'idle';
+  }
+  if (lifecycle === 'complete') lifecycle = 'success';
+  if (lifecycle === 'launched') lifecycle = 'pending';
+  controller.setHostState({
+    epoch: clusterweaveGameEpoch,
+    lifecycle,
+    phase: clusterweaveGamePhase(job),
+  });
+}
+
+function setClusterweaveGameDnaSuspended(suspended) {
+  clusterweaveGameDnaSuspended = !!suspended;
+  document.body.dataset.clusterweaveGameAnimating = clusterweaveGameDnaSuspended ? 'true' : 'false';
+  syncBgcWorkflowDnaSuspension();
+}
+
+function bgcWorkflowDnaShouldSuspend() {
+  return clusterweaveGameDnaSuspended || bgcWorkflowDnaGenomeLayerSuspended;
+}
+
+function syncBgcWorkflowDnaSuspension() {
+  if (!bgcWorkflowDna) return;
+  if (bgcWorkflowDnaShouldSuspend()) bgcWorkflowDna.suspend?.();
+  else bgcWorkflowDna.resume?.();
+}
+
+function setBgcWorkflowGenomeLayerSuspended(suspended) {
+  bgcWorkflowDnaGenomeLayerSuspended = !!suspended;
+  syncBgcWorkflowDnaSuspension();
+}
+
+function setBgcWorkflowAggregatePresentationSuspended(suspended) {
+  const hidden = !!suspended;
+  [
+    document.getElementById('bgc-tool-activity-chip'),
+    document.querySelector('#bgc-workflow-station > .workflow-tool-status'),
+    document.querySelector('#bgc-workflow-station > .workflow-caption'),
+    document.getElementById('bgc-dna-progress-region'),
+  ].filter(Boolean).forEach((node) => {
+    if (hidden) node.setAttribute('aria-hidden', 'true');
+    else node.removeAttribute('aria-hidden');
+    node.inert = hidden;
+  });
+  const nativeProgress = document.getElementById('bgc-workflow-native-progress');
+  if (nativeProgress) nativeProgress.hidden = hidden;
+}
+
+function wireClusterweaveGameAdapter() {
+  if (clusterweaveGameAdapterWired) return;
+  clusterweaveGameAdapterWired = true;
+  window.addEventListener('clusterweave:game-animation', (event) => {
+    setClusterweaveGameDnaSuspended(Boolean(event?.detail?.active));
+  });
+  window.addEventListener('online', () => {
+    void fetchSystemStatus({ renderRuntime: false, renderWorker: false });
+  });
+  window.addEventListener('clusterweave:game-workflow-focus', (event) => {
+    const lifecycle = event?.detail?.lifecycle === 'success' ? 'success' : 'failed';
+    const handoff = document.getElementById('clusterweave-game-handoff');
+    if (handoff) {
+      handoff.textContent = lifecycle === 'success'
+        ? 'Results ready. Candidate Weave closed and focus moved to Result blocks.'
+        : 'Workflow needs attention. Candidate Weave closed and focus moved to the workflow status.';
+    }
+    const target = lifecycle === 'success'
+      ? document.getElementById('results-card')
+      : document.getElementById('workflow-progress-panel');
+    window.requestAnimationFrame(() => target?.focus?.({ preventScroll: true }));
+  });
+  syncClusterweaveGameHost();
 }
 
 function bgcWorkflowStages(job = activeJobMeta) {
@@ -5643,7 +8533,7 @@ function bgcWorkflowStages(job = activeJobMeta) {
 
 function bgcStageStatus(stage, currentKey, jobStatus) {
   const key = stage.key;
-  if (activeStageState && !activeStageState.enabled.has(key)) return 'pending';
+  if (activeStageState && !activeStageState.enabled.has(key)) return 'skipped';
   if (jobStatus === 'success') return 'complete';
   if (activeStageState?.failed === key || (jobStatus === 'failed' && currentKey === key)) return 'error';
   if (activeStageState?.completed.has(key)) return 'complete';
@@ -5734,9 +8624,17 @@ function latestToolActivityParts(job, currentKey) {
   return progress || heartbeat ? { progress, heartbeat } : null;
 }
 
+function workflowPayloadHasSkippedStages(payload = null) {
+  const steps = payload && Array.isArray(payload.steps) ? payload.steps : null;
+  if (steps) return steps.some(step => step.status === 'skipped');
+  return !!(activeStageState && workflowStageList(activeJobMeta).some(stage => !activeStageState.enabled.has(stage.key)));
+}
+
 function bgcActivityChipPayload(job, state, currentKey, fallbackTool) {
   if (state === 'idle') return { text: 'WAITING', title: 'Waiting for submitted inputs' };
-  if (state === 'complete') return { text: 'COMPLETE', title: 'All workflow tools complete' };
+  if (state === 'complete') return workflowPayloadHasSkippedStages()
+    ? { text: 'SELECTED COMPLETE', title: 'Selected workflow tools complete; downstream stages skipped' }
+    : { text: 'COMPLETE', title: 'All workflow tools complete' };
   if (state === 'failed') return { text: 'NEEDS REVIEW', title: job?.error_summary || job?.error || 'Workflow needs attention' };
   const activity = latestToolActivityParts(job, currentKey);
   if (activity) {
@@ -5771,6 +8669,424 @@ function clampUnit(value) {
   return Math.max(0, Math.min(1, number));
 }
 
+// BEGIN GENOME_PROGRESS_PURE
+function safeGenomeProgressText(value, fallback = 'Working', maxLength = 120) {
+  let text = String(value ?? '')
+    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!text) return fallback;
+  const unsafe = [
+    /\b(?:authorization|proxy-authorization|cookie|set-cookie)\s*:/i,
+    /\b(?:basic|bearer)\s+\S+/i,
+    /(?:[?&]|\b)(?:access[_-]?token|api[_-]?key|auth[_-]?token|token|secret|password|passwd|credential|signature)\s*=\s*[^\s&]+/i,
+    /\b[A-Za-z][A-Za-z0-9_-]*(?:TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|PRIVATE_KEY|CREDENTIAL)[A-Za-z0-9_-]*\s*[:=]\s*\S+/,
+    /\bfile:\/\//i,
+    /(?:^|[\s=:(])[A-Za-z]:[\\/](?:[^\s]+)/,
+    /(?:^|[\s=:(])\/(?:[^/\s]+\/)+[^\s)]*/,
+  ];
+  if (unsafe.some(pattern => pattern.test(text))) return fallback;
+  if (/^https?:\/\//i.test(text)) return fallback;
+  text = text.replace(/[^A-Za-z0-9 ._:+/%()|'’-]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!text) return fallback;
+  return text.length > maxLength ? `${text.slice(0, Math.max(1, maxLength - 3)).trim()}...` : text;
+}
+
+function safeGenomeProgressLabel(item, index) {
+  const raw = item?.display_label
+    ?? item?.displayLabel
+    ?? item?.organism_name
+    ?? item?.organism
+    ?? item?.label
+    ?? item?.genome_id
+    ?? item?.genome
+    ?? `Genome ${index + 1}`;
+  const basename = String(raw ?? '').replace(/\\/g, '/').split('/').pop();
+  const display = basename.replace(/_/g, ' ').trim();
+  return safeGenomeProgressText(display || basename, `Genome ${index + 1}`, 72);
+}
+
+function genomeProgressPercent(item) {
+  const explicitPercent = item?.percent ?? item?.progress_percent ?? item?.progressPercent;
+  const raw = explicitPercent ?? item?.progress ?? 0;
+  let number = Number(raw);
+  if (!Number.isFinite(number)) number = 0;
+  if (explicitPercent === undefined && number > 0 && number <= 1) number *= 100;
+  return Math.max(0, Math.min(100, Math.round(number)));
+}
+
+function genomeProgressTaxon(value) {
+  const taxon = String(value || '').trim().toLowerCase();
+  if (taxon === 'fungi' || taxon === 'fungus' || taxon === 'fungal') return 'Fungi';
+  if (taxon === 'bacteria' || taxon === 'bacterium' || taxon === 'bacterial') return 'Bacteria';
+  return 'Genome';
+}
+
+function normalizeGenomeProgressItem(item, index) {
+  if (!item || typeof item !== 'object') return null;
+  const percent = genomeProgressPercent(item);
+  const rawStatus = String(item.status ?? item.state ?? item.outcome ?? '').trim().toLowerCase().replace(/\s+/g, '_');
+  const message = safeGenomeProgressText(
+    item.message ?? item.detail ?? item.status_text ?? item.statusText ?? item.log,
+    percent >= 100 ? 'Genome milestone finished' : 'Waiting for the next genome milestone',
+  );
+  const messageState = /\b(?:dropped|failed|error|unable|insufficient|needs review)\b/i.test(message)
+    ? 'warning'
+    : /\b(?:complete|completed|finished|not applicable|skipped)\b/i.test(message)
+      ? 'complete'
+      : '';
+  const status = rawStatus || messageState || (percent >= 100 ? 'complete' : percent > 0 ? 'running' : 'waiting');
+  const warning = status === 'complete_with_warning'
+    || GENOME_PROGRESS_WARNING_STATES.has(status)
+    || messageState === 'warning';
+  const terminal = item.terminal === true
+    || GENOME_PROGRESS_TERMINAL_STATES.has(status)
+    || (percent >= 100 && status !== 'running');
+  const stage = safeGenomeProgressText(
+    item.milestone ?? item.tool ?? item.stage ?? item.phase,
+    terminal ? (warning ? 'Needs review' : 'Complete') : 'Queued',
+    42,
+  );
+  const tool = safeGenomeProgressText(item.tool ?? item.milestone ?? item.stage, '', 42);
+  const rawAnnotationMethod = String(
+    item.annotation_method ?? item.annotationMethod ?? item.effective_prediction_method ?? '',
+  ).trim().toLowerCase().replace(/-/g, '_');
+  const annotationMethod = ['existing_cds', 'funannotate', 'braker3', 'prodigal'].includes(rawAnnotationMethod)
+    ? rawAnnotationMethod
+    : '';
+  const warningTool = safeGenomeProgressText(item.warning_tool ?? item.warningTool, '', 42);
+  const warningMessage = safeGenomeProgressText(
+    item.warning_message ?? item.warningMessage,
+    '',
+    180,
+  );
+  const rawStageStates = item.stage_states ?? item.stageStates;
+  const stageStates = {};
+  if (rawStageStates && typeof rawStageStates === 'object' && !Array.isArray(rawStageStates)) {
+    Object.entries(rawStageStates).forEach(([key, value]) => {
+      if (!value || typeof value !== 'object') return;
+      const normalizedKey = String(key || '').trim().toLowerCase().replace(/-/g, '_');
+      if (!['genome_acquired', 'funannotate', 'antismash', 'funbgcex', 'complete'].includes(normalizedKey)) return;
+      const normalizedStatus = String(value.status || 'queued').trim().toLowerCase();
+      stageStates[normalizedKey] = {
+        status: ['complete', 'running', 'failed', 'queued', 'waiting'].includes(normalizedStatus)
+          ? normalizedStatus : 'queued',
+        message: safeGenomeProgressText(value.message, '', 180),
+      };
+    });
+  }
+  const id = safeGenomeProgressText(item.genome_id ?? item.genome ?? item.id, `genome-${index + 1}`, 96);
+  return {
+    id,
+    label: safeGenomeProgressLabel(item, index),
+    taxon: genomeProgressTaxon(item.taxon ?? item.taxon_group ?? item.domain),
+    percent,
+    status,
+    stage,
+    tool,
+    annotationMethod,
+    message,
+    warningTool,
+    warningMessage,
+    stageStates,
+    updatedAt: String(item.updated_at ?? item.updatedAt ?? '').trim(),
+    terminal,
+    warning,
+  };
+}
+
+function resetGenomeProgressSnapshot(jobId = '', rerunCount = 0) {
+  genomeProgressSnapshotKey = `${String(jobId || '')}\u001f${Math.max(0, Number(rerunCount) || 0)}`;
+  genomeProgressSnapshot = new Map();
+}
+
+function genomeProgressAttemptKey(job) {
+  const jobId = String(job?.id ?? job?.job_id ?? activeJobId ?? '');
+  const rerunCount = Math.max(0, Number(job?.rerun_count ?? job?.rerunCount) || 0);
+  return `${jobId}\u001f${rerunCount}`;
+}
+
+function genomeProgressExplicitRestart(previous, next) {
+  if (!previous?.terminal || next?.percent !== 0) return false;
+  const nextTime = parseTimestampMs(next.updatedAt);
+  const previousTime = parseTimestampMs(previous.updatedAt);
+  if (nextTime !== null && previousTime !== null && nextTime <= previousTime) return false;
+  return /\b(?:starting|restarting|rerun)\b/i.test(next.message || '');
+}
+
+function genomeProgressSnapshotPrefersPrevious(previous, next) {
+  if (!previous || genomeProgressExplicitRestart(previous, next)) return false;
+  const previousTime = parseTimestampMs(previous.updatedAt);
+  const nextTime = parseTimestampMs(next.updatedAt);
+  if (previousTime !== null && nextTime !== null && nextTime < previousTime) return true;
+  if (next.percent < previous.percent) return true;
+  if (previous.terminal && !next.terminal) return true;
+  return previousTime !== null && nextTime === null && next.percent <= previous.percent;
+}
+
+function normalizeGenomeProgressItems(job) {
+  const source = Array.isArray(job?.genome_progress)
+    ? job.genome_progress
+    : Array.isArray(job?.genomeProgress)
+      ? job.genomeProgress
+      : [];
+  const keyed = new Map();
+  source.forEach((item, index) => {
+    const normalized = normalizeGenomeProgressItem(item, index);
+    if (!normalized) return;
+    const key = String(normalized.id || normalized.label).toLowerCase();
+    if (keyed.has(key)) keyed.delete(key);
+    keyed.set(key, normalized);
+  });
+  const attemptKey = genomeProgressAttemptKey(job);
+  if (genomeProgressSnapshotKey !== attemptKey) resetGenomeProgressSnapshot(
+    job?.id ?? job?.job_id ?? activeJobId ?? '',
+    job?.rerun_count ?? job?.rerunCount ?? 0,
+  );
+  const reconciled = new Map();
+  genomeProgressSnapshot.forEach((previous, key) => {
+    const next = keyed.get(key);
+    reconciled.set(
+      key,
+      !next || genomeProgressSnapshotPrefersPrevious(previous, next) ? previous : next,
+    );
+  });
+  keyed.forEach((next, key) => {
+    if (!reconciled.has(key)) reconciled.set(key, next);
+  });
+  const items = Array.from(reconciled.values());
+  genomeProgressSnapshot = new Map(items.map(item => [String(item.id || item.label).toLowerCase(), item]));
+  return items;
+}
+
+function genomeProgressStages(item) {
+  if (item.taxon === 'Bacteria') return ['Genome acquired', 'antiSMASH', 'Complete'];
+  const usesFunannotate = item.annotationMethod === 'funannotate'
+    || /\bfunannotate\b/i.test(`${item.stage || ''} ${item.tool || ''}`);
+  return usesFunannotate
+    ? ['Genome acquired', 'Funannotate', 'antiSMASH', 'FunBGCeX', 'Complete']
+    : ['Genome acquired', 'antiSMASH', 'FunBGCeX', 'Complete'];
+}
+
+function genomeProgressCurrentStageIndex(item, stages) {
+  if (item.terminal && !item.warning) return stages.length - 1;
+  const stage = String(item.stage || '').toLowerCase();
+  const tool = String(item.tool || '').toLowerCase();
+  const combined = `${stage} ${tool}`;
+  const acquiredIndex = 0;
+  const funannotateIndex = stages.indexOf('Funannotate');
+  const antismashIndex = stages.indexOf('antiSMASH');
+  const funbgcexIndex = stages.indexOf('FunBGCeX');
+  if (item.taxon === 'Bacteria') {
+    if (/complete/.test(stage)) return stages.length - 1;
+    if (/antismash|prodigal/.test(combined)) return antismashIndex;
+    if (item.warning || /download|ncbi/.test(combined)) return acquiredIndex;
+    if (GENOME_PROGRESS_ACTIVE_STATES.has(item.status) || item.percent > 8) return antismashIndex;
+    return acquiredIndex;
+  }
+  if (/complete/.test(stage)) return stages.length - 1;
+  if (/funbgcex/.test(combined)) return funbgcexIndex;
+  if (/antismash/.test(combined)) return antismashIndex;
+  if (funannotateIndex >= 0 && /annotat|funannotate|predict/.test(combined)) {
+    return funannotateIndex;
+  }
+  return acquiredIndex;
+}
+
+function genomeProgressStageKey(label) {
+  return ({
+    'Genome acquired': 'genome_acquired',
+    Funannotate: 'funannotate',
+    antiSMASH: 'antismash',
+    FunBGCeX: 'funbgcex',
+    Complete: 'complete',
+  })[label] || '';
+}
+
+function genomeProgressStageFraction(item, key, status) {
+  if (status === 'complete') return 1;
+  if (!['running', 'failed'].includes(status)) return 0;
+  const ranges = {
+    genome_acquired: [0, 8],
+    funannotate: [10, 25],
+    antismash: [35, 70],
+    funbgcex: [80, 100],
+    complete: [100, 100],
+  };
+  const [start, end] = ranges[key] || [0, 100];
+  if (end <= start) return item.terminal ? 1 : 0;
+  return Math.max(0, Math.min(1, (item.percent - start) / (end - start)));
+}
+
+function genomeProgressStageModel(item) {
+  const stages = genomeProgressStages(item);
+  const currentIndex = genomeProgressCurrentStageIndex(item, stages);
+  return stages.map((label, index) => {
+    const key = genomeProgressStageKey(label);
+    const structured = item.stageStates?.[key];
+    let status = 'queued';
+    if (structured) {
+      status = structured.status === 'failed' ? 'failed'
+        : structured.status === 'running' ? 'running'
+          : structured.status === 'complete' ? 'complete' : 'queued';
+    } else {
+      const acquiredAndQueued = item.percent > 0 && item.status === 'queued' && currentIndex === 0;
+      const complete = item.terminal && !item.warning
+        ? index <= currentIndex
+        : index < currentIndex || (acquiredAndQueued && index === 0);
+      const current = index === currentIndex && (GENOME_PROGRESS_ACTIVE_STATES.has(item.status) || item.warning);
+      status = complete ? 'complete' : current ? (item.warning ? 'failed' : 'running') : 'queued';
+    }
+    const progress = Math.round(genomeProgressStageFraction(item, key, status) * 100);
+    return {
+      key,
+      label,
+      status,
+      progress,
+      stateClass: status === 'complete' ? 'is-complete'
+        : status === 'running' ? 'is-active'
+          : status === 'failed' ? 'is-warning' : 'is-upcoming',
+      stateLabel: status === 'failed' ? 'error'
+        : status === 'running' ? 'current'
+          : status === 'complete' ? 'complete' : 'queued',
+    };
+  });
+}
+
+function renderGenomeProgressStages(item, model = genomeProgressStageModel(item)) {
+  return `<ol class="genome-progress-stages" style="--genome-stage-count: ${model.length}" aria-label="${escapeHtml(`${item.label} workflow stages`)}">${model.map(stage => (
+    `<li class="${stage.stateClass}" aria-label="${escapeHtml(`${stage.label}: ${stage.stateLabel}`)}"><span aria-hidden="true"></span><b>${escapeHtml(stage.label)}</b></li>`
+  )).join('')}</ol>`;
+}
+
+function genomeProgressMeterModel(item, stages = genomeProgressStageModel(item)) {
+  const current = stages.find(stage => stage.status === 'running' || stage.status === 'failed');
+  if (current) return {
+    label: current.label,
+    percent: current.progress,
+    text: `${current.label} ${current.progress}%`,
+  };
+  if (item.terminal && !item.warning) return { label: 'Complete', percent: 100, text: 'Complete 100%' };
+  return { label: 'Queued', percent: 0, text: 'Queued' };
+}
+
+function renderGenomeProgressMeter(item, statusMessage, stages) {
+  const meter = genomeProgressMeterModel(item, stages);
+  const valueText = `${meter.text} · overall milestone ${item.percent}% · ${statusMessage}`;
+  return `
+    <div class="genome-progress-meter-row">
+      <div class="genome-progress-track" role="progressbar" aria-label="${escapeHtml(`${item.label} current stage progress`)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${meter.percent}" aria-valuetext="${escapeHtml(valueText)}" style="--genome-stage-count: ${stages.length}">
+        ${stages.map(stage => `<span class="genome-progress-segment ${stage.stateClass}" title="${escapeHtml(`${stage.label}: ${stage.progress}%`)}"><span class="genome-progress-segment-fill" style="--genome-stage-progress: ${stage.progress}%"></span></span>`).join('')}
+      </div>
+      <b class="genome-progress-percent" aria-hidden="true">${escapeHtml(meter.text)}</b>
+    </div>`;
+}
+
+function renderGenomeProgressCard(item) {
+  const active = GENOME_PROGRESS_ACTIVE_STATES.has(item.status);
+  const stateClass = item.warning ? 'is-warning' : item.terminal ? 'is-complete' : active ? 'is-running' : 'is-waiting';
+  const stateLabel = item.warning ? 'error' : item.terminal ? 'complete' : active ? 'running' : 'queued';
+  const statusMessage = item.warningMessage || (
+    item.warning && item.warningTool && !item.message.toLowerCase().includes(item.warningTool.toLowerCase())
+      ? `${item.message} · ${item.warningTool} error` : item.message
+  );
+  const stageModel = genomeProgressStageModel(item);
+  const meter = genomeProgressMeterModel(item, stageModel);
+  const aria = `${item.label}, ${item.taxon}, ${meter.text}, ${stateLabel}. ${statusMessage}`;
+  return `
+    <article class="genome-progress-row ${stateClass}" role="listitem" data-genome-progress-id="${escapeHtml(item.id)}" aria-label="${escapeHtml(aria)}">
+      <div class="genome-progress-row-head">
+        <span class="genome-progress-organism"><strong title="${escapeHtml(item.label)}">${escapeHtml(item.label)}</strong><span class="genome-progress-taxon">${escapeHtml(item.taxon)}</span></span>
+      </div>
+      ${renderGenomeProgressMeter(item, statusMessage, stageModel)}
+      ${renderGenomeProgressStages(item, stageModel)}
+      <div class="genome-progress-status"><small title="${escapeHtml(statusMessage)}">${escapeHtml(statusMessage)}</small></div>
+    </article>`;
+}
+
+function genomeProgressSummaryText(items) {
+  const rows = Array.isArray(items) ? items : [];
+  const errorCount = rows.filter(item => item.warning).length;
+  const completeCount = rows.filter(item => item.terminal && !item.warning).length;
+  const activeCount = rows.filter(
+    item => !item.terminal && !item.warning && GENOME_PROGRESS_ACTIVE_STATES.has(item.status),
+  ).length;
+  const queuedCount = Math.max(0, rows.length - completeCount - activeCount - errorCount);
+  if (rows.length && completeCount === rows.length) {
+    return `All ${rows.length} genome milestone${rows.length === 1 ? '' : 's'} complete`;
+  }
+  return `${completeCount} complete · ${activeCount} active · ${queuedCount} queued${errorCount ? ` · errors: ${errorCount}` : ''}`;
+}
+
+function bgcWorkflowTitle(payload, genomeLayerActive) {
+  if (payload?.state === 'idle') return 'Workflow waiting';
+  if (payload?.state === 'complete') return 'Workflow complete';
+  if (payload?.state === 'failed') return 'Workflow needs review';
+  if (genomeLayerActive) return 'Genome annotation / BGC detection';
+  const titles = {
+    prep: 'Genome preparation',
+    bigscape: 'BiG-SCAPE grouping',
+    summary: 'BGC family summary',
+    clinker: 'Synteny comparison',
+    figures: 'Result rendering',
+    nplinker: 'NPLinker follow-up',
+  };
+  return titles[String(payload?.currentStepId || '').toLowerCase()] || 'BGC workflow';
+}
+// END GENOME_PROGRESS_PURE
+
+function renderGenomeProgressLayer(payload) {
+  const station = document.getElementById('bgc-workflow-station');
+  const layer = document.getElementById('bgc-genome-progress-layer');
+  const grid = document.getElementById('bgc-genome-progress-grid');
+  const summary = document.getElementById('bgc-genome-progress-summary');
+  if (!station || !layer || !grid) return;
+  const items = Array.isArray(payload?.genomes) ? payload.genomes : [];
+  const warningCount = items.filter(item => item.warning).length;
+  const handoff = !!payload?.genomeProgressHandoff;
+  const completed = payload?.state === 'complete';
+  station.classList.toggle('has-genome-progress', !!items.length);
+  station.classList.toggle('is-genome-progress-handoff', handoff);
+  station.classList.toggle('has-terminal-genome-warning', warningCount > 0);
+  layer.classList.toggle('is-aggregate-handoff', handoff);
+  layer.classList.toggle('has-terminal-warning', warningCount > 0);
+  if (!items.length || completed) {
+    layer.hidden = true;
+    layer.setAttribute('aria-hidden', completed ? 'true' : 'false');
+    if (grid.dataset.renderKey) {
+      grid.innerHTML = '';
+      delete grid.dataset.renderKey;
+    }
+    if (summary && summary.textContent !== 'Waiting for genome milestones') {
+      summary.textContent = 'Waiting for genome milestones';
+    }
+    return;
+  }
+  layer.hidden = false;
+  layer.setAttribute('aria-hidden', handoff && !warningCount ? 'true' : 'false');
+  const renderKey = items.map(item => [
+    item.id,
+    item.label,
+    item.taxon,
+    item.percent,
+    item.status,
+    item.stage,
+    item.message,
+    item.terminal ? 1 : 0,
+    item.warning ? 1 : 0,
+    JSON.stringify(item.stageStates || {}),
+    item.warningMessage || '',
+  ].join('\u001f')).join('\u001e');
+  if (grid.dataset.renderKey !== renderKey) {
+    grid.innerHTML = items.map(renderGenomeProgressCard).join('');
+    grid.dataset.renderKey = renderKey;
+  }
+  if (summary) {
+    const summaryText = genomeProgressSummaryText(items);
+    if (summary.textContent !== summaryText) summary.textContent = summaryText;
+  }
+}
+
 function workflowStageWeight(stage) {
   return WORKFLOW_PROGRESS_WEIGHTS[stage?.key] || 0.1;
 }
@@ -5788,9 +9104,10 @@ function parseWorkflowGenomePosition(value) {
 
 function workflowGenomePhaseFromTitle(title) {
   const text = String(title || '');
-  if (/Finished\s+FunBGCeX/i.test(text)) return 1;
-  if (/Running\s+FunBGCeX/i.test(text)) return 0.82;
-  if (/Finished\s+antiSMASH/i.test(text)) return 0.68;
+  const capabilities = activeAnalysisCapabilities();
+  if (/Finished\s+FunBGCeX/i.test(text)) return capabilities.funbgcex ? 1 : null;
+  if (/Running\s+FunBGCeX/i.test(text)) return capabilities.funbgcex ? 0.82 : null;
+  if (/Finished\s+antiSMASH/i.test(text)) return capabilities.funbgcex ? 0.68 : 1;
   if (/antiSMASH:\s*(Writing|Output|Result)/i.test(text)) return 0.62;
   if (/antiSMASH|still\s+running/i.test(text)) return 0.42;
   if (/Preparing\s+genome/i.test(text)) return 0.06;
@@ -5852,29 +9169,38 @@ function weightedWorkflowProgress(stages, currentKey, status, job, stageProgress
 }
 
 function bgcWorkflowPayload(job = activeJobMeta) {
+  syncInferredStageState(job);
   const stages = bgcWorkflowStages(job);
   const status = String((job && job.status) || '').toLowerCase();
-  const currentKey = currentWorkflowStage() || jobCurrentStageKey(job);
+  const rawCurrentKey = currentWorkflowStage() || jobCurrentStageKey(job);
+  const currentKey = status === 'success' ? '' : rawCurrentKey;
   let state = 'idle';
   if (status === 'success') state = 'complete';
   else if (status === 'failed') state = 'failed';
   else if (status === 'running' || status === 'pending' || activeJobId) state = 'running';
   const stageProgress = currentKey === 'annotation' ? annotationGenomeProgress(job) : null;
+  const genomes = normalizeGenomeProgressItems(job);
+  const genomeProgressAllTerminal = genomes.length > 0 && genomes.every(item => item.terminal);
+  const aggregateDownstreamStage = status === 'success'
+    || ['bigscape', 'summary', 'clinker', 'figures', 'nplinker'].includes(currentKey);
+  const genomeProgressHandoff = genomeProgressAllTerminal && aggregateDownstreamStage;
   const progress = weightedWorkflowProgress(stages, currentKey, status, job, stageProgress);
   const percent = Math.round(progress * 100);
   const currentStage = stages.find(stage => stage.key === currentKey);
-  const tool = currentStage ? (STAGE_DETAILS[currentStage.key]?.name || currentStage.label) : (status === 'success' ? 'Workflow complete' : 'Input queue');
+  const hasSkippedStages = workflowPayloadHasSkippedStages();
+  const tool = currentStage ? (STAGE_DETAILS[currentStage.key]?.name || currentStage.label) : (status === 'success' ? (hasSkippedStages ? 'Selected stages complete' : 'Workflow complete') : 'Input queue');
   const detail = state === 'idle'
     ? 'Waiting for submitted inputs'
     : status === 'failed'
       ? (job?.error_summary || job?.error || 'Workflow needs attention')
       : status === 'success'
-        ? 'All workflow tools complete'
+        ? (hasSkippedStages ? 'Selected workflow tools complete; downstream stages skipped' : 'All workflow tools complete')
         : currentStage
           ? jobStageDisplay(job)
           : queueStatusLabel(job);
   const activityChip = bgcActivityChipPayload(job, state, currentKey, tool);
   return {
+    hasSkippedStages,
     state,
     progress,
     percent,
@@ -5885,6 +9211,9 @@ function bgcWorkflowPayload(job = activeJobMeta) {
     activityText: activityChip.text,
     activityTitle: activityChip.title,
     motionPaused: state === 'failed',
+    genomes,
+    genomeProgressAllTerminal,
+    genomeProgressHandoff,
     steps: stages.map(stage => ({
       id: stage.key,
       label: STAGE_DETAILS[stage.key]?.name || stage.label,
@@ -5907,13 +9236,14 @@ function alt06StepStatus(group, sourceSteps, payload) {
   if (payload.state === 'idle' || !source.length) return 'waiting';
   if (source.some(step => step.status === 'error' || step.status === 'failed')) return 'failed';
   if (source.some(step => step.status === 'running')) return 'running';
-  if (source.every(step => step.status === 'complete' || step.status === 'done')) return 'done';
+  if (source.every(step => step.status === 'skipped')) return 'skipped';
+  if (source.every(step => step.status === 'complete' || step.status === 'done' || step.status === 'skipped')) return 'done';
   return 'waiting';
 }
 
 function alt06WorkflowCaption(payload) {
   if (payload.state === 'idle') return 'Submit to activate BGC workflow';
-  if (payload.state === 'complete') return 'All workflow stages complete';
+  if (payload.state === 'complete') return payload.hasSkippedStages ? 'Selected workflow stages complete; downstream stages skipped' : 'All workflow stages complete';
   if (payload.state === 'failed') return payload.statusText || 'Compare stage failed validation';
   if (payload.progressLabel) return payload.progressLabel;
   return payload.statusText || 'BGC workflow running';
@@ -5925,6 +9255,8 @@ function renderBgcWorkflowStageStrip(payload) {
   const sourceSteps = Array.isArray(payload.steps) ? payload.steps : [];
   const statuses = ALT06_WORKFLOW_STEPS.map(group => alt06StepStatus(group, sourceSteps, payload));
   const failedIndex = statuses.indexOf('failed');
+  const renderKey = statuses.join('|');
+  if (strip.dataset.renderKey === renderKey) return;
   strip.innerHTML = ALT06_WORKFLOW_STEPS.map((group, index) => {
     let status = statuses[index];
     if (failedIndex >= 0 && index > failedIndex && status === 'waiting') status = 'blocked';
@@ -5934,11 +9266,15 @@ function renderBgcWorkflowStageStrip(payload) {
       <span class="num">${index + 1}</span><b>${escapeHtml(group.label)}</b><small>${escapeHtml(status)}</small>
     </div>`;
   }).join('');
+  strip.dataset.renderKey = renderKey;
 }
 
 function applyBgcWorkflowPayload(payload) {
   if (!payload) return;
   bgcWorkflowPendingPayload = payload;
+  const genomeLayerActive = Array.isArray(payload.genomes)
+    && payload.genomes.length > 0
+    && !payload.genomeProgressHandoff;
   const region = document.getElementById('bgc-dna-progress-region');
   const nativeProgress = document.getElementById('bgc-workflow-native-progress');
   const percent = document.getElementById('bgc-workflow-percent');
@@ -5948,6 +9284,10 @@ function applyBgcWorkflowPayload(payload) {
   const tool = document.getElementById('bgc-workflow-tool');
   const detail = document.getElementById('bgc-workflow-detail');
   const activityChip = document.getElementById('bgc-tool-activity-chip');
+  const title = document.getElementById('workflow-title');
+  const stageStrip = document.getElementById('bgc-stage-strip');
+  const toolStatus = tool?.closest('.workflow-tool-status');
+  const completePresentation = payload.state === 'complete';
   if (region) {
     region.setAttribute('aria-valuenow', String(payload.percent));
     region.setAttribute('aria-valuetext', `${payload.percent}% - ${payload.tool} - ${payload.statusText}`);
@@ -5957,9 +9297,16 @@ function applyBgcWorkflowPayload(payload) {
     nativeProgress.textContent = `${payload.percent}%`;
   }
   if (headMeta) headMeta.textContent = payload.state === 'idle' ? 'Waiting' : payload.state === 'complete' ? 'Complete' : payload.state === 'failed' ? 'Needs review' : 'Running';
+  if (title) {
+    title.textContent = bgcWorkflowTitle(payload, genomeLayerActive);
+    title.hidden = completePresentation;
+  }
   if (percent) percent.textContent = `${payload.percent}%`;
   if (captionPercent) captionPercent.textContent = `${payload.percent}%`;
-  if (captionLabel) captionLabel.textContent = alt06WorkflowCaption(payload);
+  if (captionLabel) {
+    captionLabel.textContent = alt06WorkflowCaption(payload);
+    captionLabel.hidden = completePresentation;
+  }
   if (tool) tool.textContent = payload.tool;
   if (detail) {
     const stationDetail = payload.stationDetailText || '';
@@ -5970,8 +9317,20 @@ function applyBgcWorkflowPayload(payload) {
     activityChip.textContent = payload.activityText || (payload.state === 'running' ? 'RUNNING' : payload.state.toUpperCase());
     activityChip.dataset.state = payload.state || 'idle';
     activityChip.title = payload.activityTitle || payload.activityText || '';
+    activityChip.hidden = completePresentation;
   }
   renderBgcWorkflowStageStrip(payload);
+  renderGenomeProgressLayer(payload);
+  if (stageStrip) {
+    stageStrip.hidden = false;
+    stageStrip.removeAttribute('aria-hidden');
+  }
+  if (toolStatus) {
+    toolStatus.hidden = completePresentation;
+    toolStatus.setAttribute('aria-hidden', completePresentation ? 'true' : 'false');
+  }
+  setBgcWorkflowAggregatePresentationSuspended(genomeLayerActive);
+  setBgcWorkflowGenomeLayerSuspended(genomeLayerActive);
   if (bgcWorkflowDna) bgcWorkflowDna.setProgress(payload.progress, payload);
   else bootBgcWorkflowDna();
 }
@@ -5996,7 +9355,10 @@ function bootBgcWorkflowDna() {
     });
     region.classList.add('is-ready');
     if (fallback) fallback.textContent = '';
-    if (bgcWorkflowPendingPayload) bgcWorkflowDna.setProgress(bgcWorkflowPendingPayload.progress, bgcWorkflowPendingPayload);
+    syncBgcWorkflowDnaSuspension();
+    if (bgcWorkflowPendingPayload) {
+      bgcWorkflowDna.setProgress(bgcWorkflowPendingPayload.progress, bgcWorkflowPendingPayload);
+    }
   }).catch((error) => {
     if (fallback) fallback.textContent = `3D DNA unavailable: ${error.message}`;
   }).finally(() => {
@@ -6079,35 +9441,12 @@ function recordWeaveActivity(job) {
   if (!job || !job.id) return;
   const currentCount = Number(job.log_count || 0);
   const status = String(job.status || '');
-  const stageKey = jobCurrentStageKey(job) || (status === 'success' ? 'figures' : 'prep');
-  const publicEventCount = Array.isArray(job.public_events) ? job.public_events.length : 0;
   if (weaveActivity.jobId !== job.id) {
     resetWeaveActivity(job);
-    if (!mergeWeaveActivityEvents(job.public_events)) {
-      weaveActivity.events.push({
-        stage: stageKey,
-        title: 'Run state loaded',
-        meta: `${jobStageDisplay(job)} at ${formatWorkflowTime(job.updated_at || job.created_at)}`,
-      });
-    }
+    mergeWeaveActivityEvents(job.public_events);
     return;
   }
-  const delta = weaveActivity.lastLogCount === null ? 0 : currentCount - weaveActivity.lastLogCount;
   mergeWeaveActivityEvents(job.public_events);
-  if (delta > 0 && !publicEventCount) {
-    weaveActivity.events.push({
-      stage: stageKey,
-      title: `${delta} internal update${delta === 1 ? '' : 's'} observed`,
-      meta: `${jobStageDisplay(job)} at ${formatWorkflowTime(job.updated_at)}`,
-    });
-  }
-  if (status && weaveActivity.lastStatus && status !== weaveActivity.lastStatus) {
-    weaveActivity.events.push({
-      stage: stageKey,
-      title: `Run marked ${status}`,
-      meta: formatWorkflowTime(job.updated_at),
-    });
-  }
   weaveActivity.lastLogCount = currentCount;
   weaveActivity.lastStatus = status;
   if (weaveActivity.events.length > 18) weaveActivity.events = weaveActivity.events.slice(-18);
@@ -7176,6 +10515,7 @@ function resultOutputStageKey(key) {
     funbgcex: 'annotation',
     bigscape: 'bigscape',
     summaries: 'summary',
+    evidence: 'summary',
     synteny: 'clinker',
     figures: 'figures',
   };
@@ -7601,11 +10941,16 @@ function resultCategoryKey(category) {
   const aliases = {
     summary: 'summaries',
     summaries: 'summaries',
+    evidence: 'evidence',
+    integrated_evidence: 'evidence',
+    cross_kingdom: 'evidence',
+    putative_transfer: 'evidence',
     clinker: 'synteny',
     antismash: 'antismash',
     funbgcex: 'funbgcex',
     bigscape: 'bigscape',
     figures: 'figures',
+    phylogeny: 'figures',
     synteny: 'synteny',
     other: 'other',
     downloads: 'downloads',
@@ -7616,15 +10961,23 @@ function resultCategoryKey(category) {
 
 const RESULT_FOLDER_TABS = [
   { key: 'antismash', label: 'ANTISMASH' },
-  { key: 'funbgcex', label: 'FUNBGCEX' },
+  { key: 'funbgcex', label: 'FUNBGCEX', capability: 'funbgcex' },
   { key: 'bigscape', label: 'BIG-SCAPE' },
   { key: 'synteny', label: 'CLINKER' },
   { key: 'summaries', label: 'SUMMARY' },
   { key: 'figures', label: 'FIGURES' },
+  { key: 'evidence', label: 'CROSS-KINGDOM', optionalWhenAvailable: true },
 ];
 
+function resultFolderTabs(counts = {}) {
+  return RESULT_FOLDER_TABS.filter(tab => (
+    analysisCapabilityEnabled(tab.capability)
+    && (!tab.optionalWhenAvailable || Number((counts || {})[resultCategoryKey(tab.key)] || 0) > 0)
+  ));
+}
+
 function resultPathExt(path) {
-  const name = fileNameFromPath(path).toLowerCase();
+  const name = resultArtifactName(path).toLowerCase();
   return name.includes('.') ? name.split('.').pop() : '';
 }
 
@@ -7633,12 +10986,14 @@ function isHtmlAsset(path) {
 }
 
 function isDataResultsZip(path) {
+  const descriptor = resultArtifactDescriptor(path);
+  if (descriptor) return descriptor.category === 'downloads' && /_public_results\.zip$/i.test(descriptor.filename);
   const normalized = normalizedResultPath(path);
   return /^downloads\/[^/]+_public_results\.zip$/i.test(normalized) || /\/downloads\/[^/]+_public_results\.zip$/i.test(normalized);
 }
 
 function isAntiSmashArtifact(path) {
-  return /(^|\/)antismash(\/|$)/i.test(normalizedResultPath(path));
+  return resultArtifactDescriptor(path)?.category === 'antismash'
 }
 
 function isAntiSmashHtmlArtifact(path) {
@@ -7661,11 +11016,37 @@ function isBigscapeHtmlArtifact(path) {
   return isBigscapeArtifact(path) && isHtmlAsset(path);
 }
 
+const BIGSCAPE_PUBLIC_DATABASE_NAME = 'clusterweave_public.sqlite';
+const BIGSCAPE_VIEWER_DATABASE_NAME = 'clusterweave_viewer.sqlite';
+// Automatic Open accepts only the compact web-viewer derivative. The complete
+// sanitized public export remains downloadable and is never loaded here.
+const BIGSCAPE_BROWSER_DATABASE_MAX_BYTES = 64 * 1024 * 1024;
+const SQLITE_FORMAT_HEADER = Object.freeze([83, 81, 76, 105, 116, 101, 32, 102, 111, 114, 109, 97, 116, 32, 51, 0]);
+
 function isBigscapeDatabaseArtifact(path) {
-  return isBigscapeArtifact(path) && ['db', 'sqlite', 'sqlite3'].includes(resultPathExt(path));
+  const descriptor = resultArtifactDescriptor(path);
+  if (descriptor) return descriptor.category === 'bigscape' && descriptor.role === 'public-database';
+  const normalized = normalizedResultPath(path);
+  const parts = normalized.split('/');
+  if (parts.some(part => !part || part === '.' || part === '..')) return false;
+  return /^data\/results\/[^/]+\/(?:big_scape|bigscape|big-scape)\/(?:public|output_files\/public)\/clusterweave_public\.sqlite$/.test(normalized);
+}
+
+function isBigscapeViewerDatabaseArtifact(path) {
+  const descriptor = resultArtifactDescriptor(path);
+  if (descriptor?.category === 'bigscape' && descriptor.role === 'viewer-database') return true;
+  if (String(path || '') === BIGSCAPE_VIEWER_DATABASE_NAME) {
+    return activeJobMeta?.bigscape_viewer_available === true;
+  }
+  const normalized = normalizedResultPath(path);
+  const parts = normalized.split('/');
+  if (parts.some(part => !part || part === '.' || part === '..')) return false;
+  return /^data\/results\/[^/]+\/(?:big_scape|bigscape|big-scape)\/(?:public|output_files\/public)\/clusterweave_viewer\.sqlite$/.test(normalized);
 }
 
 function isSummaryArtifact(path) {
+  const descriptor = resultArtifactDescriptor(path);
+  if (descriptor) return descriptor.category === 'summaries';
   const normalized = normalizedResultPath(path);
   if (!/(^|\/)(summary|summary_tables)(\/|$)/i.test(normalized)) return false;
   if (isDataResultsZip(normalized)) return false;
@@ -7679,7 +11060,84 @@ function isAtlasShortlistArtifact(path) {
   return /^family_atlas_shortlist\.(md|tsv|csv|txt|html?)$/i.test(fileNameFromPath(normalized));
 }
 
+function summaryReaderArtifactKind(path) {
+  const normalized = normalizedResultPath(path);
+  if (!isSummaryArtifact(normalized)) return '';
+  const name = fileNameFromPath(normalized).toLowerCase();
+  if (name === 'all_tools_bgc_comparison.csv') return 'all_bgcs';
+  if (/^priority_shortlist\.(md|tsv|csv|txt|html?)$/i.test(name)) return 'target';
+  if (/^family_atlas_shortlist\.(md|tsv|csv|txt|html?)$/i.test(name)) return 'atlas';
+  return '';
+}
+
+function isSummaryReaderArtifact(path) {
+  return !!summaryReaderArtifactKind(path);
+}
+
+function preferredSummaryViewFile(files, kind) {
+  const extensionOrder = kind === 'atlas'
+    ? { tsv: 0, csv: 1, md: 2, txt: 3, html: 4, htm: 4 }
+    : { md: 0, tsv: 1, csv: 2, txt: 3, html: 4, htm: 4 };
+  return (files || [])
+    .filter(path => summaryReaderArtifactKind(path) === kind)
+    .sort((a, b) => {
+      const extA = resultPathExt(a);
+      const extB = resultPathExt(b);
+      const keyA = (extensionOrder[extA] ?? 9) + ':' + summarySortKey(a);
+      const keyB = (extensionOrder[extB] ?? 9) + ':' + summarySortKey(b);
+      return keyA.localeCompare(keyB);
+    })[0] || '';
+}
+
+const CROSS_KINGDOM_EVIDENCE_FILENAMES = Object.freeze([
+  'cross_kingdom_evidence_cards.txt',
+  'cross_kingdom_evidence.tsv',
+  'cross_kingdom_evidence.json',
+  'putative_transfer_evidence_cards.txt',
+  'putative_transfer_evidence.tsv',
+  'putative_transfer_evidence.json',
+]);
+
+function crossKingdomEvidenceArtifact(path) {
+  const descriptor = resultArtifactDescriptor(path);
+  if (descriptor?.category === 'evidence') {
+    const descriptorName = String(descriptor.filename || '').toLowerCase();
+    return CROSS_KINGDOM_EVIDENCE_FILENAMES.includes(descriptorName)
+      ? { path: normalizedResultPath(path), name: descriptorName } : null;
+  }
+  const normalized = normalizedResultPath(path);
+  const match = normalized.match(/^data\/results\/[^/]+\/integrated_evidence\/([^/]+)$/i);
+  if (!match) return null;
+  const name = String(match[1] || '').toLowerCase();
+  if (!CROSS_KINGDOM_EVIDENCE_FILENAMES.includes(name)) return null;
+  return { path: normalized, name };
+}
+
+function isCrossKingdomEvidenceArtifact(path) {
+  return !!crossKingdomEvidenceArtifact(path);
+}
+
+function crossKingdomEvidenceSortKey(path) {
+  const artifact = crossKingdomEvidenceArtifact(path);
+  const priority = artifact ? CROSS_KINGDOM_EVIDENCE_FILENAMES.indexOf(artifact.name) : 999;
+  return `${String(priority).padStart(3, '0')}:${normalizedResultPath(path).toLowerCase()}`;
+}
+
+function crossKingdomEvidenceLabel(path) {
+  const name = crossKingdomEvidenceArtifact(path)?.name || '';
+  const labels = {
+    'cross_kingdom_evidence_cards.txt': 'Plain-language Cross-Kingdom evidence cards',
+    'cross_kingdom_evidence.tsv': 'Lossless Cross-Kingdom evidence table',
+    'cross_kingdom_evidence.json': 'Bounded Cross-Kingdom evidence JSON',
+    'putative_transfer_evidence_cards.txt': 'Plain-language Cross-Kingdom evidence cards',
+    'putative_transfer_evidence.tsv': 'Lossless Cross-Kingdom evidence table',
+    'putative_transfer_evidence.json': 'Bounded Cross-Kingdom evidence JSON',
+  };
+  return labels[name] || '';
+}
+
 function isSyntenyArtifact(path) {
+  if (resultArtifactDescriptor(path)?.category === 'synteny') return true;
   return /(^|\/)(clinker|synteny)(\/|$)|\/panel\.html$|\/panels?\//i.test(normalizedResultPath(path));
 }
 
@@ -7689,17 +11147,26 @@ function isPrimaryResultCategory(path) {
     || isFunbgcexArtifact(path)
     || isBigscapeArtifact(path)
     || isSummaryArtifact(path)
+    || isCrossKingdomEvidenceArtifact(path)
     || isSyntenyArtifact(path)
     || isDataResultsZip(path);
 }
 
 function resultCategoryMatches(category, path) {
   const key = resultCategoryKey(category);
-  if (key === 'figures') return isFigureAsset(path);
+  const descriptor = resultArtifactDescriptor(path);
+  if (descriptor) {
+    const descriptorKey = resultCategoryKey(descriptor.category);
+    if (key === 'downloads') return descriptor.downloadable !== false;
+    if (key === 'other') return descriptorKey === 'other';
+    return descriptorKey === key;
+  }
+  if (key === 'figures') return isFigureAsset(path) && figureApplicableToAnalysis(path);
   if (key === 'antismash') return isAntiSmashArtifact(path);
   if (key === 'funbgcex') return isFunbgcexArtifact(path);
   if (key === 'bigscape') return isBigscapeArtifact(path);
   if (key === 'summaries') return isSummaryArtifact(path);
+  if (key === 'evidence') return isCrossKingdomEvidenceArtifact(path);
   if (key === 'synteny') return isSyntenyArtifact(path);
   if (key === 'other') return !isPrimaryResultCategory(path);
   return true;
@@ -7719,6 +11186,10 @@ function readableArtifactLabel(value, fallback = 'artifact') {
   catch (e) { return raw.replace(/[_]+/g, ' '); }
 }
 
+
+function readableGenomeArtifactLabel(value, fallback = 'Unknown organism') {
+  return readableArtifactLabel(value, fallback).replace(/^bacteria\s+/i, '').trim() || fallback;
+}
 function titleCaseArtifactLabel(value, fallback = 'artifact') {
   return readableArtifactLabel(value, fallback)
     .replace(/[-]+/g, ' ')
@@ -7740,20 +11211,47 @@ function summaryArtifactLabel(path) {
   return `${titleCaseArtifactLabel(fileStemFromPath(path), 'Summary')} ${ext}`.trim();
 }
 
+function syntenyGcfQualifier(value) {
+  const match = String(value || '').match(/^gcf_([a-z0-9]+)_c(\d+)_(\d+)_(.+)$/i);
+  if (!match) return '';
+  return `GCF ${match[1].toUpperCase()} c${match[2]}.${match[3]} ${titleCaseArtifactLabel(match[4], 'family')}`;
+}
+
 function syntenyArtifactLabel(path) {
+  const descriptor = resultArtifactDescriptor(path);
+  if (descriptor) {
+    return descriptor.label && !/^panel\.html$/i.test(descriptor.label)
+      ? titleCaseArtifactLabel(descriptor.label) : 'clinker synteny HTML panel';
+  }
   const parts = resultPathParts(path);
   const idx = parts.findIndex(part => /^(clinker|synteny|clinker_shared_family)$/i.test(part));
   const filename = fileNameFromPath(path);
   const artifact = /^panel\.html$/i.test(filename) ? 'synteny panel.html' : readableArtifactLabel(filename, 'synteny artifact');
   const ignored = /^(panels?|html|assets?|static|scripts?|styles?|css|js|atlas|priority|prioritized?|shared[-_]?family|shared|family|track|tracks)$/i;
   let compound = '';
+  let qualifier = '';
   for (let i = Math.max(0, idx + 1); i < parts.length - 1; i += 1) {
     if (!ignored.test(parts[i])) {
-      compound = titleCaseArtifactLabel(parts[i], 'clinker');
+      const [compoundPart, qualifierPart = ''] = parts[i].split('__', 2);
+      compound = titleCaseArtifactLabel(compoundPart, 'clinker');
+      qualifier = syntenyGcfQualifier(qualifierPart);
       break;
     }
   }
-  return compound ? `${compound} - ${artifact}` : artifact;
+  const label = qualifier ? `${compound} · ${qualifier}` : compound;
+  if (label && /^panel\.html$/i.test(filename)) return label;
+  return label ? `${label} - ${artifact}` : artifact;
+}
+
+function activeGenomeArtifactLabel(genomeId, fallback) {
+  const source = Array.isArray(activeJobMeta?.genome_progress)
+    ? activeJobMeta.genome_progress
+    : Array.isArray(activeJobMeta?.genomeProgress)
+      ? activeJobMeta.genomeProgress
+      : [];
+  const target = String(genomeId || '').trim().toLowerCase();
+  const match = source.find(item => String(item?.genome_id ?? item?.genome ?? item?.id ?? '').trim().toLowerCase() === target);
+  return match ? safeGenomeProgressLabel(match, 0) : fallback;
 }
 
 function artifactMetaLabel(path, category = '') {
@@ -7764,19 +11262,28 @@ function artifactMetaLabel(path, category = '') {
     ? `BiG-SCAPE database ${fileNameFromPath(path)}`
     : 'BiG-SCAPE web view';
   if (key === 'summaries') return summaryArtifactLabel(path);
+  if (key === 'evidence') return crossKingdomEvidenceLabel(path);
   if (key === 'synteny') return isHtmlAsset(path) ? 'clinker synteny HTML panel' : 'clinker synteny artifact';
   if (key === 'figures') return figureCaption(path);
   return readableArtifactLabel(fileNameFromPath(path), 'artifact');
 }
 
 function toolGenomeLabel(path, toolKey) {
+  const descriptor = resultArtifactDescriptor(path);
+  if (descriptor?.category === toolKey && descriptor.genome_label) {
+    const fallback = readableGenomeArtifactLabel(descriptor.genome_label, fileNameFromPath(path));
+    return activeGenomeArtifactLabel(descriptor.genome_label, fallback);
+  }
   const parts = resultPathParts(path);
   const matcher = toolKey === 'antismash' ? /^antismash$/i : /^funbgcex$/i;
   const idx = parts.findIndex(part => matcher.test(part));
   const after = idx >= 0 ? parts[idx + 1] : '';
-  if (after && !/\.html?$/i.test(after)) return readableArtifactLabel(after, fileNameFromPath(path));
+  if (after && !/\.html?$/i.test(after)) {
+    const fallback = readableGenomeArtifactLabel(after, fileNameFromPath(path));
+    return activeGenomeArtifactLabel(after, fallback);
+  }
   const parent = parts.length > 1 ? parts[parts.length - 2] : '';
-  if (parent && !matcher.test(parent)) return readableArtifactLabel(parent, fileNameFromPath(path));
+  if (parent && !matcher.test(parent)) return readableGenomeArtifactLabel(parent, fileNameFromPath(path));
   return toolKey === 'antismash' ? 'antiSMASH index' : 'FunBGCeX index';
 }
 
@@ -7792,20 +11299,11 @@ function uniqueToolHtmlArtifacts(files, toolKey) {
   const grouped = new Map();
   (files || []).filter(predicate).sort((a, b) => toolHtmlSortKey(a).localeCompare(toolHtmlSortKey(b))).forEach(path => {
     const label = toolGenomeLabel(path, toolKey);
-    if (!grouped.has(label)) grouped.set(label, { label, path });
+    const descriptor = resultArtifactDescriptor(path);
+    const groupKey = String(descriptor?.bundle_id || label);
+    if (!grouped.has(groupKey)) grouped.set(groupKey, { label, path });
   });
   return Array.from(grouped.values()).sort((a, b) => a.label.localeCompare(b.label));
-}
-
-function sharedPathPrefixScore(a, b) {
-  const left = resultPathParts(a);
-  const right = resultPathParts(b);
-  let score = 0;
-  for (let i = 0; i < Math.min(left.length, right.length); i += 1) {
-    if (left[i] !== right[i]) break;
-    score += 1;
-  }
-  return score;
 }
 
 function bigscapeHtmlSortKey(path) {
@@ -7814,13 +11312,26 @@ function bigscapeHtmlSortKey(path) {
   return `${priority}:${normalizedResultPath(path).toLowerCase()}`;
 }
 
+function bigscapeExpectedHtmlPathForDatabase(databasePath) {
+  const normalized = normalizedResultPath(databasePath);
+  const match = normalized.match(/^(data\/results\/[^/]+\/(?:big_scape|bigscape|big-scape)\/(?:output_files\/)?)(?:public\/clusterweave_public\.sqlite)$/);
+  return match ? `${match[1]}index.html` : '';
+}
+
+function bigscapeExpectedViewerPathForDatabase(databasePath) {
+  const normalized = normalizedResultPath(databasePath);
+  if (!bigscapeExpectedHtmlPathForDatabase(normalized)) return '';
+  return normalized.replace(/\/clusterweave_public\.sqlite$/, '/clusterweave_viewer.sqlite');
+}
+
 function chooseBigscapeDatabase(htmlPath, databaseFiles) {
-  if (!htmlPath || !databaseFiles.length) return '';
-  return databaseFiles.slice().sort((a, b) => {
-    const scoreDelta = sharedPathPrefixScore(b, htmlPath) - sharedPathPrefixScore(a, htmlPath);
-    if (scoreDelta) return scoreDelta;
-    return normalizedResultPath(a).localeCompare(normalizedResultPath(b));
-  })[0] || '';
+  const htmlDescriptor = resultArtifactDescriptor(htmlPath);
+  const pairId = String(htmlDescriptor?.pair_id || htmlDescriptor?.bundle_id || '');
+  if (!pairId || !databaseFiles.length) return '';
+  return databaseFiles.find(path => {
+    const descriptor = resultArtifactDescriptor(path);
+    return String(descriptor?.pair_id || descriptor?.bundle_id || '') === pairId;
+  }) || '';
 }
 
 function summarySortKey(path) {
@@ -7841,23 +11352,35 @@ function summarySortKey(path) {
 
 function buildResultArtifacts(files) {
   const normalized = (files || []).map(normalizedResultPath).filter(Boolean);
+  const capabilities = activeAnalysisCapabilities();
   const bigscapeHtmlFiles = normalized.filter(isBigscapeHtmlArtifact).sort((a, b) => bigscapeHtmlSortKey(a).localeCompare(bigscapeHtmlSortKey(b)));
   const bigscapeDatabaseFiles = normalized.filter(isBigscapeDatabaseArtifact).sort((a, b) => normalizedResultPath(a).localeCompare(normalizedResultPath(b)));
-  const bigscapeHtml = bigscapeHtmlFiles[0] || '';
-  const bigscapeDatabase = chooseBigscapeDatabase(bigscapeHtml, bigscapeDatabaseFiles);
+  const bigscapePairs = bigscapeHtmlFiles.map(html => ({
+    html,
+    database: chooseBigscapeDatabase(html, bigscapeDatabaseFiles),
+  })).filter(pair => pair.database);
+  const selectedPair = bigscapePairs[0] || null;
+  const bigscapeHtml = selectedPair?.html || bigscapeHtmlFiles[0] || '';
+  const bigscapeDatabase = selectedPair?.database || '';
+  const bigscapeViewerDatabase = selectedPair && activeJobMeta?.bigscape_viewer_available === true
+    ? BIGSCAPE_VIEWER_DATABASE_NAME : '';
   return {
     files: normalized,
     antismash: uniqueToolHtmlArtifacts(normalized, 'antismash'),
-    funbgcex: uniqueToolHtmlArtifacts(normalized, 'funbgcex'),
+    funbgcex: capabilities.funbgcex ? uniqueToolHtmlArtifacts(normalized, 'funbgcex') : [],
     bigscape: {
       html: bigscapeHtml,
       database: bigscapeDatabase,
+      viewerDatabase: bigscapeViewerDatabase,
       htmlFiles: bigscapeHtmlFiles,
       databaseFiles: bigscapeDatabaseFiles,
     },
-    summaries: normalized.filter(isAtlasShortlistArtifact).sort((a, b) => summarySortKey(a).localeCompare(summarySortKey(b))),
+    summaries: normalized.filter(isSummaryReaderArtifact).sort((a, b) => summarySortKey(a).localeCompare(summarySortKey(b))),
+    evidence: normalized.filter(isCrossKingdomEvidenceArtifact).sort((a, b) => crossKingdomEvidenceSortKey(a).localeCompare(crossKingdomEvidenceSortKey(b))),
     synteny: normalized.filter(isSyntenyArtifact).sort((a, b) => normalizedResultPath(a).localeCompare(normalizedResultPath(b))),
-    figures: normalized.filter(isFigureAsset).sort((a, b) => figureSortKey(a).localeCompare(figureSortKey(b))),
+    figures: normalized
+      .filter(path => isFigureAsset(path) && figureApplicableToAnalysis(path, capabilities))
+      .sort((a, b) => figureSortKey(a).localeCompare(figureSortKey(b))),
   };
 }
 
@@ -7874,8 +11397,9 @@ function resultCategoryCounts(files) {
     figures: artifacts.figures.length,
     antismash: artifacts.antismash.length,
     funbgcex: artifacts.funbgcex.length,
-    bigscape: artifacts.bigscape.html && artifacts.bigscape.database ? 1 : 0,
+    bigscape: artifacts.bigscape.html ? 1 : 0,
     summaries: artifacts.summaries.length,
+    evidence: artifacts.evidence.length,
     synteny: artifacts.synteny.length,
     other,
     downloads: normalized.length,
@@ -7884,11 +11408,11 @@ function resultCategoryCounts(files) {
 
 function resultCategoryAvailable(category, counts) {
   const key = resultCategoryKey(category);
-  return Number((counts || {})[key] || 0) > 0;
+  return resultCategoryApplicable(key) && Number((counts || {})[key] || 0) > 0;
 }
 
 function firstAvailableResultCategory(counts) {
-  return RESULT_FOLDER_TABS.map(tab => tab.key)
+  return resultFolderTabs(counts).map(tab => tab.key)
     .find(key => resultCategoryAvailable(key, counts)) || 'downloads';
 }
 
@@ -7900,6 +11424,7 @@ function defaultFocusedResultCategory(counts) {
 
 function resultFilesForCategory(category, files) {
   const key = resultCategoryKey(category);
+  if (!resultCategoryApplicable(key)) return [];
   const normalized = (files || []).map(normalizedResultPath).filter(Boolean);
   if (key === 'downloads') return normalized;
   return normalized.filter(path => resultCategoryMatches(key, path));
@@ -7912,29 +11437,37 @@ function resultCategoryLabel(category) {
     funbgcex: 'FUNBGCEX',
     bigscape: 'BIG-SCAPE',
     summaries: 'SUMMARY',
+    evidence: 'CROSS-KINGDOM',
     synteny: 'CLINKER',
     other: 'Other artifacts',
     downloads: 'Files',
   };
-  return labels[resultCategoryKey(category)] || labels.downloads;
+  const key = resultCategoryKey(category);
+  return labels[key] || labels.downloads;
 }
 
 function resultCategoryCopy(category) {
+  const capabilities = activeAnalysisCapabilities();
   const copy = {
     figures: 'Zoomable SVG/PNG figures.',
     antismash: 'Per-genome antiSMASH HTML views.',
     funbgcex: 'Per-genome FunBGCeX HTML views.',
-    bigscape: 'Interactive graph view with matched database.',
+    bigscape: 'BiG-SCAPE clustering output; interactive view when a safe database is available.',
     summaries: 'Atlas shortlist and priority tables.',
+    evidence: 'Optional Cross-Kingdom context profiles; no evolutionary event, mechanism, or direction is inferred.',
     synteny: 'clinker panels grouped by family context.',
     other: 'Additional indexed artifacts.',
     downloads: 'All indexed artifacts as download rows.',
   };
-  return copy[resultCategoryKey(category)] || copy.downloads;
+  const key = resultCategoryKey(category);
+  if (key === 'funbgcex' && capabilities.mixedDomain) {
+    return 'Per-genome FunBGCeX HTML views for fungal genomes only; bacterial genomes are not applicable.';
+  }
+  return copy[key] || copy.downloads;
 }
 
 function resultCategoryIcon(category) {
-  const icons = { antismash: '06', funbgcex: '07', bigscape: '08', summaries: '09', figures: '10', synteny: 'SYN', other: 'OUT', downloads: 'ZIP' };
+  const icons = { antismash: '06', funbgcex: '07', bigscape: '08', summaries: '09', figures: '10', evidence: 'EVD', synteny: 'SYN', other: 'OUT', downloads: 'ZIP' };
   return icons[resultCategoryKey(category)] || 'OUT';
 }
 
@@ -7982,11 +11515,11 @@ function resultLollipopItems(artifacts = activeResultArtifacts || buildResultArt
   if (artifacts.antismash.length) {
     items.push({ key: 'antismash', count: artifacts.antismash.length, unit: 'view', label: resultCategoryLabel('antismash'), copy: resultCategoryCopy('antismash'), icon: resultCategoryIcon('antismash') });
   }
-  if (artifacts.funbgcex.length) {
+  if (resultCategoryApplicable('funbgcex') && artifacts.funbgcex.length) {
     items.push({ key: 'funbgcex', count: artifacts.funbgcex.length, unit: 'view', label: resultCategoryLabel('funbgcex'), copy: resultCategoryCopy('funbgcex'), icon: resultCategoryIcon('funbgcex') });
   }
-  if (artifacts.bigscape.html && artifacts.bigscape.database) {
-    items.push({ key: 'bigscape', count: 2, unit: 'file', label: resultCategoryLabel('bigscape'), copy: resultCategoryCopy('bigscape'), icon: resultCategoryIcon('bigscape') });
+  if (artifacts.bigscape.html) {
+    items.push({ key: 'bigscape', count: artifacts.bigscape.database ? 2 : 1, unit: 'file', label: resultCategoryLabel('bigscape'), copy: resultCategoryCopy('bigscape'), icon: resultCategoryIcon('bigscape') });
   }
   if (artifacts.summaries.length) {
     items.push({ key: 'summaries', count: artifacts.summaries.length, unit: 'file', label: resultCategoryLabel('summaries'), copy: resultCategoryCopy('summaries'), icon: resultCategoryIcon('summaries') });
@@ -7996,6 +11529,9 @@ function resultLollipopItems(artifacts = activeResultArtifacts || buildResultArt
   }
   if (artifacts.figures.length) {
     items.push({ key: 'figures', count: artifacts.figures.length, unit: 'figure', label: resultCategoryLabel('figures'), copy: resultCategoryCopy('figures'), icon: resultCategoryIcon('figures') });
+  }
+  if (artifacts.evidence.length) {
+    items.push({ key: 'evidence', count: artifacts.evidence.length, unit: 'file', label: resultCategoryLabel('evidence'), copy: resultCategoryCopy('evidence'), icon: resultCategoryIcon('evidence') });
   }
   const totalFiles = Number((counts && counts.downloads) || activeResultFiles.length || 0);
   if (totalFiles) {
@@ -8032,6 +11568,7 @@ function resultFolderTabUnit(key) {
     synteny: 'panel',
     summaries: 'file',
     figures: 'figure',
+    evidence: 'file',
   };
   return units[resultCategoryKey(key)] || 'item';
 }
@@ -8044,12 +11581,12 @@ function resultFolderTabCountLabel(key, count) {
 }
 
 function resultFolderTabItems(counts) {
-  return RESULT_FOLDER_TABS.map(tab => {
+  return resultFolderTabs(counts).map(tab => {
     const key = resultCategoryKey(tab.key);
     const count = Number((counts || {})[key] || 0);
     return {
       key,
-      label: tab.label,
+      label: resultCategoryLabel(key),
       count,
       unit: resultFolderTabUnit(key),
       copy: resultCategoryCopy(key),
@@ -8094,11 +11631,12 @@ function renderResultBubblePanel(files, status) {
   const panel = document.getElementById('result-bubble-panel');
   if (!panel) return;
   activeResultFiles = (files || []).map(normalizedResultPath).filter(Boolean);
+  document.body.dataset.resultsAvailable = activeResultFiles.length ? 'true' : 'false';
   const artifacts = resultArtifacts(activeResultFiles);
   const counts = resultCategoryCounts(activeResultFiles);
   const folderItems = resultFolderTabItems(counts);
   const availableItems = resultLollipopItems(artifacts, counts)
-    .filter(item => RESULT_FOLDER_TABS.some(tab => resultCategoryKey(tab.key) === item.key));
+    .filter(item => resultFolderTabs(counts).some(tab => resultCategoryKey(tab.key) === item.key));
   if (resultFocusMode === 'focused' && !resultCategoryAvailable(activeResultCategory, counts)) {
     setResultFocusMode('overview');
     activeResultCategory = firstAvailableResultCategory(counts);
@@ -8132,13 +11670,14 @@ async function downloadResultArchive(event) {
   event?.preventDefault?.();
   if (!activeJobId || activeArchiveDownload) return false;
   const requestJobId = activeJobId;
+  const requestRunId = publicRunIdForJob(requestJobId);
   const requestId = ++resultArchiveRequestSeq;
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
   activeArchiveDownload = { jobId: requestJobId, requestId, controller };
   updateArchiveButton();
   try {
     const options = controller ? { signal: controller.signal } : {};
-    const resp = await apiFetch(`api/jobs/${encodeURIComponent(requestJobId)}/archive`, options, { kind: 'job', jobId: requestJobId });
+    const resp = await apiFetch(`api/results/${encodeURIComponent(requestRunId)}/archive`, options, { kind: 'job', jobId: requestRunId });
     if (!resp.ok) throw new Error('Full package download is not available for this run yet.');
     const blob = await resp.blob();
     if (activeJobId !== requestJobId || activeArchiveDownload?.requestId !== requestId) return false;
@@ -8146,7 +11685,7 @@ async function downloadResultArchive(event) {
     resultArchiveObjectUrl = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = resultArchiveObjectUrl;
-    a.download = `${requestJobId}_clusterweave_results.zip`;
+    a.download = `${requestRunId}_clusterweave_results.zip`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -8235,6 +11774,11 @@ function renderResultFileSurface(jobId, files) {
 
 function renderFocusedResultCategory(category) {
   const key = resultCategoryKey(category);
+  if (!resultCategoryApplicable(key)) {
+    setResultFocusMode('overview');
+    renderResultBubblePanel(activeResultFiles, activeJobMeta?.status || '');
+    return;
+  }
   const artifacts = resultArtifacts(activeResultFiles);
   if (key === 'figures') {
     setResultReaderSurface('viz');
@@ -8319,6 +11863,54 @@ function renderToolHtmlReader(jobId, toolKey, items) {
   animateResultReaderOpen();
 }
 
+function normalizedSyntenyTaxon(value) {
+  const taxon = String(value || '').trim().toLowerCase();
+  return ['fungi', 'bacteria'].includes(taxon) ? taxon : '';
+}
+
+function syntenyArtifactTaxon(path) {
+  const descriptorTaxon = normalizedSyntenyTaxon(resultArtifactDescriptor(path)?.taxon_group);
+  if (descriptorTaxon) return descriptorTaxon;
+  const capabilities = activeAnalysisCapabilities();
+  if (capabilities.hasFungi && !capabilities.hasBacteria) return 'fungi';
+  if (capabilities.hasBacteria && !capabilities.hasFungi) return 'bacteria';
+  return 'other';
+}
+
+function syntenyArtifactGenome(path) {
+  const descriptor = resultArtifactDescriptor(path);
+  const genome = String(descriptor?.genome_label || '').trim();
+  if (!genome) return 'Dataset context';
+  return activeGenomeArtifactLabel(
+    genome,
+    readableGenomeArtifactLabel(genome, 'Dataset context'),
+  );
+}
+
+function syntenyArtifactTrack(path) {
+  const track = String(resultArtifactDescriptor(path)?.track || '').trim();
+  if (!track) return 'Panel';
+  return titleCaseArtifactLabel(track.replace(/_/g, ' '), 'Panel');
+}
+
+function syntenyTaxonGroups(items) {
+  const groups = new Map();
+  (items || []).map(normalizedResultPath).filter(Boolean).forEach(path => {
+    const taxon = syntenyArtifactTaxon(path);
+    if (!groups.has(taxon)) groups.set(taxon, []);
+    groups.get(taxon).push(path);
+  });
+  return groups;
+}
+
+function switchSyntenyTaxon(taxon) {
+  const selected = ['fungi', 'bacteria', 'other'].includes(String(taxon || '')) ? String(taxon) : '';
+  const groups = syntenyTaxonGroups(resultArtifacts(activeResultFiles).synteny);
+  if (!selected || !groups.has(selected)) return;
+  activeSyntenyTaxon = selected;
+  renderSyntenyReader(activeJobId, resultArtifacts(activeResultFiles).synteny);
+}
+
 function renderSyntenyReader(jobId, items) {
   const container = document.getElementById('files-container');
   if (!container) return;
@@ -8327,21 +11919,46 @@ function renderSyntenyReader(jobId, items) {
     container.innerHTML = '<div class="empty-state">No synteny panel artifacts were found for this run.</div>';
     return;
   }
-  const rows = syntenyFiles.map(path => {
-    const label = syntenyArtifactLabel(path);
-    return `
-    <div class="artifact-row is-compact result-tool-row">
-      <div class="artifact-row-name">${escapeHtml(label)}</div>
-      <div class="artifact-row-actions">
+  const groups = syntenyTaxonGroups(syntenyFiles);
+  const taxonOrder = ['fungi', 'bacteria', 'other'].filter(taxon => groups.has(taxon));
+  if (syntenyReaderJobId !== jobId) {
+    syntenyReaderJobId = jobId;
+    activeSyntenyTaxon = taxonOrder[0] || '';
+  }
+  if (!groups.has(activeSyntenyTaxon)) activeSyntenyTaxon = taxonOrder[0] || '';
+  const labels = { fungi: 'FUNGAL PANELS', bacteria: 'BACTERIAL PANELS', other: 'OTHER PANELS' };
+  const tabs = taxonOrder.map(taxon => {
+    const active = taxon === activeSyntenyTaxon;
+    const count = groups.get(taxon)?.length || 0;
+    return `<button class="summary-subtab clinker-subtab" type="button" role="tab" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" onclick="switchSyntenyTaxon('${taxon}')">${escapeHtml(labels[taxon])}<span>${count}</span></button>`;
+  }).join('');
+  const selectedFiles = groups.get(activeSyntenyTaxon) || [];
+  const rows = selectedFiles.map(path => `
+    <tr>
+      <td class="clinker-col-organism">${escapeHtml(syntenyArtifactGenome(path))}</td>
+      <td class="clinker-col-panel">${escapeHtml(syntenyArtifactLabel(path))}</td>
+      <td>${escapeHtml(syntenyArtifactTrack(path))}</td>
+      <td class="clinker-col-actions"><div class="artifact-row-actions">
         ${resultOpenLink(jobId, path, 'Open')}
         ${resultDownloadLink(jobId, path, 'Download')}
-      </div>
-    </div>`;
-  }).join('');
+      </div></td>
+    </tr>`).join('');
   container.innerHTML = `
-    <div class="artifact-reader">
-      ${artifactReaderHead('synteny', `${syntenyFiles.length} ${syntenyFiles.length === 1 ? 'panel' : 'panels'}`)}
-      <div class="artifact-list">${rows}</div>
+    <div class="summary-reader clinker-reader" data-clinker-taxon="${escapeHtml(activeSyntenyTaxon)}">
+      <div class="summary-reader-head">
+        <div class="summary-subtabs" role="tablist" aria-label="clinker panel taxon groups">${tabs}</div>
+        <span class="ext-badge">${escapeHtml(`${syntenyFiles.length} ${syntenyFiles.length === 1 ? 'panel' : 'panels'}`)}</span>
+      </div>
+      <div class="summary-condensed-head clinker-condensed-head">
+        <div class="summary-condensed-title">${escapeHtml(labels[activeSyntenyTaxon] || 'CLINKER PANELS')}</div>
+        <div class="summary-condensed-meta">${escapeHtml(`${selectedFiles.length} ${selectedFiles.length === 1 ? 'panel' : 'panels'}`)}</div>
+      </div>
+      <div class="summary-table-wrap clinker-table-wrap">
+        <table class="summary-reader-table clinker-table">
+          <thead><tr><th>Organism</th><th>Panel</th><th>Set</th><th>Actions</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
     </div>`;
   animateResultReaderOpen();
 }
@@ -8350,24 +11967,47 @@ function jsonForInlineScript(value) {
   return JSON.stringify(value).replace(/</g, '\\u003c');
 }
 
-function injectBigscapeDatabaseContract(htmlText, dbUrl, dbName, dbPath, dbAuth = '') {
-  const headScript = `<script>window.CLUSTERWEAVE_BIGSCAPE_DATABASE_URL=${jsonForInlineScript(dbUrl)};window.CLUSTERWEAVE_BIGSCAPE_DATABASE_NAME=${jsonForInlineScript(dbName)};window.CLUSTERWEAVE_BIGSCAPE_DATABASE_PATH=${jsonForInlineScript(dbPath)};window.CLUSTERWEAVE_BIGSCAPE_DATABASE_AUTH=${jsonForInlineScript(dbAuth)};<\/script>`;
+function bigscapePreviewChannel() {
+  if (typeof window.crypto?.randomUUID === 'function') return window.crypto.randomUUID();
+  const bytes = new Uint8Array(16);
+  if (typeof window.crypto?.getRandomValues === 'function') window.crypto.getRandomValues(bytes);
+  else for (let i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * 256);
+  return Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('');
+}
+
+async function validatedBigscapeDatabaseBuffer(response) {
+  const declaredSize = Number(response?.headers?.get?.('Content-Length') || 0);
+  if (Number.isFinite(declaredSize) && declaredSize > BIGSCAPE_BROWSER_DATABASE_MAX_BYTES) {
+    throw new Error('The compact BiG-SCAPE viewer database is too large for automatic browser loading.');
+  }
+  const buffer = await response.arrayBuffer();
+  if (!buffer.byteLength || buffer.byteLength > BIGSCAPE_BROWSER_DATABASE_MAX_BYTES) {
+    throw new Error('The compact BiG-SCAPE viewer database is empty or too large for automatic browser loading.');
+  }
+  const header = new Uint8Array(buffer, 0, Math.min(SQLITE_FORMAT_HEADER.length, buffer.byteLength));
+  const validHeader = header.length === SQLITE_FORMAT_HEADER.length
+    && SQLITE_FORMAT_HEADER.every((value, index) => header[index] === value);
+  if (!validHeader) throw new Error('The paired BiG-SCAPE viewer database is not valid sanitized SQLite.');
+  return buffer;
+}
+
+function injectBigscapeDatabaseContract(htmlText, dbName, dbPath, channel) {
+  const headScript = `<script>window.CLUSTERWEAVE_BIGSCAPE_DATABASE_NAME=${jsonForInlineScript(dbName)};window.CLUSTERWEAVE_BIGSCAPE_DATABASE_PATH=${jsonForInlineScript(dbPath)};window.CLUSTERWEAVE_BIGSCAPE_DATABASE_CHANNEL=${jsonForInlineScript(channel)};<\/script>`;
   const loaderScript = `<script>(function(){
-  const url = window.CLUSTERWEAVE_BIGSCAPE_DATABASE_URL;
-  const name = window.CLUSTERWEAVE_BIGSCAPE_DATABASE_NAME || 'data_sqlite.db';
+  const name = window.CLUSTERWEAVE_BIGSCAPE_DATABASE_NAME || 'clusterweave_viewer.sqlite';
   const path = window.CLUSTERWEAVE_BIGSCAPE_DATABASE_PATH || name;
-  const auth = window.CLUSTERWEAVE_BIGSCAPE_DATABASE_AUTH || '';
+  const channel = window.CLUSTERWEAVE_BIGSCAPE_DATABASE_CHANNEL || '';
   let loadPromise = null;
   let bufferPromise = null;
 
   function setStatus(message) {
-    try { if (typeof window.showLoading === 'function') window.showLoading(message); } catch (e) {}
+    try { if (typeof window.showLoading === 'function') window.showLoading(true, true); } catch (e) {}
     const status = document.getElementById('status');
     if (status) status.textContent = message;
   }
 
   function fail(err) {
-    const message = err && err.message ? err.message : 'ClusterWeave could not load the paired BiG-SCAPE database.';
+    const message = err && err.message ? err.message : 'ClusterWeave could not load the compact BiG-SCAPE viewer database.';
     try { if (typeof window.sendError === 'function') window.sendError(message); } catch (e) {}
     const status = document.getElementById('status');
     if (status) status.textContent = message;
@@ -8392,44 +12032,85 @@ function injectBigscapeDatabaseContract(htmlText, dbUrl, dbName, dbPath, dbAuth 
     });
   }
 
-  function fetchBuffer() {
+  function receiveBuffer() {
     if (!bufferPromise) {
-      const options = { credentials: 'same-origin' };
-      if (auth) options.headers = { Authorization: auth };
-      bufferPromise = fetch(url, options).then(resp => {
-        if (!resp.ok) throw new Error('BiG-SCAPE database fetch failed: HTTP ' + resp.status);
-        return resp.arrayBuffer();
+      bufferPromise = new Promise((resolve, reject) => {
+        let timer = null;
+        let readyInterval = null;
+        let settled = false;
+        const maxBytes = ${BIGSCAPE_BROWSER_DATABASE_MAX_BYTES};
+        const sqliteHeader = [83, 81, 76, 105, 116, 101, 32, 102, 111, 114, 109, 97, 116, 32, 51, 0];
+        function cleanup() {
+          window.removeEventListener('message', onMessage);
+          if (timer) window.clearTimeout(timer);
+          if (readyInterval) window.clearInterval(readyInterval);
+          timer = null;
+          readyInterval = null;
+        }
+        function rejectTransfer(message) {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          reject(new Error(message));
+        }
+        function resolveTransfer(buffer) {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          resolve(buffer);
+        }
+        function onMessage(event) {
+          if (event.source !== window.parent) return;
+          const payload = event && event.data;
+          if (!payload || payload.channel !== channel) return;
+          if (payload.type === 'clusterweave:bigscape-database-error') {
+            rejectTransfer('ClusterWeave could not transfer the compact BiG-SCAPE viewer database.');
+            return;
+          }
+          if (payload.type !== 'clusterweave:bigscape-database') return;
+          if (
+            Object.prototype.toString.call(payload.buffer) !== '[object ArrayBuffer]'
+            || payload.buffer.byteLength <= 0
+            || payload.buffer.byteLength > maxBytes
+          ) {
+            rejectTransfer('The compact BiG-SCAPE viewer database transfer is invalid.');
+            return;
+          }
+          const output = new Uint8Array(payload.buffer);
+          const validHeader = sqliteHeader.every((value, index) => output[index] === value);
+          if (!validHeader) {
+            rejectTransfer('The transferred BiG-SCAPE viewer database is not valid sanitized SQLite.');
+            return;
+          }
+          resolveTransfer(payload.buffer);
+        }
+        window.addEventListener('message', onMessage);
+        function announceReady() {
+          try { window.parent.postMessage({ type: 'clusterweave:bigscape-database-ready', channel: channel }, '*'); } catch (e) {}
+        }
+        announceReady();
+        readyInterval = window.setInterval(announceReady, 250);
+        timer = window.setTimeout(() => {
+          rejectTransfer('Compact BiG-SCAPE viewer database transfer timed out.');
+        }, 120000);
       });
     }
     return bufferPromise;
   }
 
-  function attachInputFile(buffer) {
-    const picker = document.querySelector('#db-selector, input[type="file"]');
-    if (!picker || typeof File !== 'function' || typeof DataTransfer !== 'function') return;
-    try {
-      const file = new File([buffer], name, { type: 'application/vnd.sqlite3' });
-      const transfer = new DataTransfer();
-      transfer.items.add(file);
-      picker.files = transfer.files;
-      window.CLUSTERWEAVE_BIGSCAPE_DATABASE_FILE = file;
-    } catch (e) {}
-  }
-
   function emitReady() {
-    const detail = { name: name, path: path, url: url };
+    const detail = { name: name, path: path };
     try { window.dispatchEvent(new CustomEvent('clusterweave:bigscape-database-ready', { detail: detail })); } catch (e) {}
     try { document.dispatchEvent(new CustomEvent('clusterweave:bigscape-database-ready', { detail: detail })); } catch (e) {}
   }
 
   async function autoloadDatabase() {
-    if (!url) return null;
     if (loadPromise) return loadPromise;
     loadPromise = (async function(){
       setStatus('Loading BiG-SCAPE database: ' + name);
       const initSqlJs = await waitForFunction('initSqlJs', 24000);
       const dataLoaded = await waitForFunction('dataLoaded', 24000);
-      const buffer = await fetchBuffer();
+      const buffer = await receiveBuffer();
       window.CLUSTERWEAVE_BIGSCAPE_DATABASE_BYTES = buffer.byteLength || 0;
       const SQL = await initSqlJs();
       window.db = new SQL.Database(new Uint8Array(buffer));
@@ -8458,7 +12139,10 @@ function injectBigscapeDatabaseContract(htmlText, dbUrl, dbName, dbPath, dbAuth 
 
 async function openBigscapeResult(event, jobId, htmlPath, databasePath) {
   event?.preventDefault?.();
-  if (!jobId || !htmlPath || !databasePath) return false;
+  if (!jobId || !isBigscapeHtmlArtifact(htmlPath) || !isBigscapeViewerDatabaseArtifact(databasePath)) {
+    window.alert('A compact ClusterWeave BiG-SCAPE viewer database is required for automatic opening.');
+    return false;
+  }
   let previewWindow = window.open('', '_blank');
   if (!previewWindow) {
     window.alert('Allow pop-ups for this site to open the paired BiG-SCAPE HTML and database view.');
@@ -8468,17 +12152,21 @@ async function openBigscapeResult(event, jobId, htmlPath, databasePath) {
   previewWindow.document.title = 'BiG-SCAPE';
   previewWindow.document.body.textContent = 'Loading BiG-SCAPE result...';
   try {
-    const htmlResp = await resultFetch(jobId, htmlPath);
+    const [htmlResp, dbResp] = await Promise.all([
+      resultFetch(jobId, htmlPath),
+      bigscapeViewerFetch(jobId),
+    ]);
     if (!htmlResp.ok) throw new Error('BiG-SCAPE HTML view could not be opened with this result access code.');
+    if (!dbResp.ok) throw new Error('The compact BiG-SCAPE viewer database could not be opened with this result access code.');
     const htmlText = await htmlResp.text();
+    const databaseBuffer = await validatedBigscapeDatabaseBuffer(dbResp);
     const dbName = fileNameFromPath(databasePath);
-    const dbUrl = resultHref(jobId, databasePath);
-    const dbAuth = authHeadersFor('job', jobId).Authorization || '';
-    const htmlUrl = await buildHtmlResultObjectUrl(jobId, htmlPath, htmlText, {
-      transform: text => injectBigscapeDatabaseContract(text, dbUrl, dbName, databasePath, dbAuth),
+    const channel = bigscapePreviewChannel();
+    const contractedHtml = injectBigscapeDatabaseContract(htmlText, dbName, databasePath, channel);
+    const rewrittenHtml = await rewriteHtmlResultAssets(contractedHtml, jobId, htmlPath, {
+      allowBigscapeScripts: true,
     });
-    const hash = `#clusterweave-db=${encodeURIComponent(dbUrl)}&clusterweave-db-name=${encodeURIComponent(dbName)}&clusterweave-db-path=${encodeURIComponent(databasePath)}`;
-    previewWindow.location.href = `${htmlUrl}${hash}`;
+    renderSandboxedBigscapePreview(previewWindow, htmlPath, rewrittenHtml, databaseBuffer, channel);
   } catch (err) {
     const message = err && err.message ? err.message : 'BiG-SCAPE result could not be opened.';
     previewWindow.document.body.innerHTML = `<pre style="white-space:pre-wrap;font:14px system-ui,sans-serif;color:#111">${escapeHtml(message)}</pre>`;
@@ -8489,13 +12177,47 @@ async function openBigscapeResult(event, jobId, htmlPath, databasePath) {
 function renderBigscapeReader(jobId, bigscape) {
   const container = document.getElementById('files-container');
   if (!container) return;
-  if (!bigscape || !bigscape.html || !bigscape.database) {
-    container.innerHTML = '<div class="empty-state">BiG-SCAPE needs both a web HTML view and a database artifact before it can be opened here.</div>';
+  if (!bigscape || !bigscape.html) {
+    container.innerHTML = '<div class="empty-state">No BiG-SCAPE web output was indexed for this run.</div>';
+    return;
+  }
+  if (!bigscape.database) {
+    container.innerHTML = `
+      <div class="artifact-reader">
+        ${artifactReaderHead('bigscape', 'clustering complete')}
+        <div class="artifact-row result-tool-row">
+          <div>
+            <div class="artifact-row-name">BiG-SCAPE clustering complete</div>
+            <div class="artifact-row-meta">The raw SQLite database is excluded from public results and remains private because it contains sequence data and execution paths. Use the BiG-SCAPE multipanels and network figures; an interactive reader requires the redacted ClusterWeave database.</div>
+          </div>
+          <div class="artifact-row-actions">
+            ${resultDownloadLink(jobId, bigscape.html, 'Download HTML')}
+          </div>
+        </div>
+      </div>`;
+    animateResultReaderOpen();
+    return;
+  }
+  if (!bigscape.viewerDatabase) {
+    container.innerHTML = `
+      <div class="artifact-reader">
+        ${artifactReaderHead('bigscape', 'web view')}
+        <div class="artifact-row result-tool-row">
+          <div>
+            <div class="artifact-row-name">BiG-SCAPE web view</div>
+            <div class="artifact-row-meta">Automatic Open is unavailable because this run has no independently attested compact viewer database. The complete sanitized database remains available for download.</div>
+          </div>
+          <div class="artifact-row-actions">
+            ${resultDownloadLink(jobId, bigscape.database, 'Download sanitized SQLite')}
+          </div>
+        </div>
+      </div>`;
+    animateResultReaderOpen();
     return;
   }
   const jsJobId = escapeJsString(jobId);
   const jsHtml = escapeJsString(bigscape.html);
-  const jsDb = escapeJsString(bigscape.database);
+  const jsDb = escapeJsString(bigscape.viewerDatabase);
   const href = resultHref(jobId, bigscape.html);
   container.innerHTML = `
     <div class="artifact-reader">
@@ -8504,30 +12226,64 @@ function renderBigscapeReader(jobId, bigscape) {
         <div class="artifact-row-name">BiG-SCAPE web view</div>
         <div class="artifact-row-actions">
           <a class="btn btn-primary text-sm" href="${escapeHtml(href)}" target="_blank" onclick="return openBigscapeResult(event,'${escapeHtml(jsJobId)}','${escapeHtml(jsHtml)}','${escapeHtml(jsDb)}')">Open</a>
-          ${resultDownloadLink(jobId, bigscape.database, 'Download')}
+          ${resultDownloadLink(jobId, bigscape.database, 'Download sanitized SQLite')}
         </div>
       </div>
     </div>`;
   animateResultReaderOpen();
 }
 
+
+function summaryViewDefinitions(summaryFiles) {
+  const definitions = [
+    { key: 'all_bgcs', label: 'ALL BGCs' },
+    { key: 'target', label: 'TARGET' },
+    { key: 'atlas', label: 'ATLAS' },
+  ];
+  return definitions.map(item => ({
+    ...item,
+    path: preferredSummaryViewFile(summaryFiles, item.key),
+  })).filter(item => item.path);
+}
+
+function switchSummaryView(view) {
+  const summaries = resultArtifacts(activeResultFiles).summaries;
+  if (!summaryViewDefinitions(summaries).some(item => item.key === view)) return;
+  activeSummaryView = view;
+  renderSummaryReader(activeJobId, summaries);
+}
+
 function renderSummaryReader(jobId, summaryFiles) {
   const container = document.getElementById('files-container');
   if (!container) return;
-  const atlasFiles = (summaryFiles || []).filter(isAtlasShortlistArtifact).sort((a, b) => summarySortKey(a).localeCompare(summarySortKey(b)));
-  if (!atlasFiles.length) {
-    container.innerHTML = '<div class="empty-state">No atlas shortlist artifact was found for this run.</div>';
+  const views = summaryViewDefinitions(summaryFiles);
+  if (!views.length) {
+    container.innerHTML = '<div class="empty-state">No public Summary table was found for this run.</div>';
     return;
   }
-  const preferred = atlasFiles[0];
+  if (summaryReaderJobId !== jobId) {
+    summaryReaderJobId = jobId;
+    activeSummaryView = 'all_bgcs';
+    allBgcTableState = null;
+  }
+  if (!views.some(item => item.key === activeSummaryView)) activeSummaryView = views[0].key;
+  const selected = views.find(item => item.key === activeSummaryView) || views[0];
+  const tabs = views.map(item => {
+    const active = item.key === selected.key;
+    return `<button class="summary-subtab" type="button" role="tab" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" onclick="switchSummaryView('${item.key}')">${escapeHtml(item.label)}</button>`;
+  }).join('');
   container.innerHTML = `
     <div class="summary-reader">
-      <div class="summary-reader-doc" id="summary-reader-doc"><div class="viz-placeholder text-sm">Loading summary document...</div></div>
+      <div class="summary-reader-head">
+        <div class="summary-subtabs" role="tablist" aria-label="Summary result views">${tabs}</div>
+        ${resultDownloadLink(jobId, selected.path, 'Download table')}
+      </div>
+      <div class="summary-reader-doc" id="summary-reader-doc" role="tabpanel"><div class="viz-placeholder text-sm">Loading summary document...</div></div>
     </div>`;
   animateResultReaderOpen();
-  loadSummaryReaderFile(preferred);
+  if (selected.key === 'all_bgcs') loadAllBgcReaderFile(selected.path);
+  else loadSummaryReaderFile(selected.path);
 }
-
 function parseDelimitedLine(line, delimiter) {
   const cells = [];
   let value = '';
@@ -8550,6 +12306,169 @@ function parseDelimitedLine(line, delimiter) {
   }
   cells.push(value);
   return cells;
+}
+
+const ALL_BGC_COLUMNS = Object.freeze([
+  { key: 'genome', label: 'Organism' },
+  { key: 'taxon_group', label: 'Kingdom' },
+  { key: 'detector_relation', label: 'Detector support' },
+  { key: 'antismash_bgc_id', label: 'antiSMASH region' },
+  { key: 'antismash_bgc_class', label: 'antiSMASH BGC class' },
+  { key: 'antismash_knowncluster_similarity_score', label: 'KnownClusterBlast score' },
+  { key: 'antismash_knowncluster_accession', label: 'KnownCluster accession' },
+  { key: 'antismash_knowncluster_product', label: 'KnownCluster product' },
+  { key: 'antismash_clustercompare_similarity_score', label: 'ClusterCompare score' },
+  { key: 'antismash_clustercompare_compounds', label: 'ClusterCompare compounds' },
+  { key: 'antismash_clustercompare_organism', label: 'ClusterCompare organism' },
+  { key: 'funbgcex_core_enzymes', label: 'FunBGCeX core enzymes' },
+  { key: 'funbgcex_similar_bgc', label: 'FunBGCeX similar BGC' },
+  { key: 'funbgcex_similarity_score', label: 'FunBGCeX similarity score' },
+  { key: 'funbgcex_putative_product', label: 'FunBGCeX putative product' },
+]);
+
+function allBgcDisplayValue(row, key) {
+  if (key === 'genome') {
+    const fallback = readableGenomeArtifactLabel(row.genome || '', 'Unknown organism');
+    return activeGenomeArtifactLabel(row.genome || '', fallback);
+  }
+  if (key === 'taxon_group') return titleCaseArtifactLabel(row.taxon_group || '', 'Unresolved');
+  if (key === 'detector_relation') return titleCaseArtifactLabel(row.detector_relation || '', 'Single detector');
+  if (key === 'antismash_bgc_id') {
+    const region = String(row.antismash_bgc_id || '');
+    const genome = String(row.genome || '');
+    if (String(row.taxon_group || '').toLowerCase() === 'bacteria' && genome) {
+      for (const separator of ['_', '.']) {
+        const prefix = genome + separator;
+        if (region.startsWith(prefix)) return region.slice(prefix.length);
+      }
+    }
+    return region || '—';
+  }
+  return row[key] || '—';
+}
+
+function allBgcFilteredRows() {
+  if (!allBgcTableState) return [];
+  const query = String(allBgcTableState.query || '').trim().toLowerCase();
+  return allBgcTableState.rows.filter(row => {
+    if (allBgcTableState.taxon && String(row.taxon_group || '').toLowerCase() !== allBgcTableState.taxon) return false;
+    if (allBgcTableState.genome && String(row.genome || '') !== allBgcTableState.genome) return false;
+    if (!query) return true;
+    return ALL_BGC_COLUMNS.some(column => String(allBgcDisplayValue(row, column.key)).toLowerCase().includes(query));
+  }).sort((a, b) => {
+    const left = String(allBgcDisplayValue(a, allBgcTableState.sortKey)).toLowerCase();
+    const right = String(allBgcDisplayValue(b, allBgcTableState.sortKey)).toLowerCase();
+    const order = left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' });
+    return allBgcTableState.sortDir === 'desc' ? -order : order;
+  });
+}
+
+function allBgcGenomeValues(rows, taxon = '') {
+  const values = Array.from(new Set(rows
+    .filter(row => !taxon || String(row.taxon_group || '').toLowerCase() === taxon)
+    .map(row => String(row.genome || '')).filter(Boolean)));
+  return values.sort((a, b) => allBgcDisplayValue({ genome: a }, 'genome').localeCompare(
+    allBgcDisplayValue({ genome: b }, 'genome'), undefined, { numeric: true, sensitivity: 'base' },
+  ));
+}
+
+function allBgcTableMarkup(rows) {
+  const head = ALL_BGC_COLUMNS.map(column => {
+    const selected = allBgcTableState.sortKey === column.key;
+    const arrow = selected ? (allBgcTableState.sortDir === 'asc' ? ' ↑' : ' ↓') : '';
+    return '<th><button type="button" onclick="sortAllBgcTable(\'' + column.key + '\')" aria-label="Sort by ' + escapeHtml(column.label) + '">' + escapeHtml(column.label + arrow) + '</button></th>';
+  }).join('');
+  const body = rows.map(row => '<tr>' + ALL_BGC_COLUMNS.map(column => '<td>' + escapeHtml(allBgcDisplayValue(row, column.key)) + '</td>').join('') + '</tr>').join('');
+  return rows.length
+    ? '<div class="summary-table-wrap all-bgc-table-wrap"><table class="summary-reader-table all-bgc-table"><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table></div>'
+    : '<div class="empty-state">No BGC records match the selected filters.</div>';
+}
+
+function refreshAllBgcRows() {
+  const doc = document.getElementById('summary-reader-doc');
+  if (!doc || !allBgcTableState) return;
+  const rows = allBgcFilteredRows();
+  const meta = doc.querySelector('.summary-condensed-meta');
+  const table = doc.querySelector('#all-bgc-table-region');
+  if (meta) meta.textContent = rows.length + ' matching BGC records';
+  if (table) table.innerHTML = allBgcTableMarkup(rows);
+}
+
+function updateAllBgcFilter(key, value) {
+  if (!allBgcTableState || !['query', 'taxon', 'genome'].includes(key)) return;
+  allBgcTableState[key] = String(value || '');
+  if (key === 'query') { refreshAllBgcRows(); return; }
+  if (key === 'taxon') {
+    const genomes = allBgcGenomeValues(allBgcTableState.rows, allBgcTableState.taxon);
+    if (allBgcTableState.genome && !genomes.includes(allBgcTableState.genome)) allBgcTableState.genome = '';
+  }
+  renderAllBgcTable();
+}
+
+function sortAllBgcTable(key) {
+  if (!allBgcTableState || !ALL_BGC_COLUMNS.some(column => column.key === key)) return;
+  if (allBgcTableState.sortKey === key) {
+    allBgcTableState.sortDir = allBgcTableState.sortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    allBgcTableState.sortKey = key;
+    allBgcTableState.sortDir = 'asc';
+  }
+  refreshAllBgcRows();
+}
+
+function renderAllBgcTable() {
+  const doc = document.getElementById('summary-reader-doc');
+  if (!doc || !allBgcTableState) return;
+  const genomes = allBgcGenomeValues(allBgcTableState.rows, allBgcTableState.taxon);
+  const rows = allBgcFilteredRows();
+  const taxa = Array.from(new Set(allBgcTableState.rows.map(row => String(row.taxon_group || '').toLowerCase()).filter(Boolean))).sort();
+  const taxonOptions = taxa.map(value => '<option value="' + escapeHtml(value) + '"' + (value === allBgcTableState.taxon ? ' selected' : '') + '>' + escapeHtml(titleCaseArtifactLabel(value)) + '</option>').join('');
+  const genomeOptions = genomes.map(value => {
+    const label = activeGenomeArtifactLabel(value, readableArtifactLabel(value));
+    return '<option value="' + escapeHtml(value) + '"' + (value === allBgcTableState.genome ? ' selected' : '') + '>' + escapeHtml(label) + '</option>';
+  }).join('');
+  doc.innerHTML =
+    '<div class="summary-condensed-head"><div class="summary-condensed-title">ALL BGCs</div><div class="summary-condensed-meta">' + escapeHtml(rows.length + ' matching BGC records') + '</div></div>' +
+    '<div class="all-bgc-controls">' +
+      '<label>Search<input type="search" value="' + escapeHtml(allBgcTableState.query) + '" placeholder="Organism, class, region, compound" oninput="updateAllBgcFilter(\'query\',this.value)"></label>' +
+      '<label>Kingdom<select onchange="updateAllBgcFilter(\'taxon\',this.value)"><option value="">All</option>' + taxonOptions + '</select></label>' +
+      '<label>Organism<select onchange="updateAllBgcFilter(\'genome\',this.value)"><option value="">All</option>' + genomeOptions + '</select></label>' +
+    '</div>' +
+    '<div id="all-bgc-table-region">' + allBgcTableMarkup(rows) + '</div>';
+  animateSummaryReaderDocument();
+}
+
+async function loadAllBgcReaderFile(path) {
+  if (!activeJobId || !path) return;
+  if (allBgcTableState?.path === path) { renderAllBgcTable(); return; }
+  const seq = ++summaryReaderSeq;
+  const doc = document.getElementById('summary-reader-doc');
+  if (doc) doc.innerHTML = '<div class="viz-placeholder text-sm">Loading all BGC records...</div>';
+  try {
+    const resp = await resultFetch(activeJobId, path);
+    if (seq !== summaryReaderSeq) return;
+    if (!resp.ok) throw new Error('The all-BGC table could not be opened with this result access code.');
+    const text = await resp.text();
+    const lines = String(text || '').split(/\r?\n/).filter(line => line.trim());
+    if (!lines.length) throw new Error('The all-BGC table is empty.');
+    const headers = parseDelimitedLine(lines[0], ',');
+    const rows = lines.slice(1).map(line => {
+      const cells = parseDelimitedLine(line, ',');
+      return Object.fromEntries(headers.map((header, index) => [header, cells[index] || '']));
+    });
+    allBgcTableState = {
+      path,
+      rows,
+      query: '',
+      taxon: '',
+      genome: '',
+      sortKey: 'genome',
+      sortDir: 'asc',
+    };
+    renderAllBgcTable();
+  } catch (err) {
+    if (doc) doc.innerHTML = '<div class="empty-state">' + escapeHtml(err.message || 'All BGC records are unavailable.') + '</div>';
+  }
 }
 
 function preferredSummaryColumnIndexes(headers) {
@@ -8663,7 +12582,114 @@ function condensedMarkdownBodyText(text) {
 }
 
 function renderSummaryHeading(path, text, count) {
-  return `<div class="summary-condensed-head"><div class="summary-condensed-title">${escapeHtml(summaryCondensedTitle(path, text, count))}</div></div>`;
+  return '<div class="summary-condensed-head"><div class="summary-condensed-title">' + escapeHtml(summaryCondensedTitle(path, text, count)) + '</div></div>';
+}
+
+const ATLAS_SUMMARY_COLUMNS = Object.freeze([
+  { key: 'atlas_rank', label: 'Rank' },
+  { key: 'genome', label: 'Representative organism' },
+  { key: 'bigscape_cc', label: 'BiG-SCAPE CC' },
+  { key: 'shared_cc_primary_families', label: 'GCF families' },
+  { key: 'shared_cc_record_count', label: 'BGCs' },
+  { key: 'shared_cc_dataset_genome_count', label: 'Genome count' },
+  { key: 'member_genomes', label: 'Genome members' },
+  { key: 'antismash_class', label: 'BGC class' },
+  { key: 'annotation_hits', label: 'Scored annotation hits' },
+  { key: 'note', label: 'Note' },
+]);
+
+function atlasMemberGenomes(row) {
+  const organisms = String(row.shared_cc_dataset_organisms || '').split(';').map(value => value.trim()).filter(Boolean);
+  if (organisms.length) return organisms.join(' · ');
+  const genomes = String(row.shared_cc_dataset_genomes || '').split(';').map(value => value.trim()).filter(Boolean);
+  return genomes.map(value => activeGenomeArtifactLabel(value, readableArtifactLabel(value))).join(' · ') || '—';
+}
+
+function atlasAnnotationHits(row) {
+  const hits = [];
+  const knownScore = String(row.antismash_knowncluster_similarity_score || '').trim();
+  const knownLabel = [row.antismash_knowncluster_product, row.antismash_knowncluster_accession]
+    .map(value => String(value || '').trim()).filter(Boolean).join(' · ');
+  if (knownLabel || knownScore) hits.push(`KnownClusterBlast: ${knownLabel || 'hit'} · score ${knownScore || 'unavailable'}`);
+
+  const compareScore = String(row.antismash_clustercompare_similarity_score || '').trim();
+  const compareLabel = [row.antismash_clustercompare_compounds, row.antismash_clustercompare_organism]
+    .map(value => String(value || '').trim()).filter(Boolean).join(' · ');
+  if (compareLabel || compareScore) hits.push(`ClusterCompare: ${compareLabel || 'hit'} · score ${compareScore || 'unavailable'}`);
+
+  const funScore = String(row.funbgcex_similarity_score || '').trim();
+  const funLabel = [row.funbgcex_similar_bgc, row.funbgcex_putative_product]
+    .map(value => String(value || '').trim()).filter(Boolean).join(' · ');
+  if (funLabel || funScore) hits.push(`FunBGCeX similar BGC: ${funLabel || 'hit'} · score ${funScore || 'unavailable'}`);
+  return hits.join(' | ') || 'No scored annotation hit';
+}
+
+function atlasTaxonSection(row) {
+  const taxa = String(row.shared_cc_taxon_groups || row.taxon_group || '').toLowerCase()
+    .split(';').map(value => value.trim()).filter(Boolean);
+  const hasFungi = taxa.includes('fungi');
+  const hasBacteria = taxa.includes('bacteria');
+  if (hasFungi && hasBacteria) return 'cross';
+  if (hasBacteria) return 'bacteria';
+  if (hasFungi) return 'fungi';
+  return 'unresolved';
+}
+
+function atlasSummaryValue(row, key) {
+  if (key === 'genome') {
+    const fallback = readableGenomeArtifactLabel(row.genome || '', 'Unknown organism');
+    return activeGenomeArtifactLabel(row.genome || '', fallback);
+  }
+  if (key === 'member_genomes') return atlasMemberGenomes(row);
+  if (key === 'annotation_hits') return atlasAnnotationHits(row);
+  if (key === 'note') {
+    const conservative = /product identity is not assigned/i.test(row.safe_claim_text || '')
+      ? 'Product identity is not assigned.'
+      : 'Putative annotation; confirm experimentally.';
+    const followup = String(row.recommended_followup || '').trim().replace(/[.]+$/, '');
+    return followup ? `${conservative} Follow-up: ${followup}.` : conservative;
+  }
+  if (key === 'antismash_class') return String(row[key] || '—').replace(/;/g, ' · ');
+  return row[key] || '—';
+}
+
+function renderAtlasSummary(headers, bodyRows) {
+  const records = bodyRows.map(cells => Object.fromEntries(headers.map((header, index) => [header, cells[index] || ''])));
+  const sorted = records.slice().sort(
+    (a, b) => (Number(a.atlas_rank) || Number.MAX_SAFE_INTEGER) - (Number(b.atlas_rank) || Number.MAX_SAFE_INTEGER),
+  );
+  const head = ATLAS_SUMMARY_COLUMNS.map(column => '<th>' + escapeHtml(column.label) + '</th>').join('');
+  const sectionDefinitions = [
+    { key: 'fungi', label: 'Fungal families' },
+    { key: 'bacteria', label: 'Bacterial families' },
+    { key: 'cross', label: 'Cross-kingdom families' },
+    { key: 'unresolved', label: 'Unresolved-domain families' },
+  ];
+  const sections = sectionDefinitions.map(section => {
+    const sectionRecords = sorted.filter(row => atlasTaxonSection(row) === section.key);
+    if (!sectionRecords.length) return '';
+    const prioritized = sectionRecords.filter(row => String(row.manual_review_bucket || '').toLowerCase() === 'atlas_now');
+    const rows = prioritized.length ? prioritized : sectionRecords.slice(0, 20);
+    const body = rows.map(row => '<tr>' + ATLAS_SUMMARY_COLUMNS.map(column => {
+      const value = escapeHtml(atlasSummaryValue(row, column.key));
+      const content = column.key === 'atlas_rank' ? '<span class="atlas-rank-badge">' + value + '</span>' : value;
+      return '<td class="atlas-col-' + column.key + '">' + content + '</td>';
+    }).join('') + '</tr>').join('');
+    const scopeMeta = prioritized.length
+      ? prioritized.length + ' prioritized · ' + sectionRecords.length + ' total'
+      : rows.length + ' displayed · ' + sectionRecords.length + ' total';
+    return '<section class="atlas-domain-section" data-atlas-domain="' + section.key + '">'
+      + '<div class="atlas-domain-head"><h3>' + escapeHtml(section.label) + '</h3><span>' + escapeHtml(scopeMeta) + '</span></div>'
+      + '<div class="summary-table-wrap atlas-table-wrap"><table class="summary-reader-table atlas-table"><thead><tr>'
+      + head + '</tr></thead><tbody>' + body + '</tbody></table></div></section>';
+  }).filter(Boolean).join('');
+  const counts = sectionDefinitions.map(section => {
+    const count = sorted.filter(row => atlasTaxonSection(row) === section.key).length;
+    return count ? section.label.replace(/ families$/, '') + ' ' + count : '';
+  }).filter(Boolean).join(' · ');
+  return '<div class="summary-condensed-head"><div class="summary-condensed-title">DATASET-WIDE FAMILY ATLAS</div><div class="summary-condensed-meta">'
+    + escapeHtml(records.length + ' total families' + (counts ? ' · ' + counts : '')) + '</div></div>'
+    + sections;
 }
 
 function renderDelimitedSummary(path, text) {
@@ -8671,16 +12697,19 @@ function renderDelimitedSummary(path, text) {
   const lines = String(text || '').split(/\r?\n/).filter(line => line.trim());
   if (!lines.length) return '<div class="empty-state">Summary file is empty.</div>';
   const headers = parseDelimitedLine(lines[0], delimiter);
-  const indexes = preferredSummaryColumnIndexes(headers);
   const bodyRows = lines.slice(1).map(line => parseDelimitedLine(line, delimiter));
-  const lowered = headers.map(h => String(h || '').toLowerCase());
-  const trackIdx = lowered.indexOf('selection_track');
-  const atlasNow = trackIdx >= 0 ? bodyRows.filter(row => String(row[trackIdx] || '').toLowerCase() === 'atlas_now').length : bodyRows.length;
-  const head = indexes.map(idx => `<th>${escapeHtml(headers[idx] || `Column ${idx + 1}`)}</th>`).join('');
-  const body = bodyRows.map(row => `<tr>${indexes.map(idx => `<td>${escapeHtml(row[idx] || '')}</td>`).join('')}</tr>`).join('');
-  return `
-    ${renderSummaryHeading(path, '', atlasNow)}
-    <div class="summary-table-wrap"><table class="summary-reader-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+  const kind = summaryReaderArtifactKind(path);
+  if (!bodyRows.length) {
+    const message = kind === 'target' ? 'No target candidates met the selection criteria.' : 'No atlas candidates met the selection criteria.';
+    return renderSummaryHeading(path, '', 0) + '<div class="empty-state">' + escapeHtml(message) + '</div>';
+  }
+  if (kind === 'atlas') return renderAtlasSummary(headers, bodyRows);
+  const indexes = preferredSummaryColumnIndexes(headers);
+  const head = indexes.map(idx => '<th>' + escapeHtml(headers[idx] || 'Column ' + (idx + 1)) + '</th>').join('');
+  const body = bodyRows.map(row => '<tr>' + indexes.map(idx => '<td>' + escapeHtml(row[idx] || '') + '</td>').join('') + '</tr>').join('');
+  return renderSummaryHeading(path, '', bodyRows.length)
+    + '<div class="summary-table-wrap"><table class="summary-reader-table"><thead><tr>'
+    + head + '</tr></thead><tbody>' + body + '</tbody></table></div>';
 }
 
 function renderMarkdownSummary(path, text) {
@@ -8756,8 +12785,11 @@ async function loadResults(jobId, status, seq = jobLoadSeq, job = activeJobMeta)
   const card = document.getElementById('results-card');
   card.classList.remove('hidden');
   setResultsLoaded(true);
+  const runId = publicRunIdForJob(jobId);
   if (!job) {
-    const jobResp = await apiFetch(`api/jobs/${encodeURIComponent(jobId)}`, {}, { kind: 'job', jobId });
+    const jobResp = await apiFetch(
+      `api/results/${encodeURIComponent(runId)}`, {}, { kind: 'job', jobId: runId },
+    );
     if (seq !== jobLoadSeq || jobId !== activeJobId) return;
     job = jobResp.ok ? await jobResp.json() : activeJobMeta;
   }
@@ -8771,12 +12803,19 @@ async function loadResults(jobId, status, seq = jobLoadSeq, job = activeJobMeta)
   if (canUseAdminSurfaces()) renderRerunPanel(jobId, activeJobMeta);
   else document.getElementById('rerun-panel').innerHTML = '';
 
-  const resp = await apiFetch(`api/jobs/${encodeURIComponent(jobId)}/files`, {}, { kind: 'job', jobId });
+  const resp = await apiFetch(
+    `api/results/${encodeURIComponent(runId)}/artifacts`, {}, { kind: 'job', jobId: runId },
+  );
   if (seq !== jobLoadSeq || jobId !== activeJobId) return;
   if (!resp.ok) return;
-  const { files } = await resp.json();
+  const filePayload = await resp.json();
+  const files = installResultArtifactDescriptors(filePayload.artifacts, { replace: true });
+  if (activeJobMeta) {
+    activeJobMeta.result_index_state = filePayload.result_index_state || '';
+    activeJobMeta.bigscape_viewer_available = filePayload.bigscape_viewer_available === true;
+  }
   if (seq !== jobLoadSeq || jobId !== activeJobId) return;
-  const normalizedFiles = (files || []).map(normalizedResultPath).filter(Boolean);
+  const normalizedFiles = files.map(normalizedResultPath).filter(Boolean);
   renderQaDrawer(activeJobMeta, normalizedFiles);
   const counts = resultCategoryCounts(normalizedFiles);
   const openDashboard = shouldOpenResultDashboardDuringRefresh(normalizedFiles, activeJobMeta);
@@ -8822,8 +12861,8 @@ async function loadResults(jobId, status, seq = jobLoadSeq, job = activeJobMeta)
     document.getElementById('viz-container').innerHTML = `
       <div class="viz-placeholder">
         <span class="viz-placeholder-mark" aria-hidden="true"></span>
-        <div>This job did not finish, but partial outputs and logs remain available.</div>
-        <div class="mt1 text-sm text-muted">${canUseAdminSurfaces() ? 'Use the rerun controls above to resume selected stages in the same job workspace.' : 'Check the Files tab for any partial outputs, or submit a new run after fixing the input.'}</div>
+        <div>${escapeHtml(activeJobMeta?.error_summary || activeJobMeta?.error || 'This job did not finish, but partial outputs and logs remain available.')}</div>
+        <div class="mt1 text-sm text-muted">${canUseAdminSurfaces() ? 'Use the QA Console logs and rerun controls to resume selected stages in the same job workspace.' : 'Check any files shown here, or submit a new run after fixing the input.'}</div>
       </div>`;
   }
   renderResultFileSurface(jobId, normalizedFiles);
@@ -8971,12 +13010,99 @@ function fileNameFromPath(path) {
   return parts[parts.length - 1] || normalizedResultPath(path);
 }
 
+const APPROVED_PHYLOGENY_ARTIFACT_NAMES = new Set([
+  'clusterweave_taxon_tree.svg',
+  'clusterweave_taxon_tree.png',
+  'clusterweave_taxon_tree.nwk',
+  'clusterweave_taxon_tree_leaf_profiles.tsv',
+  'clusterweave_gcf_network_edges.tsv',
+  'clusterweave_taxon_tree.graphml',
+  'clusterweave_tree_manifest.json',
+  'clusterweave_tree_methods.json',
+  'clusterweave_tree_bundle.zip',
+]);
+
+function approvedPhylogenyArtifact(path) {
+  const descriptor = resultArtifactDescriptor(path);
+  if (descriptor && resultCategoryKey(descriptor.category) === 'figures') {
+    const descriptorName = String(descriptor.filename || '').toLowerCase();
+    return APPROVED_PHYLOGENY_ARTIFACT_NAMES.has(descriptorName)
+      ? { path: normalizedResultPath(path), name: descriptorName } : null;
+  }
+  const normalized = normalizedResultPath(path);
+  const match = normalized.match(/^data\/results\/[^/]+\/figures\/phylogeny\/([^/]+)$/i);
+  if (!match) return null;
+  const name = String(match[1] || '').toLowerCase();
+  if (!APPROVED_PHYLOGENY_ARTIFACT_NAMES.has(name)) return null;
+  return { path: normalized, name };
+}
+
+function isApprovedPhylogenyArtifact(path) {
+  return !!approvedPhylogenyArtifact(path);
+}
+
+function isTaxonTreeSvgAsset(path) {
+  return approvedPhylogenyArtifact(path)?.name === 'clusterweave_taxon_tree.svg';
+}
+
+function isTaxonTreeVisualAsset(path) {
+  const name = approvedPhylogenyArtifact(path)?.name || '';
+  return name === 'clusterweave_taxon_tree.svg' || name === 'clusterweave_taxon_tree.png';
+}
+
+function isTaxonTreeBundleAsset(path) {
+  return approvedPhylogenyArtifact(path)?.name === 'clusterweave_tree_bundle.zip';
+}
+
+function treeDataBundleForFigure(path, files) {
+  if (!isTaxonTreeSvgAsset(path)) return '';
+  const sourceDescriptor = resultArtifactDescriptor(path);
+  if (sourceDescriptor) {
+    return (files || []).find(candidate => {
+      const descriptor = resultArtifactDescriptor(candidate);
+      return isTaxonTreeBundleAsset(candidate) && descriptor?.bundle_id === sourceDescriptor.bundle_id;
+    }) || '';
+  }
+  const normalized = normalizedResultPath(path);
+  const directory = normalized.slice(0, normalized.lastIndexOf('/'));
+  const expected = `${directory}/clusterweave_tree_bundle.zip`.toLowerCase();
+  return (files || [])
+    .map(normalizedResultPath)
+    .find(candidate => candidate.toLowerCase() === expected && isTaxonTreeBundleAsset(candidate)) || '';
+}
+
 function isFigureAsset(path) {
-  return /^data\/results\/[^/]+\/figures\/[^/]+\.(svg|png|jpe?g|webp)$/i.test(normalizedResultPath(path));
+  const descriptor = resultArtifactDescriptor(path);
+  if (descriptor) return resultCategoryKey(descriptor.category) === 'figures'
+    && /\.(svg|png|jpe?g|webp)$/i.test(descriptor.filename);
+  const normalized = normalizedResultPath(path);
+  return /^data\/results\/[^/]+\/figures\/[^/]+\.(svg|png|jpe?g|webp)$/i.test(normalized)
+    || isTaxonTreeVisualAsset(normalized);
 }
 
 function isSvgFigureAsset(path) {
-  return /^data\/results\/[^/]+\/figures\/[^/]+\.svg$/i.test(normalizedResultPath(path));
+  const descriptor = resultArtifactDescriptor(path);
+  if (descriptor) return resultCategoryKey(descriptor.category) === 'figures' && /\.svg$/i.test(descriptor.filename);
+  const normalized = normalizedResultPath(path);
+  return /^data\/results\/[^/]+\/figures\/[^/]+\.svg$/i.test(normalized)
+    || isTaxonTreeSvgAsset(normalized);
+}
+
+function phylogenyArtifactLabel(path) {
+  const artifact = approvedPhylogenyArtifact(path);
+  if (!artifact) return '';
+  const labels = {
+    'clusterweave_taxon_tree.svg': 'Taxonomy/BGC/GCF context tree SVG',
+    'clusterweave_taxon_tree.png': 'Taxonomy/BGC/GCF context tree PNG',
+    'clusterweave_taxon_tree.nwk': 'Taxonomy context topology (Newick)',
+    'clusterweave_taxon_tree_leaf_profiles.tsv': 'Taxon tree leaf BGC/GCF profiles',
+    'clusterweave_gcf_network_edges.tsv': 'Complete GCF-sharing edge table',
+    'clusterweave_taxon_tree.graphml': 'Taxonomy/BGC/GCF context graph',
+    'clusterweave_tree_manifest.json': 'Taxon tree artifact manifest',
+    'clusterweave_tree_methods.json': 'Taxon tree methods and provenance',
+    'clusterweave_tree_bundle.zip': 'Complete taxon tree data bundle',
+  };
+  return labels[artifact.name] || '';
 }
 
 function fileTypeLabel(path) {
@@ -8991,6 +13117,8 @@ function fileRowLabel(path) {
   const lower = normalized.toLowerCase();
   if (lower === 'downloads/public_results_manifest.tsv') return 'Public results manifest';
   if (/^downloads\/[^/]+_public_results\.zip$/i.test(normalized)) return 'Generated public results package';
+  if (isCrossKingdomEvidenceArtifact(normalized)) return crossKingdomEvidenceLabel(normalized);
+  if (isApprovedPhylogenyArtifact(normalized)) return phylogenyArtifactLabel(normalized);
   if (isFigureAsset(normalized)) return figureCaption(normalized);
   if (isSummaryArtifact(normalized)) return summaryArtifactLabel(normalized);
   if (isSyntenyArtifact(normalized)) return syntenyArtifactLabel(normalized);
@@ -9035,6 +13163,8 @@ function defaultFolderOpen(path, depth) {
   if (/^Data(\/results(\/[^/]+)?)?$/i.test(normalized)) return true;
   if (category !== 'downloads' && /^data\/results\/[^/]+$/i.test(normalized)) return true;
   if (/^data\/results\/[^/]+\/figures$/i.test(normalized)) return true;
+  if (/^data\/results\/[^/]+\/figures\/phylogeny$/i.test(normalized)) return true;
+  if (/^data\/results\/[^/]+\/integrated_evidence$/i.test(normalized)) return true;
   if (category === 'antismash' && isAntiSmashArtifact(normalized)) return true;
   if (category === 'funbgcex' && isFunbgcexArtifact(normalized)) return true;
   if (category === 'bigscape' && isBigscapeArtifact(normalized)) return true;
@@ -9051,9 +13181,10 @@ function folderSortKey(node) {
 }
 
 function renderFileRow(jobId, f) {
-  const name = fileNameFromPath(f);
+  const descriptor = resultArtifactDescriptor(f);
+  const name = resultArtifactName(f);
   const label = fileRowLabel(f);
-  const path = normalizedResultPath(f);
+  const detail = descriptor ? resultCategoryLabel(descriptor.category) : normalizedResultPath(f);
   const downloadHref = resultHref(jobId, f, { download: true });
   const jsJobId = escapeJsString(jobId);
   const jsPath = escapeJsString(f);
@@ -9062,7 +13193,7 @@ function renderFileRow(jobId, f) {
     <td>
       <span class="file-row-main">
         <span class="file-display-name">${escapeHtml(label)}</span>
-        <span class="file-path-link">${escapeHtml(path)}</span>
+        <span class="file-path-link">${escapeHtml(detail)}</span>
       </span>
     </td>
     <td class="file-actions">
@@ -9077,7 +13208,7 @@ function renderFileRows(jobId, files) {
   if (!files.length) return '';
   return `
     <table class="file-table file-tree-table">
-      <thead><tr><th>Type</th><th>File / Result path</th><th></th></tr></thead>
+      <thead><tr><th>Type</th><th>File / Result</th><th></th></tr></thead>
       <tbody>${files.map(f => renderFileRow(jobId, f)).join('')}</tbody>
     </table>`;
 }
@@ -9117,22 +13248,48 @@ function handleFileFolderToggle(detailsEl) {
 function figureSortKey(path) {
   const name = fileNameFromPath(path).toLowerCase();
   const preferred = [
-    'big_scape_multipanel.svg',
-    'big_scape_multipanel.png',
+    'fungi_big_scape_multipanel.svg',
+    'fungi_big_scape_multipanel.png',
+    'bacteria_big_scape_multipanel.svg',
+    'bacteria_big_scape_multipanel.png',
     'bgc_overlap.svg',
     'bgc_overlap.png',
+    'clusterweave_taxon_tree.svg',
+    'clusterweave_taxon_tree.png',
+    // Historical aliases remain discoverable for completed jobs.
+    'big_scape_multipanel.svg',
+    'big_scape_multipanel.png',
+    'bacterial_multipanel.svg',
+    'bacterial_multipanel.png',
   ];
   const idx = preferred.indexOf(name);
-  return `${idx === -1 ? preferred.length : idx}:${name}`;
+  const priority = idx === -1 ? preferred.length : idx;
+  return `${String(priority).padStart(3, '0')}:${normalizedResultPath(path).toLowerCase()}`;
 }
 
 function figureCaption(path) {
   const name = fileNameFromPath(path).toLowerCase();
-  if (name === 'big_scape_multipanel.svg' || name === 'big_scape_multipanel.png') {
-    return 'Multipanel BiG-SCAPE figure combining BGC/GCF count bars and network context.';
+  if ([
+    'fungi_big_scape_multipanel.svg',
+    'fungi_big_scape_multipanel.png',
+    'big_scape_multipanel.svg',
+    'big_scape_multipanel.png',
+  ].includes(name)) {
+    return 'Fungal BiG-SCAPE multipanel combining stacked BGC/GCF count bars, cluster context, compound labels, and confidence evidence.';
   }
   if (name === 'bgc_overlap.svg' || name === 'bgc_overlap.png') {
     return 'Shared and tool-specific BGC scaffold overlap between antiSMASH and FunBGCeX by genome.';
+  }
+  if ([
+    'bacteria_big_scape_multipanel.svg',
+    'bacteria_big_scape_multipanel.png',
+    'bacterial_multipanel.svg',
+    'bacterial_multipanel.png',
+  ].includes(name)) {
+    return 'Bacterial BiG-SCAPE multipanel combining stacked antiSMASH BGC/GCF counts, cluster context, compound labels, and confidence evidence.';
+  }
+  if (isTaxonTreeVisualAsset(path)) {
+    return 'Ranked NCBI taxonomy context with BGC-count-scaled composition markers and class-colored GCF-sharing arcs; branch lengths are not inferred.';
   }
   return 'Rendered ClusterWeave figure output.';
 }
@@ -9335,10 +13492,30 @@ function sanitizeInlineSvg(svg) {
   return svg;
 }
 
+function preserveInlineSvgAccessibility(svg, path, index) {
+  svg.setAttribute('role', 'img');
+  const title = Array.from(svg.children).find(child => child.localName?.toLowerCase() === 'title');
+  const desc = Array.from(svg.children).find(child => child.localName?.toLowerCase() === 'desc');
+  const idSuffix = `${String(index + 1)}-${fileNameFromPath(path).replace(/[^A-Za-z0-9_-]+/g, '-')}`;
+  if (title && String(title.textContent || '').trim()) {
+    if (!title.id) title.id = `clusterweave-figure-title-${idSuffix}`;
+    if (!svg.hasAttribute('aria-label') && !svg.hasAttribute('aria-labelledby')) {
+      svg.setAttribute('aria-labelledby', title.id);
+    }
+  } else if (!svg.hasAttribute('aria-label') && !svg.hasAttribute('aria-labelledby')) {
+    svg.setAttribute('aria-label', fileNameFromPath(path));
+  }
+  if (desc && String(desc.textContent || '').trim()) {
+    if (!desc.id) desc.id = `clusterweave-figure-desc-${idSuffix}`;
+    if (!svg.hasAttribute('aria-describedby')) svg.setAttribute('aria-describedby', desc.id);
+  }
+  return svg;
+}
+
 async function hydrateSvgFigures(jobId) {
   const stages = Array.from(document.querySelectorAll('.figure-svg-stage'))
     .filter(stage => stage.dataset.resultJob === jobId);
-  for (const stage of stages) {
+  for (const [index, stage] of stages.entries()) {
     const path = stage.dataset.resultPath || '';
     if (!path) continue;
     try {
@@ -9349,10 +13526,12 @@ async function hydrateSvgFigures(jobId) {
       if (doc.querySelector('parsererror')) throw new Error('SVG could not be parsed');
       const parsed = doc.documentElement;
       if (!parsed || parsed.nodeName.toLowerCase() !== 'svg') throw new Error('File is not an SVG');
-      const svg = sanitizeInlineSvg(document.importNode(parsed, true));
+      const svg = preserveInlineSvgAccessibility(
+        sanitizeInlineSvg(document.importNode(parsed, true)),
+        path,
+        index,
+      );
       svg.classList.add('figure-preview', 'figure-svg-preview');
-      svg.setAttribute('role', 'img');
-      if (!svg.getAttribute('aria-label')) svg.setAttribute('aria-label', fileNameFromPath(path));
       if (!svg.getAttribute('preserveAspectRatio')) svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
       stage.innerHTML = '';
       stage.appendChild(svg);
@@ -9367,8 +13546,50 @@ async function hydrateSvgFigures(jobId) {
   }
 }
 
+const FIGURE_FOLDER_VIEWS = Object.freeze([
+  { key: 'fungal_families', label: 'FUNGAL FAMILIES', filename: 'fungi_big_scape_multipanel.svg' },
+  { key: 'bacterial_families', label: 'BACTERIAL FAMILIES', filename: 'bacteria_big_scape_multipanel.svg' },
+  { key: 'fungal_tool_overlap', label: 'FUNGAL TOOL OVERLAP', filename: 'bgc_overlap.svg' },
+  { key: 'tree', label: 'TREE', filename: 'clusterweave_taxon_tree.svg' },
+]);
+
+function figureFolderDefinitions(files) {
+  return FIGURE_FOLDER_VIEWS.map(folder => ({
+    ...folder,
+    path: (files || []).find(path => fileNameFromPath(path).toLowerCase() === folder.filename) || '',
+  })).filter(folder => folder.path);
+}
+
+function switchFigureView(view) {
+  const folders = figureFolderDefinitions(activeResultFiles);
+  if (!folders.some(folder => folder.key === view)) return;
+  activeFigureView = view;
+  if (activeJobId) renderViz(activeJobId, activeResultFiles);
+}
+
+function renderFigureFolderTabs(folders) {
+  if (!folders.length) return '';
+  return `<div class="summary-subtabs figure-subtabs" role="tablist" aria-label="Figure result folders">${folders.map(folder => {
+    const active = folder.key === activeFigureView;
+    return `<button class="summary-subtab" type="button" role="tab" data-figure-view="${escapeHtml(folder.key)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" onclick="switchFigureView(this.dataset.figureView)">${escapeHtml(folder.label)}</button>`;
+  }).join('')}</div>`;
+}
+
 function renderViz(jobId, files) {
-  const figureFiles = files.filter(isFigureAsset).sort((a, b) => figureSortKey(a).localeCompare(figureSortKey(b)));
+  const capabilities = activeAnalysisCapabilities();
+  let figureFiles = files
+    .filter(path => isFigureAsset(path) && figureApplicableToAnalysis(path, capabilities))
+    .sort((a, b) => figureSortKey(a).localeCompare(figureSortKey(b)));
+  const figureFolders = figureFolderDefinitions(figureFiles);
+  if (figureReaderJobId !== jobId) {
+    figureReaderJobId = jobId;
+    activeFigureView = figureFolders[0]?.key || '';
+  }
+  if (!figureFolders.some(folder => folder.key === activeFigureView)) {
+    activeFigureView = figureFolders[0]?.key || '';
+  }
+  const selectedFigure = figureFolders.find(folder => folder.key === activeFigureView);
+  if (selectedFigure) figureFiles = [selectedFigure.path];
   const container = document.getElementById('viz-container');
   if (!figureFiles.length) {
     const detail = canUseAdminSurfaces()
@@ -9385,19 +13606,24 @@ function renderViz(jobId, files) {
 
   resultObjectUrls.forEach(url => URL.revokeObjectURL(url));
   resultObjectUrls = [];
-  const cards = figureFiles.map(f => {
+  const cards = figureFiles.map((f, index) => {
     const name = fileNameFromPath(f);
     const href = resultHref(jobId, f);
     const downloadHref = resultHref(jobId, f, { download: true });
     const jsJobId = escapeJsString(jobId);
     const jsPath = escapeJsString(f);
     const isSvg = isSvgFigureAsset(f);
+    const isTaxonTree = isTaxonTreeVisualAsset(f);
+    const treeBundle = treeDataBundleForFigure(f, files);
+    const treeDataAction = treeBundle ? resultDownloadLink(jobId, treeBundle, 'Tree data') : '';
+    const instructionsId = `figure-preview-instructions-${index}`;
+    const accessiblePreviewLabel = `Interactive preview: ${figureCaption(f)}`;
     const imgSrc = resultNeedsAuth(jobId) ? '' : escapeHtml(href);
     const preview = isSvg
       ? `<div class="figure-svg-stage" data-result-path="${escapeHtml(f)}" data-result-job="${escapeHtml(jobId)}"><div class="viz-placeholder text-sm">Loading vector preview...</div></div>`
       : `<img class="figure-preview" src="${imgSrc}" data-result-path="${escapeHtml(f)}" data-result-job="${escapeHtml(jobId)}" alt="${escapeHtml(name)}" draggable="false" />`;
     return `
-      <div class="figure-panel">
+      <div class="figure-panel${isTaxonTree ? ' is-taxon-tree' : ''}">
         <div class="figure-panel-head">
           <div class="figure-copy">
             <div class="figure-name">${escapeHtml(name)}</div>
@@ -9407,12 +13633,18 @@ function renderViz(jobId, files) {
             <span class="ext-badge">${escapeHtml(fileTypeLabel(f))}</span>
             <a class="btn btn-ghost text-sm" href="${escapeHtml(href)}" target="_blank" onclick="return handleResultLinkClick(event,'${escapeHtml(jsJobId)}','${escapeHtml(jsPath)}',false)">Open</a>
             <a class="btn btn-ghost text-sm" href="${escapeHtml(downloadHref)}" download="${escapeHtml(name)}" onclick="return handleResultLinkClick(event,'${escapeHtml(jsJobId)}','${escapeHtml(jsPath)}',true)">Download</a>
+            ${treeDataAction}
           </div>
         </div>
-        <div class="figure-preview-wrap"
+        <span class="sr-only" id="${escapeHtml(instructionsId)}">Use plus and minus to zoom, zero or Escape to reset, and drag to pan after zooming. The preview can also be opened or downloaded with the actions above.</span>
+        <div class="figure-preview-wrap${isTaxonTree ? ' is-taxon-tree' : ''}"
           data-result-path="${escapeHtml(f)}"
           data-result-job="${escapeHtml(jobId)}"
+          role="group"
           tabindex="0"
+          aria-label="${escapeHtml(accessiblePreviewLabel)}"
+          aria-describedby="${escapeHtml(instructionsId)}"
+          aria-keyshortcuts="+ - 0 Escape"
           onwheel="handleFigureWheel(event,this)"
           onkeydown="handleFigureZoomKeydown(event,this)"
           onpointerdown="handleFigurePointerDown(event,this)"
@@ -9428,7 +13660,7 @@ function renderViz(jobId, files) {
         </div>
       </div>`;
   }).join('');
-  container.innerHTML = `<div class="figure-grid">${cards}</div>`;
+  container.innerHTML = `${renderFigureFolderTabs(figureFolders)}<div class="figure-grid">${cards}</div>`;
   initializeFigureZoomCards();
   hydrateSvgFigures(jobId);
   hydrateAuthenticatedFigures(jobId);
@@ -9490,6 +13722,13 @@ function renderFileTable(jobId, files, options = {}) {
     return;
   }
   const tree = buildFileTree(visibleFiles);
+  if (visibleFiles.every(path => !!resultArtifactDescriptor(path))) {
+    activeFileTree = null;
+    activeFileTreeIndex = new Map();
+    activeFileTreeJobId = null;
+    container.innerHTML = `${summary}<div class="file-tree">${renderFileRows(jobId, visibleFiles)}</div>`;
+    return;
+  }
   activeFileTree = tree;
   activeFileTreeIndex = tree.index || new Map();
   activeFileTreeJobId = jobId;
@@ -9518,6 +13757,13 @@ function stopSystemConsolePolling() {
     clearInterval(systemPollTimer);
     systemPollTimer = null;
   }
+}
+
+function startPublicImpactPolling() {
+  if (publicImpactPollTimer) return;
+  publicImpactPollTimer = window.setInterval(() => {
+    void fetchSystemStatus({ renderWorker: false });
+  }, 15000);
 }
 
 async function pollSystemStatus() {
@@ -9633,6 +13879,7 @@ let bootstrapComplete = false;
 const bootstrapSteps = [
   { key: 'antismash', label: 'antiSMASH databases' },
   { key: 'pfam', label: 'Pfam database' },
+  { key: 'ncbi_cli', label: 'NCBI Datasets CLI' },
   { key: 'clinker_image', label: 'clinker image pre-pull' },
   { key: 'bigscape_image', label: 'BiG-SCAPE image pre-pull' },
   { key: 'funbgcex_image', label: 'FunBGCeX image build' },
@@ -9646,6 +13893,7 @@ function phaseToLabel(phase) {
     prepare: 'Preparing bootstrap',
     antismash: 'Downloading antiSMASH databases',
     pfam: 'Downloading Pfam database',
+    ncbi_cli: 'Preparing NCBI Datasets CLI',
     funbgcex_image: 'Preparing FunBGCeX image',
     clinker_image: 'Pulling clinker image',
     bigscape_image: 'Pulling BiG-SCAPE image',
@@ -9682,9 +13930,21 @@ function isFullSystemStatus(system) {
 
 async function fetchSystemStatus(options = {}) {
   try {
-    const resp = await apiFetch('api/system/status', {}, { kind: 'admin' });
-    if (!resp.ok) return null;
+    const resp = await apiFetch('api/system/status', { cache: 'no-store' }, { kind: 'admin' });
+    if (!resp.ok) {
+      const transient = resp.status === 429 || resp.status >= 500;
+      if (transient) window.ClusterWeaveGame?.setConnectionState?.('reconnecting');
+      if (!bootstrapComplete) {
+        document.body.dataset.clusterweaveGameBootstrapEligible = transient ? 'true' : 'false';
+      }
+      return null;
+    }
     const payload = await resp.json();
+    window.ClusterWeaveGame?.setConnectionState?.('connected');
+    if (!bootstrapComplete) {
+      const bootstrapEligible = isFullSystemStatus(payload) && payload.ready !== true;
+      document.body.dataset.clusterweaveGameBootstrapEligible = bootstrapEligible ? 'true' : 'false';
+    }
     authChecked = true;
     smtpEnabled = !!payload.smtp_enabled;
     if (payload.public_quota && typeof payload.public_quota === 'object') {
@@ -9705,6 +13965,10 @@ async function fetchSystemStatus(options = {}) {
     if (options.renderWorker !== false) renderWorkerDrawer(payload);
     return payload;
   } catch (e) {
+    window.ClusterWeaveGame?.setConnectionState?.(navigator.onLine === false ? 'browser-offline' : 'reconnecting');
+    if (!bootstrapComplete) {
+      document.body.dataset.clusterweaveGameBootstrapEligible = 'true';
+    }
     return null;
   }
 }
@@ -9804,6 +14068,7 @@ async function waitForWorkerReady() {
 
 // ── Init ───────────────────────────────────────────────────────────────────
 async function initializeApp() {
+  const initialHashRun = captureInitialResultHash();
   window.addEventListener('hashchange', syncNavFromHash);
   window.addEventListener('resize', () => {
     applyStoredPanelWidths();
@@ -9812,6 +14077,7 @@ async function initializeApp() {
     renderWeaveHelix(activeJobMeta);
     });
   startStageTicker();
+  wireClusterweaveGameAdapter();
   wirePanelResizers();
   wireOpsPanelKeyboard();
   syncOpsTabs();
@@ -9834,6 +14100,7 @@ async function initializeApp() {
   updateEmailNotificationPanel();
   renderOpenedRuns();
   wireRunStackDismissal();
+  resetStagedAnalysisState('fungi');
   renderAcceptedAccessions();
   initializeBrutalInputStation();
   switchEntryTab('new');
@@ -9853,7 +14120,9 @@ async function initializeApp() {
   setInterval(refreshJobHistory, 5000);
   applyPreset('balanced');
 
-  // Start system console polling (worker status)
+  // Keep the aggregate public impact audit fresh without hydrating job data.
+  startPublicImpactPolling();
+  // Admin telemetry has its own shorter cadence.
   if (canUseAdminSurfaces()) startSystemConsolePolling();
 
   document.getElementById('run-bigscape').addEventListener('change', syncControlState);
@@ -9877,6 +14146,9 @@ async function initializeApp() {
     'run-ncbi-install',
     'force-rerun',
     'workers',
+    'genome-parallelism',
+    'antismash-record-parallelism',
+    'antismash-shard-cpus',
     'anno-cpus',
     'annotation-fallback-order',
     'funannotate-busco-db',
@@ -9934,10 +14206,10 @@ async function initializeApp() {
     }
   });
   updateRunSummary();
-  const hashRun = parseResultHash();
+  const hashRun = initialHashRun || parseResultHash();
   if (hashRun) {
     switchEntryTab('existing');
-    const job = await loadJob(hashRun.jobId, true, { readToken: hashRun.token, source: 'result-link', deferResultsShell: true });
+    const job = await loadJob(hashRun.jobId, true, { readToken: hashRun.token, publicResult: hashRun.publicResult, source: 'result-link', deferResultsShell: true });
     document.body.dataset.existingRunLoaded = job ? 'true' : 'false';
     if (job) navigateToSection(null, 'outputs');
   }

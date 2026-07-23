@@ -7,6 +7,17 @@ import argparse
 import csv
 from collections import Counter
 from pathlib import Path
+import sys
+
+BIN_DIR = str(Path(__file__).resolve().parent)
+if BIN_DIR not in sys.path:
+    sys.path.insert(0, BIN_DIR)
+
+from gcf_view import (
+    GCF_PROVENANCE_FIELDS,
+    materialized_gcf_provenance,
+    selected_gcf_id,
+)
 
 
 def clean(value: object) -> str:
@@ -45,7 +56,7 @@ def write_tsv(path: Path, fieldnames: list[str], rows: list[dict[str, object]]) 
 def build_manual_review_bucket(row: dict[str, str]) -> str:
     tier = clean(row.get("priority_tier"))
     consensus = clean(row.get("consensus_support"))
-    gcf_id = clean(row.get("gcf_id"))
+    gcf_id = selected_gcf_id(row)
     annotation_tier = clean(row.get("annotation_support_tier"))
 
     if (
@@ -64,7 +75,7 @@ def build_manual_review_bucket(row: dict[str, str]) -> str:
 
 def build_safe_claim_text(row: dict[str, str], genome: str) -> str:
     region = clean(row.get("antismash_region")) or clean(row.get("funbgcex_cluster")) or "unresolved region"
-    gcf_id = clean(row.get("gcf_id"))
+    gcf_id = selected_gcf_id(row)
     class_name = clean(row.get("antismash_class")) or "unclassified"
     consensus = clean(row.get("consensus_support"))
     gcf_pattern = clean(row.get("gcf_ecology_pattern"))
@@ -130,7 +141,8 @@ def write_markdown_summary(
                     f"### Rank {row['rank']}: {row['antismash_region'] or row['funbgcex_cluster']}",
                     "",
                     f"- Class: `{row['antismash_class']}`",
-                    f"- GCF: `{row['gcf_id']}`",
+                    f"- selected GCF: `{selected_gcf_id(row)}`",
+                    f"- all-view GCF compatibility union: `{row['gcf_id']}`",
                     f"- Consensus: `{row['consensus_support']}`",
                     f"- Annotation tier: `{row['annotation_support_tier']}`",
                     f"- Follow-up: {row['recommended_followup']}",
@@ -202,7 +214,7 @@ def main() -> None:
 
     rows = read_tsv_rows(ranking_path)
     filtered_rows = [row for row in rows if clean(row.get("genome")) == args.genome]
-    if not filtered_rows:
+    if rows and not filtered_rows:
         raise ValueError(f"No ranking rows found for genome: {args.genome}")
 
     filtered_rows = [
@@ -222,10 +234,13 @@ def main() -> None:
                 "priority_score": clean(row.get("priority_score")),
                 "priority_tier": clean(row.get("priority_tier")),
                 "genome": clean(row.get("genome")),
+                "taxon_group": clean(row.get("taxon_group")) or "fungi",
+                "prediction_method": clean(row.get("prediction_method")),
+                "funbgcex_applicability": clean(row.get("funbgcex_applicability")) or "applicable",
                 "antismash_region": clean(row.get("antismash_region")),
                 "funbgcex_cluster": clean(row.get("funbgcex_cluster")),
                 "antismash_class": clean(row.get("antismash_class")),
-                "gcf_id": clean(row.get("gcf_id")),
+                **materialized_gcf_provenance(row),
                 "gcf_ecology_pattern": clean(row.get("gcf_ecology_pattern")),
                 "gcf_genome_count": clean(row.get("gcf_genome_count")),
                 "focus_ecology_label": clean(row.get("focus_ecology_label")),
@@ -251,10 +266,13 @@ def main() -> None:
         "priority_score",
         "priority_tier",
         "genome",
+        "taxon_group",
+        "prediction_method",
+        "funbgcex_applicability",
         "antismash_region",
         "funbgcex_cluster",
         "antismash_class",
-        "gcf_id",
+        *GCF_PROVENANCE_FIELDS,
         "gcf_ecology_pattern",
         "gcf_genome_count",
         "focus_ecology_label",

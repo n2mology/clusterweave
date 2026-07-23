@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "clusterweave"
-version = "0.3.2b0"
-description = "Workflow for biosynthetic target discovery and prioritization."
+version = "1.0.0"
+description = "Organizes genome-mining analyses into Integrated Evidence Profiles."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "BSD-3-Clause" }

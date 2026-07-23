@@ -1,7 +1,51 @@
-.git
+# Source-control metadata.
+.git/
+.github/
 .gitignore
-.github
+
+# Dependencies and tooling caches.
+node_modules/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.ipynb_checkpoints/
+.DS_Store
+
+# Local runtime configuration and credentials.
+.env
+.env.*
+!.env.example
+!.env.sample
+config/local.env
+credentials/
+secrets/
+private/
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+known_hosts
+authorized_keys
+
+# Generated reports and runtime data.
+test-results/
+playwright-report/
+blob-report/
+coverage/
+htmlcov/
+.coverage
+coverage.xml
+tmp/
+results/
+logs/
 data
+
+# Downloaded software stays outside image contexts; retain build recipes.
 software/*
 !software/funbgcex/
 !software/funbgcex/Dockerfile
@@ -16,28 +60,26 @@ software/*
 !software/funannotate/busco_cache/
 software/funannotate/busco_cache/*
 !software/funannotate/busco_cache/.gitkeep
-**/__pycache__
-**/.pytest_cache
-**/.ipynb_checkpoints
+!software/phylogeny/
+!software/phylogeny/Dockerfile
+!software/phylogeny/Singularity.def
+!software/phylogeny/build_phylogeny_image.sh
+!software/phylogeny/build_phylogeny_sif.sh
+!software/phylogeny/compare_gene_tree_taxonomy.py
+
+# Logs, temporary files, backups, and generated databases.
 *.log
 *.tmp
+*.bak
+*.backup
+*.orig
+*.rej
 *.swp
-
-# Local web handoff boards and QA-only compose files.
-web/STAN.md
-web/STYLE.md
-web/STYLE_ARCHIVE.md
-web/PRODUCTION_LAUNCH_SLICE_MAP.md
-web/PRODUCTION_LAUNCH_SLICE_ARCHIVE.md
-web/GLOSSARY.md
-web/UPSTREAM_MAINTAINER_NOTE.md
-docker-compose.local-faces.yml
-
-# Editable publication/design source files not needed in the public source release.
-manuscript/
-visuals/*.ai
-visuals/*.blend
-visuals/*.mp4
-visuals/*.mov
-visuals/*.psd
-visuals/*.sketch
+*.swo
+*~
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.sqlite-shm
+*.sqlite-wal

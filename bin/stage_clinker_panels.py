@@ -10,6 +10,21 @@ import shlex
 import shutil
 from collections import defaultdict
 from pathlib import Path
+import sys
+
+BIN_DIR = str(Path(__file__).resolve().parent)
+if BIN_DIR not in sys.path:
+    sys.path.insert(0, BIN_DIR)
+
+from gcf_view import (
+    GCF_PROVENANCE_FIELDS,
+    has_selected_gcf_schema,
+    materialized_gcf_provenance,
+    selected_gcf_id,
+    selected_gcf_ids,
+    selected_gcf_view,
+    selected_views_compatible,
+)
 
 
 def clean(value: object) -> str:
@@ -122,8 +137,73 @@ def expected_putative_product(target_row: dict[str, str]) -> str:
     return "unassigned_bgc"
 
 
-def genome_genus(genome: str) -> str:
-    return clean(genome).split("_", 1)[0]
+def load_genome_metadata(path: Path) -> dict[str, dict[str, str]]:
+    if not path.exists():
+        return {}
+    metadata: dict[str, dict[str, str]] = {}
+    for row in read_tsv_rows(path):
+        genome = clean(row.get("genome_id")) or clean(row.get("genome"))
+        if not genome:
+            continue
+        taxon_group = clean(row.get("taxon_group")).lower()
+        if taxon_group not in {"fungi", "bacteria"}:
+            taxon_group = "fungi"
+        metadata[genome] = {
+            "organism_name": clean(row.get("organism_name")),
+            "taxon_group": taxon_group,
+            "taxon_source": clean(row.get("taxon_source")),
+        }
+    return metadata
+
+
+def load_genus_by_genome(path: Path) -> dict[str, str]:
+    genera: dict[str, str] = {}
+    for genome, row in load_genome_metadata(path).items():
+        organism = clean(row.get("organism_name"))
+        genus = organism.replace("_", " ").split(None, 1)[0] if organism else ""
+        if genus:
+            genera[genome] = genus
+    return genera
+
+
+def load_original_record_ids(path: Path) -> dict[tuple[str, str], str]:
+    original_ids: dict[tuple[str, str], str] = {}
+    if not path.is_dir():
+        return original_ids
+    suffix = ".record_map.tsv"
+    for map_path in sorted(path.glob(f"*{suffix}")):
+        genome = map_path.name.removesuffix(suffix)
+        for row in read_tsv_rows(map_path):
+            sanitized = clean(row.get("sanitized_record_id"))
+            original = clean(row.get("original_record_id"))
+            if genome and sanitized and original:
+                original_ids[(genome, sanitized)] = original
+    return original_ids
+
+
+def panel_scaffold_id(
+    row: dict[str, str], original_ids: dict[tuple[str, str], str]
+) -> str:
+    genome = clean(row.get("genome"))
+    region = clean(row.get("antismash_region"))
+    record = re.sub(r"\.region\d+$", "", region, flags=re.IGNORECASE)
+    return original_ids.get((genome, record), record)
+
+
+def panel_genome_metadata(
+    row: dict[str, str], metadata_by_genome: dict[str, dict[str, str]]
+) -> dict[str, str]:
+    genome = clean(row.get("genome"))
+    canonical = metadata_by_genome.get(genome, {})
+    taxon_group = clean(row.get("taxon_group") or canonical.get("taxon_group")).lower()
+    if taxon_group not in {"fungi", "bacteria"}:
+        # Historical jobs without a routing manifest retain the fungal default.
+        taxon_group = "fungi"
+    return {
+        "organism_name": clean(row.get("organism_name") or canonical.get("organism_name")),
+        "taxon_group": taxon_group,
+        "taxon_source": clean(row.get("taxon_source") or canonical.get("taxon_source")),
+    }
 
 
 def resolve_panel_path(project_root: Path, raw_path: str) -> Path:
@@ -198,10 +278,11 @@ def dedupe_candidates(rows: list[dict[str, str]]) -> list[dict[str, str]]:
     seen: set[tuple[str, str, str]] = set()
     out: list[dict[str, str]] = []
     for row in rows:
+        category, threshold = selected_gcf_view(row)
         key = (
             clean(row.get("genome")),
             clean(row.get("antismash_region")),
-            clean(row.get("gcf_id")),
+            f"{category}@c{threshold}={selected_gcf_id(row)}",
         )
         if key in seen:
             continue
@@ -274,13 +355,24 @@ def enrich_target_row(target_row: dict[str, str], ranking_row: dict[str, str] | 
     return merged
 
 
-def candidate_sort_key(candidate: dict[str, str], target_genus: str, target_ecology: str) -> tuple[object, ...]:
+def candidate_sort_key(
+    candidate: dict[str, str],
+    target_genus: str,
+    target_ecology: str,
+    genus_by_genome: dict[str, str] | None = None,
+) -> tuple[object, ...]:
     candidate_genome = clean(candidate.get("genome"))
+    candidate_genus = clean((genus_by_genome or {}).get(candidate_genome))
+    same_canonical_genus = bool(
+        target_genus
+        and candidate_genus
+        and candidate_genus.casefold() == target_genus.casefold()
+    )
     candidate_ecology = clean(candidate.get("ecology_group"))
     priority_tier = clean(candidate.get("priority_tier"))
     priority_order = {"tier_1": 0, "tier_2": 1, "tier_3": 2, "tier_4": 3}
     return (
-        0 if genome_genus(candidate_genome) == target_genus else 1,
+        0 if same_canonical_genus else 1,
         0 if candidate_ecology == target_ecology else 1,
         priority_order.get(priority_tier, 9),
         -to_int(candidate.get("priority_score")),
@@ -296,14 +388,19 @@ def choose_comparators(
     max_same_ecology: int,
     max_other_ecology: int,
     max_comparators: int,
+    genus_by_genome: dict[str, str] | None = None,
 ) -> list[dict[str, str]]:
     target_genome = clean(target_row.get("genome"))
-    target_gcf = clean(target_row.get("gcf_id"))
     target_ecology = clean(target_row.get("ecology_group")) or "UNLABELED"
-    target_genus = genome_genus(target_genome)
+    target_genus = clean((genus_by_genome or {}).get(target_genome))
     target_region = clean(target_row.get("antismash_region"))
-    target_gcf_set = set(split_gcf_ids(target_gcf))
-    target_cc_alias_set = set(split_gcf_ids(clean(target_row.get("shared_cc_all_family_aliases"))))
+    target_gcf_set = set(selected_gcf_ids(target_row))
+    legacy_target = not has_selected_gcf_schema(target_row)
+    target_cc_alias_set = (
+        set(split_gcf_ids(clean(target_row.get("shared_cc_all_family_aliases"))))
+        if legacy_target
+        else set()
+    )
     cc_alias_only_set = target_cc_alias_set.difference(target_gcf_set)
 
     exact_matches: list[dict[str, str]] = []
@@ -312,21 +409,36 @@ def choose_comparators(
     for row in ranking_rows:
         genome = clean(row.get("genome"))
         antismash_region = clean(row.get("antismash_region"))
-        gcf_id = clean(row.get("gcf_id"))
-        if genome == target_genome or not antismash_region or antismash_region == target_region:
+        gcf_id = selected_gcf_id(row)
+        # Region basenames are only unique within one genome. Exclude the
+        # target by its canonical composite key; a same-named region in a
+        # different genome is a valid comparator and must not disappear.
+        if (
+            not genome
+            or not antismash_region
+            or (genome == target_genome and antismash_region == target_region)
+        ):
             continue
         candidate_path = region_gbk_path(antismash_root, genome, antismash_region)
         if not candidate_path.exists():
             continue
 
-        candidate_gcf_set = set(split_gcf_ids(gcf_id))
-        if not target_gcf_set or not candidate_gcf_set:
+        candidate_gcf_set = set(selected_gcf_ids(row))
+        if (
+            not target_gcf_set
+            or not candidate_gcf_set
+            or not selected_views_compatible(target_row, row)
+        ):
             continue
-        if gcf_id == target_gcf:
+        if candidate_gcf_set == target_gcf_set:
             row = dict(row)
             row["match_type"] = "exact_gcf"
             exact_matches.append(row)
-        elif cc_alias_only_set.intersection(candidate_gcf_set):
+        elif (
+            legacy_target
+            and not has_selected_gcf_schema(row)
+            and cc_alias_only_set.intersection(candidate_gcf_set)
+        ):
             row = dict(row)
             row["match_type"] = "shared_cc_alias"
             cc_alias_matches.append(row)
@@ -335,9 +447,9 @@ def choose_comparators(
             row["match_type"] = "shared_target_family"
             target_family_matches.append(row)
 
-    exact_matches = dedupe_candidates(sorted(exact_matches, key=lambda row: candidate_sort_key(row, target_genus, target_ecology)))
-    cc_alias_matches = dedupe_candidates(sorted(cc_alias_matches, key=lambda row: candidate_sort_key(row, target_genus, target_ecology)))
-    target_family_matches = dedupe_candidates(sorted(target_family_matches, key=lambda row: candidate_sort_key(row, target_genus, target_ecology)))
+    exact_matches = dedupe_candidates(sorted(exact_matches, key=lambda row: candidate_sort_key(row, target_genus, target_ecology, genus_by_genome)))
+    cc_alias_matches = dedupe_candidates(sorted(cc_alias_matches, key=lambda row: candidate_sort_key(row, target_genus, target_ecology, genus_by_genome)))
+    target_family_matches = dedupe_candidates(sorted(target_family_matches, key=lambda row: candidate_sort_key(row, target_genus, target_ecology, genus_by_genome)))
 
     selected: list[dict[str, str]] = []
     selected_genomes: set[str] = set()
@@ -376,6 +488,35 @@ def choose_comparators(
     return selected[:max_comparators]
 
 
+def panel_family_slug(target_row: dict[str, str]) -> str:
+    """Return a stable, human-interpretable selected-GCF discriminator."""
+
+    family = "_".join(selected_gcf_ids(target_row))
+    if not family:
+        return ""
+    category, threshold = selected_gcf_view(target_row)
+    parts = ["gcf"]
+    if category:
+        parts.append(category)
+    if threshold:
+        parts.append(f"c{threshold}")
+    parts.append(family)
+    return slugify_label("_".join(parts))
+
+
+def panel_display_label(target_row: dict[str, str], panel_id: str) -> str:
+    """Return the lossless compound label, qualified only when needed."""
+
+    product = expected_putative_product(target_row)
+    if "__gcf_" not in panel_id:
+        return product
+    family = selected_gcf_id(target_row)
+    category, threshold = selected_gcf_view(target_row)
+    view = f"c{threshold}" if threshold else ""
+    qualifier = " ".join(part for part in [category.upper(), view, family] if part)
+    return f"{product} [{qualifier}]" if qualifier else product
+
+
 def panel_dir_name(target_row: dict[str, str], used_names: set[str]) -> str:
     base_name = slugify_label(expected_putative_product(target_row))
     antismash_region = slugify_label(clean(target_row.get("antismash_region")))
@@ -384,27 +525,45 @@ def panel_dir_name(target_row: dict[str, str], used_names: set[str]) -> str:
 
     candidate = base_name
     if candidate in used_names:
-        region_suffix = antismash_region or "bgc"
-        candidate = f"{base_name}__{region_suffix}"
+        # A shared compound annotation does not imply a shared GCF. Qualify
+        # slug collisions with selected-family identity instead of an opaque
+        # antiSMASH region ID. The manifest retains the raw compound, target,
+        # and complete selected/all-view GCF provenance.
+        family_suffix = panel_family_slug(target_row)
+        collision_base = (
+            f"{base_name}__{family_suffix}"
+            if family_suffix
+            else f"{base_name}__panel"
+        )
+        candidate = collision_base
+    else:
+        collision_base = base_name
     counter = 2
     while candidate in used_names:
-        candidate = f"{base_name}__{counter}"
+        candidate = f"{collision_base}_{counter}"
         counter += 1
     used_names.add(candidate)
     return candidate
 
 
-def load_existing_panel_dirs(project_root: Path, manifest_paths: list[Path]) -> dict[str, Path]:
-    mapping: dict[str, Path] = {}
+def load_existing_panel_dirs(
+    project_root: Path,
+    manifest_paths: list[Path],
+) -> dict[tuple[str, str], Path]:
+    mapping: dict[tuple[str, str], Path] = {}
     for manifest_path in manifest_paths:
         if not manifest_path.exists():
             continue
         for row in read_tsv_rows(manifest_path):
+            target_genome = clean(row.get("target_genome"))
             target_region = clean(row.get("target_region"))
             panel_dir = clean(row.get("panel_dir"))
-            if not target_region or not panel_dir:
+            if not target_genome or not target_region or not panel_dir:
                 continue
-            mapping.setdefault(target_region, resolve_panel_path(project_root, panel_dir))
+            mapping.setdefault(
+                (target_genome, target_region),
+                resolve_panel_path(project_root, panel_dir),
+            )
     return mapping
 
 
@@ -437,18 +596,19 @@ def expected_active_panel_dirs(project_root: Path, output_root: Path, panel_rows
 def prune_stale_panel_dirs(panels_root: Path, active_dirs: set[Path]) -> None:
     if not panels_root.exists():
         return
-    for panel_dir in panels_root.iterdir():
-        if not panel_dir.is_dir():
-            continue
+    generated_dirs = sorted(
+        {path.parent for path in panels_root.rglob("panel_manifest.tsv")},
+        key=lambda path: len(path.parts),
+        reverse=True,
+    )
+    for panel_dir in generated_dirs:
         resolved = panel_dir.resolve()
-        if resolved in active_dirs:
+        if resolved in active_dirs or not (panel_dir / "run_panel.sh").exists():
             continue
-        generated_panel_dir = (panel_dir / "panel_manifest.tsv").exists() and (panel_dir / "run_panel.sh").exists()
-        if re.match(r"^\d+_", panel_dir.name) or generated_panel_dir:
-            try:
-                shutil.rmtree(panel_dir)
-            except PermissionError:
-                continue
+        try:
+            shutil.rmtree(panel_dir)
+        except PermissionError:
+            continue
 
 
 def build_panel_markdown(
@@ -465,7 +625,10 @@ def build_panel_markdown(
         f"- review bucket: `{clean(target_row.get('manual_review_bucket')) or clean(target_row.get('review_bucket'))}`",
         f"- selection track: `{clean(target_row.get('selection_track')) or 'priority_confidence'}`",
         f"- expected putative product: `{expected_putative_product(target_row)}`",
-        f"- GCF: `{clean(target_row.get('gcf_id'))}`",
+        f"- selected GCF: `{selected_gcf_id(target_row)}`",
+        f"- selected GCF view: `{selected_gcf_view(target_row)[0] or 'legacy'}@c{selected_gcf_view(target_row)[1] or 'legacy'}`",
+        f"- all-view GCF compatibility union: `{clean(target_row.get('gcf_id'))}`",
+        f"- lossless GCF memberships: `{clean(target_row.get('gcf_memberships'))}`",
         f"- class: `{clean(target_row.get('antismash_class'))}`",
         f"- reference annotation: `{clean(target_row.get('nearest_mibig_or_annotation_if_available')) or clean(target_row.get('reference_annotation'))}`",
         f"- recommended follow-up: {clean(target_row.get('recommended_followup')) or clean(target_row.get('comparator_strategy'))}",
@@ -569,7 +732,19 @@ def write_run_panel_script(
             "fi",
             "",
             "if [[ -n \"${CLINKER_DOCKER_IMAGE:-}\" ]]; then",
-            "  DOCKER_ARGS=(--rm -i --user 0:0 --entrypoint \"\")",
+            "  CLINKER_DOCKER_CPUS=\"${CLINKER_DOCKER_CPUS:-1}\"",
+            "  if [[ ! \"${CLINKER_DOCKER_CPUS}\" =~ ^[0-9]+([.][0-9]+)?$ || \"${CLINKER_DOCKER_CPUS}\" == \"0\" || \"${CLINKER_DOCKER_CPUS}\" == \"0.0\" ]]; then",
+            "    echo \"Warning: CLINKER_DOCKER_CPUS=${CLINKER_DOCKER_CPUS} is not a positive CPU number; using 1\" >&2",
+            "    CLINKER_DOCKER_CPUS=1",
+            "  fi",
+            "  DOCKER_ARGS=(--rm -i --user 0:0 --entrypoint \"\" --cpus \"${CLINKER_DOCKER_CPUS}\")",
+            "  DOCKER_ARGS+=(-e OMP_NUM_THREADS=1 -e OPENBLAS_NUM_THREADS=1 -e MKL_NUM_THREADS=1 -e NUMEXPR_NUM_THREADS=1)",
+            "  if [[ -n \"${CLINKER_DOCKER_MEMORY:-}\" ]]; then",
+            "    DOCKER_ARGS+=(--memory \"${CLINKER_DOCKER_MEMORY}\")",
+            "  fi",
+            "  if [[ -n \"${CLINKER_DOCKER_PIDS_LIMIT:-}\" ]]; then",
+            "    DOCKER_ARGS+=(--pids-limit \"${CLINKER_DOCKER_PIDS_LIMIT}\")",
+            "  fi",
             "  if [[ -n \"${CLUSTERWEAVE_JOB_ID:-}\" ]]; then",
             "    DOCKER_ARGS+=(--label \"clusterweave.job_id=${CLUSTERWEAVE_JOB_ID}\" --label \"clusterweave.project=${PROJECT_NAME:-}\")",
             "  fi",
@@ -684,7 +859,7 @@ def main() -> None:
     parser.add_argument(
         "--limit",
         type=int,
-        default=12,
+        default=20,
         help="Maximum number of target rows to stage.",
     )
     parser.add_argument(
@@ -731,6 +906,12 @@ def main() -> None:
 
     shortlist_rows = read_tsv_rows(shortlist_path)
     ranking_rows = read_tsv_rows(ranking_path)
+    taxon_manifest_path = results_root / "summary_tables" / "genome_taxon_manifest.tsv"
+    genome_metadata = load_genome_metadata(taxon_manifest_path)
+    genus_by_genome = load_genus_by_genome(taxon_manifest_path)
+    original_record_ids = load_original_record_ids(
+        results_root / "summary_tables" / "bacterial_record_maps"
+    )
     ranking_by_target = ranking_index(ranking_rows)
     bucket_column = shortlist_bucket_column(shortlist_rows)
     existing_manifest_paths = [manifest_path, *args.existing_manifest]
@@ -740,7 +921,7 @@ def main() -> None:
 
     panel_rows: list[dict[str, object]] = []
     panel_dirs: list[Path] = []
-    used_panel_names: set[str] = set()
+    used_panel_names: dict[tuple[str, str], set[str]] = defaultdict(set)
     seen_target_keys: set[tuple[str, str]] = set()
     covered_atlas_region_keys: set[tuple[str, str]] = set()
     attempted_targets = 0
@@ -775,21 +956,41 @@ def main() -> None:
             or target_row.get("atlas_rank")
             or target_row.get("rank")
         )
-        panel_dir = panels_root / panel_dir_name(target_row, used_panel_names)
-        migrate_existing_panel(existing_panel_dirs.get(antismash_region), panel_dir)
+        target_genome = clean(target_row.get("genome"))
+        target_metadata = panel_genome_metadata(target_row, genome_metadata)
+        target_taxon = target_metadata["taxon_group"]
+        panel_id = panel_dir_name(
+            target_row, used_panel_names[(target_taxon, target_genome)]
+        )
+        panel_dir = (
+            panels_root
+            / target_taxon
+            / sanitize_token(target_genome)
+            / panel_id
+        )
+        compound_label = expected_putative_product(target_row)
+        display_label = panel_display_label(target_row, panel_id)
+        migrate_existing_panel(
+            existing_panel_dirs.get((target_genome, antismash_region)),
+            panel_dir,
+        )
         inputs_dir = panel_dir / "inputs"
         panel_dir.mkdir(parents=True, exist_ok=True)
         inputs_dir.mkdir(parents=True, exist_ok=True)
 
-        target_genome = clean(target_row.get("genome"))
         target_gbk = region_gbk_path(antismash_root, target_genome, antismash_region)
         if not target_gbk.exists():
             panel_rows.append(
                 {
-                    "panel_id": panel_dir.name,
+                    "panel_id": panel_id,
+                    "panel_label": display_label,
+                    "compound_label": compound_label,
                     "target_rank": shortlist_rank,
+                    "target_genome": target_genome,
+                    "target_taxon": target_taxon,
+                    "target_organism": target_metadata["organism_name"],
                     "target_region": antismash_region,
-                    "gcf_id": clean(target_row.get("gcf_id")),
+                    **materialized_gcf_provenance(target_row),
                     "status": "missing_target_gbk",
                     "panel_dir": str(panel_dir),
                     "run_script": str(panel_dir / "run_panel.sh"),
@@ -809,6 +1010,7 @@ def main() -> None:
             max_same_ecology=args.max_same_ecology,
             max_other_ecology=args.max_other_ecology,
             max_comparators=args.max_comparators,
+            genus_by_genome=genus_by_genome,
         )
         if atlas_target:
             if enriched_target_key[0] and enriched_target_key[1]:
@@ -839,12 +1041,14 @@ def main() -> None:
                 "order": 1,
                 "role": "target",
                 "genome": target_genome,
+                **target_metadata,
                 "ecofun_primary": clean(target_row.get("ecofun_primary")),
                 "ecofun_secondary": clean(target_row.get("ecofun_secondary")),
                 "ecology_group": clean(target_row.get("ecology_group")) or "UNLABELED",
                 "ecology_display": ecology_display(target_row),
                 "antismash_region": antismash_region,
-                "gcf_id": clean(target_row.get("gcf_id")),
+                "scaffold_id": panel_scaffold_id(target_row, original_record_ids),
+                **materialized_gcf_provenance(target_row),
                 "match_type": "target",
                 "source_gbk_path": str(target_gbk),
                 "staged_gbk_path": str(target_stage),
@@ -862,17 +1066,20 @@ def main() -> None:
             )
             shutil.copy2(comparator_gbk, staged_path)
             staged_files.append(staged_path.relative_to(panel_dir))
+            comparator_metadata = panel_genome_metadata(comparator, genome_metadata)
             manifest_rows.append(
                 {
                     "order": order,
                     "role": "comparator",
                     "genome": comparator_genome,
+                    **comparator_metadata,
                     "ecofun_primary": clean(comparator.get("ecofun_primary")),
                     "ecofun_secondary": clean(comparator.get("ecofun_secondary")),
                     "ecology_group": clean(comparator.get("ecology_group")),
                     "ecology_display": ecology_display(comparator),
                     "antismash_region": comparator_region,
-                    "gcf_id": clean(comparator.get("gcf_id")),
+                    "scaffold_id": panel_scaffold_id(comparator, original_record_ids),
+                    **materialized_gcf_provenance(comparator),
                     "match_type": clean(comparator.get("match_type")),
                     "source_gbk_path": str(comparator_gbk),
                     "staged_gbk_path": str(staged_path),
@@ -890,12 +1097,16 @@ def main() -> None:
                     "order": order,
                     "role": "mibig_reference",
                     "genome": accession,
+                    "organism_name": "",
+                    "taxon_group": "",
+                    "taxon_source": "mibig",
                     "ecofun_primary": "",
                     "ecofun_secondary": "",
                     "ecology_group": "",
                     "ecology_display": "",
                     "antismash_region": accession,
-                    "gcf_id": clean(target_row.get("gcf_id")),
+                    "scaffold_id": accession,
+                    **materialized_gcf_provenance(target_row),
                     "match_type": "mibig_reference",
                     "source_gbk_path": str(mibig_file),
                     "staged_gbk_path": str(staged_path),
@@ -909,12 +1120,16 @@ def main() -> None:
                 "order",
                 "role",
                 "genome",
+                "organism_name",
+                "taxon_group",
+                "taxon_source",
                 "ecofun_primary",
                 "ecofun_secondary",
                 "ecology_group",
                 "ecology_display",
                 "antismash_region",
-                "gcf_id",
+                "scaffold_id",
+                *GCF_PROVENANCE_FIELDS,
                 "match_type",
                 "source_gbk_path",
                 "staged_gbk_path",
@@ -926,10 +1141,15 @@ def main() -> None:
         panel_dirs.append(panel_dir)
         panel_rows.append(
             {
-                "panel_id": panel_dir.name,
+                "panel_id": panel_id,
+                "panel_label": display_label,
+                "compound_label": compound_label,
                 "target_rank": shortlist_rank,
+                "target_genome": target_genome,
+                    "target_taxon": target_taxon,
+                    "target_organism": target_metadata["organism_name"],
                 "target_region": antismash_region,
-                "gcf_id": clean(target_row.get("gcf_id")),
+                **materialized_gcf_provenance(target_row),
                 "status": "staged",
                 "panel_dir": str(panel_dir),
                 "run_script": str(panel_dir / "run_panel.sh"),
@@ -945,9 +1165,14 @@ def main() -> None:
         manifest_path,
         [
             "panel_id",
+            "panel_label",
+            "compound_label",
             "target_rank",
+            "target_genome",
+            "target_taxon",
+            "target_organism",
             "target_region",
-            "gcf_id",
+            *GCF_PROVENANCE_FIELDS,
             "status",
             "panel_dir",
             "run_script",

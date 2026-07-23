@@ -2,6 +2,7 @@ import csv
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -37,6 +38,7 @@ class RepoLayoutTests(unittest.TestCase):
             "scripts/ncbi/rename_ncbi_genomes.sh",
             "scripts/ncbi/flatten_ncbi_genomes.sh",
             "bin/capture_external_artifacts.py",
+            "bin/compact_antismash_shard.py",
             "bin/render_bigscape_multipanel.py",
         ]:
             self.assertTrue((REPO_ROOT / rel).exists(), rel)
@@ -192,6 +194,373 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("should_skip_discovered_stem", text)
         self.assertIn("skipping accession alias genome stem", text)
 
+    def test_annotation_detailed_logs_use_canonical_private_results_directory(self) -> None:
+        annotation = (REPO_ROOT / "run_annotation_and_detection.sh").read_text(encoding="utf-8")
+        wrapper = (REPO_ROOT / "run_clusterweave.sh").read_text(encoding="utf-8")
+
+        self.assertIn('mkdir -p "${RESULTS_ROOT}/logs"', annotation)
+        self.assertIn(
+            'rsync -a "${WORK_ROOT}/logs/" "${RESULTS_ROOT}/logs/"',
+            annotation,
+        )
+        self.assertIn('See ${manifest} and ${RESULTS_ROOT}/logs.', wrapper)
+        self.assertNotIn("${RESULTS_ROOT}/summary_tables/logs", annotation + wrapper)
+
+    def test_annotation_stage_supports_bounded_genome_fanout(self) -> None:
+        text = (REPO_ROOT / "run_annotation_and_detection.sh").read_text(encoding="utf-8")
+        self.assertIn('GENOME_PARALLELISM="${GENOME_PARALLELISM:-${ANNOTATION_GENOME_PARALLELISM:-1}}"', text)
+        self.assertIn('[-p GENOME_PARALLELISM]', text)
+        self.assertIn('p) GENOME_PARALLELISM="${OPTARG}" ;;', text)
+        self.assertIn('GENOME_PARALLELISM="$(positive_int_or_default "${GENOME_PARALLELISM}" 1)"', text)
+        self.assertIn('running_genome_job_count()', text)
+        self.assertIn('wait -n', text)
+        self.assertIn('process_genome() {', text)
+        self.assertIn('MANIFEST_ROW_DIR="${WORK_ROOT}/tmp/manifest_rows"', text)
+        self.assertIn('write_genome_manifest_row "${row_file}"', text)
+        self.assertIn('process_genome "${genome_id}" "${idx}" "${row_file}" "${#GEN_ARR[@]}" &', text)
+        self.assertIn('cat "${row_file}" >> "${MANIFEST}"', text)
+        self.assertIn('GENOME_PROGRESS genome=', text)
+        process_body = text.split('process_genome() {', 1)[1].split('\n}\n\nidx=0', 1)[0]
+        self.assertIn('annotate_genome_with_fallbacks "${genome_id}" "${fasta}" "${staged_gbk}"', process_body)
+        self.assertNotIn('>> "${MANIFEST}"', process_body)
+        self.assertNotIn('continue', process_body)
+
+    def test_annotation_resource_plan_is_frozen_and_cpu_bounded(self) -> None:
+        text = (REPO_ROOT / "run_annotation_and_detection.sh").read_text(encoding="utf-8")
+        planner = text.split("freeze_resource_plan() {", 1)[1].split(
+            "running_genome_job_count() {", 1
+        )[0]
+        docker_args = text.split("docker_run_args() {", 1)[1].split(
+            "docker_exec() {", 1
+        )[0]
+        funannotate = text.split("run_funannotate_predict_to_gbk() {", 1)[1].split(
+            "annotate_genome_with_fallbacks() {", 1
+        )[0]
+
+        self.assertIn('PIPELINE_RESOURCE_MODE="${PIPELINE_RESOURCE_MODE:-conservative}"', text)
+        self.assertIn("detect_effective_cpus()", text)
+        self.assertIn('local cgroup_root="${1:-/sys/fs/cgroup}"', text)
+        self.assertIn('"${cgroup_root}/cpu.max"', text)
+        self.assertIn("detect_effective_memory_mb()", text)
+        self.assertIn("/sys/fs/cgroup/memory.max", text)
+        self.assertIn('PIPELINE_AUTO_MEMORY_PER_GENOME_MB="${PIPELINE_AUTO_MEMORY_PER_GENOME_MB:-8192}"', text)
+        self.assertIn('freeze_resource_plan "${#GEN_ARR[@]}"', text)
+        self.assertGreater(
+            text.index('freeze_resource_plan "${#GEN_ARR[@]}"'),
+            text.index('log "Genomes to process'),
+        )
+        self.assertIn('PER_GENOME_CPU_BUDGET=$((CPUS / GENOME_PARALLELISM))', planner)
+        self.assertIn('annotation_slots=$((GENOME_PARALLELISM * ANNO_CPUS))', planner)
+        self.assertIn('funbgcex_slots=$((GENOME_PARALLELISM * WORKERS))', planner)
+        self.assertIn(
+            'antismash_shard_slots=$((GENOME_PARALLELISM * ANTISMASH_RECORD_PARALLELISM * ANTISMASH_SHARD_CPUS))',
+            planner,
+        )
+        self.assertIn('antismash_legacy_slots=$((GENOME_PARALLELISM * ANTISMASH_LEGACY_CPUS))', planner)
+        self.assertIn("Resource plan invariant failed", planner)
+        self.assertIn("RESOURCE_PLAN_FROZEN", planner)
+        self.assertIn("RESOURCE_PLAN_BOUNDS", planner)
+        self.assertIn('--cpus "${child_cpus}"', docker_args)
+        self.assertIn('--memory "${child_memory}"', docker_args)
+        self.assertIn('--pids-limit "${child_pids}"', docker_args)
+        for variable in [
+            "OMP_NUM_THREADS",
+            "OPENBLAS_NUM_THREADS",
+            "MKL_NUM_THREADS",
+            "NUMEXPR_NUM_THREADS",
+            "VECLIB_MAXIMUM_THREADS",
+            "BLIS_NUM_THREADS",
+        ]:
+            self.assertIn(variable, docker_args)
+        self.assertIn('--cpus "${ANNO_CPUS}"', funannotate)
+        self.assertNotIn("--limit-to-record", funannotate)
+        self.assertIn("Funannotate is never split by GenBank record", text)
+
+    def test_annotation_resource_plan_arithmetic_respects_job_budget(self) -> None:
+        text = (REPO_ROOT / "run_annotation_and_detection.sh").read_text(encoding="utf-8")
+        helper_block = "positive_int_or_default() {" + text.split(
+            "positive_int_or_default() {", 1
+        )[1].split("\nrunning_genome_job_count() {", 1)[0]
+        base = (
+            "set -euo pipefail\n"
+            + helper_block
+            + "\n"
+            + "detect_effective_cpus(){ printf '12\\n'; }\n"
+            + "detect_effective_memory_mb(){ printf '24576\\n'; }\n"
+            + "log(){ :; }\n"
+            + "die(){ printf '%s\\n' \"$*\" >&2; exit 99; }\n"
+            + "PIPELINE_AUTO_MAX_CPUS=32\n"
+            + "PIPELINE_AUTO_MAX_GENOME_PARALLELISM=4\n"
+            + "PIPELINE_AUTO_MIN_CPUS_PER_GENOME=2\n"
+            + "PIPELINE_AUTO_MEMORY_PERCENT=70\n"
+            + "PIPELINE_AUTO_MEMORY_PER_GENOME_MB=8192\n"
+            + "PIPELINE_AUTO_MAX_ANNO_CPUS=8\n"
+            + "PIPELINE_AUTO_MAX_FUNBGCEX_WORKERS=2\n"
+            + "PIPELINE_AUTO_MAX_ANTISMASH_RECORD_PARALLELISM=3\n"
+            + "PIPELINE_MEMORY_BUDGET_MB=\n"
+        )
+        scenarios = [
+            (
+                "auto",
+                (
+                    "PIPELINE_RESOURCE_MODE=auto\nCPUS_REQUEST_EXPLICIT=0\n"
+                    "CPUS=6\nGENOME_PARALLELISM=1\nANNO_CPUS=6\nWORKERS=2\n"
+                    "ANTISMASH_RECORD_PARALLELISM=1\n"
+                    "ANTISMASH_SHARD_CPUS_REQUESTED=\nANTISMASH_LEGACY_CPUS_REQUESTED=\n"
+                ),
+                {
+                    "cpus": 12,
+                    "genomes": 2,
+                    "lane": 6,
+                    "anno": 6,
+                    "workers": 2,
+                    "records": 3,
+                    "shard": 2,
+                    "legacy": 6,
+                },
+            ),
+            (
+                "manual",
+                (
+                    "PIPELINE_RESOURCE_MODE=manual\nCPUS_REQUEST_EXPLICIT=1\n"
+                    "CPUS=12\nGENOME_PARALLELISM=5\nANNO_CPUS=8\nWORKERS=10\n"
+                    "ANTISMASH_RECORD_PARALLELISM=4\n"
+                    "ANTISMASH_SHARD_CPUS_REQUESTED=9\nANTISMASH_LEGACY_CPUS_REQUESTED=9\n"
+                ),
+                {
+                    "cpus": 12,
+                    "genomes": 5,
+                    "lane": 2,
+                    "anno": 2,
+                    "workers": 2,
+                    "records": 2,
+                    "shard": 1,
+                    "legacy": 2,
+                },
+            ),
+        ]
+        for name, settings, expected in scenarios:
+            with self.subTest(mode=name):
+                command = (
+                    base
+                    + settings
+                    + "freeze_resource_plan 25\n"
+                    + "printf 'cpus=%s genomes=%s lane=%s anno=%s workers=%s records=%s shard=%s legacy=%s\\n' "
+                    + '"$CPUS" "$GENOME_PARALLELISM" "$PER_GENOME_CPU_BUDGET" "$ANNO_CPUS" '
+                    + '"$WORKERS" "$ANTISMASH_RECORD_PARALLELISM" "$ANTISMASH_SHARD_CPUS" "$ANTISMASH_LEGACY_CPUS"\n'
+                )
+                result = subprocess.run(
+                    ["bash", "-c", command],
+                    cwd=str(REPO_ROOT),
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+                observed = {
+                    key: int(value)
+                    for key, value in (
+                        field.split("=", 1) for field in result.stdout.strip().split()
+                    )
+                }
+                self.assertEqual(observed, expected)
+                self.assertLessEqual(observed["genomes"] * observed["anno"], observed["cpus"])
+                self.assertLessEqual(observed["genomes"] * observed["workers"], observed["cpus"])
+                self.assertLessEqual(
+                    observed["genomes"] * observed["records"] * observed["shard"],
+                    observed["cpus"],
+                )
+                self.assertLessEqual(observed["genomes"] * observed["legacy"], observed["cpus"])
+
+    def test_effective_cpu_detection_ignores_library_caps_and_honors_cgroup(self) -> None:
+        text = (REPO_ROOT / "run_annotation_and_detection.sh").read_text(
+            encoding="utf-8"
+        )
+        helper_block = "count_cpuset_cpus() {" + text.split(
+            "count_cpuset_cpus() {", 1
+        )[1].split("\ndetect_effective_memory_mb() {", 1)[0]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cgroup_root = Path(tmp)
+            (cgroup_root / "cpuset.cpus.effective").write_text(
+                "0-7\n", encoding="utf-8"
+            )
+            (cgroup_root / "cpu.max").write_text(
+                "400000 100000\n", encoding="utf-8"
+            )
+            command = (
+                "set -euo pipefail\n"
+                "have(){ command -v \"$1\" >/dev/null 2>&1; }\n"
+                "nproc(){\n"
+                "  if [[ \"${OMP_NUM_THREADS:-}\" == 1 || \"${OMP_THREAD_LIMIT:-}\" == 1 ]]; then\n"
+                "    printf '1\\n'\n"
+                "  else\n"
+                "    printf '12\\n'\n"
+                "  fi\n"
+                "}\n"
+                + helper_block
+                + "\nexport OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1\n"
+                + "detect_effective_cpus \"$1\"\n"
+            )
+            result = subprocess.run(
+                ["bash", "-c", command, "bash", str(cgroup_root)],
+                cwd=str(REPO_ROOT),
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+        # The fake nproc reports one while either OpenMP cap remains set.  The
+        # detector must see 12, then apply cpuset=8 and quota=4 bounds.
+        self.assertEqual(result.stdout.strip(), "4")
+
+    def test_annotation_supports_bounded_antismash_record_sharding(self) -> None:
+        text = (REPO_ROOT / "run_annotation_and_detection.sh").read_text(encoding="utf-8")
+        record_ids = text.split("list_genbank_record_ids() {", 1)[1].split("\n}", 1)[0]
+        shard_call = text.split("run_antismash_record_shard() {", 1)[1].split(
+            "write_antismash_shard_index() {", 1
+        )[0]
+        sharded = text.split("run_antismash_sharded() {", 1)[1].split(
+            "# Per-genome logging sync + manifest", 1
+        )[0]
+        process_body = text.split("process_genome() {", 1)[1].split("\n}\n\nidx=0", 1)[0]
+        merge_json = text.split("merge_antismash_shard_jsons() {", 1)[1].split("\n}", 1)[0]
+        stable_ids = text.split("antismash_record_ids_are_stable() {", 1)[1].split("\n}", 1)[0]
+        shard_index = text.split("write_antismash_shard_index() {", 1)[1].split(
+            "cleanup_antismash_assembled_outputs() {", 1
+        )[0]
+        cleanup = text.split("cleanup_antismash_assembled_outputs() {", 1)[1].split("\n}", 1)[0]
+        summary = (REPO_ROOT / "summarize_clusterweave.sh").read_text(encoding="utf-8")
+        clinker_stage = (REPO_ROOT / "bin" / "stage_clinker_panels.py").read_text(encoding="utf-8")
+
+        self.assertIn('ANTISMASH_RECORD_PARALLELISM="${ANTISMASH_RECORD_PARALLELISM:-1}"', text)
+        self.assertIn('ANTISMASH_SHARD_CPUS="${ANTISMASH_SHARD_CPUS:-}"', text)
+        self.assertIn('ANTISMASH_LEGACY_CPUS="${ANTISMASH_LEGACY_CPUS:-}"', text)
+        self.assertIn('ANTISMASH_RETAIN_SHARD_WORK="${ANTISMASH_RETAIN_SHARD_WORK:-0}"', text)
+        self.assertIn('ANTISMASH_SHARD_COMPACTOR="${ANTISMASH_SHARD_COMPACTOR:-${SCRIPT_DIR}/bin/compact_antismash_shard.py}"', text)
+        self.assertIn('ANTISMASH_SHARD_CPUS_DEFAULT=$((PER_GENOME_CPU_BUDGET / ANTISMASH_RECORD_PARALLELISM))', text)
+        self.assertIn('ANTISMASH_SHARD_CPUS="$(minimum_int', text)
+        self.assertIn('ANTISMASH_LEGACY_CPUS="$(minimum_int', text)
+        self.assertIn('for record in SeqIO.parse(path, "genbank"):', record_ids)
+        self.assertIn('min_record_bp = int(sys.argv[2])', record_ids)
+        self.assertIn('if len(record.seq) < min_record_bp:', record_ids)
+        self.assertNotIn("--limit-to-record", shard_call)
+        self.assertIn('--minlength "${ANTISMASH_MIN_RECORD_BP}"', shard_call)
+        self.assertIn('--output-dir "${shard_dir}"', shard_call)
+        self.assertIn('--output-basename "${safe_record_id}"', shard_call)
+        self.assertIn('--cpus "${ANTISMASH_SHARD_CPUS}"', shard_call)
+        self.assertIn('"${ANTISMASH_SHARD_COMPACTOR}"', shard_call)
+        self.assertIn('--shard-dir "${shard_dir}"', shard_call)
+        self.assertIn('--record-id "${record_id}"', shard_call)
+        self.assertIn('--json-name "${safe_record_id}.json"', shard_call)
+        self.assertIn('--retain "${ANTISMASH_RETAIN_SHARD_WORK}"', shard_call)
+        self.assertIn('antiSMASH record shard compaction failed', shard_call)
+        self.assertIn("--allow-long-headers", text)
+        self.assertNotIn("--start", shard_call)
+        self.assertNotIn("--end", shard_call)
+        self.assertIn('while [[ "${active_jobs}" -ge "${ANTISMASH_RECORD_PARALLELISM}" ]]', sharded)
+        self.assertIn('while [[ "${active_jobs}" -gt 0 ]]', sharded)
+        helper_runtime = text.split("antismash_input_python_exec() {", 1)[1].split("\n}", 1)[0]
+        self.assertIn('if [[ "${ENGINE}" == "docker" ]]', helper_runtime)
+        self.assertIn('"$(resolve_python_cmd)" "$@"', helper_runtime)
+        self.assertIn('antismash_input_python_exec "${ANTISMASH_INPUT_PREPARER}" sanitize', text)
+        self.assertIn('antismash_input_python_exec "${ANTISMASH_INPUT_PREPARER}" split-records', sharded)
+        self.assertIn('"${ANTISMASH_INPUT_PREPARER}" split-records', sharded)
+        self.assertIn('"${shard_inputs[${index}]}"', sharded)
+        self.assertGreaterEqual(sharded.count("wait_for_antismash_shard_job"), 2)
+        wait_helper = text.split("wait_for_antismash_shard_job() {", 1)[1].split("\n}", 1)[0]
+        self.assertIn("wait -n", wait_helper)
+        self.assertIn("record_id\\tshard_dir\\tstatus\\telapsed_seconds\\tregion_count", sharded)
+        self.assertIn('"${ant_out}/shard_manifest.tsv"', sharded)
+        self.assertIn('destination="${ant_out}/${destination_name}"', sharded)
+        self.assertIn('cp -f "${region_file}" "${destination}"', sharded)
+        self.assertIn('"${safe_record_ids[${index}]}".*) ;;', sharded)
+        self.assertIn('canonical_json="${ant_out}/${genome_id}.antismash.json"', sharded)
+        self.assertIn('shard_json_args+=("${record_ids[${index}]}" "${expected_json}")', sharded)
+        self.assertIn('merge_antismash_shard_jsons "${canonical_json}" "${shard_json_args[@]}"', sharded)
+        self.assertIn("merged_records.append(matching_records[0])", merge_json)
+        self.assertIn('merged["records"] = merged_records', merge_json)
+        self.assertIn("merged_timings.update(timings)", merge_json)
+        self.assertIn('merged["timings"] = merged_timings', merge_json)
+        self.assertIn("os.replace(temporary_path, output_path)", merge_json)
+        self.assertIn('json_path=os.path.join(genome_dir,f"{genome}.antismash.json")', summary)
+        self.assertIn('return antismash_root / genome / f"{antismash_region}.gbk"', clinker_stage)
+        self.assertIn("tr -c 'A-Za-z0-9._-' '_'", text)
+        self.assertIn('find "${shard_dirs[${index}]}" -type f -name \'*region*.gbk\'', sharded)
+        self.assertIn('render_antismash_shard_web_bundle', sharded)
+        self.assertIn('write_antismash_shard_index "${genome_id}" "${ant_out}"', sharded)
+        self.assertIn('"${assembled_count}" -gt 0', sharded)
+        self.assertIn('touch "${ant_out}/.done"', sharded)
+        self.assertIn('safe_record_id="$(safe_antismash_record_id "${record_id}")"', stable_ids)
+        self.assertIn('[[ "${safe_record_id}" != "${record_id}" ]]', stable_ids)
+        self.assertIn('ANTISMASH_UNSTABLE_RECORD_ID="${record_id}"', stable_ids)
+        self.assertIn('antismash_record_ids_are_stable "${antismash_record_ids_file}"', process_body)
+        self.assertIn('"${antismash_record_ids_stable}" -eq 1', process_body)
+        self.assertIn(
+            'list_genbank_record_ids "${ant_input}" "${ANTISMASH_MIN_RECORD_BP}"',
+            process_body,
+        )
+        self.assertIn('--minlength "${ANTISMASH_MIN_RECORD_BP}"', process_body)
+        self.assertEqual(text.count('--minlength "${ANTISMASH_MIN_RECORD_BP}"'), 2)
+        self.assertIn('ANTISMASH_RECORD_SHARD_FALLBACK genome=', process_body)
+        self.assertIn('reason=record_id_not_output_basename_stable', process_body)
+        self.assertIn("html_escape", shard_index)
+        self.assertNotIn("href=", shard_index)
+        self.assertIn('-maxdepth 1 -type f -name \'*region*.gbk\' -delete', cleanup)
+        self.assertIn('"${canonical_json}.tmp"', cleanup)
+        self.assertIn('"${ant_out}/index.html"', cleanup)
+        self.assertIn('"${ant_out}/.done"', cleanup)
+        self.assertGreaterEqual(
+            sharded.count('cleanup_antismash_assembled_outputs "${ant_out}" "${canonical_json}"'),
+            5,
+        )
+        self.assertIn("ANTISMASH_RECORD_PROGRESS genome=", text)
+        self.assertIn('antismash_shard_root="${per_tmp}/antismash_shards"', process_body)
+        self.assertIn('"${ANTISMASH_RECORD_PARALLELISM}" -gt 1', process_body)
+        self.assertIn('"${antismash_record_count}" -gt 1', process_body)
+        self.assertIn('antiSMASH legacy single-run mode', process_body)
+        self.assertIn('--cpus "${ANTISMASH_LEGACY_CPUS}"', process_body)
+        self.assertIn('cp -f "${ant_filtered_input}" "${fbx_input}"', process_body)
+
+    def test_antismash_record_id_stability_gate_executes_safe_transform_exactly(self) -> None:
+        text = (REPO_ROOT / "run_annotation_and_detection.sh").read_text(encoding="utf-8")
+        helper_block = text.split("safe_antismash_record_id() {", 1)[1].split(
+            "sanitize_antismash_duplicate_cds_locations() {", 1
+        )[0]
+        helper_block = "safe_antismash_record_id() {" + helper_block
+
+        cases = [
+            ("JASJFT010000001.1", "JASJFT010000001.1", True),
+            ("record~tilde", "record_tilde", False),
+            (".leading", "record_.leading", False),
+            ("-leading", "record_-leading", False),
+            ("x" * 121, "x" * 120, False),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            record_ids_file = Path(tmp) / "record_ids.txt"
+            for record_id, expected_safe, expected_stable in cases:
+                with self.subTest(record_id=record_id):
+                    record_ids_file.write_text(record_id + "\n", encoding="utf-8")
+                    result = subprocess.run(
+                        [
+                            "bash",
+                            "-c",
+                            helper_block
+                            + "\nprintf 'safe=%s\\n' \"$(safe_antismash_record_id \"$2\")\"\n"
+                            + "if antismash_record_ids_are_stable \"$1\"; then exit 0; else exit 3; fi\n",
+                            "antismash-record-id-test",
+                            str(record_ids_file),
+                            record_id,
+                        ],
+                        cwd=str(REPO_ROOT),
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                    )
+                    self.assertEqual(result.stdout, f"safe={expected_safe}\n")
+                    self.assertEqual(result.returncode, 0 if expected_stable else 3, result.stderr)
+
     def test_annotation_uses_per_genome_funannotate_lineage_policy(self) -> None:
         text = (REPO_ROOT / "run_annotation_and_detection.sh").read_text(encoding="utf-8")
         self.assertIn("resolve_funannotate_policy()", text)
@@ -301,58 +670,335 @@ class RepoLayoutTests(unittest.TestCase):
     def test_antismash_done_requires_complete_browseable_output(self) -> None:
         text = (REPO_ROOT / "run_annotation_and_detection.sh").read_text(encoding="utf-8")
         block = text.split("antismash_done() {", 1)[1].split("funbgcex_done()", 1)[0]
+        self.assertIn('[[ -f "${outdir}/.done" ]] || return 1', block)
         self.assertIn("[[ -s \"${outdir}/index.html\" ]] || return 1", block)
         self.assertIn("-name \"regions.js\"", block)
         self.assertIn("-name \"*.antismash.json\"", block)
         self.assertNotIn("*region*.gbk", block)
         self.assertNotIn("##antiSMASH-Data-START##", block)
 
+    def test_annotation_completion_markers_require_valid_outputs(self) -> None:
+        text = (REPO_ROOT / "run_annotation_and_detection.sh").read_text(encoding="utf-8")
+        funbgcex = text.split("funbgcex_outputs_valid() {", 1)[1].split(
+            "# GBK diagnostics/filtering", 1
+        )[0]
+        self.assertIn('[[ -f "${outdir}/.done" ]] || return 1', funbgcex)
+        self.assertIn('-name "allBGCs.csv"', funbgcex)
+        self.assertNotIn('funbgcex_in.log', funbgcex)
+        self.assertIn('&& funbgcex_outputs_valid "${fbx_out}"', text)
+        self.assertIn('&& touch "${fbx_out}/.done"', text)
+        gbk_check = text.split("gbk_has_cds_and_translation() {", 1)[1].split(
+            "backfill_gbk_translations_from_existing_cds() {", 1
+        )[0]
+        self.assertIn("GENBANK_TRANSLATION_CHECKER", gbk_check)
+        self.assertIn('"${VENV_PY}" "${GENBANK_TRANSLATION_CHECKER}"', gbk_check)
+        self.assertTrue((REPO_ROOT / "bin" / "check_genbank_translations.py").exists())
+        self.assertTrue((REPO_ROOT / "web" / "genbank_readiness.py").exists())
+        checker = (REPO_ROOT / "bin" / "check_genbank_translations.py").read_text(encoding="utf-8")
+        self.assertIn('Path("/app")', checker)
+
+    def test_annotation_completion_helpers_reject_partial_artifacts(self) -> None:
+        text = (REPO_ROOT / "run_annotation_and_detection.sh").read_text(encoding="utf-8")
+        completion_helpers = "antismash_done() {" + text.split(
+            "antismash_done() {", 1
+        )[1].split("# GBK diagnostics/filtering", 1)[0]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            good_gbk = root / "good.gbk"
+            good_gbk.write_text(
+                "LOCUS       complete 9 bp DNA\n"
+                "FEATURES             Location/Qualifiers\n"
+                "     CDS             1..9\n"
+                "                     /translation=\"MKT\"\n"
+                "ORIGIN\n        1 atgaaaact\n//\n",
+                encoding="utf-8",
+            )
+            truncated_gbk = root / "truncated.gbk"
+            truncated_gbk.write_text(good_gbk.read_text(encoding="utf-8").removesuffix("//\n"), encoding="utf-8")
+            partial_gbk = root / "partial.gbk"
+            partial_gbk.write_text(
+                good_gbk.read_text(encoding="utf-8").replace(
+                    "ORIGIN\n",
+                    "     CDS             1..3\n"
+                    '                     /product="untranslated"\n'
+                    "ORIGIN\n",
+                ),
+                encoding="utf-8",
+            )
+            checker = REPO_ROOT / "bin" / "check_genbank_translations.py"
+            for path, expected in [(good_gbk, 0), (truncated_gbk, 1), (partial_gbk, 1)]:
+                result = subprocess.run(
+                    [sys.executable, str(checker), str(path)],
+                    cwd=str(REPO_ROOT),
+                    check=False,
+                )
+                self.assertEqual(result.returncode, expected, path.name)
+
+            antismash = root / "antismash"
+            antismash.mkdir()
+            (antismash / "index.html").write_text("index", encoding="utf-8")
+            (antismash / "demo.antismash.json").write_text("{}", encoding="utf-8")
+            funbgcex = root / "funbgcex"
+            funbgcex.mkdir()
+            (funbgcex / "allBGCs.csv").write_text("BGC\n", encoding="utf-8")
+            for function_name, outdir in [("antismash_done", antismash), ("funbgcex_done", funbgcex)]:
+                command = completion_helpers + f'\n{function_name} "$1"'
+                without_marker = subprocess.run(
+                    ["bash", "-c", command, "completion-test", str(outdir)],
+                    cwd=str(REPO_ROOT),
+                    check=False,
+                )
+                self.assertNotEqual(without_marker.returncode, 0, function_name)
+                (outdir / ".done").touch()
+                with_marker = subprocess.run(
+                    ["bash", "-c", command, "completion-test", str(outdir)],
+                    cwd=str(REPO_ROOT),
+                    check=False,
+                )
+                self.assertEqual(with_marker.returncode, 0, function_name)
+
+    def test_bigscape_stages_only_assembled_per_genome_region_roots(self) -> None:
+        text = (REPO_ROOT / "run_bigscape.sh").read_text(encoding="utf-8")
+        finder = text.split("find_antismash_genome_regions() {", 1)[1].split("\n}", 1)[0]
+        stage = text.split("# Stage antiSMASH region GBKs to a flat directory", 1)[1].split(
+            "# Run BiG-SCAPE", 1
+        )[0]
+
+        self.assertIn('-mindepth 2 -maxdepth 2 -type f -name "*region*.gbk"', finder)
+        self.assertIn('relative="${f#"${ANTISMASH_ROOT%/}/"}"', stage)
+        self.assertIn('genome="${relative%%/*}"', stage)
+        self.assertIn('label="${genome}"', stage)
+        self.assertIn('taxon_source="$(manifest_taxon_source "${genome}")"', stage)
+        self.assertIn('"${taxon_source,,}" =~ ^(ncbi|ncbi_taxonomy)$', stage)
+        self.assertIn('label="${genome#bacteria_}"', stage)
+        self.assertIn('label="${label//_/ }"', stage)
+        self.assertIn('out="${STAGE_DIR}/${genome}__${base}"', stage)
+        self.assertIn('awk -v LABEL="${label}"', stage)
+        self.assertIn("done < <(find_antismash_genome_regions -print0)", stage)
+        self.assertIn('die "Region staging name collision', stage)
+        self.assertNotIn('basename "$(dirname "$f")"', stage)
+        self.assertNotIn('find "${ANTISMASH_ROOT}" -type f', stage)
+
+    def test_bacterial_ids_are_taxon_neutral_and_legacy_joins_are_exact_first(self) -> None:
+        app_text = (REPO_ROOT / "web" / "app.py").read_text(encoding="utf-8")
+        rename_text = (REPO_ROOT / "scripts" / "ncbi" / "rename_ncbi_genomes.sh").read_text(encoding="utf-8")
+        crosswalk_text = (REPO_ROOT / "bin" / "build_bgc_gcf_crosswalk.py").read_text(encoding="utf-8")
+        summary_text = (REPO_ROOT / "summarize_clusterweave.sh").read_text(encoding="utf-8")
+
+        self.assertNotIn('safe_ncbi_genome_id(f"bacteria_{identifier}")', app_text)
+        self.assertNotIn('fid = sanitize(f"bacteria_{fid}")', rename_text)
+        self.assertIn("pairs = [(genome, antismash_region)]", crosswalk_text)
+        self.assertIn("pre-v1.0 bacterial prefix convention", crosswalk_text)
+        self.assertNotIn("def canonical_join_id", crosswalk_text)
+        self.assertNotIn("re.sub(r'^bacteria_'", summary_text)
+
+    def test_nplinker_seeding_discovers_assembled_root_level_regions(self) -> None:
+        text = (REPO_ROOT / "run_nplinker.sh").read_text(encoding="utf-8")
+        root_level_find = (
+            'find "${LOCAL_ANTISMASH_ROOT}" -maxdepth 1 -type f '
+            '-name "*region*.gbk" -print0'
+        )
+
+        self.assertGreaterEqual(text.count(root_level_find), 2)
+        self.assertIn('"${RUN_DIR}/antismash/${TARGET_STRAIN}/"', text)
+
     def test_release_metadata_exists(self) -> None:
         for rel in [
             "README.md",
-            "BEGINNER_SETUP.md",
+            "docs/BEGINNER_SETUP.md",
+            "CHANGELOG.md",
+            "SECURITY.md",
             "LICENSE",
             "CITATION.cff",
             "THIRD_PARTY.md",
-            "DATA_SOURCES.md",
-            "visuals/ClusterWeave.svg",
-            "visuals/logo.svg",
+            "docs/DATA_SOURCES.md",
+            "config/local.env.template",
+            "profiles/release_v1.0.0.env",
+            "package.json",
+            "package-lock.json",
+            "visuals/ClusterWeave_workflow.svg",
             "visuals/logo_black.svg",
             "web/OPERATOR_AGREEMENT.md",
+            "docs/INSTALL.md",
+            "docs/RELEASE_CHECKLIST.md",
             "docs/REPRODUCIBILITY.md",
             "docs/WEB_RUNTIME.md",
+            "examples/README.md",
             "pyproject.toml",
         ]:
             self.assertTrue((REPO_ROOT / rel).exists(), rel)
 
-    def test_private_web_handoff_docs_are_ignored(self) -> None:
+    def test_public_release_copy_excludes_private_gate_status(self) -> None:
+        release_docs = [
+            "README.md",
+            "docs/BEGINNER_SETUP.md",
+            "CHANGELOG.md",
+            "SECURITY.md",
+            "docs/INSTALL.md",
+            "docs/RELEASE_CHECKLIST.md",
+            "docs/WEB_RUNTIME.md",
+            "examples/README.md",
+            "examples/fungi_only/README.md",
+            "examples/mixed/README.md",
+            "web/OPERATOR_AGREEMENT.md",
+        ]
+        texts = {
+            rel: (REPO_ROOT / rel).read_text(encoding="utf-8").casefold()
+            for rel in release_docs
+        }
+        combined = "\n".join(texts.values())
+        normalized_readme = " ".join(texts["README.md"].split())
+        self.assertIn(
+            "clusterweave organizes genome-mining analyses into integrated evidence profiles",
+            normalized_readme,
+        )
+        for private_status in [
+            "(pending)",
+            "release candidate",
+            "source candidate",
+            "maintainer approval",
+            "cybersecurity review",
+            "private release map",
+            "pending tag",
+            "tag remains pending",
+            "tag is still pending",
+        ]:
+            with self.subTest(private_status=private_status):
+                self.assertNotIn(private_status, combined)
+
+        for rel in [
+            "README.md",
+            "docs/BEGINNER_SETUP.md",
+            "SECURITY.md",
+            "docs/INSTALL.md",
+            "docs/WEB_RUNTIME.md",
+            "web/OPERATOR_AGREEMENT.md",
+        ]:
+            with self.subTest(hosted_status=rel):
+                self.assertIn("coming soon", texts[rel])
+
+    def test_generated_and_private_categories_are_ignored(self) -> None:
         gitignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
         dockerignore = (REPO_ROOT / ".dockerignore").read_text(encoding="utf-8")
-        for rel in [
-            "web/STAN.md",
-            "web/STYLE.md",
-            "web/STYLE_ARCHIVE.md",
-            "web/PRODUCTION_LAUNCH_SLICE_MAP.md",
-            "web/PRODUCTION_LAUNCH_SLICE_ARCHIVE.md",
-            "web/GLOSSARY.md",
-            "web/UPSTREAM_MAINTAINER_NOTE.md",
+        for category in [
+            "node_modules/",
+            "test-results/",
+            "playwright-report/",
+            "credentials/",
+            "*.orig",
         ]:
-            with self.subTest(rel=rel):
-                self.assertIn(rel, gitignore)
-                self.assertIn(rel, dockerignore)
+            with self.subTest(category=category):
+                self.assertIn(category, gitignore)
+                self.assertIn(category, dockerignore)
+
+        for rel in [
+            ".env.local",
+            "config/local.env",
+            "node_modules/example/index.js",
+            "test-results/failure.png",
+            "playwright-report/index.html",
+            "data/jobs/synthetic-job/job.json",
+            "scratch.orig",
+        ]:
+            with self.subTest(ignored=rel):
+                result = subprocess.run(
+                    ["git", "check-ignore", "--no-index", "--quiet", rel],
+                    cwd=REPO_ROOT,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, rel)
+
+        for rel in [
+            "config/local.env.template",
+            "config/defaults.env",
+            "profiles/release_v1.0.0.env",
+            "software/phylogeny/Dockerfile",
+        ]:
+            with self.subTest(public=rel):
+                result = subprocess.run(
+                    ["git", "check-ignore", "--no-index", "--quiet", rel],
+                    cwd=REPO_ROOT,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 1, rel)
 
     def test_generic_example_paths_exist(self) -> None:
         self.assertTrue((REPO_ROOT / "profiles" / "example_project.env").exists())
         for rel in [
             "examples/README.md",
-            "examples/accessions.txt",
-            "examples/accessions_fungusID_taxonomyID.txt",
-            "examples/summary/README.md",
-            "examples/summary/family_atlas_shortlist.md",
-            "examples/figures/big_scape_multipanel.svg",
-            "examples/figures/bgc_overlap.svg",
+            "examples/fungi_only/README.md",
+            "examples/fungi_only/accessions.txt",
+            "examples/fungi_only/accessions_fungusID_taxonomyID.txt",
+            "examples/fungi_only/summary/README.md",
+            "examples/fungi_only/summary/family_atlas_shortlist.md",
+            "examples/fungi_only/figures/fungi_big_scape_multipanel.svg",
+            "examples/fungi_only/figures/bgc_overlap.svg",
+            "examples/mixed/README.md",
+            "examples/mixed/accessions.txt",
+            "examples/mixed/accessions_fungusID_taxonomyID.txt",
+            "examples/mixed/accessions_bacteriaID_taxonomyID.txt",
+            "examples/mixed/figures/fungi_big_scape_multipanel.svg",
+            "examples/mixed/figures/bacteria_big_scape_multipanel.svg",
+            "examples/mixed/figures/bgc_overlap.svg",
+            "examples/mixed/figures/clusterweave_taxon_tree.svg",
+            "examples/mixed/summary/README.md",
+            "examples/mixed/summary/all_tools_bgc_comparison.csv",
+            "examples/mixed/summary/all_tools_shared_unshared_summary.csv",
+            "examples/mixed/summary/family_atlas_shortlist.md",
+            "examples/mixed/summary/family_atlas_shortlist.tsv",
         ]:
             self.assertTrue((REPO_ROOT / rel).exists(), rel)
+
+        self.assertFalse((REPO_ROOT / "examples/mixed/accession_validation.tsv").exists())
+        self.assertFalse((REPO_ROOT / "examples/mixed/figures/README.md").exists())
+
+        mixed_accessions = (
+            REPO_ROOT / "examples/mixed/accessions.txt"
+        ).read_text(encoding="utf-8").splitlines()
+        fungal_accessions = {
+            row.split("\t", 1)[0]
+            for row in (
+                REPO_ROOT
+                / "examples/mixed/accessions_fungusID_taxonomyID.txt"
+            ).read_text(encoding="utf-8").splitlines()
+            if row
+        }
+        bacterial_accessions = {
+            row.split("\t", 1)[0]
+            for row in (
+                REPO_ROOT
+                / "examples/mixed/accessions_bacteriaID_taxonomyID.txt"
+            ).read_text(encoding="utf-8").splitlines()
+            if row
+        }
+        self.assertEqual(40, len(mixed_accessions))
+        self.assertEqual(40, len(set(mixed_accessions)))
+        self.assertEqual(20, len(bacterial_accessions))
+        self.assertEqual(20, len(fungal_accessions))
+        self.assertEqual(set(mixed_accessions[:20]), bacterial_accessions)
+        self.assertEqual(set(mixed_accessions[20:]), fungal_accessions)
+
+        bacterial_mapping_rows = [
+            row.split("\t")
+            for row in (
+                REPO_ROOT
+                / "examples/mixed/accessions_bacteriaID_taxonomyID.txt"
+            ).read_text(encoding="utf-8").splitlines()
+            if row
+        ]
+        self.assertTrue(all(len(row) >= 3 for row in bacterial_mapping_rows))
+        self.assertTrue(
+            all(not row[1].casefold().startswith("bacteria_") for row in bacterial_mapping_rows)
+        )
+        for relative in (
+            "figures/clusterweave_taxon_tree.svg",
+            "summary/all_tools_shared_unshared_summary.csv",
+            "summary/family_atlas_shortlist.md",
+            "summary/family_atlas_shortlist.tsv",
+        ):
+            text = (REPO_ROOT / "examples/mixed" / relative).read_text(encoding="utf-8")
+            self.assertNotRegex(text, r"bacteria_[A-Z][A-Za-z0-9._-]*")
 
     def test_lowercase_runtime_roots_exist(self) -> None:
         for rel in [
@@ -505,6 +1151,9 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("annotation_manifest_usable_count()", text)
         self.assertIn("Annotation stage produced zero usable genomes", text)
         self.assertIn("stopping before grouping", text)
+        self.assertIn('antismash_status == "ran_ok"', text)
+        self.assertIn('antismash_status == "ran_ok_sanitized"', text)
+        self.assertIn('antismash_status == "skipped_done"', text)
         stage_block = text.split('log "Stage 1/4: running run_annotation_and_detection.sh"', 1)[1].split('if [[ "${RUN_STAGE_BIGSCAPE}" == "1" ]]', 1)[0]
         self.assertIn('bash "${RUN_ANNOTATION_STAGE}"', stage_block)
         self.assertIn("require_annotation_stage_outputs", stage_block)
@@ -517,7 +1166,10 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn('REFRESH_FAMILY_ATLAS="${REFRESH_FAMILY_ATLAS:-1}"', text)
         self.assertIn('ATLAS_MIN_RECORDS="${ATLAS_MIN_RECORDS:-2}"', text)
         self.assertIn('AUTO_NORMALIZE_METADATA="${AUTO_NORMALIZE_METADATA:-1}"', text)
-        self.assertIn('METADATA_TEMPLATE_TSV="${METADATA_TEMPLATE_TSV:-${RESULTS_ROOT}/summary_tables/ecofun_metadata_template.tsv}"', text)
+        self.assertIn('ANALYSIS_SCOPE="${ANALYSIS_SCOPE:-fungi}"', text)
+        self.assertIn('DEFAULT_METADATA_NAME="ecobac_metadata_normalized.tsv"', text)
+        self.assertIn('DEFAULT_METADATA_NAME="ecofun_metadata_normalized.tsv"', text)
+        self.assertIn('METADATA_TEMPLATE_TSV="${METADATA_TEMPLATE_TSV:-${RESULTS_ROOT}/summary_tables/${DEFAULT_METADATA_TEMPLATE_NAME}}"', text)
         self.assertIn('EXPORT_FAMILY_ATLAS_PY="${EXPORT_FAMILY_ATLAS_PY:-${PROJECT_DIR}/bin/export_dataset_family_atlas.py}"', text)
         self.assertIn("ensure_metadata_tsv()", text)
         self.assertIn('local genome_dir="${DATA_ROOT}/genomes/fungi/${PROJECT_NAME}"', text)
@@ -590,7 +1242,9 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn('SIF_SOURCE="${SIF_SOURCE:-${BIGSCAPE_SIF_SOURCE}}"', text)
         self.assertIn('BIGSCAPE_USE_DOCKER_IMAGE="${BIGSCAPE_USE_DOCKER_IMAGE:-0}"', text)
         self.assertIn('BIGSCAPE_DOCKER_IMAGE="${BIGSCAPE_DOCKER_IMAGE:-ghcr.io/medema-group/big-scape:2.0.0-beta.6}"', text)
-        self.assertIn('local -a args=(--rm -i --user 0:0 --entrypoint "")', text)
+        self.assertIn('local -a args=(', text)
+        self.assertIn('--cpus "${BIGSCAPE_DOCKER_CPUS}"', text)
+        self.assertIn('-e OMP_NUM_THREADS=1', text)
 
     def test_web_lab_runtime_is_docker_gated(self) -> None:
         compose = (REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
@@ -598,8 +1252,18 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("CLUSTERWEAVE_RUNTIME_MODE: lab-docker", compose)
         self.assertIn("CLUSTERWEAVE_ENABLE_DOCKER_SOCKET: \"1\"", compose)
         self.assertIn("ENGINE: docker", compose)
-        self.assertIn('WORKER_CONCURRENCY: "${WORKER_CONCURRENCY:-5}"', compose)
+        self.assertIn('WORKER_CONCURRENCY: "${WORKER_CONCURRENCY:-1}"', compose)
+        self.assertIn('WORKER_CPU_BUDGET: "${WORKER_CPU_BUDGET:-auto}"', compose)
+        self.assertIn('cpus: "${CLUSTERWEAVE_WORKER_CPU_LIMIT:-4}"', compose)
+        self.assertIn('mem_limit: "${CLUSTERWEAVE_WORKER_MEM_LIMIT:-16g}"', compose)
+        self.assertEqual(compose.count("mem_limit: 2g"), 1)
         self.assertIn("/var/run/docker.sock:/var/run/docker.sock", compose)
+        self.assertNotIn("/usr/bin/docker:/usr/bin/docker", compose)
+        self.assertIn('platform: "${CLUSTERWEAVE_DOCKER_PLATFORM:-linux/amd64}"', compose)
+        self.assertIn('${CLUSTERWEAVE_BIND_ADDRESS:-127.0.0.1}:${HOST_PORT:-8080}:8080', compose)
+        worker_image = (REPO_ROOT / "Dockerfile.worker").read_text(encoding="utf-8")
+        self.assertIn("FROM docker:29.6.1-cli AS docker-cli", worker_image)
+        self.assertIn("COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker", worker_image)
         self.assertIn("CLUSTERWEAVE_RUNTIME_MODE: public-queue", public_compose)
         self.assertIn("CLUSTERWEAVE_ENABLE_DOCKER_SOCKET: \"0\"", public_compose)
         self.assertIn('CLUSTERWEAVE_PUBLIC_MODE: "${CLUSTERWEAVE_PUBLIC_MODE:-1}"', public_compose)
@@ -610,28 +1274,33 @@ class RepoLayoutTests(unittest.TestCase):
     def test_public_release_files_do_not_contain_private_handoff_markers(self) -> None:
         release_files = [
             "README.md",
-            "DATA_SOURCES.md",
+            "docs/DATA_SOURCES.md",
             "THIRD_PARTY.md",
             "docs/RELEASE_CHECKLIST.md",
             "docs/WEB_RUNTIME.md",
-            "visuals/ClusterWeave.svg",
-            "visuals/logo.svg",
+            "visuals/ClusterWeave_workflow.svg",
             "visuals/logo_black.svg",
             "examples/README.md",
-            "examples/accessions.txt",
-            "examples/accessions_fungusID_taxonomyID.txt",
-            "examples/summary/README.md",
-            "examples/summary/family_atlas_shortlist.md",
+            "examples/fungi_only/accessions.txt",
+            "examples/fungi_only/accessions_fungusID_taxonomyID.txt",
+            "examples/fungi_only/summary/README.md",
+            "examples/fungi_only/summary/family_atlas_shortlist.md",
+            "examples/mixed/accessions.txt",
+            "examples/mixed/accessions_fungusID_taxonomyID.txt",
+            "examples/mixed/accessions_bacteriaID_taxonomyID.txt",
+            "examples/mixed/README.md",
+            "examples/mixed/summary/README.md",
+            "examples/mixed/summary/family_atlas_shortlist.md",
             "docker-compose.yml",
             "clusterweave.yml",
             "web/OPERATOR_AGREEMENT.md",
         ]
         forbidden = [
             "OneDrive",
-            "10.64.195.209",
+            ".".join(("192", "168", "50", "25")),
             "dev-admin",
             "dev-change-me",
-            "/home/cloud",
+            "/".join(("", "home", "cloud")),
             "/mnt/c/Users",
         ]
         for rel in release_files:
@@ -640,6 +1309,23 @@ class RepoLayoutTests(unittest.TestCase):
                 with self.subTest(file=rel, marker=marker):
                     self.assertNotIn(marker, text)
 
+    def test_public_examples_exclude_runtime_artifacts(self) -> None:
+        examples_root = REPO_ROOT / "examples"
+        forbidden_suffixes = {".db", ".gbk", ".log", ".sqlite", ".zip"}
+        private_job_path = re.compile(
+            r"(?:^|[/`])data/jobs/[0-9a-f]{8}(?:/|$)"
+        )
+        for path in examples_root.rglob("*"):
+            if not path.is_file():
+                continue
+            rel = path.relative_to(REPO_ROOT).as_posix()
+            with self.subTest(path=rel):
+                self.assertNotIn(path.suffix.lower(), forbidden_suffixes)
+                text = path.read_text(encoding="utf-8", errors="replace")
+                self.assertIsNone(private_job_path.search(text))
+                self.assertNotIn("/".join(("", "home", "cloud")), text)
+                self.assertNotIn("/data/jobs/", text)
+
     def test_frontend_static_assets_are_extracted_without_new_dependencies(self) -> None:
         static_dir = REPO_ROOT / "web" / "static"
         index_text = (static_dir / "index.html").read_text(encoding="utf-8")
@@ -647,24 +1333,25 @@ class RepoLayoutTests(unittest.TestCase):
         js_text = (static_dir / "assets" / "clusterweave.js").read_text(encoding="utf-8")
 
         self.assertLess(len(index_text.splitlines()), 1000)
-        self.assertIn('href="/favicon.ico"', index_text)
+        self.assertIn('href="/favicon.ico', index_text)
         self.assertTrue((static_dir / "favicon.ico").exists())
-        self.assertIn('href="assets/clusterweave.css?v=20260629-input-validation"', index_text)
-        self.assertIn('src="assets/clusterweave.js?v=20260629-input-validation"', index_text)
+        self.assertIn('href="assets/clusterweave.css?v=20260723-credit-height1"', index_text)
+        self.assertIn('src="assets/clusterweave.js?v=20260722-summary-atlas1"', index_text)
         self.assertNotIn("<style>", index_text)
         self.assertNotIn("<script>\n", index_text)
         self.assertIn("function apiUrl(path)", js_text)
         self.assertIn("function handleResultLinkClick(event, jobId, relPath, download = false)", js_text)
         self.assertIn("const WORKFLOW_DNA_MODULE_PATH", js_text)
         self.assertIn("function bootBgcWorkflowDna()", js_text)
-        self.assertIn('id="input-station-limit"', index_text)
+        self.assertNotIn('id="input-station-limit"', index_text)
         self.assertIn('id="upload-limit-note"', index_text)
+        self.assertIn('50 genome files or 50 NCBI accessions', index_text)
         self.assertNotIn('input-method-tag standard', index_text)
         self.assertNotIn('input-method-tag secondary', index_text)
         self.assertNotIn('Local file input', index_text)
         self.assertIn('.setup-panel { grid-area: setup; overflow: hidden; align-self: start; }', css_text)
         self.assertIn('.brutal-accession-card {', css_text)
-        self.assertIn('align-items: start;\n    margin-bottom: .7rem;', css_text)
+        self.assertIn('align-items: stretch;\n    margin-bottom: .7rem;', css_text)
         self.assertIn('grid-template-columns: minmax(0, 1fr) minmax(16rem, 1fr);', css_text)
         self.assertIn('background: white;\n    min-height: 0;', css_text)
         self.assertIn('box-shadow: 0 5px 0 var(--line);', css_text)
@@ -686,10 +1373,176 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertNotIn("unpkg.com", index_text + css_text + js_text)
         self.assertNotIn("tmp/node_geometry_render", index_text + css_text + js_text)
 
+    def test_frontend_taxon_scope_and_mixed_upload_contract(self) -> None:
+        static_dir = REPO_ROOT / "web" / "static"
+        index_text = (static_dir / "index.html").read_text(encoding="utf-8")
+        css_text = (static_dir / "assets" / "clusterweave.css").read_text(encoding="utf-8")
+        js_text = (static_dir / "assets" / "clusterweave.js").read_text(encoding="utf-8")
+
+        selector = index_text.split('id="analysis-scope-selector"', 1)[1].split("</fieldset>", 1)[0]
+        self.assertIn("<legend>Analysis scope</legend>", selector)
+        self.assertIn('name="analysis-scope" value="fungi" checked', selector)
+        self.assertIn('name="analysis-scope" value="both"', selector)
+        self.assertIn('name="analysis-scope" value="bacteria"', selector)
+        self.assertLess(selector.index('value="fungi"'), selector.index('value="both"'))
+        self.assertLess(selector.index('value="both"'), selector.index('value="bacteria"'))
+        self.assertIn('id="taxon-assignment-panel"', index_text)
+        self.assertIn('class="taxon-assignment-columns" role="row"', index_text)
+        self.assertIn("markAllTaxonAssignments('fungi')", index_text)
+        self.assertIn("markAllTaxonAssignments('bacteria')", index_text)
+        self.assertNotIn("Both mode needs one Fungi or Bacteria declaration per ambiguous logical genome.", index_text)
+        self.assertNotIn("a same-stem FASTA inherits that route", index_text)
+        self.assertIn('id="taxon-assignment-list" role="rowgroup"', index_text)
+        self.assertIn('id="run-setup-analysis-scope"', index_text)
+
+        self.assertIn("let stagedAnalysisScope = 'fungi';", js_text)
+        self.assertIn("let activeSavedAnalysisContext = null;", js_text)
+        self.assertIn("function normalizeAnalysisScope(value, fallback = 'fungi')", js_text)
+        self.assertIn("function analysisContextFromJob(job)", js_text)
+        self.assertIn("function analysisCapabilities(context = activeAnalysisContext())", js_text)
+        self.assertIn("function logicalGenomeInputs(files = selectedFiles)", js_text)
+        self.assertIn("return publicGenomeStem(value).toLowerCase();", js_text)
+        self.assertIn("let genbankTaxonomyAuthorityCache = new Map();", js_text)
+        self.assertIn("function parseClientGenbankTaxonomy(text)", js_text)
+        self.assertIn("function logicalGenomeAuthority(item)", js_text)
+        self.assertIn("function clientTaxonAssignmentDecision(authority", js_text)
+        self.assertIn("function renderTaxonAssignmentPanel()", js_text)
+        self.assertIn("function markAllTaxonAssignments(taxonGroup)", js_text)
+        self.assertIn("function parseTaxonAssignmentSidecarText(text)", js_text)
+        self.assertIn("const TAXON_ASSIGNMENTS_FILENAME = 'taxon_assignments.tsv';", js_text)
+        self.assertIn("isTaxonAssignmentsSidecarName(f.name)", js_text)
+        self.assertIn("Contradictory duplicate assignment", js_text)
+        self.assertIn("Unknown taxon assignment key", js_text)
+        self.assertIn("Both mode requires a Fungi or Bacteria declaration", js_text)
+        self.assertIn("Feature-free bacterial GenBank accepted", js_text)
+        self.assertIn("supplied features will be removed", js_text)
+        self.assertIn("Authoritative bacterial GenBank taxonomy accepted", js_text)
+        self.assertIn("const assignable = decisions.filter(decision => decision.requiresAssignment);", js_text)
+        self.assertIn("if (decision.requiresAssignment && decision.assigned)", js_text)
+        self.assertIn("fd.append('analysis_scope', normalizeAnalysisScope(stagedAnalysisScope))", js_text)
+        self.assertIn("if (Object.keys(taxonAssignments).length)", js_text)
+        self.assertIn("fd.append('taxon_assignments', JSON.stringify(taxonAssignments))", js_text)
+        self.assertIn("setActiveSavedAnalysisContext(job);", js_text)
+        self.assertIn("resultCategoryApplicable('funbgcex')", js_text)
+        self.assertIn("figureApplicableToAnalysis(path, capabilities)", js_text)
+
+        self.assertIn(".analysis-scope-options input:checked + span", css_text)
+        self.assertIn(".analysis-scope-options input:focus-visible + span", css_text)
+        self.assertIn(".taxon-assignment-panel", css_text)
+        self.assertIn(".taxon-assignment-row.is-unresolved", css_text)
+        self.assertIn(".taxon-assignment-cell input", css_text)
+        self.assertIn("fungal, bacterial, or mixed biosynthetic gene cluster discovery", index_text)
+
+    def test_frontend_phylogeny_figure_discovery_and_accessibility_contract(self) -> None:
+        static_dir = REPO_ROOT / "web" / "static"
+        css_text = (static_dir / "assets" / "clusterweave.css").read_text(encoding="utf-8")
+        js_text = (static_dir / "assets" / "clusterweave.js").read_text(encoding="utf-8")
+
+        approved = js_text.split("const APPROVED_PHYLOGENY_ARTIFACT_NAMES", 1)[1].split("]);", 1)[0]
+        for filename in [
+            "clusterweave_taxon_tree.svg",
+            "clusterweave_taxon_tree.png",
+            "clusterweave_taxon_tree.nwk",
+            "clusterweave_taxon_tree_leaf_profiles.tsv",
+            "clusterweave_gcf_network_edges.tsv",
+            "clusterweave_taxon_tree.graphml",
+            "clusterweave_tree_manifest.json",
+            "clusterweave_tree_methods.json",
+            "clusterweave_tree_bundle.zip",
+        ]:
+            with self.subTest(approved_phylogeny_artifact=filename):
+                self.assertIn(f"'{filename}'", approved)
+
+        discovery = js_text.split("function approvedPhylogenyArtifact(path)", 1)[1].split(
+            "function isApprovedPhylogenyArtifact", 1
+        )[0]
+        figure_predicate = js_text.split("function isFigureAsset(path)", 1)[1].split(
+            "function isSvgFigureAsset", 1
+        )[0]
+        self.assertIn(
+            "normalized.match(/^data\\/results\\/[^/]+\\/figures\\/phylogeny\\/([^/]+)$/i)",
+            discovery,
+        )
+        self.assertIn("APPROVED_PHYLOGENY_ARTIFACT_NAMES.has(name)", discovery)
+        self.assertIn("/^data\\/results\\/[^/]+\\/figures\\/[^/]+\\.(svg|png|jpe?g|webp)$/i", figure_predicate)
+        self.assertIn("|| isTaxonTreeVisualAsset(normalized)", figure_predicate)
+
+        tree_bundle = js_text.split("function treeDataBundleForFigure(path, files)", 1)[1].split(
+            "function isFigureAsset", 1
+        )[0]
+        self.assertIn("if (!isTaxonTreeSvgAsset(path)) return '';", tree_bundle)
+        self.assertIn("`${directory}/clusterweave_tree_bundle.zip`.toLowerCase()", tree_bundle)
+        self.assertIn("candidate.toLowerCase() === expected && isTaxonTreeBundleAsset(candidate)", tree_bundle)
+        self.assertIn("resultDownloadLink(jobId, treeBundle, 'Tree data')", js_text)
+        self.assertIn("/^data\\/results\\/[^/]+\\/figures\\/phylogeny$/i.test(normalized)", js_text)
+
+        applicability = js_text.split("function figureApplicableToAnalysis", 1)[1].split("return true;", 1)[0]
+        self.assertIn("isLegacyFungalFigure(path)", applicability)
+        self.assertIn("capabilities.fungalFigures", applicability)
+        self.assertIn("isBacterialMultipanelFigure(path)", applicability)
+        self.assertIn("capabilities.bacterialFigures", applicability)
+        self.assertIn("isTaxonTreeVisualAsset(path)", applicability)
+        self.assertIn("capabilities.taxonomyTree", applicability)
+        self.assertIn(
+            "if (key === 'figures') return isFigureAsset(path) && figureApplicableToAnalysis(path);",
+            js_text,
+        )
+
+        figure_sort = js_text.split("function figureSortKey(path)", 1)[1].split(
+            "function figureCaption", 1
+        )[0]
+        ordered_names = [
+            "fungi_big_scape_multipanel.svg",
+            "fungi_big_scape_multipanel.png",
+            "bacteria_big_scape_multipanel.svg",
+            "bacteria_big_scape_multipanel.png",
+            "bgc_overlap.svg",
+            "bgc_overlap.png",
+            "clusterweave_taxon_tree.svg",
+            "clusterweave_taxon_tree.png",
+            "big_scape_multipanel.svg",
+            "big_scape_multipanel.png",
+            "bacterial_multipanel.svg",
+            "bacterial_multipanel.png",
+        ]
+        positions = [figure_sort.index(f"'{name}'") for name in ordered_names]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn(
+            "Bacterial BiG-SCAPE multipanel combining stacked antiSMASH BGC/GCF counts, cluster context, compound labels, and confidence evidence.",
+            js_text,
+        )
+        self.assertIn(
+            "Ranked NCBI taxonomy context with BGC-count-scaled composition markers and class-colored GCF-sharing arcs; branch lengths are not inferred.",
+            js_text,
+        )
+
+        svg_accessibility = js_text.split("function preserveInlineSvgAccessibility", 1)[1].split(
+            "async function hydrateSvgFigures", 1
+        )[0]
+        self.assertIn("child.localName?.toLowerCase() === 'title'", svg_accessibility)
+        self.assertIn("child.localName?.toLowerCase() === 'desc'", svg_accessibility)
+        self.assertIn("svg.setAttribute('aria-labelledby', title.id)", svg_accessibility)
+        self.assertIn("svg.setAttribute('aria-describedby', desc.id)", svg_accessibility)
+        self.assertIn("preserveInlineSvgAccessibility(", js_text)
+        self.assertIn('role="group"', js_text)
+        self.assertIn('tabindex="0"', js_text)
+        self.assertIn('aria-describedby="${escapeHtml(instructionsId)}"', js_text)
+        self.assertIn('aria-keyshortcuts="+ - 0 Escape"', js_text)
+
+        self.assertIn(".figure-preview-wrap.is-taxon-tree", css_text)
+        self.assertIn("touch-action: pan-x pan-y;", css_text)
+        self.assertIn("touch-action: none;", css_text)
+        self.assertIn("min-height: clamp(28rem, 70vh, 58rem);", css_text)
+        self.assertIn("@media (max-width: 760px)", css_text)
+        self.assertIn("@media (pointer: coarse)", css_text)
+        self.assertGreaterEqual(css_text.count("min-width: 44px; min-height: 44px;"), 2)
+
     def test_public_fasta_validation_streams_large_lines(self) -> None:
         app_text = (REPO_ROOT / "web" / "app.py").read_text(encoding="utf-8")
-        self.assertIn("for raw_line in io.BytesIO(content):", app_text)
+        self.assertIn("classify_public_fasta_stream", app_text)
+        self.assertIn("handle.read(UPLOAD_COPY_CHUNK_BYTES)", app_text)
         self.assertIn("sequence_char_count += 1", app_text)
+        self.assertNotIn("part.file.read()", app_text)
         self.assertNotIn("sequence_chars: list", app_text)
         self.assertNotIn("sequence_chars.extend", app_text)
         self.assertIn('route == "/favicon.ico"', app_text)
@@ -899,8 +1752,11 @@ class RepoLayoutTests(unittest.TestCase):
     def test_web_synteny_labels_skip_track_folders(self) -> None:
         ui_text = frontend_text()
         self.assertIn("atlas|priority|prioritized?|shared[-_]?family|shared|family|track|tracks", ui_text)
-        self.assertIn("compound = titleCaseArtifactLabel(parts[i], 'clinker');", ui_text)
-        self.assertIn("`${compound} - ${artifact}`", ui_text)
+        self.assertIn("function syntenyGcfQualifier(value)", ui_text)
+        self.assertIn("parts[i].split('__', 2)", ui_text)
+        self.assertIn("GCF ${match[1].toUpperCase()} c${match[2]}.${match[3]}", ui_text)
+        self.assertIn("const label = qualifier ? `${compound} · ${qualifier}` : compound;", ui_text)
+        self.assertNotIn("titleCaseArtifactLabel(parts[i].split('__', 1)[0]", ui_text)
 
     def test_web_dna_spine_uses_continuous_ribbons(self) -> None:
         ui_text = frontend_text()
@@ -910,37 +1766,1252 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("import * as THREE from '../vendor/three-0.184.0/three.module.min.js';", dna_text)
         self.assertIn("appliedAs: 'color-fade-only'", dna_text)
         self.assertIn("motionPaused: state === 'failed'", ui_text)
-        self.assertIn("this.motionPaused = Boolean(payload.motionPaused);", dna_text)
-        self.assertIn("profileForState(payload.state)", dna_text)
+        self.assertIn("const nextMotionPaused = Boolean(payload.motionPaused);", dna_text)
+        self.assertIn("this.motionPaused = nextMotionPaused;", dna_text)
+        self.assertIn("const nextProfile = profileForState(payload.state);", dna_text)
         self.assertIn("const SEGMENTS = 192;", dna_text)
         self.assertIn("const BACKBONE_OVERLAP = 1.08;", dna_text)
         self.assertIn("new THREE.CylinderGeometry(0.055, 0.055, 1, 18, 1, true)", dna_text)
         self.assertIn("length * axialScale", dna_text)
-        self.assertIn("workflow-dna-progress.js?v=20260628-dna-smooth", ui_text)
+        self.assertIn("workflow-dna-progress.js?v=20260713-fanout-ui1", ui_text)
         self.assertNotIn("tmp/node_geometry_render", ui_text + dna_text)
         self.assertNotIn("data-segment=", ui_text)
 
     def test_frontend_opens_generated_html_for_private_result_users(self) -> None:
         ui_text = frontend_text()
         self.assertIn("function canOpenRichHtmlArtifacts(jobId = activeJobId)", ui_text)
-        self.assertIn("return canUseAdminSurfaces() || !!readTokenForJob(jobId);", ui_text)
+        self.assertIn(
+            "return canUseAdminSurfaces() || !!readTokenForJob(publicRunIdForJob(jobId));",
+            ui_text,
+        )
         self.assertIn("if (canOpenRichHtmlArtifacts(jobId)) return openHtmlResultWithAssets(event, jobId, relPath);", ui_text)
         self.assertIn("if (isHtmlAsset(path) && !canOpenRichHtmlArtifacts(jobId))", ui_text)
 
-    def test_frontend_generated_html_preview_handles_relative_page_links(self) -> None:
+    def test_frontend_generated_html_preview_never_embeds_job_credentials(self) -> None:
         ui_text = frontend_text()
         self.assertIn("const RESULT_PREVIEW_NAVIGATOR_SCRIPT = String.raw", ui_text)
         self.assertIn("data-clusterweave-result-preview", ui_text)
-        self.assertIn("data-clusterweave-result-href", ui_text)
-        self.assertIn("function textDataUrl(text, mime)", ui_text)
-        self.assertIn("reader.readAsDataURL(blob)", ui_text)
-        self.assertIn("event.target.closest('a[href],area[href]')", ui_text)
-        self.assertIn("openRelativeResult(rawUrl)", ui_text)
-        self.assertIn("scriptEl.setAttribute('data-authorization', authHeadersFor('job', jobId).Authorization || '')", ui_text)
+        self.assertIn("data-clusterweave-result-artifact", ui_text)
+        self.assertIn("data-clusterweave-result-fragment", ui_text)
+        self.assertIn("clusterweave:result-bundle-navigate", ui_text)
+        self.assertIn("event.target.closest", ui_text)
+        self.assertIn("event.target.closest('a,area')", ui_text)
+        self.assertIn("const resolved = await resolveResultArtifact(", ui_text)
+        self.assertIn("{ optional: true }", ui_text)
+        self.assertNotIn("data-authorization", ui_text)
+        self.assertNotIn("scriptEl.dataset.authorization", ui_text)
+        rewrite_block = ui_text.split("async function rewriteHtmlResultAssets", 1)[1].split(
+            "async function buildHtmlResultObjectUrl", 1
+        )[0]
+        self.assertIn("script,iframe,object,embed,base", rewrite_block)
+        self.assertIn("Content-Security-Policy", rewrite_block)
+        self.assertIn("BIGSCAPE_RESULT_PREVIEW_CSP", rewrite_block)
+        self.assertIn("CLINKER_RESULT_PREVIEW_CSP", rewrite_block)
+        self.assertIn("STATIC_RESULT_PREVIEW_CSP", rewrite_block)
+        self.assertIn("connect-src 'none'", ui_text)
+        self.assertNotIn("injectResultPreviewNavigator(doc, jobId, htmlPath)", rewrite_block)
+
+    def test_frontend_tool_bundles_use_authenticated_parent_relay_and_opaque_sandbox(self) -> None:
+        js_text = (REPO_ROOT / "web" / "static" / "assets" / "clusterweave.js").read_text(encoding="utf-8")
+        rewrite_block = js_text.split("async function rewriteHtmlResultAssets", 1)[1].split(
+            "async function buildHtmlResultObjectUrl", 1
+        )[0]
+        sandbox_block = js_text.split("function renderSandboxedToolResultPreview", 1)[1].split(
+            "async function openHtmlResultWithAssets", 1
+        )[0]
+        navigator_block = js_text.split("const RESULT_PREVIEW_NAVIGATOR_SCRIPT", 1)[1].split(
+            "function resultUrlShouldStayExternal", 1
+        )[0]
+
+        self.assertIn("resultArtifactFamilyAssetPath", js_text)
+        self.assertIn("allowToolBundleScripts", rewrite_block)
+        self.assertIn("inlineToolResultScripts", rewrite_block)
+        self.assertIn("rewriteToolResultScriptForSandbox", js_text)
+        self.assertIn("TOOL_RESULT_PREVIEW_CSP", rewrite_block)
+        self.assertIn("allowToolBundleScripts && value.startsWith('#')", rewrite_block)
+        self.assertIn("querySelectorAll('[autofocus]')", rewrite_block)
+        self.assertIn("? 'iframe,object,embed,base'", rewrite_block)
+        self.assertNotIn("script:not([src]),iframe,object,embed,base", rewrite_block)
+        self.assertIn("clusterweave:result-bundle-navigate", navigator_block)
+        self.assertIn("window.parent.postMessage", navigator_block)
+        self.assertIn("if (!artifact && fragment.startsWith('#'))", navigator_block)
+        self.assertIn("window.viewer.switchToRegion(anchor);", navigator_block)
+        self.assertIn("event.stopImmediatePropagation();", navigator_block)
+        self.assertIn("clusterweaveAnchor", js_text)
+        self.assertIn("sandbox compatibility profile", js_text)
+        self.assertNotIn("fetch(", navigator_block)
+        self.assertIn("event.source !== frame.contentWindow", sandbox_block)
+        self.assertIn(
+            "const targetDescriptor = resultArtifactDescriptor(event.data.artifact || '', resultContext);",
+            sandbox_block,
+        )
+        self.assertIn("const targetPath = artifactPresentationKey(targetDescriptor);", sandbox_block)
+        self.assertIn("currentDescriptor.bundle_id !== targetDescriptor.bundle_id", sandbox_block)
+        self.assertIn("resultFetch(jobId, targetPath, { resultContext })", sandbox_block)
+        self.assertIn("frame.setAttribute('sandbox', TOOL_RESULT_PREVIEW_SANDBOX)", sandbox_block)
+        self.assertIn("targetWindow.URL.createObjectURL", sandbox_block)
+        self.assertIn("targetWindow.URL.revokeObjectURL", sandbox_block)
+        self.assertIn(
+            "setFrameHtml(nestedHtml, event.data.fragment || '', targetPath, nextChannel);",
+            sandbox_block,
+        )
+        self.assertNotIn("frame.srcdoc", sandbox_block)
+        self.assertIn("const TOOL_RESULT_PREVIEW_SANDBOX = 'allow-scripts';", js_text)
+        self.assertNotIn("allow-same-origin", sandbox_block)
+        self.assertNotIn("Authorization", navigator_block + sandbox_block)
+        self.assertNotIn("readToken", navigator_block + sandbox_block)
+
+    def test_frontend_clinker_panel_scripts_are_confined_to_exact_sandboxed_preview(self) -> None:
+        js_text = (REPO_ROOT / "web" / "static" / "assets" / "clusterweave.js").read_text(encoding="utf-8")
+        rewrite_block = js_text.split("async function rewriteHtmlResultAssets", 1)[1].split(
+            "async function buildHtmlResultObjectUrl", 1
+        )[0]
+        sandbox_block = js_text.split("function renderSandboxedClinkerPreview", 1)[1].split(
+            "function renderSandboxedBigscapePreview", 1
+        )[0]
+        open_block = js_text.split("async function openHtmlResultWithAssets", 1)[1].split(
+            "function resultFetch", 1
+        )[0]
+
+        self.assertIn(
+            "options.allowClinkerInlineScripts === true && isExactPublicClinkerPanelHtml(htmlPath)",
+            rewrite_block,
+        )
+        self.assertIn("'script[src],iframe,object,embed,base'", rewrite_block)
+        self.assertIn("'script,iframe,object,embed,base'", rewrite_block)
+        self.assertIn("meta[http-equiv=\"refresh\" i]", rewrite_block)
+        self.assertIn("default-src 'none'; script-src 'unsafe-inline'; style-src", sandbox_block)
+        self.assertIn("script-src 'unsafe-inline'", js_text)
+        self.assertIn("connect-src 'none'", js_text)
+        self.assertIn("object-src 'none'", js_text)
+        self.assertIn("form-action 'none'", js_text)
+        self.assertIn("base-uri 'none'", js_text)
+        self.assertIn("const CLINKER_PREVIEW_SANDBOX = 'allow-scripts';", js_text)
+        self.assertIn("frame.setAttribute('sandbox', CLINKER_PREVIEW_SANDBOX);", sandbox_block)
+        self.assertIn("frame.setAttribute('referrerpolicy', 'no-referrer');", sandbox_block)
+        self.assertIn("frame.srcdoc = htmlText;", sandbox_block)
+        self.assertNotIn("allow-same-origin", sandbox_block)
+        self.assertNotIn("allow-popups", sandbox_block)
+        self.assertNotIn("allow-forms", sandbox_block)
+        self.assertNotIn("allow-top-navigation", sandbox_block)
+        self.assertIn("if (isExactPublicClinkerPanelHtml(relPath))", open_block)
+        self.assertIn("renderSandboxedClinkerPreview(targetWindow, relPath, rewrittenHtml);", open_block)
+
+    def test_frontend_clinker_panel_script_allowlist_rejects_nearby_paths(self) -> None:
+        js_text = (REPO_ROOT / "web" / "static" / "assets" / "clusterweave.js").read_text(encoding="utf-8")
+        matcher_start = js_text.index("function isExactPublicClinkerPanelHtml")
+        matcher_end = js_text.index("\n}\n", matcher_start) + 3
+        matcher = js_text[matcher_start:matcher_end]
+        node_script = f"""
+function normalizedResultPath(path) {{
+  return String(path || '').replaceAll(String.fromCharCode(92), '/');
+}}
+const descriptors = new Map([
+  ['AAAAAAAAAAAAAAAAAAAAAA', {{ category: 'synteny', filename: 'panel.html' }}],
+  ['BBBBBBBBBBBBBBBBBBBBBB', {{ category: 'synteny', filename: 'PANEL.HTML' }}],
+  ['CCCCCCCCCCCCCCCCCCCCCC', {{ category: 'antismash', filename: 'panel.html' }}],
+  ['DDDDDDDDDDDDDDDDDDDDDD', {{ category: 'synteny', filename: 'index.html' }}],
+  ['EEEEEEEEEEEEEEEEEEEEEE', {{ category: 'synteny', filename: 'panel.htm' }}],
+  ['FFFFFFFFFFFFFFFFFFFFFF', {{ category: 'synteny', filename: 'panel.html.js' }}],
+  ['GGGGGGGGGGGGGGGGGGGGGG', {{ category: 'bigscape', filename: 'panel.html' }}],
+]);
+function resultArtifactDescriptor(value) {{
+  return descriptors.get(String(value || '')) || null;
+}}
+function resultArtifactName(value) {{
+  return resultArtifactDescriptor(value)?.filename || '';
+}}
+{matcher}
+const accepted = ['AAAAAAAAAAAAAAAAAAAAAA', 'BBBBBBBBBBBBBBBBBBBBBB'];
+const rejected = [
+  'CCCCCCCCCCCCCCCCCCCCCC',
+  'DDDDDDDDDDDDDDDDDDDDDD',
+  'EEEEEEEEEEEEEEEEEEEEEE',
+  'FFFFFFFFFFFFFFFFFFFFFF',
+  'GGGGGGGGGGGGGGGGGGGGGG',
+  'ZZZZZZZZZZZZZZZZZZZZZZ',
+];
+process.stdout.write(JSON.stringify({{
+  accepted: accepted.map(isExactPublicClinkerPanelHtml),
+  rejected: rejected.map(isExactPublicClinkerPanelHtml),
+}}));
+"""
+        result = subprocess.run(
+            ["node", "-e", node_script],
+            cwd=str(REPO_ROOT),
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        verdicts = json.loads(result.stdout)
+        self.assertEqual(verdicts["accepted"], [True, True])
+        self.assertEqual(verdicts["rejected"], [False] * 6)
+        self.assertIn("descriptor?.category === 'synteny'", matcher)
+        self.assertNotIn("data/results", matcher)
+
+    def test_frontend_bigscape_database_allowlist_accepts_only_sanitized_paths(self) -> None:
+        js_text = (REPO_ROOT / "web" / "static" / "assets" / "clusterweave.js").read_text(encoding="utf-8")
+        matcher_start = js_text.index("function isBigscapeDatabaseArtifact")
+        matcher_end = js_text.index("\n}\n", matcher_start) + 3
+        matcher = js_text[matcher_start:matcher_end]
+        node_script = f"""
+function normalizedResultPath(path) {{
+  return String(path || '').replaceAll(String.fromCharCode(92), '/');
+}}
+const descriptors = new Map([
+  ['AAAAAAAAAAAAAAAAAAAAAA', {{ category: 'bigscape', role: 'public-database', filename: 'clusterweave_public.sqlite' }}],
+  ['BBBBBBBBBBBBBBBBBBBBBB', {{ category: 'bigscape', role: 'public-database', filename: 'portable.sqlite' }}],
+  ['CCCCCCCCCCCCCCCCCCCCCC', {{ category: 'bigscape', role: 'viewer-database', filename: 'clusterweave_viewer.sqlite' }}],
+  ['DDDDDDDDDDDDDDDDDDDDDD', {{ category: 'bigscape', role: 'raw-database', filename: 'data_sqlite.db' }}],
+  ['EEEEEEEEEEEEEEEEEEEEEE', {{ category: 'bigscape', role: 'public-database-wal', filename: 'clusterweave_public.sqlite-wal' }}],
+  ['FFFFFFFFFFFFFFFFFFFFFF', {{ category: 'other', role: 'public-database', filename: 'clusterweave_public.sqlite' }}],
+]);
+function resultArtifactDescriptor(value) {{
+  return descriptors.get(String(value || '')) || null;
+}}
+{matcher}
+const accepted = ['AAAAAAAAAAAAAAAAAAAAAA', 'BBBBBBBBBBBBBBBBBBBBBB'];
+const rejected = [
+  'CCCCCCCCCCCCCCCCCCCCCC',
+  'DDDDDDDDDDDDDDDDDDDDDD',
+  'EEEEEEEEEEEEEEEEEEEEEE',
+  'FFFFFFFFFFFFFFFFFFFFFF',
+  'ZZZZZZZZZZZZZZZZZZZZZZ',
+];
+process.stdout.write(JSON.stringify({{
+  accepted: accepted.map(isBigscapeDatabaseArtifact),
+  rejected: rejected.map(isBigscapeDatabaseArtifact),
+}}));
+"""
+        result = subprocess.run(
+            ["node", "-e", node_script],
+            cwd=str(REPO_ROOT),
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        verdicts = json.loads(result.stdout)
+        self.assertEqual(verdicts["accepted"], [True, True])
+        self.assertEqual(verdicts["rejected"], [False] * 5)
+        self.assertIn("descriptor.role === 'public-database'", matcher)
+
+    def test_frontend_bigscape_database_validation_checks_size_and_sqlite_magic(self) -> None:
+        js_text = (REPO_ROOT / "web" / "static" / "assets" / "clusterweave.js").read_text(encoding="utf-8")
+        max_line = next(line for line in js_text.splitlines() if line.startswith("const BIGSCAPE_BROWSER_DATABASE_MAX_BYTES"))
+        header_line = next(line for line in js_text.splitlines() if line.startswith("const SQLITE_FORMAT_HEADER"))
+        validator_start = js_text.index("async function validatedBigscapeDatabaseBuffer")
+        validator_end = js_text.index("\n}\n", validator_start) + 3
+        validator = js_text[validator_start:validator_end]
+        node_script = f"""
+{max_line}
+{header_line}
+{validator}
+function responseFor(bytes, declaredSize) {{
+  return {{
+    headers: {{ get: () => String(declaredSize ?? bytes.byteLength) }},
+    arrayBuffer: async () => bytes.buffer,
+  }};
+}}
+(async () => {{
+  const good = new Uint8Array(64);
+  good.set(SQLITE_FORMAT_HEADER);
+  const bad = good.slice();
+  bad[0] = 0;
+  const verdict = {{ good: 0, badMagic: false, oversized: false, empty: false }};
+  verdict.good = (await validatedBigscapeDatabaseBuffer(responseFor(good))).byteLength;
+  try {{ await validatedBigscapeDatabaseBuffer(responseFor(bad)); }} catch (error) {{ verdict.badMagic = true; }}
+  try {{ await validatedBigscapeDatabaseBuffer(responseFor(good, BIGSCAPE_BROWSER_DATABASE_MAX_BYTES + 1)); }} catch (error) {{ verdict.oversized = true; }}
+  try {{ await validatedBigscapeDatabaseBuffer(responseFor(new Uint8Array(0))); }} catch (error) {{ verdict.empty = true; }}
+  process.stdout.write(JSON.stringify(verdict));
+}})().catch(error => {{ console.error(error); process.exit(1); }});
+"""
+        result = subprocess.run(
+            ["node", "-e", node_script],
+            cwd=str(REPO_ROOT),
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.assertEqual(
+            json.loads(result.stdout),
+            {"good": 64, "badMagic": True, "oversized": True, "empty": True},
+        )
+
+    def test_frontend_bigscape_viewer_path_is_exact_and_distinct_from_download(self) -> None:
+        js_text = (REPO_ROOT / "web" / "static" / "assets" / "clusterweave.js").read_text(
+            encoding="utf-8"
+        )
+        matcher_start = js_text.index("function isBigscapeViewerDatabaseArtifact")
+        matcher_end = js_text.index("\n}\n", matcher_start) + 3
+        matcher = js_text[matcher_start:matcher_end]
+        full_start = js_text.index("function isBigscapeDatabaseArtifact")
+        full_end = js_text.index("\n}\n", full_start) + 3
+        full_matcher = js_text[full_start:full_end]
+        node_script = f"""
+function normalizedResultPath(path) {{
+  return String(path || '').replaceAll(String.fromCharCode(92), '/');
+}}
+const BIGSCAPE_VIEWER_DATABASE_NAME = 'clusterweave_viewer.sqlite';
+let activeJobMeta = {{ bigscape_viewer_available: true }};
+const descriptors = new Map([
+  ['AAAAAAAAAAAAAAAAAAAAAA', {{ category: 'bigscape', role: 'viewer-database', filename: 'clusterweave_viewer.sqlite' }}],
+  ['BBBBBBBBBBBBBBBBBBBBBB', {{ category: 'bigscape', role: 'public-database', filename: 'clusterweave_public.sqlite' }}],
+  ['CCCCCCCCCCCCCCCCCCCCCC', {{ category: 'bigscape', role: 'raw-database', filename: 'data_sqlite.db' }}],
+  ['DDDDDDDDDDDDDDDDDDDDDD', {{ category: 'other', role: 'viewer-database', filename: 'clusterweave_viewer.sqlite' }}],
+]);
+function resultArtifactDescriptor(value) {{
+  return descriptors.get(String(value || '')) || null;
+}}
+{full_matcher}
+{matcher}
+const viewer = 'AAAAAAAAAAAAAAAAAAAAAA';
+const publicDownload = 'BBBBBBBBBBBBBBBBBBBBBB';
+const rawDatabase = 'CCCCCCCCCCCCCCCCCCCCCC';
+const wrongCategory = 'DDDDDDDDDDDDDDDDDDDDDD';
+const shapeViewerAvailable = isBigscapeViewerDatabaseArtifact(BIGSCAPE_VIEWER_DATABASE_NAME);
+activeJobMeta = {{ bigscape_viewer_available: false }};
+process.stdout.write(JSON.stringify({{
+  viewerAccepted: isBigscapeViewerDatabaseArtifact(viewer),
+  publicRejectedAsViewer: !isBigscapeViewerDatabaseArtifact(publicDownload),
+  rawRejectedAsViewer: !isBigscapeViewerDatabaseArtifact(rawDatabase),
+  wrongCategoryRejected: !isBigscapeViewerDatabaseArtifact(wrongCategory),
+  viewerIsDownload: isBigscapeDatabaseArtifact(viewer),
+  publicIsDownload: isBigscapeDatabaseArtifact(publicDownload),
+  rawIsDownload: isBigscapeDatabaseArtifact(rawDatabase),
+  shapeViewerAvailable,
+  shapeViewerUnavailable: !isBigscapeViewerDatabaseArtifact(BIGSCAPE_VIEWER_DATABASE_NAME),
+}}));
+"""
+        result = subprocess.run(
+            ["node", "-e", node_script],
+            cwd=str(REPO_ROOT),
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.assertEqual(
+            json.loads(result.stdout),
+            {
+                "viewerAccepted": True,
+                "publicRejectedAsViewer": True,
+                "rawRejectedAsViewer": True,
+                "wrongCategoryRejected": True,
+                "viewerIsDownload": False,
+                "publicIsDownload": True,
+                "rawIsDownload": False,
+                "shapeViewerAvailable": True,
+                "shapeViewerUnavailable": True,
+            },
+        )
+        self.assertIn("descriptor.role === 'viewer-database'", matcher)
+
+    def test_frontend_bigscape_database_pairing_stays_with_html_result_scope(self) -> None:
+        js_text = (REPO_ROOT / "web" / "static" / "assets" / "clusterweave.js").read_text(encoding="utf-8")
+        helpers_start = js_text.index("function chooseBigscapeDatabase")
+        helpers_end = js_text.index("function summarySortKey", helpers_start)
+        helpers = js_text[helpers_start:helpers_end]
+        matcher_start = js_text.index("function isBigscapeDatabaseArtifact")
+        matcher_end = js_text.index("\n}\n", matcher_start) + 3
+        matcher = js_text[matcher_start:matcher_end]
+        node_script = f"""
+function normalizedResultPath(path) {{
+  return String(path || '').replaceAll(String.fromCharCode(92), '/');
+}}
+const descriptors = new Map([
+  ['AAAAAAAAAAAAAAAAAAAAAA', {{ category: 'bigscape', role: 'html', pair_id: 'pair-a' }}],
+  ['BBBBBBBBBBBBBBBBBBBBBB', {{ category: 'bigscape', role: 'html', pair_id: 'pair-b' }}],
+  ['CCCCCCCCCCCCCCCCCCCCCC', {{ category: 'bigscape', role: 'html' }}],
+  ['DDDDDDDDDDDDDDDDDDDDDD', {{ category: 'bigscape', role: 'public-database', pair_id: 'pair-a' }}],
+  ['EEEEEEEEEEEEEEEEEEEEEE', {{ category: 'bigscape', role: 'public-database', pair_id: 'pair-b' }}],
+  ['FFFFFFFFFFFFFFFFFFFFFF', {{ category: 'bigscape', role: 'public-database', pair_id: 'pair-x' }}],
+  ['GGGGGGGGGGGGGGGGGGGGGG', {{ category: 'bigscape', role: 'viewer-database', pair_id: 'pair-a' }}],
+  ['HHHHHHHHHHHHHHHHHHHHHH', {{ category: 'bigscape', role: 'raw-database', pair_id: 'pair-a' }}],
+]);
+function resultArtifactDescriptor(value) {{
+  return descriptors.get(String(value || '')) || null;
+}}
+{matcher}
+{helpers}
+const html = 'AAAAAAAAAAAAAAAAAAAAAA';
+const canonicalHtml = 'BBBBBBBBBBBBBBBBBBBBBB';
+const unauditedHtml = 'CCCCCCCCCCCCCCCCCCCCCC';
+const paired = 'DDDDDDDDDDDDDDDDDDDDDD';
+const canonical = 'EEEEEEEEEEEEEEEEEEEEEE';
+const crossPair = 'FFFFFFFFFFFFFFFFFFFFFF';
+const viewer = 'GGGGGGGGGGGGGGGGGGGGGG';
+const raw = 'HHHHHHHHHHHHHHHHHHHHHH';
+const publicCandidates = [crossPair, viewer, raw, canonical, paired]
+  .filter(isBigscapeDatabaseArtifact);
+process.stdout.write(JSON.stringify({{
+  sameScope: chooseBigscapeDatabase(html, publicCandidates),
+  canonical: chooseBigscapeDatabase(canonicalHtml, [paired, canonical]),
+  unaudited: chooseBigscapeDatabase(unauditedHtml, [paired, canonical]),
+  crossPair: chooseBigscapeDatabase(html, [crossPair]),
+  viewerRejected: chooseBigscapeDatabase(html, [viewer].filter(isBigscapeDatabaseArtifact)),
+  rawRejected: chooseBigscapeDatabase(html, [raw].filter(isBigscapeDatabaseArtifact)),
+}}));
+"""
+        result = subprocess.run(
+            ["node", "-e", node_script],
+            cwd=str(REPO_ROOT),
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.assertEqual(
+            json.loads(result.stdout),
+            {
+                "sameScope": "DDDDDDDDDDDDDDDDDDDDDD",
+                "canonical": "EEEEEEEEEEEEEEEEEEEEEE",
+                "unaudited": "",
+                "crossPair": "",
+                "viewerRejected": "",
+                "rawRejected": "",
+            },
+        )
+        self.assertIn("htmlDescriptor?.pair_id", helpers)
+        self.assertIn("descriptor.role === 'public-database'", matcher)
+
+    def test_frontend_bigscape_preview_uses_parent_transfer_and_strict_sandbox(self) -> None:
+        js_text = (REPO_ROOT / "web" / "static" / "assets" / "clusterweave.js").read_text(encoding="utf-8")
+        rewrite_block = js_text.split("async function rewriteHtmlResultAssets", 1)[1].split(
+            "async function buildHtmlResultObjectUrl", 1
+        )[0]
+        sandbox_block = js_text.split("function renderSandboxedBigscapePreview", 1)[1].split(
+            "function renderSandboxedToolResultPreview", 1
+        )[0]
+        contract_block = js_text.split("function injectBigscapeDatabaseContract", 1)[1].split(
+            "async function openBigscapeResult", 1
+        )[0]
+        open_block = js_text.split("async function openBigscapeResult", 1)[1].split(
+            "function renderBigscapeReader", 1
+        )[0]
+        viewer_fetch_block = js_text.split("function bigscapeViewerFetch", 1)[1].split(
+            "async function handleResultLinkClick", 1
+        )[0]
+
+        self.assertIn("options.allowBigscapeScripts === true && isBigscapeHtmlArtifact(htmlPath)", rewrite_block)
+        self.assertIn("inlineBigscapeResultScripts(doc, jobId, htmlPath, assetOptions)", rewrite_block)
+        self.assertNotIn("...(allowBigscapeScripts ? [['script[src]', 'src']] : [])", rewrite_block)
+        self.assertIn("? BIGSCAPE_RESULT_PREVIEW_CSP", rewrite_block)
+        self.assertIn("const BIGSCAPE_PREVIEW_SANDBOX = 'allow-scripts';", js_text)
+        self.assertIn(
+            "const BIGSCAPE_RESULT_PREVIEW_CSP = \"default-src 'none'; "
+            "script-src 'unsafe-inline'; img-src data: blob:; "
+            "style-src 'unsafe-inline' data: blob:; font-src data: blob:; "
+            "media-src data: blob:; connect-src 'none'; object-src 'none'; "
+            "frame-src 'none'; worker-src 'none'; form-action 'none'; base-uri 'none'\";",
+            js_text,
+        )
+        self.assertNotIn("'unsafe-eval'", js_text)
+        self.assertNotIn("'wasm-unsafe-eval'", js_text)
+        self.assertIn("frame.setAttribute('sandbox', BIGSCAPE_PREVIEW_SANDBOX);", sandbox_block)
+        self.assertIn("event.source !== frame.contentWindow", sandbox_block)
+        self.assertIn("payload.type !== 'clusterweave:bigscape-database-ready'", sandbox_block)
+        self.assertIn("window.CLUSTERWEAVE_BIGSCAPE_INSTALL_TRANSFER = function", sandbox_block)
+        self.assertIn("window.addEventListener('message', transferDatabase);", sandbox_block)
+        self.assertIn("window.addEventListener('pagehide', cleanupTransfer", sandbox_block)
+        self.assertIn("window.addEventListener('beforeunload', cleanupTransfer", sandbox_block)
+        self.assertIn("if (transferTimeout) window.clearTimeout(transferTimeout);", sandbox_block)
+        self.assertIn("transferTimeout = window.setTimeout(cleanupTransfer, 120000);", sandbox_block)
+        self.assertIn("const installTransfer = targetWindow.CLUSTERWEAVE_BIGSCAPE_INSTALL_TRANSFER;", sandbox_block)
+        self.assertIn("installTransfer(databaseBuffer, channel, frame.id);", sandbox_block)
+        self.assertNotIn("targetWindow.addEventListener", sandbox_block)
+        self.assertIn("databaseBuffer = null;", sandbox_block)
+        self.assertIn(
+            "Object.prototype.toString.call(buffer) === '[object ArrayBuffer]'",
+            sandbox_block,
+        )
+        self.assertIn("Number.isFinite(buffer.byteLength)", sandbox_block)
+        self.assertNotIn("buffer instanceof ArrayBuffer", sandbox_block)
+        self.assertIn("frame.contentWindow.postMessage", sandbox_block)
+        self.assertNotIn("BIGSCAPE_DATABASE_TRANSFER_CHUNK_BYTES", js_text)
+        self.assertNotIn("clusterweave:bigscape-database-start", js_text)
+        self.assertNotIn("clusterweave:bigscape-database-chunk", js_text)
+        self.assertNotIn("clusterweave:bigscape-database-complete", js_text)
+        self.assertIn("type: 'clusterweave:bigscape-database'", sandbox_block)
+        self.assertIn("type: 'clusterweave:bigscape-database-error'", sandbox_block)
+        self.assertIn("}, '*', [buffer]);", sandbox_block)
+        self.assertIn("frame.srcdoc = htmlText;", sandbox_block)
+        self.assertIn("connect-src 'none'", sandbox_block)
+        for permission in ["allow-same-origin", "allow-popups", "allow-forms", "allow-top-navigation", "allow-downloads"]:
+            self.assertNotIn(permission, sandbox_block)
+        self.assertIn("function receiveBuffer()", contract_block)
+        self.assertIn("event.source !== window.parent", contract_block)
+        self.assertIn("window.parent.postMessage({ type: 'clusterweave:bigscape-database-ready'", contract_block)
+        self.assertIn("payload.type !== 'clusterweave:bigscape-database'", contract_block)
+        self.assertIn("payload.buffer.byteLength > maxBytes", contract_block)
+        self.assertIn("sqliteHeader.every", contract_block)
+        self.assertIn(
+            "Object.prototype.toString.call(payload.buffer) !== '[object ArrayBuffer]'",
+            contract_block,
+        )
+        self.assertNotIn("payload.buffer instanceof ArrayBuffer", contract_block)
+        self.assertIn("readyInterval = window.setInterval(announceReady, 250);", contract_block)
+        self.assertIn("if (readyInterval) window.clearInterval(readyInterval);", contract_block)
+        self.assertIn("}, 120000);", contract_block)
+        self.assertNotIn("fetch(", contract_block)
+        self.assertIn("bigscapeViewerFetch(jobId)", open_block)
+        self.assertNotIn("resultFetch(jobId, databasePath)", open_block)
+        self.assertIn("isBigscapeViewerDatabaseArtifact(databasePath)", open_block)
+        self.assertIn("validatedBigscapeDatabaseBuffer(dbResp)", open_block)
+        self.assertIn("allowBigscapeScripts: true", open_block)
+        self.assertIn("renderSandboxedBigscapePreview", open_block)
+        self.assertNotIn("Authorization", contract_block + open_block + sandbox_block)
+        self.assertNotIn("CLUSTERWEAVE_BIGSCAPE_DATABASE_AUTH", js_text)
+        self.assertNotIn("dbAuth", contract_block + open_block)
+        self.assertNotIn("dbUrl", contract_block + open_block)
+        self.assertIn(
+            "`api/results/${encodeURIComponent(runId)}/bigscape-viewer-database`",
+            viewer_fetch_block,
+        )
+        self.assertNotIn("/artifacts/", viewer_fetch_block)
+        self.assertNotIn("public-database", viewer_fetch_block)
+        self.assertNotIn("raw-database", viewer_fetch_block)
+        self.assertEqual(open_block.count("bigscapeViewerFetch(jobId)"), 1)
+        self.assertEqual(open_block.count("resultFetch(jobId, htmlPath)"), 1)
+        self.assertNotIn("resultFetch(jobId, databasePath)", open_block)
+
+    def test_frontend_bigscape_parent_transfer_accepts_cross_realm_buffer_and_cleans_up(self) -> None:
+        js_text = (REPO_ROOT / "web" / "static" / "assets" / "clusterweave.js").read_text(
+            encoding="utf-8"
+        )
+        start = js_text.index("function renderSandboxedBigscapePreview")
+        end = js_text.index("\nfunction renderSandboxedToolResultPreview", start)
+        render_source = js_text[start:end]
+        node_script = """
+const vm = require('node:vm');
+function fileNameFromPath() { return 'index.html'; }
+function escapeHtml(value) { return String(value); }
+const BIGSCAPE_PREVIEW_SANDBOX = 'allow-scripts';
+const renderSandboxedBigscapePreview = eval('(' + %s + ')');
+
+function harness(databaseBuffer) {
+  const listeners = new Map();
+  const timers = [];
+  const posts = [];
+  let nextTimer = 1;
+  let popupContext = null;
+  let registeredMessageHandler = null;
+  const frameWindow = {
+    postMessage(payload, target, transfer = []) {
+      posts.push({ payload, target, transfer });
+    },
+  };
+  const frame = {
+    contentWindow: frameWindow,
+    setAttribute() {},
+    id: '',
+    srcdoc: '',
+  };
+  const document = {
+    open() {},
+    write(html) {
+      const match = String(html).match(/<script>([\\s\\S]*?)<\\/script>/i);
+      if (!match) throw new Error('popup relay script missing');
+      vm.runInContext(match[1], popupContext);
+    },
+    close() {},
+    createElement(name) {
+      if (name !== 'iframe') throw new Error('unexpected element');
+      return frame;
+    },
+    getElementById(id) {
+      return frame.id === id ? frame : null;
+    },
+    body: { appendChild() {} },
+  };
+  const popupGlobal = {
+    document,
+    addEventListener(type, handler) {
+      if (!listeners.has(type)) listeners.set(type, new Set());
+      listeners.get(type).add(handler);
+      if (type === 'message') registeredMessageHandler = handler;
+    },
+    removeEventListener(type, handler) {
+      listeners.get(type)?.delete(handler);
+    },
+    setTimeout(handler, ms) {
+      const timer = { id: nextTimer++, handler, ms, cleared: false };
+      timers.push(timer);
+      return timer.id;
+    },
+    clearTimeout(id) {
+      const timer = timers.find(candidate => candidate.id === id);
+      if (timer) timer.cleared = true;
+    },
+  };
+  popupGlobal.window = popupGlobal;
+  popupContext = vm.createContext(popupGlobal);
+  function emit(type, event = {}) {
+    for (const handler of Array.from(listeners.get(type) || [])) handler(event);
+  }
+  renderSandboxedBigscapePreview(
+    popupContext,
+    'data/results/demo/big_scape/output_files/index.html',
+    '<!doctype html><html><body></body></html>',
+    databaseBuffer,
+    'expected-channel',
+  );
+  popupContext.__registeredMessageHandler = registeredMessageHandler;
+  const handlerInPopupRealm = vm.runInContext(
+    '__registeredMessageHandler instanceof Function',
+    popupContext,
+  );
+  delete popupContext.__registeredMessageHandler;
+  return {
+    listeners,
+    timers,
+    posts,
+    frameWindow,
+    emit,
+    registeredMessageHandler,
+    handlerInPopupRealm,
+    handlerInOpenerRealm: registeredMessageHandler instanceof Function,
+    popupContext,
+  };
+}
+
+const foreignBuffer = vm.runInNewContext('new ArrayBuffer(64)');
+new Uint8Array(foreignBuffer)[0] = 83;
+const success = harness(foreignBuffer);
+success.emit('message', {
+  source: success.frameWindow,
+  data: { type: 'clusterweave:bigscape-database-ready', channel: 'wrong-channel' },
+});
+const beforeMatch = success.posts.length;
+success.emit('message', {
+  source: success.frameWindow,
+  data: { type: 'clusterweave:bigscape-database-ready', channel: 'expected-channel' },
+});
+
+const expiredBuffer = vm.runInNewContext('new ArrayBuffer(32)');
+const expired = harness(expiredBuffer);
+const expiredReady = expired.registeredMessageHandler;
+expired.timers[0].handler();
+expiredReady({
+  source: expired.frameWindow,
+  data: { type: 'clusterweave:bigscape-database-ready', channel: 'expected-channel' },
+});
+
+const unloading = harness(vm.runInNewContext('new ArrayBuffer(32)'));
+const unloadingReady = unloading.registeredMessageHandler;
+unloading.emit('beforeunload');
+unloadingReady({
+  source: unloading.frameWindow,
+  data: { type: 'clusterweave:bigscape-database-ready', channel: 'expected-channel' },
+});
+
+const delivered = success.posts[0] || {};
+process.stdout.write(JSON.stringify({
+  crossRealmInstanceof: foreignBuffer instanceof ArrayBuffer,
+  crossRealmTag: Object.prototype.toString.call(foreignBuffer),
+  handlerInPopupRealm: success.handlerInPopupRealm,
+  handlerInOpenerRealm: success.handlerInOpenerRealm,
+  beforeMatch,
+  deliveredType: delivered.payload?.type || '',
+  deliveredSameBuffer: delivered.payload?.buffer === foreignBuffer,
+  transferredSameBuffer: delivered.transfer?.[0] === foreignBuffer,
+  successTimeoutMs: success.timers[0]?.ms || 0,
+  successTimeoutCleared: success.timers[0]?.cleared || false,
+  successListenersRemaining: Array.from(success.listeners.values()).reduce((n, set) => n + set.size, 0),
+  successRelayCleared: success.popupContext.CLUSTERWEAVE_BIGSCAPE_INSTALL_TRANSFER === null,
+  expiredTimeoutMs: expired.timers[0]?.ms || 0,
+  expiredPosts: expired.posts.length,
+  expiredListenersRemaining: Array.from(expired.listeners.values()).reduce((n, set) => n + set.size, 0),
+  unloadingPosts: unloading.posts.length,
+  unloadingTimeoutCleared: unloading.timers[0]?.cleared || false,
+  unloadingListenersRemaining: Array.from(unloading.listeners.values()).reduce((n, set) => n + set.size, 0),
+}));
+""" % json.dumps(render_source)
+        result = subprocess.run(
+            ["node", "-e", node_script],
+            cwd=str(REPO_ROOT),
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.assertEqual(
+            json.loads(result.stdout),
+            {
+                "crossRealmInstanceof": False,
+                "crossRealmTag": "[object ArrayBuffer]",
+                "handlerInPopupRealm": True,
+                "handlerInOpenerRealm": False,
+                "beforeMatch": 0,
+                "deliveredType": "clusterweave:bigscape-database",
+                "deliveredSameBuffer": True,
+                "transferredSameBuffer": True,
+                "successTimeoutMs": 120000,
+                "successTimeoutCleared": True,
+                "successListenersRemaining": 0,
+                "successRelayCleared": True,
+                "expiredTimeoutMs": 120000,
+                "expiredPosts": 0,
+                "expiredListenersRemaining": 0,
+                "unloadingPosts": 0,
+                "unloadingTimeoutCleared": True,
+                "unloadingListenersRemaining": 0,
+            },
+        )
+
+    def test_frontend_bigscape_child_readiness_retries_and_transfer_lifecycle_is_bounded(self) -> None:
+        js_text = (REPO_ROOT / "web" / "static" / "assets" / "clusterweave.js").read_text(
+            encoding="utf-8"
+        )
+        contract_start = js_text.index("function injectBigscapeDatabaseContract")
+        receive_start = js_text.index("  function receiveBuffer()", contract_start)
+        receive_end = js_text.index("\n  function emitReady()", receive_start)
+        receive_source = js_text[receive_start:receive_end].replace(
+            "${BIGSCAPE_BROWSER_DATABASE_MAX_BYTES}", str(64 * 1024 * 1024)
+        )
+        node_script = """
+const vm = require('node:vm');
+const makeReceiver = eval(`(function(window, channel) {
+  let bufferPromise = null;
+  %s
+  return receiveBuffer;
+})`);
+
+function harness() {
+  const listeners = new Map();
+  const timers = [];
+  const intervals = [];
+  const posts = [];
+  let nextId = 1;
+  const parent = {};
+  const window = {
+    parent,
+    addEventListener(type, handler) {
+      if (!listeners.has(type)) listeners.set(type, new Set());
+      listeners.get(type).add(handler);
+    },
+    removeEventListener(type, handler) {
+      listeners.get(type)?.delete(handler);
+    },
+    setTimeout(handler, ms) {
+      const timer = { id: nextId++, handler, ms, cleared: false };
+      timers.push(timer);
+      return timer.id;
+    },
+    clearTimeout(id) {
+      const timer = timers.find(candidate => candidate.id === id);
+      if (timer) timer.cleared = true;
+    },
+    setInterval(handler, ms) {
+      const interval = { id: nextId++, handler, ms, cleared: false };
+      intervals.push(interval);
+      return interval.id;
+    },
+    clearInterval(id) {
+      const interval = intervals.find(candidate => candidate.id === id);
+      if (interval) interval.cleared = true;
+    },
+  };
+  parent.postMessage = payload => posts.push(payload);
+  function emit(type, event) {
+    for (const handler of Array.from(listeners.get(type) || [])) handler(event);
+  }
+  return {
+    window,
+    parent,
+    listeners,
+    timers,
+    intervals,
+    posts,
+    emit,
+    receiveBuffer: makeReceiver(window, 'expected-channel'),
+  };
+}
+
+(async () => {
+  const success = harness();
+  const promise = success.receiveBuffer();
+  const repeatedPromise = success.receiveBuffer();
+  const initialAnnouncements = success.posts.length;
+  success.intervals[0].handler();
+  success.intervals[0].handler();
+  success.emit('message', {
+    source: {},
+    data: { type: 'clusterweave:bigscape-database', channel: 'expected-channel', buffer: new ArrayBuffer(8) },
+  });
+  success.emit('message', {
+    source: success.parent,
+    data: { type: 'clusterweave:bigscape-database', channel: 'wrong-channel', buffer: new ArrayBuffer(8) },
+  });
+
+  const foreignBuffer = vm.runInNewContext('new ArrayBuffer(64)');
+  new Uint8Array(foreignBuffer).set([83, 81, 76, 105, 116, 101, 32, 102, 111, 114, 109, 97, 116, 32, 51, 0]);
+  success.emit('message', {
+    source: success.parent,
+    data: { type: 'clusterweave:bigscape-database', channel: 'expected-channel', buffer: foreignBuffer },
+  });
+  const resolved = await promise;
+
+  const expired = harness();
+  const expiredPromise = expired.receiveBuffer();
+  const lateHandler = Array.from(expired.listeners.get('message'))[0];
+  expired.timers[0].handler();
+  const timeoutMessage = await expiredPromise.then(() => '', error => error.message);
+  lateHandler({
+    source: expired.parent,
+    data: { type: 'clusterweave:bigscape-database', channel: 'expected-channel', buffer: foreignBuffer },
+  });
+
+  process.stdout.write(JSON.stringify({
+    samePromise: promise === repeatedPromise,
+    crossRealmInstanceof: foreignBuffer instanceof ArrayBuffer,
+    crossRealmTag: Object.prototype.toString.call(foreignBuffer),
+    initialAnnouncements,
+    retriedAnnouncements: success.posts.length,
+    announcementsValid: success.posts.every(payload =>
+      payload.type === 'clusterweave:bigscape-database-ready'
+      && payload.channel === 'expected-channel'),
+    resolvedSameBuffer: resolved === foreignBuffer,
+    retryIntervalMs: success.intervals[0]?.ms || 0,
+    transferTimeoutMs: success.timers[0]?.ms || 0,
+    intervalCleared: success.intervals[0]?.cleared || false,
+    timeoutCleared: success.timers[0]?.cleared || false,
+    successListenersRemaining: Array.from(success.listeners.values()).reduce((n, set) => n + set.size, 0),
+    timeoutMessage,
+    expiredIntervalCleared: expired.intervals[0]?.cleared || false,
+    expiredTimeoutCleared: expired.timers[0]?.cleared || false,
+    expiredListenersRemaining: Array.from(expired.listeners.values()).reduce((n, set) => n + set.size, 0),
+  }));
+})().catch(error => {
+  console.error(error);
+  process.exit(1);
+});
+""" % receive_source
+        result = subprocess.run(
+            ["node", "-e", node_script],
+            cwd=str(REPO_ROOT),
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.assertEqual(
+            json.loads(result.stdout),
+            {
+                "samePromise": True,
+                "crossRealmInstanceof": False,
+                "crossRealmTag": "[object ArrayBuffer]",
+                "initialAnnouncements": 1,
+                "retriedAnnouncements": 3,
+                "announcementsValid": True,
+                "resolvedSameBuffer": True,
+                "retryIntervalMs": 250,
+                "transferTimeoutMs": 120000,
+                "intervalCleared": True,
+                "timeoutCleared": True,
+                "successListenersRemaining": 0,
+                "timeoutMessage": "Compact BiG-SCAPE viewer database transfer timed out.",
+                "expiredIntervalCleared": True,
+                "expiredTimeoutCleared": True,
+                "expiredListenersRemaining": 0,
+            },
+        )
+
+    def test_frontend_bigscape_opaque_sandbox_assets_are_not_parent_blob_urls(self) -> None:
+        js_text = (REPO_ROOT / "web" / "static" / "assets" / "clusterweave.js").read_text(
+            encoding="utf-8"
+        )
+        helpers = js_text.split("function resultUrlShouldStayExternal", 1)[1].split(
+            "const STATIC_RESULT_PREVIEW_CSP", 1
+        )[0]
+        asset_loader = js_text.split("function resultBlobDataUrl", 1)[1].split(
+            "async function rewriteHtmlResultAssets", 1
+        )[0]
+        csp_line = next(
+            line
+            for line in js_text.splitlines()
+            if line.startswith("const BIGSCAPE_RESULT_PREVIEW_CSP")
+        )
+        node_script = f"""
+function normalizedResultPath(path) {{
+  return String(path || '').replaceAll(String.fromCharCode(92), '/');
+}}
+function fileNameFromPath(path) {{
+  const parts = normalizedResultPath(path).split('/');
+  return parts[parts.length - 1] || normalizedResultPath(path);
+}}
+function resultPathExt(path) {{
+  const name = fileNameFromPath(path).toLowerCase();
+  return name.includes('.') ? name.split('.').pop() : '';
+}}
+function inlineResultMime(path, fallback = '') {{
+  const mime = {{ js: 'text/javascript;charset=utf-8', css: 'text/css;charset=utf-8', png: 'image/png' }};
+  return mime[resultPathExt(path)] || fallback || 'application/octet-stream';
+}}
+const resultHelperObjectUrls = [];
+const BIGSCAPE_KINETIC_GLOBAL_EVAL_SHIM = '(1,eval)("this")';
+const BIGSCAPE_KINETIC_GLOBAL_EVAL_SHIM_COUNT = 2;
+let parentBlobCalls = 0;
+URL.createObjectURL = function () {{
+  parentBlobCalls += 1;
+  return 'blob:parent-created';
+}};
+globalThis.FileReader = class {{
+  readAsDataURL(blob) {{
+    blob.arrayBuffer().then(buffer => {{
+      this.result = 'data:' + (blob.type || 'application/octet-stream') + ';base64,'
+        + Buffer.from(buffer).toString('base64');
+      if (this.onload) this.onload();
+    }}).catch(error => {{
+      this.error = error;
+      if (this.onerror) this.onerror();
+    }});
+  }}
+}};
+const ownerKey = 'artifact/bigscape/AAAAAAAAAAAAAAAAAAAAAA/index.html';
+const descriptorRows = [
+  [ownerKey, {{
+    id: 'AAAAAAAAAAAAAAAAAAAAAA', filename: 'index.html', category: 'bigscape',
+    bundle_id: 'bigscape-a',
+  }}],
+  ['artifact/bigscape/BBBBBBBBBBBBBBBBBBBBBB/app.js', {{
+    id: 'BBBBBBBBBBBBBBBBBBBBBB', filename: 'app.js', category: 'bigscape',
+    bundle_id: 'bigscape-a',
+  }}],
+  ['artifact/bigscape/CCCCCCCCCCCCCCCCCCCCCC/vendor.js', {{
+    id: 'CCCCCCCCCCCCCCCCCCCCCC', filename: 'vendor.js', category: 'bigscape',
+    bundle_id: 'bigscape-a',
+  }}],
+  ['artifact/bigscape/DDDDDDDDDDDDDDDDDDDDDD/kinetic-v5.1.0.min.js', {{
+    id: 'DDDDDDDDDDDDDDDDDDDDDD', filename: 'kinetic-v5.1.0.min.js', category: 'bigscape',
+    bundle_id: 'bigscape-a',
+  }}],
+  ['artifact/bigscape/EEEEEEEEEEEEEEEEEEEEEE/kinetic-v5.1.0-copy.min.js', {{
+    id: 'EEEEEEEEEEEEEEEEEEEEEE', filename: 'kinetic-v5.1.0-copy.min.js', category: 'bigscape',
+    bundle_id: 'bigscape-a',
+  }}],
+  ['artifact/bigscape/FFFFFFFFFFFFFFFFFFFFFF/app.css', {{
+    id: 'FFFFFFFFFFFFFFFFFFFFFF', filename: 'app.css', category: 'bigscape',
+    bundle_id: 'bigscape-a',
+  }}],
+  ['artifact/bigscape/GGGGGGGGGGGGGGGGGGGGGG/pixel.png', {{
+    id: 'GGGGGGGGGGGGGGGGGGGGGG', filename: 'pixel.png', category: 'bigscape',
+    bundle_id: 'bigscape-a',
+  }}],
+  ['artifact/bigscape/HHHHHHHHHHHHHHHHHHHHHH/declared-huge.png', {{
+    id: 'HHHHHHHHHHHHHHHHHHHHHH', filename: 'declared-huge.png', category: 'bigscape',
+    bundle_id: 'bigscape-a',
+  }}],
+  ['artifact/bigscape/IIIIIIIIIIIIIIIIIIIIII/actual-huge.png', {{
+    id: 'IIIIIIIIIIIIIIIIIIIIII', filename: 'actual-huge.png', category: 'bigscape',
+    bundle_id: 'bigscape-a',
+  }}],
+];
+const artifactDescriptors = new Map(descriptorRows);
+const artifactKeyById = new Map(
+  descriptorRows.map(([key, descriptor]) => [descriptor.id, key]),
+);
+function resultArtifactDescriptor(value) {{
+  const candidate = String(value || '');
+  if (artifactDescriptors.has(candidate)) return artifactDescriptors.get(candidate);
+  for (const descriptor of artifactDescriptors.values()) {{
+    if (descriptor.id === candidate) return descriptor;
+  }}
+  return null;
+}}
+function resultArtifactId(value) {{
+  return String(resultArtifactDescriptor(value)?.id || '');
+}}
+function resultArtifactName(value) {{
+  return resultArtifactDescriptor(value)?.filename || fileNameFromPath(value);
+}}
+const payloads = {{
+  'BBBBBBBBBBBBBBBBBBBBBB': {{
+    type: 'text/javascript;charset=utf-8',
+    body: 'window.ORDER.push("app");</script><script>window.INJECTED = true;',
+  }},
+  'CCCCCCCCCCCCCCCCCCCCCC': {{
+    type: 'text/javascript;charset=utf-8',
+    body: 'window.ORDER.push("vendor");',
+  }},
+  'DDDDDDDDDDDDDDDDDDDDDD': {{
+    type: 'text/javascript;charset=utf-8',
+    body: '(1,eval)("this");window.KINETIC = true;(1,eval)("this");',
+  }},
+  'EEEEEEEEEEEEEEEEEEEEEE': {{
+    type: 'text/javascript;charset=utf-8',
+    body: '(1,eval)("this");window.UNRELATED = true;(1,eval)("this");',
+  }},
+  'FFFFFFFFFFFFFFFFFFFFFF': {{
+    type: 'text/css;charset=utf-8',
+    body: 'body{{background-image:url(../img/pixel.png)}}',
+  }},
+  'GGGGGGGGGGGGGGGGGGGGGG': {{
+    type: 'image/png',
+    body: String.fromCharCode(137, 80, 78, 71),
+  }},
+  'HHHHHHHHHHHHHHHHHHHHHH': {{
+    type: 'image/png', body: 'x', declaredSize: 16 * 1024 * 1024 + 1,
+  }},
+  'IIIIIIIIIIIIIIIIIIIIII': {{
+    type: 'image/png', body: 'x', declaredSize: 1, actualSize: 16 * 1024 * 1024 + 1,
+  }},
+}};
+const resolvedArtifactIds = new Map([
+  ['AAAAAAAAAAAAAAAAAAAAAA:html_content/js/app.js', 'BBBBBBBBBBBBBBBBBBBBBB'],
+  ['AAAAAAAAAAAAAAAAAAAAAA:html_content/js/vendor.js', 'CCCCCCCCCCCCCCCCCCCCCC'],
+  ['AAAAAAAAAAAAAAAAAAAAAA:html_content/js/kinetic-v5.1.0.min.js', 'DDDDDDDDDDDDDDDDDDDDDD'],
+  ['AAAAAAAAAAAAAAAAAAAAAA:html_content/js/kinetic-v5.1.0-copy.min.js', 'EEEEEEEEEEEEEEEEEEEEEE'],
+  ['AAAAAAAAAAAAAAAAAAAAAA:html_content/css/app.css', 'FFFFFFFFFFFFFFFFFFFFFF'],
+  ['AAAAAAAAAAAAAAAAAAAAAA:html_content/img/pixel.png', 'GGGGGGGGGGGGGGGGGGGGGG'],
+  ['AAAAAAAAAAAAAAAAAAAAAA:html_content/img/declared-huge.png', 'HHHHHHHHHHHHHHHHHHHHHH'],
+  ['AAAAAAAAAAAAAAAAAAAAAA:html_content/img/actual-huge.png', 'IIIIIIIIIIIIIIIIIIIIII'],
+  ['FFFFFFFFFFFFFFFFFFFFFF:../img/pixel.png', 'GGGGGGGGGGGGGGGGGGGGGG'],
+]);
+const fetchedPaths = [];
+const bodyReadPaths = [];
+async function resultFetch(jobId, path) {{
+  void jobId;
+  fetchedPaths.push(path);
+  const item = payloads[resultArtifactId(path)];
+  if (!item) return {{ ok: false, headers: {{ get: () => '' }} }};
+  const bytes = item.actualSize
+    ? Buffer.alloc(item.actualSize)
+    : Buffer.from(item.body, 'binary');
+  return {{
+    ok: true,
+    headers: {{ get: name => {{
+      const key = String(name).toLowerCase();
+      if (key === 'content-type') return item.type;
+      if (key === 'content-length') return String(item.declaredSize ?? bytes.byteLength);
+      return '';
+    }} }},
+    text: async () => {{ bodyReadPaths.push(path); return item.body; }},
+    blob: async () => {{ bodyReadPaths.push(path); return new Blob([bytes], {{ type: item.type }}); }},
+    arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+  }};
+}}
+function resultUrlShouldStayExternal{helpers}
+function resultBlobDataUrl{asset_loader}
+async function resolveResultArtifact(jobId, ownerArtifact, reference) {{
+  void jobId;
+  const ownerId = resultArtifactId(ownerArtifact);
+  if (!ownerId) return null;
+  const referencePath = String(reference || '').split(/[?#]/, 1)[0];
+  const childId = resolvedArtifactIds.get(`${{ownerId}}:${{referencePath}}`) || '';
+  const key = artifactKeyById.get(childId) || '';
+  if (!key) return null;
+  return {{ key, descriptor: resultArtifactDescriptor(key), fragment: '' }};
+}}
+(async () => {{
+  const owner = ownerKey;
+  const cssOwner = 'artifact/bigscape/FFFFFFFFFFFFFFFFFFFFFF/app.css';
+  const regularUrl = await resultAssetObjectUrl('job', owner, 'html_content/js/app.js', new Map());
+  const regularBlobCalls = parentBlobCalls;
+  const portable = {{
+    portableDataUrls: true,
+    bigscapeMode: true,
+    bigscapeMode: true,
+    bigscapeHtmlPath: owner,
+    bigscapeAssetBudget: {{ declaredBytes: 0, actualBytes: 0 }},
+  }};
+  const cssUrl = await resultAssetObjectUrl(
+    'job', owner, 'html_content/css/app.css', new Map(), portable,
+  );
+  const imageUrl = await resultAssetObjectUrl(
+    'job', owner, 'html_content/img/pixel.png', new Map(), portable,
+  );
+  const sqliteTraversal = await resultAssetObjectUrl(
+    'job', owner, '../public/clusterweave_public.sqlite', new Map(), portable,
+  );
+  const crossRoot = await resultAssetObjectUrl(
+    'job', owner, '../../bigscape/html_content/img/pixel.png', new Map(), portable,
+  );
+  const unresolvedCss = await rewriteCssResultUrls(
+    'body{{background:url(../../public/clusterweave_public.sqlite)}}',
+    'job',
+    cssOwner,
+    new Map(),
+    portable,
+  );
+  let cssImportRejected = false;
+  try {{
+    await rewriteCssResultUrls('@import "../css/other.css";', 'job', owner, new Map(), portable);
+  }} catch (error) {{ cssImportRejected = /@import/.test(String(error.message)); }}
+  let declaredOversizeRejected = false;
+  try {{
+    await resultAssetObjectUrl(
+      'job', owner, 'html_content/img/declared-huge.png', new Map(), portable,
+    );
+  }} catch (error) {{ declaredOversizeRejected = /16 MiB/.test(String(error.message)); }}
+  const declaredHugeBodyWasRead = bodyReadPaths.some(path => path.endsWith('declared-huge.png'));
+  let actualOversizeRejected = false;
+  try {{
+    await resultAssetObjectUrl(
+      'job', owner, 'html_content/img/actual-huge.png', new Map(), portable,
+    );
+  }} catch (error) {{ actualOversizeRejected = /16 MiB/.test(String(error.message)); }}
+  const declaredBudget = {{ declaredBytes: 0, actualBytes: 0 }};
+  const actualBudget = {{ declaredBytes: 0, actualBytes: 0 }};
+  const exactAssetLimit = 16 * 1024 * 1024;
+  const declaredResponse = {{ headers: {{ get: () => String(exactAssetLimit) }} }};
+  for (let index = 0; index < 4; index += 1) {{
+    assertBigscapeAssetDeclaredSize(declaredResponse, declaredBudget);
+    assertBigscapeAssetActualSize(exactAssetLimit, actualBudget);
+  }}
+  let aggregateDeclaredRejected = false;
+  let aggregateActualRejected = false;
+  try {{ assertBigscapeAssetDeclaredSize({{ headers: {{ get: () => '1' }} }}, declaredBudget); }}
+  catch (error) {{ aggregateDeclaredRejected = /64 MiB/.test(String(error.message)); }}
+  try {{ assertBigscapeAssetActualSize(1, actualBudget); }}
+  catch (error) {{ aggregateActualRejected = /64 MiB/.test(String(error.message)); }}
+  class FakeScript {{
+    constructor(attrs) {{ this.attrs = {{ ...attrs }}; this.textContent = ''; this.removed = false; }}
+    getAttribute(name) {{ return this.attrs[name] || ''; }}
+    hasAttribute(name) {{ return Object.prototype.hasOwnProperty.call(this.attrs, name); }}
+    removeAttribute(name) {{ delete this.attrs[name]; }}
+    remove() {{ this.removed = true; }}
+  }}
+  const first = new FakeScript({{
+    src: 'html_content/js/app.js',
+    integrity: 'sha256-private',
+    crossorigin: 'anonymous',
+    referrerpolicy: 'origin',
+    nonce: 'private-nonce',
+  }});
+  const second = new FakeScript({{ src: 'html_content/js/vendor.js', type: 'text/javascript' }});
+  const kinetic = new FakeScript({{ src: 'html_content/js/kinetic-v5.1.0.min.js' }});
+  const kineticCopy = new FakeScript({{ src: 'html_content/js/kinetic-v5.1.0-copy.min.js' }});
+  const external = new FakeScript({{ src: 'https://example.invalid/remote.js' }});
+  const scripts = [first, second, kinetic, kineticCopy, external];
+  const doc = {{ querySelectorAll: selector => selector === 'script[src]' ? scripts : [] }};
+  await inlineBigscapeResultScripts(doc, 'job', owner, portable);
+  async function rejectedLocalScript(attrs) {{
+    const script = new FakeScript(attrs);
+    const singleDoc = {{ querySelectorAll: () => [script] }};
+    try {{
+      await inlineBigscapeResultScripts(singleDoc, 'job', owner, portable);
+      return false;
+    }} catch (error) {{
+      return script.removed && !!String(error.message || '');
+    }}
+  }}
+  const invalidModesRejected = (await Promise.all([
+    rejectedLocalScript({{ src: 'html_content/js/app.js', async: '' }}),
+    rejectedLocalScript({{ src: 'html_content/js/app.js', defer: '' }}),
+    rejectedLocalScript({{ src: 'html_content/js/app.js', type: 'module' }}),
+  ])).every(Boolean);
+  const traversalScriptRejected = await rejectedLocalScript({{
+    src: '../public/clusterweave_public.sqlite',
+  }});
+  const missingScriptRejected = await rejectedLocalScript({{
+    src: 'html_content/js/missing.js',
+  }});
+  const kineticId = 'DDDDDDDDDDDDDDDDDDDDDD';
+  const originalKinetic = payloads[kineticId].body;
+  payloads[kineticId].body = '(1,eval)("this");window.KINETIC = true;';
+  const kineticDriftRejected = await rejectedLocalScript({{
+    src: 'html_content/js/kinetic-v5.1.0.min.js',
+  }});
+  payloads[kineticId].body = originalKinetic;
+  const inlineText = first.textContent + second.textContent;
+  process.stdout.write(JSON.stringify({{
+    regularPreviewUsesObjectUrl: regularUrl === 'blob:parent-created',
+    cssIsPortable: cssUrl.startsWith('data:text/css'),
+    imageIsPortable: imageUrl.startsWith('data:image/png'),
+    noBigscapeParentBlobUrls: parentBlobCalls === regularBlobCalls,
+    noBlobReferenceCrossesSandbox: ![cssUrl, imageUrl].some(url => url.startsWith('blob:')),
+    localScriptsInlinedInDomOrder: scripts[0] === first && scripts[1] === second
+      && first.textContent.includes('ORDER.push("app")')
+      && second.textContent.includes('ORDER.push("vendor")'),
+    closingScriptEscaped: !/<\\/script/i.test(inlineText)
+      && inlineText.includes('<' + String.fromCharCode(92) + '/script'),
+    dangerousScriptAttrsRemoved: ['src', 'integrity', 'crossorigin', 'referrerpolicy', 'nonce']
+      .every(name => !(name in first.attrs)) && !('src' in second.attrs),
+    externalScriptRemoved: external.removed,
+    sqliteTraversalRejected: sqliteTraversal === '' && crossRoot === ''
+      && !fetchedPaths.some(path => path.includes('clusterweave_public.sqlite')),
+    unresolvedCssStripped: unresolvedCss === 'body{{background:none}}'
+      && !unresolvedCss.includes('..') && !unresolvedCss.includes('sqlite'),
+    descriptorFetchesOnly: fetchedPaths.every(path => path.startsWith('artifact/bigscape/')),
+    cssImportRejected,
+    declaredOversizeRejectedBeforeRead: declaredOversizeRejected && !declaredHugeBodyWasRead,
+    actualOversizeRejected,
+    aggregateBudgetRejected: aggregateDeclaredRejected && aggregateActualRejected,
+    invalidModesRejected,
+    traversalScriptRejected,
+    missingScriptRejected,
+    kineticEvalShimRemoved: !kinetic.textContent.includes('eval')
+      && (kinetic.textContent.match(/globalThis/g) || []).length === 2,
+    unrelatedKineticNamePreserved: kineticCopy.textContent.split('(1,eval)').length - 1 === 2
+      && !kineticCopy.textContent.includes('globalThis'),
+    kineticDriftRejected,
+  }}));
+}})().catch(error => {{ console.error(error); process.exit(1); }});
+"""
+        result = subprocess.run(
+            ["node", "-e", node_script],
+            cwd=str(REPO_ROOT),
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.assertEqual(
+            json.loads(result.stdout),
+            {
+                "regularPreviewUsesObjectUrl": True,
+                "cssIsPortable": True,
+                "imageIsPortable": True,
+                "noBigscapeParentBlobUrls": True,
+                "noBlobReferenceCrossesSandbox": True,
+                "localScriptsInlinedInDomOrder": True,
+                "closingScriptEscaped": True,
+                "dangerousScriptAttrsRemoved": True,
+                "externalScriptRemoved": True,
+                "sqliteTraversalRejected": True,
+                "unresolvedCssStripped": True,
+                "cssImportRejected": True,
+                "descriptorFetchesOnly": True,
+                "declaredOversizeRejectedBeforeRead": True,
+                "actualOversizeRejected": True,
+                "aggregateBudgetRejected": True,
+                "invalidModesRejected": True,
+                "traversalScriptRejected": True,
+                "missingScriptRejected": True,
+                "kineticEvalShimRemoved": True,
+                "unrelatedKineticNamePreserved": True,
+                "kineticDriftRejected": True,
+            },
+        )
+        rewrite_block = js_text.split("async function rewriteHtmlResultAssets", 1)[1].split(
+            "async function buildHtmlResultObjectUrl", 1
+        )[0]
+        self.assertIn("querySelectorAll('[srcset]')", rewrite_block)
+        self.assertIn("querySelectorAll('form[action], [formaction]')", rewrite_block)
+        self.assertIn("if (resultUrlShouldStayExternal(value)) {\n          el.removeAttribute(attr);", rewrite_block)
+        self.assertIn("inlineBigscapeResultScripts(doc, jobId, htmlPath, assetOptions)", rewrite_block)
+        self.assertIn("script-src 'unsafe-inline';", csp_line)
+        self.assertNotIn("'unsafe-eval'", csp_line)
+        self.assertNotIn("'wasm-unsafe-eval'", csp_line)
+        compatibility_block = js_text.split("function rewriteBigscapeScriptForSandbox", 1)[1].split(
+            "async function inlineBigscapeResultScripts", 1
+        )[0]
+        self.assertIn("kinetic-v5\\.1\\.0\\.min\\.js$", compatibility_block)
+        self.assertIn("occurrences !== BIGSCAPE_KINETIC_GLOBAL_EVAL_SHIM_COUNT", compatibility_block)
+        self.assertIn("replaceAll(BIGSCAPE_KINETIC_GLOBAL_EVAL_SHIM, 'globalThis')", compatibility_block)
+        self.assertIn("connect-src 'none'", csp_line)
+        self.assertIn("const BIGSCAPE_PREVIEW_SANDBOX = 'allow-scripts';", js_text)
 
     def test_frontend_job_fetches_prefer_job_read_token_over_stale_admin_token(self) -> None:
         ui_text = frontend_text()
         self.assertIn("function authHeadersFor(kind, jobId = null)", ui_text)
+        self.assertIn("if (kind === 'admin')", ui_text)
+        self.assertIn("activeOpsTab !== 'qa'", ui_text)
+        self.assertIn("`tail=${QA_LOG_PAGE_SIZE}`", ui_text)
+        self.assertIn("logs?since=${encodeURIComponent(logCursor)}", ui_text)
         self.assertIn("if (kind === 'job' && jobId)", ui_text)
         self.assertIn("const token = readTokenForJob(jobId);", ui_text)
         self.assertIn("if (token) {", ui_text)
@@ -965,6 +3036,13 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("def _resolve_target_genome_alias", text)
         self.assertIn("accessions_fungusID_taxonomyID.txt", text)
         self.assertIn('env["TARGET_GENOME"] = target_after', text)
+        self.assertIn('"GENOME_PARALLELISM": str(_cfg_int(settings, "genome_parallelism", 1))', text)
+
+        self.assertIn('"ANTISMASH_RECORD_PARALLELISM": str(antismash_record_parallelism)', text)
+        self.assertIn('if configured_antismash_shard_cpus > 0:', text)
+        self.assertIn('env["ANTISMASH_SHARD_CPUS"] = str(configured_antismash_shard_cpus)', text)
+        self.assertIn('if configured_antismash_legacy_cpus > 0:', text)
+        self.assertIn('env["ANTISMASH_LEGACY_CPUS"] = str(configured_antismash_legacy_cpus)', text)
 
     def test_web_supports_in_place_stage_reruns(self) -> None:
         app_text = (REPO_ROOT / "web" / "app.py").read_text(encoding="utf-8")
@@ -1015,6 +3093,97 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertNotIn("function workflowStageOverviewNodes", text)
         self.assertNotIn("dna-popover-connector-layer", text)
 
+    def test_web_bgc_station_supports_all_accepted_accessible_genome_progress(self) -> None:
+        static_dir = REPO_ROOT / "web" / "static"
+        index_text = (static_dir / "index.html").read_text(encoding="utf-8")
+        css_text = (static_dir / "assets" / "clusterweave.css").read_text(encoding="utf-8")
+        js_text = (static_dir / "assets" / "clusterweave.js").read_text(encoding="utf-8")
+        dna_text = (static_dir / "assets" / "workflow-dna-progress.js").read_text(encoding="utf-8")
+
+        self.assertIn('id="bgc-genome-progress-layer"', index_text)
+        self.assertIn('id="bgc-genome-progress-summary" role="status" aria-live="polite"', index_text)
+        self.assertIn('id="bgc-genome-progress-grid" role="list"', index_text)
+        self.assertNotIn("MAX_GENOME_PROGRESS_ITEMS", js_text)
+        self.assertIn("function normalizeGenomeProgressItems(job)", js_text)
+        self.assertIn("source.forEach((item, index) => {", js_text)
+        self.assertIn("const items = Array.from(reconciled.values());", js_text)
+        self.assertIn("function safeGenomeProgressText", js_text)
+        self.assertIn("function genomeProgressStages", js_text)
+        self.assertIn('class="genome-progress-meter-row"', js_text)
+        self.assertIn('class="genome-progress-track" role="progressbar"', js_text)
+        self.assertIn("function genomeProgressSnapshotPrefersPrevious", js_text)
+        self.assertIn("function setBgcWorkflowAggregatePresentationSuspended", js_text)
+        self.assertNotIn("function genomeMiniDnaSvg", js_text)
+        self.assertNotIn("genome-mini-dna", js_text)
+        self.assertIn('role="listitem"', js_text)
+        self.assertIn("genomeProgressAllTerminal", js_text)
+        self.assertIn("genomeProgressHandoff", js_text)
+        self.assertIn("const GENOME_PROGRESS_ACTIVE_STATES", js_text)
+        self.assertIn("${completeCount} complete · ${activeCount} active · ${queuedCount} queued", js_text)
+        self.assertIn("errors: ${errorCount}", js_text)
+        self.assertIn("setBgcWorkflowGenomeLayerSuspended(genomeLayerActive);", js_text)
+        self.assertIn("if (bgcWorkflowDna) bgcWorkflowDna.setProgress(payload.progress, payload);", js_text)
+        self.assertIn("grid.dataset.renderKey", js_text)
+        self.assertIn("strip.dataset.renderKey", js_text)
+        self.assertIn("renderGenomeProgressLayer(payload);", js_text)
+        self.assertEqual(js_text.count("createWorkflowDnaProgress({"), 1)
+        hidden_dna = css_text.split(
+            ".bgc-workflow-station.has-genome-progress:not(.is-genome-progress-handoff) .dna-progress-region {",
+            1,
+        )[1].split("}", 1)[0]
+        self.assertIn("opacity: 0", hidden_dna)
+        self.assertIn("visibility: hidden", hidden_dna)
+        self.assertIn("pointer-events: none", hidden_dna)
+        self.assertIn(".genome-progress-layer.is-aggregate-handoff", css_text)
+        self.assertIn(".genome-progress-row", css_text)
+        self.assertIn(".is-aggregate-handoff.has-terminal-warning", css_text)
+        self.assertIn(".genome-progress-row:not(.is-warning)", css_text)
+        self.assertIn("> .workflow-tool-status", css_text)
+        self.assertNotIn(".genome-mini-card", css_text)
+        self.assertIn("@media (prefers-reduced-motion: reduce)", css_text)
+        self.assertIn("transition-delay: 0s !important;", css_text)
+        self.assertIn("this.geometryDirty = true;", dna_text)
+        self.assertIn("if (this.disposed || this.suspended) return;", dna_text)
+        self.assertIn("!this.reducedMotion.matches", dna_text)
+        self.assertIn("this.renderFrame(this.lastFrameTime, true);", dna_text)
+        self.assertIn("helixPoint(index, offset, target)", dna_text)
+        self.assertNotIn("new THREE.Vector3().subVectors", dna_text)
+
+    def test_web_result_tabs_do_not_collide_with_package_download(self) -> None:
+        static_dir = REPO_ROOT / "web" / "static"
+        css_text = (static_dir / "assets" / "clusterweave.css").read_text(encoding="utf-8")
+        js_text = (static_dir / "assets" / "clusterweave.js").read_text(encoding="utf-8")
+
+        complete_strip = css_text.split(
+            'body[data-job-state="complete"] .result-output-strip {', 1
+        )[1].split("}", 1)[0]
+        complete_grid = css_text.split(
+            'body[data-job-state="complete"] .result-grid {', 1
+        )[1].split("}", 1)[0]
+        self.assertIn("display: grid;", complete_strip)
+        self.assertIn("grid-template-columns: minmax(0, 1fr) auto;", complete_strip)
+        self.assertIn("overflow: hidden;", complete_strip)
+        self.assertIn("display: grid;", complete_grid)
+        self.assertIn(
+            "grid-template-columns: repeat(auto-fit, minmax(4.65rem, 1fr));",
+            complete_grid,
+        )
+        self.assertIn("overflow: visible;", complete_grid)
+        self.assertNotIn("overflow-x: auto;", complete_grid)
+        self.assertIn('@media (max-width: 760px)', css_text)
+        mobile_css = css_text.split('@media (max-width: 760px)', 1)[1]
+        self.assertIn(
+            "grid-template-columns: repeat(auto-fit, minmax(4.35rem, 1fr));",
+            mobile_css,
+        )
+        self.assertIn('body[data-job-state="complete"] .output b { white-space: normal; }', mobile_css)
+        self.assertIn("width: 100%;", css_text)
+        self.assertNotIn("FUNBGCEX · FUNGI ONLY", js_text)
+        self.assertIn(
+            "Per-genome FunBGCeX HTML views for fungal genomes only; bacterial genomes are not applicable.",
+            js_text,
+        )
+
     def test_dev_admin_ops_panel_stays_available_on_outputs(self) -> None:
         static_dir = REPO_ROOT / "web" / "static"
         index_text = (static_dir / "index.html").read_text(encoding="utf-8")
@@ -1028,14 +3197,30 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("function ensureOpsPanelToggle()", js_text)
         self.assertIn("function removeOpsPanelToggle()", js_text)
         self.assertIn("function setOpsPanelCollapsed(collapsed)", js_text)
+        self.assertIn("async function validateAccessCode(value)", js_text)
+        self.assertIn("openOpsPanel({ tab: 'jobs', focusPanel: true", js_text)
         self.assertIn('role="tablist" aria-label="Diagnostics navigation"', index_text)
         for tab in ["ops-tab-jobs", "ops-tab-worker", "ops-tab-qa", "ops-tab-rerun"]:
             self.assertIn(f'id="{tab}"', index_text)
         self.assertIn('body[data-access="public"] .admin-only', css_text)
         self.assertIn('body[data-ops-panel="collapsed"] .ops-side-panel', css_text)
         self.assertIn('.ops-panel-toggle', css_text)
+        self.assertNotIn('favicon-cw.svg', index_text)
+        self.assertFalse((static_dir / "assets" / "favicon-cw.svg").exists())
         self.assertIn('.ops-side-panel.admin-drawer', css_text)
         self.assertNotIn('body[data-results-dashboard="open"][data-management-view="closed"] .ops-side-panel { display: none !important; }', css_text)
+
+    def test_worker_bootstrap_tracks_ncbi_cli_asset(self) -> None:
+        entrypoint = (REPO_ROOT / "web" / "entrypoint-worker.sh").read_text(encoding="utf-8")
+        ui_text = (REPO_ROOT / "web" / "static" / "assets" / "clusterweave.js").read_text(encoding="utf-8")
+        runtime = (REPO_ROOT / "web" / "runtime_capabilities.py").read_text(encoding="utf-8")
+        compose = (REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+        self.assertIn('AUTO_INSTALL_NCBI_CLI="${AUTO_INSTALL_NCBI_CLI:-1}"', entrypoint)
+        self.assertIn('run_with_progress "ncbi_cli" "Installing NCBI Datasets CLI"', entrypoint)
+        self.assertIn('NCBI_CLI_ROOT: "${NCBI_CLI_ROOT:-/data/software/ncbi_cli}"', compose)
+        self.assertIn("{ key: 'ncbi_cli', label: 'NCBI Datasets CLI' }", ui_text)
+        self.assertIn("ncbi_datasets", runtime)
+        self.assertIn("NCBI Datasets CLI unavailable for accession retrieval", runtime)
 
     def test_worker_supports_bounded_concurrency(self) -> None:
         text = (REPO_ROOT / "web" / "worker.py").read_text(encoding="utf-8")
@@ -1128,12 +3313,14 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("figure-svg-preview", text)
         self.assertIn("onwheel=\"handleFigureWheel(event,this)\"", text)
         self.assertIn('data\\/results\\/[^/]+\\/figures', text)
+        self.assertIn("fungi_big_scape_multipanel.svg", text)
+        self.assertIn("bacteria_big_scape_multipanel.svg", text)
         self.assertIn("big_scape_multipanel.svg", text)
         self.assertNotIn("gcf_calls_by_tool_category.svg", text)
         self.assertNotIn("bgc_calls_by_tool_category.svg", text)
         self.assertNotIn("bigscape_network.svg", text)
         self.assertIn("const downloadHref = resultHref(jobId, f, { download: true })", text)
-        self.assertIn("<th>File / Result path</th>", text)
+        self.assertIn("<th>File / Result</th>", text)
         self.assertNotIn("const htmlFiles = files.filter", text)
 
     def test_web_results_output_chips_are_accessible_without_legacy_subtabs(self) -> None:
@@ -1166,20 +3353,70 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("renderFileRow(jobId, f)", text)
         self.assertIn("function fileRowLabel(path)", text)
         self.assertIn('<span class="file-display-name">${escapeHtml(label)}</span>', text)
-        self.assertIn('<span class="file-path-link">${escapeHtml(path)}</span>', text)
+        self.assertIn('<span class="file-path-link">${escapeHtml(detail)}</span>', text)
+        self.assertIn(
+            "const detail = descriptor ? resultCategoryLabel(descriptor.category) : normalizedResultPath(f);",
+            text,
+        )
+        self.assertNotIn('<span class="file-path-link">${escapeHtml(path)}</span>', text)
         self.assertNotIn('<a class="file-path-link"', text)
         self.assertIn("resultHref(jobId, f, { download: true })", text)
 
     def test_web_upload_supports_manual_accession_entry(self) -> None:
-        text = frontend_text()
-        self.assertIn('id="manual-accessions"', text)
-        self.assertIn("function manualAccessionLines()", text)
-        self.assertIn("const MANUAL_ACCESSIONS_FILENAME = 'manual_accessions.txt'", text)
-        self.assertIn("manualLines.join('\\n') + '\\n'", text)
-        self.assertIn("new File([manualAccessionText], MANUAL_ACCESSIONS_FILENAME", text)
-        self.assertIn("input source(s) ready", text)
-        self.assertIn("setBrutalInputNotice('submission', '')", text)
-        self.assertIn("setBrutalInputNotice('submission', message)", text)
+        html_text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        js_text = (REPO_ROOT / "web" / "static" / "assets" / "clusterweave.js").read_text(encoding="utf-8")
+        self.assertIn('id="manual-accessions"', html_text)
+        self.assertIn("function manualAccessionLines()", js_text)
+        self.assertIn("const MANUAL_ACCESSIONS_FILENAME = 'manual_accessions.txt'", js_text)
+        self.assertIn("manualLines.join('\\n') + '\\n'", js_text)
+        self.assertIn("new File([manualAccessionText], MANUAL_ACCESSIONS_FILENAME", js_text)
+        self.assertIn("input source(s) ready", js_text)
+        self.assertIn("setBrutalInputNotice('submission', '')", js_text)
+        self.assertIn("setBrutalInputNotice('submission', message)", js_text)
+
+        # The normalized staging filename is an implementation detail: direct
+        # accession entry remains an accession card in every public-facing view.
+        self.assertNotIn("manual_accessions.txt", html_text)
+        self.assertNotIn("Manual entry &rarr;", js_text)
+        self.assertNotIn("const manualItem =", js_text)
+        self.assertNotIn("MANUAL_ACCESSIONS_FILENAME} generated", js_text)
+        self.assertNotIn("accessionSources.push({ name: MANUAL_ACCESSIONS_FILENAME", js_text)
+
+    def test_web_both_scope_uses_microbe_copy_and_project_placeholder(self) -> None:
+        js_text = (REPO_ROOT / "web" / "static" / "assets" / "clusterweave.js").read_text(encoding="utf-8")
+        self.assertIn("hero.setAttribute('aria-label', 'Discover the hidden potential of microbes')", js_text)
+        self.assertIn("<span>of</span><span>microbes</span>", js_text)
+        self.assertIn("scope === 'both' ? 'microbial_survey'", js_text)
+        self.assertNotIn("scope === 'both' ? 'genome_survey'", js_text)
+        self.assertNotIn("Discover the hidden potential of fungi and bacteria", js_text)
+
+    def test_atlas_and_clinker_default_to_twenty_without_expanding_other_sets(self) -> None:
+        html_text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        js_text = (REPO_ROOT / "web" / "static" / "assets" / "clusterweave.js").read_text(encoding="utf-8")
+        app_text = (REPO_ROOT / "web" / "app.py").read_text(encoding="utf-8")
+        canonical_text = (REPO_ROOT / "web" / "canonical_pipeline.py").read_text(encoding="utf-8")
+        clinker_text = (REPO_ROOT / "run_clinker.sh").read_text(encoding="utf-8")
+
+        self.assertIn('id="clinker-max-regions" value="20"', html_text)
+        self.assertIn('id="shortlist-limit" value="12"', html_text)
+        self.assertIn('id="shared-family-stage-limit" value="12"', html_text)
+        self.assertIn("ATLAS_STAGE_LIMIT=${document.getElementById('clinker-max-regions').value || '20'}", js_text)
+        self.assertIn("fd.append('atlas_stage_limit', document.getElementById('clinker-max-regions').value || '20')", js_text)
+        self.assertIn("set('clinker-max-regions', 20)", js_text)
+        self.assertIn('fields.get("clinker_max_regions", ["20"])', app_text)
+        self.assertIn('fields.get("atlas_stage_limit", ["20"])', app_text)
+        self.assertIn('"ATLAS_STAGE_LIMIT": str(_cfg_int(settings, "atlas_stage_limit", 20))', canonical_text)
+        self.assertIn('ATLAS_STAGE_LIMIT="${ATLAS_STAGE_LIMIT:-20}"', clinker_text)
+
+        self.assertIn("SHORTLIST_LIMIT=${document.getElementById('shortlist-limit').value || '12'}", js_text)
+        self.assertIn("SHARED_FAMILY_STAGE_LIMIT=${document.getElementById('shared-family-stage-limit').value || '12'}", js_text)
+        self.assertIn('SHORTLIST_LIMIT="${SHORTLIST_LIMIT:-12}"', clinker_text)
+        self.assertIn('SHARED_FAMILY_STAGE_LIMIT="${SHARED_FAMILY_STAGE_LIMIT:-12}"', clinker_text)
+        self.assertIn('"SHORTLIST_LIMIT": str(_cfg_int(settings, "shortlist_limit", 12))', canonical_text)
+        self.assertRegex(
+            canonical_text,
+            r'"SHARED_FAMILY_STAGE_LIMIT": str\(_cfg_int\(settings, "shared_family_stage_limit", (?:12|_cfg_int\(settings, "shortlist_limit", 12\))\)\)',
+        )
 
     def test_web_has_journey_first_navigation_and_hero(self) -> None:
         text = frontend_text()
@@ -1205,6 +3442,36 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertNotIn('right-column', text)
         self.assertNotIn('weavemap-section', text)
         self.assertNotIn('href="#weavemap" data-nav-target="weavemap"', text)
+
+    def test_web_tree_tool_credits_use_the_existing_credit_card_layout(self) -> None:
+        html_text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('class="tool-credit-tabs" role="tablist"', html_text)
+        self.assertIn('id="tool-credit-web-tab"', html_text)
+        self.assertIn('onclick="switchToolCreditTab(\'web\')"', html_text)
+        self.assertIn('id="tool-credit-local-tab"', html_text)
+        self.assertIn('onclick="switchToolCreditTab(\'local\')"', html_text)
+        self.assertIn('id="tool-credit-local-panel" role="tabpanel"', html_text)
+        for tool in [
+            "NCBI Datasets + Dataformat", "NCBI GenBank + RefSeq", "NCBI Taxonomy",
+            "antiSMASH", "Prodigal", "FunBGCeX", "funannotate", "BUSCO", "AUGUSTUS",
+            "DIAMOND", "HMMER", "Biopython", "BiG-SCAPE", "FastTree", "clinker",
+            "MIBiG", "Pfam", "BRAKER3", "GeneMark", "NPLinker", "GNPS", "MassIVE",
+            "PODP", "MAFFT", "IQ-TREE 2", "ETE 4", "trimAl", "CairoSVG",
+        ]:
+            self.assertRegex(
+                html_text,
+                rf'<a class="tool-credit-link"[^>]+href="https?://[^"]+"[^>]*>{re.escape(tool)}<sup>[^<]+</sup></a>',
+                tool,
+            )
+        for tool in ["MAFFT", "IQ-TREE 2", "ETE 4", "trimAl"]:
+            self.assertNotRegex(html_text, rf'{re.escape(tool)}[^<]*<small')
+
+    def test_web_public_impact_audit_uses_redacted_aggregate_status(self) -> None:
+        text = frontend_text()
+        for element_id in ["public-impact-server", "public-impact-running", "public-impact-queued", "public-impact-completed"]:
+            self.assertIn(f'id="{element_id}"', text)
+        self.assertIn("startPublicImpactPolling()", text)
+        self.assertIn("fetchSystemStatus({ renderWorker: false })", text)
 
     def test_web_has_user_modes_and_section_hierarchy(self) -> None:
         text = frontend_text()
@@ -1232,6 +3499,10 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn(".drawer-body", text)
         self.assertIn(".log-terminal", text)
         self.assertIn("max-height: 44vh", text)
+        self.assertIn('role="log" aria-live="polite" aria-relevant="additions text" aria-atomic="false"', text)
+        self.assertIn("function publicQaEventLine(event)", text)
+        self.assertIn("function renderPublicQaLog(job)", text)
+        self.assertIn(".log-line.stage", text)
 
     def test_web_has_neumorphic_surface_system_tokens(self) -> None:
         text = frontend_text()
@@ -1272,11 +3543,24 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("resultDownloadLink(jobId, item.path, 'Download')", text)
         self.assertIn("resultDownloadLink(jobId, path, 'Download')", text)
         self.assertIn("BiG-SCAPE web view", text)
-        self.assertIn("resultDownloadLink(jobId, bigscape.database, 'Download')", text)
-        self.assertIn("window.CLUSTERWEAVE_BIGSCAPE_DATABASE_AUTH", text)
-        self.assertIn("const dbUrl = resultHref(jobId, databasePath);", text)
-        self.assertIn("const dbAuth = authHeadersFor('job', jobId).Authorization || '';", text)
-        self.assertIn("fetch(url, options).then", text)
+        self.assertIn("resultDownloadLink(jobId, bigscape.database, 'Download sanitized SQLite')", text)
+        self.assertIn("The raw SQLite database is excluded from public results", text)
+        bigscape_fallback = text.split("if (!bigscape.database) {", 1)[1].split(
+            "const jsJobId", 1
+        )[0]
+        self.assertIn('class="artifact-row result-tool-row"', bigscape_fallback)
+        self.assertNotIn('class="artifact-row is-compact result-tool-row"', bigscape_fallback)
+        self.assertNotIn("window.CLUSTERWEAVE_BIGSCAPE_DATABASE_AUTH", text)
+        self.assertNotIn("const dbUrl = resultHref(jobId, databasePath);", text)
+        self.assertNotIn("const dbAuth = authHeadersFor('job', jobId).Authorization || '';", text)
+        self.assertIn("bigscapeViewerFetch(jobId)", text)
+        self.assertNotIn("resultFetch(jobId, databasePath)", text)
+        self.assertIn("bigscape.viewerDatabase", text)
+        self.assertIn("isBigscapeViewerDatabaseArtifact(databasePath)", text)
+        self.assertIn("const BIGSCAPE_BROWSER_DATABASE_MAX_BYTES = 64 * 1024 * 1024;", text)
+        self.assertIn("validatedBigscapeDatabaseBuffer(dbResp)", text)
+        self.assertIn("function receiveBuffer()", text)
+        self.assertIn("frame.contentWindow.postMessage", text)
         self.assertIn("window.CLUSTERWEAVE_BIGSCAPE_DATABASE_BYTES = buffer.byteLength || 0;", text)
         self.assertNotIn("dbResp.blob()", text)
         autoload_block = text.split("async function autoloadDatabase()", 1)[1].split("window.CLUSTERWEAVE_BIGSCAPE_AUTOLOAD_DATABASE", 1)[0]
@@ -1285,7 +3569,12 @@ class RepoLayoutTests(unittest.TestCase):
         app_text = (REPO_ROOT / "web" / "app.py").read_text(encoding="utf-8")
         self.assertIn("def _send_file(", app_text)
         self.assertIn("shutil.copyfileobj(handle, self.wfile, length=1024 * 1024)", app_text)
-        self.assertIn("self._send_file(HTTPStatus.OK, full, result_file_mime(full), headers)", app_text)
+        self.assertIn(
+            "except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):",
+            app_text,
+        )
+        self.assertIn("authorized_file = authorize_direct_result_file(job, base_dir, rel_path)", app_text)
+        self.assertIn("expected_identity=expected_identity", app_text)
         self.assertNotIn("self._send_text(HTTPStatus.OK, result_file_mime(full), full.read_bytes(), headers)", app_text)
         self.assertIn("function condensedMarkdownBodyText(text)", text)
         self.assertIn("function summaryTopCount(text)", text)
@@ -1294,6 +3583,20 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("summary-markdown-body", text)
         self.assertIn("source\\s+summary", text)
         self.assertNotIn('id="summary-reader-source"', text)
+        self.assertIn("summary-subtabs", text)
+        self.assertIn("ALL BGCs", text)
+        self.assertIn("all_tools_bgc_comparison.csv", text)
+        self.assertIn("function updateAllBgcFilter", text)
+        self.assertIn("function sortAllBgcTable", text)
+        self.assertIn("function refreshAllBgcRows", text)
+        self.assertIn("genome: ''", text)
+        self.assertIn("const extensionOrder = kind === 'atlas'", text)
+        self.assertIn("function renderAtlasSummary", text)
+        self.assertIn("DATASET-WIDE FAMILY ATLAS", text)
+        self.assertNotIn("changeAllBgcPage", text)
+        self.assertNotIn("summary-pagination", text)
+        self.assertLess(text.index("const ALL_BGC_COLUMNS"), text.index("function preferredSummaryColumnIndexes"))
+        self.assertLess(text.index("async function loadAllBgcReaderFile"), text.index("function preferredSummaryColumnIndexes"))
         self.assertNotIn("source.textContent = summaryArtifactLabel(path)", text)
         self.assertNotIn('id="alt06-result-folder-panel"', text)
         self.assertNotIn('id="alt06-result-folder-title"', text)
@@ -1322,7 +3625,8 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("window.CLUSTERWEAVE_API_BASE", text)
         self.assertIn("apiFetch('api/system/status'", text)
         self.assertIn("apiFetch('api/jobs'", text)
-        self.assertIn("const base = apiUrl(`api/jobs/", text)
+        self.assertIn("const base = apiUrl(`api/results/${encodeURIComponent(runId)}/artifacts/", text)
+        self.assertIn("api/results/${encodeURIComponent(runId)}/artifacts/${encodeURIComponent(ownerId)}/resolve", text)
         self.assertNotIn("fetch('/api/", text)
         self.assertNotIn('fetch("/api/', text)
 
@@ -1401,9 +3705,10 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn('id="notify-email"', ui_text)
         self.assertIn('id="project-name" rows="1" autocomplete="off"', ui_text)
         self.assertIn('autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="fungal_survey"', ui_text)
+        self.assertLess(ui_text.index('id="target-genome-toggle"'), ui_text.index('id="brutal-ecology-toggle"'))
+        self.assertLess(ui_text.index('id="brutal-ecology-toggle"'), ui_text.index('id="project-name"'))
         self.assertLess(ui_text.index('id="project-name"'), ui_text.index('id="email-notification-panel"'))
-        self.assertLess(ui_text.index('id="email-notification-panel"'), ui_text.index('id="target-genome-toggle"'))
-        self.assertLess(ui_text.index('id="target-genome-toggle"'), ui_text.index('id="target-genome"'))
+        self.assertLess(ui_text.index('id="email-notification-panel"'), ui_text.index('id="target-genome"'))
         self.assertIn("let smtpEnabled = false", ui_text)
         self.assertIn("smtpEnabled = !!payload.smtp_enabled", ui_text)
         self.assertIn("fd.append('notify_email', notifyEmail)", ui_text)
@@ -1420,6 +3725,89 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("CLUSTERWEAVE_PUBLIC_MODE", compose_text)
         self.assertIn("CLUSTERWEAVE_ADMIN_TOKEN", compose_text)
         self.assertIn('CLUSTERWEAVE_JOB_TOKEN_SECRET: "${CLUSTERWEAVE_JOB_TOKEN_SECRET:-}"', compose_text)
+        self.assertIn('EMAIL OFF - server mail not configured', ui_text)
+
+    def test_web_submission_gates_are_visible_before_post(self) -> None:
+        html_text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        css_text = (REPO_ROOT / "web" / "static" / "assets" / "clusterweave.css").read_text(encoding="utf-8")
+        js_text = (REPO_ROOT / "web" / "static" / "assets" / "clusterweave.js").read_text(encoding="utf-8")
+
+        self.assertIn("function submissionsPausedForPublic()", js_text)
+        self.assertIn("SUBMISSIONS PAUSED - QUEUE LOCKED BY OPERATOR", js_text)
+        self.assertIn("Queue gate: paused before upload.", js_text)
+        self.assertIn("FORMAT OK - NCBI CHECK PENDING", js_text)
+        self.assertIn("input.setAttribute('aria-invalid', showInvalid ? 'true' : 'false')", js_text)
+        self.assertIn(':where(a, button, input, textarea, select, summary, [role="button"], [tabindex]):focus-visible', css_text)
+        self.assertIn("--blue:", css_text)
+        self.assertIn("--muted:", css_text)
+        self.assertIn(".input-log-note", css_text)
+
+        self.assertNotIn("PUBLIC DATA ONLY - confirm these inputs are public or releasable.", js_text)
+        self.assertNotIn("NAME THE RUN BEFORE LAUNCH", js_text)
+        self.assertNotIn("Name the run before launch", js_text)
+        self.assertIn('class="project-label-stack" for="project-name"', html_text)
+        self.assertIn('<span class="required-flag" id="project-name-required">REQUIRED</span>', html_text)
+        self.assertRegex(css_text, r"\.project-name-card\s*\{[^}]*background:\s*var\(--yellow-soft\)")
+        self.assertRegex(css_text, r"\.required-flag\s*\{[^}]*display:\s*(?:block|inline-flex)[^}]*background:\s*var\(--acid\)")
+
+        self.assertIn('class="submit-button-shell is-project-locked" id="submit-button-shell"', html_text)
+        self.assertIn('id="run-btn" type="button" onclick="startAnalysis()" disabled', html_text)
+        self.assertIn(".submit-button-shell.is-project-locked .submit-lock-overlay", css_text)
+        self.assertRegex(
+            css_text,
+            r"\.submit-lock-overlay\s*\{[^}]*background:\s*(?:white|#fff(?:fff)?|var\(--panel\))",
+        )
+        project_handler_start = js_text.index("document.getElementById('project-name')?.addEventListener('input'")
+        project_handler_end = js_text.index("document.getElementById('target-genome')?.addEventListener", project_handler_start)
+        self.assertIn("renderFileList()", js_text[project_handler_start:project_handler_end])
+
+        self.assertIn("function uploadedInputRequiresAcknowledgment()", js_text)
+        self.assertIn("function syncDataUseAcknowledgment()", js_text)
+        self.assertIn("panel.hidden = !required", js_text)
+        self.assertIn('id="data-use-ack-panel" hidden inert aria-hidden="true"', html_text)
+        self.assertIn('<span><b>PUBLIC DATA ONLY</b></span>', html_text)
+        self.assertNotIn('confirm uploaded inputs are public or releasable', html_text)
+        self.assertLess(html_text.index('id="upload-limit-note"'), html_text.index('id="data-use-ack-panel"'))
+        self.assertLess(html_text.index('id="data-use-ack-panel"'), html_text.index('id="file-list"'))
+
+        self.assertIn('<div class="input-log-drawer" id="input-log-drawer" hidden>', html_text)
+        self.assertIn('class="submit-feedback-rail"', html_text)
+        self.assertLess(html_text.index('id="data-use-ack-panel"'), html_text.index('class="submit-feedback-rail"'))
+        self.assertLess(html_text.index('class="submit-feedback-rail"'), html_text.index('id="input-log-drawer"'))
+        self.assertLess(html_text.index('id="run-btn"'), html_text.index('id="input-log-drawer"'))
+        self.assertLess(html_text.index('id="input-log-drawer"'), html_text.index('id="upload-status"'))
+        self.assertIn("const BRUTAL_ACCESSION_PREVIEW_ROWS = 6", js_text)
+        self.assertIn("row.classList.toggle('is-concealed', !presented)", js_text)
+
+    def test_web_target_and_ecology_controls_are_balanced_and_uploads_are_selectable(self) -> None:
+        html_text = (REPO_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
+        css_text = (REPO_ROOT / "web" / "static" / "assets" / "clusterweave.css").read_text(encoding="utf-8")
+        js_text = (REPO_ROOT / "web" / "static" / "assets" / "clusterweave.js").read_text(encoding="utf-8")
+
+        self.assertIn('class="button-pair target-ecology-controls input-config-rail"', html_text)
+        self.assertIn('id="target-genome-toggle"', html_text)
+        self.assertIn('id="brutal-ecology-toggle"', html_text)
+        self.assertRegex(
+            css_text,
+            r"\.button-pair\.target-ecology-controls\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)",
+        )
+        self.assertRegex(
+            css_text,
+            r"\.target-ecology-controls \.config-button\s*\{[^}]*min-height:\s*54px",
+        )
+        self.assertRegex(
+            css_text,
+            r"\.target-ecology-controls \.config-button\s*\{[^}]*white-space:\s*nowrap",
+        )
+
+        self.assertIn('data-target-genome="', js_text)
+        self.assertNotIn('data-target-select', js_text)
+        self.assertNotIn('file-target-select', js_text)
+        self.assertIn('class="eco-button file-eco-button" type="button"', js_text)
+        self.assertIn("function openUploadedGenomeEcoPicker(button)", js_text)
+        self.assertIn("uploadCard.classList.toggle('show-ecology', enabled)", js_text)
+        self.assertIn(".file-item[data-target-genome]", js_text)
+        self.assertRegex(js_text, r"\bfileList\??\.addEventListener\('click'")
 
     def test_web_ecology_label_table_uses_controlled_public_inputs(self) -> None:
         text = frontend_text()
@@ -1428,7 +3816,12 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn('id="brutal-ecology-toggle"', text)
         self.assertIn('id="run-ecology"', text)
         self.assertIn('id="metadata-table-body"', text)
-        self.assertLess(html_text.index('id="brutal-ecology-toggle"'), html_text.index('id="data-use-ack-panel"'))
+        self.assertLess(html_text.index('id="upload-limit-note"'), html_text.index('id="data-use-ack-panel"'))
+        self.assertLess(html_text.index('id="data-use-ack-panel"'), html_text.index('id="file-list"'))
+        self.assertLess(html_text.index('id="data-use-ack-panel"'), html_text.index('id="brutal-ecology-toggle"'))
+        self.assertIn('PUBLIC DATA ONLY', html_text)
+        self.assertIn('id="data-use-ack" onchange="renderFileList()"', html_text)
+        self.assertIn('id="data-use-ack-panel" hidden inert aria-hidden="true"', html_text)
         self.assertIn('<th>Input</th><th>Primary ecology</th><th>Secondary ecology</th>', text)
         self.assertIn("const ECOLOGY_LABELS = [", text)
         for label in [
@@ -1491,6 +3884,20 @@ class RepoLayoutTests(unittest.TestCase):
         text = (REPO_ROOT / "Dockerfile.worker").read_text(encoding="utf-8")
         self.assertIn("r-base-core", text)
 
+    def test_container_images_include_shared_genbank_readiness_module(self) -> None:
+        web_dockerfile = (REPO_ROOT / "Dockerfile.web").read_text(encoding="utf-8")
+        worker_dockerfile = (REPO_ROOT / "Dockerfile.worker").read_text(encoding="utf-8")
+        expected = "COPY web/genbank_readiness.py /app/genbank_readiness.py"
+        self.assertIn(expected, web_dockerfile)
+        self.assertIn(expected, worker_dockerfile)
+        attestation_expected = "COPY web/result_attestation.py /app/result_attestation.py"
+        self.assertIn(attestation_expected, web_dockerfile)
+        self.assertIn(attestation_expected, worker_dockerfile)
+        self.assertIn("COPY bin/backfill_result_attestations.py /app/backfill_result_attestations.py", web_dockerfile)
+        viewer_expected = "COPY web/bigscape_public_db.py /app/bigscape_public_db.py"
+        self.assertIn(viewer_expected, web_dockerfile)
+        self.assertIn(viewer_expected, worker_dockerfile)
+
     def test_render_summary_figures_focuses_on_core_summary_outputs(self) -> None:
         text = (REPO_ROOT / "bin" / "render_summary_figures.R").read_text(encoding="utf-8")
         self.assertIn("bgc_calls_by_tool_category.svg", text)
@@ -1549,14 +3956,48 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertTrue((REPO_ROOT / ".github" / "workflows" / "ci.yml").exists())
 
     def test_release_profile_exists(self) -> None:
-        profile = REPO_ROOT / "profiles" / "release_v0.1.0.env"
+        profile = REPO_ROOT / "profiles" / "release_v1.0.0.env"
         self.assertTrue(profile.exists())
         text = profile.read_text(encoding="utf-8")
-        self.assertIn("PROJECT_NAME=clusterweave_smoke", text)
+        self.assertIn("PROJECT_NAME=clusterweave_v1_0_0", text)
+        self.assertIn("ANALYSIS_SCOPE=both", text)
         self.assertIn("CAPTURE_EXTERNAL_ARTIFACTS=1", text)
         self.assertIn("AUTO_DOWNLOAD_PFAM=0", text)
         self.assertIn("AUTO_DOWNLOAD_FASTTREE=0", text)
         self.assertIn("INSTALL_CLINKER_SIF=0", text)
+
+    def test_release_metadata_and_runtime_acquisition_are_immutable(self) -> None:
+        pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        self.assertIn('version = "1.0.0"', pyproject)
+
+        braker_pin = (
+            "teambraker/braker3:v3.0.7.6@sha256:"
+            "5f8b3c508a9fe1bbc2e9a74dcc013eeed82f91dd5945adca7823514d9c8aecf8"
+        )
+        fasttree_commit = "29c5e62fbcd93230ee325f9c6a17b81f00e3c72a"
+        fasttree_sha256 = (
+            "55a9d997813aae2208bd4c2081bfa690e0ecdba2d6c491805d8689415c43e38e"
+        )
+        annotation = (
+            REPO_ROOT / "run_annotation_and_detection.sh"
+        ).read_text(encoding="utf-8")
+        bigscape = (REPO_ROOT / "run_bigscape.sh").read_text(encoding="utf-8")
+        profile = (
+            REPO_ROOT / "profiles" / "release_v1.0.0.env"
+        ).read_text(encoding="utf-8")
+        capture = (
+            REPO_ROOT / "bin" / "capture_external_artifacts.py"
+        ).read_text(encoding="utf-8")
+
+        for text in (annotation, profile, capture):
+            self.assertIn(braker_pin, text)
+            self.assertNotIn("teambraker/braker3:latest", text)
+        for text in (bigscape, profile, capture):
+            self.assertIn(fasttree_commit, text)
+            self.assertNotIn("fasttree/raw/main/FastTree", text.lower())
+        self.assertIn(fasttree_sha256, bigscape)
+        self.assertIn(fasttree_sha256, profile)
+        self.assertIn("verify_fasttree_checksum", bigscape)
 
 
 if __name__ == "__main__":

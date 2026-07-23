@@ -125,7 +125,7 @@ def compact_reference_taxon(raw: str) -> str:
 
 def parse_gbk_summary(path: Path) -> dict[str, str]:
     summary = {"source": "", "organism_display_name": "", "accession": ""}
-    if not path.exists():
+    if not path.is_file():
         return summary
     with path.open("r", encoding="utf-8", errors="ignore") as handle:
         for idx, line in enumerate(handle):
@@ -145,6 +145,8 @@ def friendly_cluster_name(row: dict[str, str]) -> str:
         return ""
     role = clean(row.get("role"))
     genome = clean(row.get("genome"))
+    taxon_group = clean(row.get("taxon_group")).lower()
+    taxon_source = clean(row.get("taxon_source")).lower()
     antismash_region = clean(row.get("antismash_region"))
     gbk_summary = parse_gbk_summary(resolve_manifest_path(clean(row.get("source_gbk_path"))))
 
@@ -153,16 +155,33 @@ def friendly_cluster_name(row: dict[str, str]) -> str:
         accession = gbk_summary["accession"] or antismash_region or genome
         return clean(f"{organism} {accession}")
 
-    if genome:
-        return prettify_genome_name(genome)
+    organism = clean(row.get("organism_name"))
+    if organism:
+        return prettify_genome_name(organism)
 
     if gbk_summary["organism_display_name"]:
-        return gbk_summary["organism_display_name"].replace("_", " ")
+        return prettify_genome_name(gbk_summary["organism_display_name"])
 
     if gbk_summary["source"]:
-        return gbk_summary["source"]
+        return prettify_genome_name(gbk_summary["source"])
 
-    return antismash_region
+    if (
+        taxon_group == "bacteria"
+        and taxon_source in {"ncbi", "ncbi_taxonomy"}
+    ):
+        genome = re.sub(r"^bacteria_", "", genome, flags=re.IGNORECASE)
+    if genome:
+        return prettify_genome_name(genome)
+    return prettify_genome_name(antismash_region)
+
+
+def friendly_scaffold_name(row: dict[str, str], fallback: str = "") -> str:
+    scaffold = clean(row.get("scaffold_id"))
+    if not scaffold:
+        region = clean(row.get("antismash_region"))
+        scaffold = re.sub(r"\.region\d+$", "", region, flags=re.IGNORECASE)
+    scaffold = scaffold or clean(fallback)
+    return prettify_genome_name(scaffold)
 
 
 def order_key(row: dict[str, str]) -> int:
@@ -518,7 +537,9 @@ def main() -> None:
             cluster["name"] = friendly_name
             cluster["label"] = friendly_name
         for locus in cluster.get("loci", []):
-            locus_name = normalize_locus_name(locus.get("name", ""))
+            locus_name = friendly_scaffold_name(
+                manifest_row, normalize_locus_name(locus.get("name", ""))
+            )
             if locus_name:
                 locus["name"] = locus_name
             for gene in locus.get("genes", []):

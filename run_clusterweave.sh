@@ -147,7 +147,7 @@ annotation_manifest_usable_count() {
       gbk = $(h["gbk_used"])
       gbk_status = $(h["gbk_status"])
       antismash_status = $(h["antismash_status"])
-      if (gbk != "" && gbk_status != "annotation_fallbacks_failed" && antismash_status != "skipped") count++
+      if (gbk != "" && gbk_status != "annotation_fallbacks_failed" && (antismash_status == "ran_ok" || antismash_status == "ran_ok_sanitized" || antismash_status == "skipped_done")) count++
     }
     END { print count + 0 }
   ' "${manifest}"
@@ -195,7 +195,7 @@ require_annotation_stage_outputs() {
   usable="$(annotation_manifest_usable_count "${manifest}")"
   if [[ "${total}" -gt 0 && "${usable}" -eq 0 ]]; then
     summary="$(annotation_manifest_status_summary "${manifest}")"
-    die "Annotation stage produced zero usable genomes (${summary}); stopping before grouping. See ${manifest} and ${RESULTS_ROOT}/summary_tables/logs."
+    die "Annotation stage produced zero usable genomes (${summary}); stopping before grouping. See ${manifest} and ${RESULTS_ROOT}/logs."
   fi
 }
 

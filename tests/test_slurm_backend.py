@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -123,6 +124,7 @@ class SlurmBackendTests(unittest.TestCase):
         )
 
         self.assertIn("#SBATCH --job-name=cw-jobabc", script)
+        self.assertIn("#SBATCH --export=NONE", script)
         self.assertIn("#SBATCH --account=placeholder-account", script)
         self.assertIn("#SBATCH --partition=placeholder-partition", script)
         self.assertIn("#SBATCH --qos=placeholder-qos", script)
@@ -136,6 +138,27 @@ class SlurmBackendTests(unittest.TestCase):
         self.assertIn("module load apptainer", script)
         self.assertIn("--once jobabc", script)
         self.assertIn("--queue-payload", script)
+
+    def test_scheduler_commands_strip_service_credentials(self) -> None:
+        sensitive = {
+            "CLUSTERWEAVE_JOB_TOKEN_SECRET": "fake-job-secret",
+            "CLUSTERWEAVE_SMTP_PASSWORD": "fake-smtp-secret",
+            "CLUSTERWEAVE_ADMIN_TOKEN": "fake-admin-secret",
+            "DOCKER_AUTH_CONFIG": "fake-docker-auth",
+        }
+        with mock.patch.dict(os.environ, sensitive, clear=False):
+            child_env = self.slurm_backend._scheduler_command_env()
+        for key in sensitive:
+            self.assertNotIn(key, child_env)
+
+        completed = subprocess.CompletedProcess(["squeue"], 0, "", "")
+        with mock.patch.object(
+            self.slurm_backend.subprocess, "run", return_value=completed
+        ) as run:
+            self.slurm_backend._default_runner(["squeue"], 5)
+        passed_env = run.call_args.kwargs["env"]
+        for key in sensitive:
+            self.assertNotIn(key, passed_env)
 
     def test_slurm_state_parsing_and_clusterweave_mapping(self) -> None:
         self.assertEqual(self.slurm_backend.parse_sbatch_job_id("98765;cluster\n"), "98765")
@@ -176,6 +199,7 @@ class SlurmBackendTests(unittest.TestCase):
         self.assertEqual(job["scheduler"]["state"], "PENDING")
         self.assertTrue((self.job_store.job_dir("jobabc") / "slurm" / "submit.sbatch").exists())
         self.assertTrue((self.job_store.job_dir("jobabc") / "slurm" / "queue_payload.json").exists())
+        self.assertTrue(any(cmd[:3] == ["sbatch", "--export=NONE", "--parsable"] for cmd in self.commands))
 
         backend.poll_once()
         running = self.job_store.read_job("jobabc")
@@ -212,6 +236,36 @@ class SlurmBackendTests(unittest.TestCase):
         self.assertEqual(cancelled["stage"], "cancelled")
         self.assertEqual(cancelled["scheduler"]["state"], "CANCELLED")
         self.assertTrue(any(cmd[:2] == ["scancel", "67890"] for cmd in self.commands))
+
+    def test_scheduler_error_logs_redact_credentials(self) -> None:
+        self.write_job("failsecret")
+
+        def failing_runner(args: list[str], timeout: int) -> subprocess.CompletedProcess[str]:
+            return subprocess.CompletedProcess(
+                args,
+                1,
+                "",
+                (
+                    "Authorization: Bearer fake-slurm-secret; "
+                    "--token fake-cli-secret; "
+                    "https://user:fake-userinfo-secret@example.invalid"
+                ),
+            )
+
+        backend = self.slurm_backend.SlurmBackend(
+            config=self.slurm_backend.SlurmConfig.from_env(),
+            runner=failing_runner,
+        )
+        self.assertIsNone(
+            backend.submit_claim(
+                ("failsecret", 2, {"project_name": "slurm-case", "run_summary": True})
+            )
+        )
+        rendered = "\n".join(self.job_store.read_logs("failsecret"))
+        self.assertIn("Authorization: [redacted]", rendered)
+        self.assertNotIn("fake-slurm-secret", rendered)
+        self.assertNotIn("fake-cli-secret", rendered)
+        self.assertNotIn("fake-userinfo-secret", rendered)
 
     def test_poll_refreshes_scheduler_metadata_for_terminal_clusterweave_job(self) -> None:
         self.write_job("fastfail")

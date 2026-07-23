@@ -6,7 +6,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 PROJECT_ROOT="${PROJECT_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd -P)}"
 PROJECT_NAME="${PROJECT_NAME:-$(basename "${PROJECT_ROOT}")}"
 GENOME_ROOT="${GENOME_ROOT:-${PROJECT_ROOT}/data/genomes/fungi/${PROJECT_NAME}}"
-MAPPING_FILE="${MAPPING_FILE:-${GENOME_ROOT}/accessions_fungusID_taxonomyID.txt}"
+TAXON_GROUP="${TAXON_GROUP:-fungi}"
+if [[ -z "${MAPPING_FILE+x}" ]]; then
+  if [[ "${TAXON_GROUP}" == "bacteria" ]]; then
+    MAPPING_FILE="${GENOME_ROOT}/accessions_bacteriaID_taxonomyID.txt"
+  else
+    MAPPING_FILE="${GENOME_ROOT}/accessions_fungusID_taxonomyID.txt"
+  fi
+fi
+GENOME_TAXON_MANIFEST="${GENOME_TAXON_MANIFEST:-${PROJECT_ROOT}/data/results/${PROJECT_NAME}/summary_tables/genome_taxon_manifest.tsv}"
 NCBI_CLI_ROOT="${NCBI_CLI_ROOT:-${PROJECT_ROOT}/software/ncbi_cli}"
 
 die(){ echo "ERROR: $*" >&2; exit 1; }
@@ -76,7 +84,8 @@ mkdir -p "$(dirname "${MAPPING_FILE}")"
 PYTHON_CMD="$(resolve_python)"
 DATASETS_CMD_RESOLVED="$(detect_datasets || true)"
 
-"${PYTHON_CMD}" - "${GENOME_ROOT}" "${MAPPING_FILE}" "${DATASETS_CMD_RESOLVED}" <<'PY'
+"${PYTHON_CMD}" - "${GENOME_ROOT}" "${MAPPING_FILE}" "${DATASETS_CMD_RESOLVED}" "${TAXON_GROUP}" "${GENOME_TAXON_MANIFEST}" <<'PY'
+import csv
 import glob
 import json
 import os
@@ -87,7 +96,33 @@ import sys
 root = sys.argv[1]
 outp = sys.argv[2]
 datasets_cmd = sys.argv[3] if len(sys.argv) >= 4 else ""
+taxon_group = sys.argv[4].strip().lower() if len(sys.argv) >= 5 else "fungi"
+route_manifest = sys.argv[5] if len(sys.argv) >= 6 else ""
 taxonomy_cache = {}
+route_by_accession = {}
+
+
+def accession_keys(value):
+    text = str(value or "").strip().upper()
+    if not text:
+        return []
+    keys = [text]
+    if text.startswith(("GCA_", "GCF_")):
+        keys.append(text.split(".", 1)[0])
+    return keys
+
+
+if route_manifest and os.path.isfile(route_manifest):
+    with open(route_manifest, newline="", encoding="utf-8-sig") as handle:
+        for route in csv.DictReader(handle, delimiter="\t"):
+            if str(route.get("taxon_group") or "").strip().lower() != taxon_group:
+                continue
+            accession = route.get("source_accession") or route.get("input_key") or ""
+            for key in accession_keys(accession):
+                existing = route_by_accession.get(key)
+                if existing and existing.get("genome_id") != route.get("genome_id"):
+                    raise RuntimeError(f"Contradictory immutable routes for accession {accession}")
+                route_by_accession[key] = route
 
 def deep_find_first(obj, key_substr):
     target = key_substr.lower()
@@ -245,7 +280,7 @@ def sanitize(value):
     value = re.sub(r"_+", "_", value).strip("_")
     return value
 
-def fungus_id_from(org, strain, isolate):
+def genome_id_from(org, strain, isolate):
     org = (org or "").strip()
     parts = org.split()
     genus = parts[0] if len(parts) >= 1 else "UnknownGenus"
@@ -272,6 +307,7 @@ for name in sorted(os.listdir(root)):
     if not os.path.isdir(acc_dir):
         continue
     acc = os.path.basename(acc_dir)
+    route = next((route_by_accession[key] for key in accession_keys(acc) if key in route_by_accession), None)
     report = find_report(acc_dir)
     if not report:
         continue
@@ -306,8 +342,24 @@ for name in sorted(os.listdir(root)):
     except Exception:
         continue
 
-    fid = fungus_id_from(org, strain, isolate)
+    if route:
+        fid = sanitize(str(route.get("genome_id") or ""))
+        if not fid:
+            raise RuntimeError(f"Immutable route for {acc} has no safe genome_id")
+        taxid = clean_tsv(route.get("taxid")) or taxid
+        org = clean_tsv(route.get("organism_name")) or org
+    else:
+        fid = genome_id_from(org, strain, isolate)
     rows.append((acc, fid, taxid, genome_size_mb, clean_tsv(org), lineage_ids, lineage_names))
+
+seen_ids = {}
+for acc, fid, *_ in rows:
+    previous = seen_ids.get(fid.casefold())
+    if previous and previous != acc:
+        raise RuntimeError(
+            f"Genome ID collision after taxonomy rename: {previous} and {acc} both map to {fid}"
+        )
+    seen_ids[fid.casefold()] = acc
 
 with open(outp, "w", encoding="utf-8") as out:
     for acc, fid, taxid, genome_size_mb, org, lineage_ids, lineage_names in rows:

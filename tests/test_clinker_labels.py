@@ -24,6 +24,54 @@ class ClinkerLabelTests(unittest.TestCase):
         result = self.module.prettify_genome_name("Aspergillus_nidulans_FGSC_A4")
         self.assertEqual(result, "Aspergillus nidulans FGSC A4")
 
+    def test_bacterial_cluster_uses_canonical_organism_without_route_prefix(self) -> None:
+        result = self.module.friendly_cluster_name({
+            "role": "target",
+            "genome": "bacteria_Bacillus_subtilis_168",
+            "taxon_group": "bacteria",
+            "organism_name": "Bacillus subtilis 168",
+            "antismash_region": "NZ_CP010052.1.region001",
+        })
+        self.assertEqual(result, "Bacillus subtilis 168")
+        self.assertNotIn("bacteria", result.lower())
+
+    def test_bacterial_cluster_fallback_removes_only_route_prefix(self) -> None:
+        result = self.module.friendly_cluster_name({
+            "role": "target",
+            "genome": "bacteria_Bacillus_demo",
+            "taxon_group": "bacteria",
+            "taxon_source": "ncbi",
+            "antismash_region": "NZ_CP000001.1.region001",
+        })
+        self.assertEqual(result, "Bacillus demo")
+
+    def test_user_bacterial_id_prefix_is_not_reinterpreted(self) -> None:
+        result = self.module.friendly_cluster_name({
+            "role": "target",
+            "genome": "bacteria_isolate_7",
+            "taxon_group": "bacteria",
+            "taxon_source": "user_declaration",
+            "antismash_region": "contig_1.region001",
+        })
+        self.assertEqual(result, "bacteria isolate 7")
+
+    def test_scaffold_subtitle_is_region_free_and_has_no_underscore_separators(self) -> None:
+        result = self.module.friendly_scaffold_name({
+            "antismash_region": "NZ_CP010052.1.region001",
+        })
+        self.assertEqual(result, "NZ CP010052.1")
+
+    def test_bacterial_scaffold_subtitle_prefers_original_record_id(self) -> None:
+        result = self.module.friendly_scaffold_name({
+            "antismash_region": (
+                "bacteria_Streptomyces_griseus_NBRC_13350_"
+                "NC_010572.1.region009"
+            ),
+            "scaffold_id": "NC_010572.1",
+        })
+        self.assertEqual(result, "NC 010572.1")
+        self.assertNotIn("Streptomyces", result)
+
     def test_mibig_reference_taxon_compacts_to_genus_species(self) -> None:
         result = self.module.compact_reference_taxon("Aspergillus nidulans FGSC A4")
         self.assertEqual(result, "Aspergillus nidulans")

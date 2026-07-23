@@ -1,44 +1,40 @@
 # Architecture
 
-`ClusterWeave` is currently a shell-first workflow with Python helper scripts.
+ClusterWeave has a small web/API service, a durable job store, one bounded
+worker/admission layer, canonical shell stages, and focused Python renderers.
 
-Execution flow:
+```text
+browser -> web/API -> job store -> worker/admission
+                                -> prepare and taxon route
+                                   |-- fungi: existing CDS or funannotate
+                                   |           -> antiSMASH -> FunBGCeX
+                                   |-- bacteria: feature-free GenBank
+                                               -> antiSMASH + Prodigal
+                                -> shared BiG-SCAPE
+                                -> summaries / clinker / figures
+                                -> optional bounded phylogeny/evidence
+```
 
-1. `accessions.txt`
-2. `install_ncbi_cli.sh` (optional setup helper)
-3. `prepare_genomes_from_accessions.sh`
-4. Optional env overrides from `config/defaults.env` or a case-study profile
-5. `run_clusterweave.sh`
-6. `run_annotation_and_detection.sh`
-7. `run_bigscape.sh`
-8. `summarize_clusterweave.sh`
-9. Atlas-first `run_clinker.sh`, with optional target-aware clinker tracks when `TARGET_GENOME` is set
-10. Optional `run_nplinker.sh`
+NCBI taxonomy is authoritative. Each job freezes `analysis_scope` and a
+canonical per-genome route. Human-readable inputs remain under explicit
+`data/genomes/fungi/<project>` and `data/genomes/bacteria/<project>` roots,
+while downstream tools consume one manifest and one unique region universe.
 
-Python helper responsibilities:
+The core taxonomy/BGC/GCF renderer is dependency-light and writes a static SVG,
+Newick, leaf/edge tables, GraphML, methods/manifest JSON, and an exact tree data
+bundle. Fungal and bacterial multipanels share a class/color grammar. GCF arcs
+show computational context; they are not transfer claims.
 
-- `build_bgc_gcf_crosswalk.py`: join summary outputs to BiG-SCAPE families
-- `build_candidate_tables.py`: optional ecology-aware ranking and reviewer shortlist generation
-- `export_dataset_family_atlas.py`: dataset-wide BiG-SCAPE family atlas export for no-target clinker staging
-- `render_bigscape_network.py`: BiG-SCAPE record network SVG and Cytoscape GraphML export
-- `export_priority_shortlist.py`: target-genome shortlist extraction
-- `export_shared_family_shortlist.py`: shared-family shortlist extraction
-- `stage_clinker_panels.py`: comparator selection and panel staging
+`docker-compose.yml` is the trusted single-user local profile. Its worker
+contains a pinned Docker CLI and mounts the host socket to run sibling tool
+containers. `clusterweave.yml` is socket-free and requires an external
+executor. Public services must supply their own isolation and operations layer.
 
-NCBI bootstrap responsibilities:
+Important boundaries:
 
-- `scripts/ncbi/download_ncbi_genomes.sh`: per-accession downloads from NCBI Datasets
-- `scripts/ncbi/rename_ncbi_genomes.sh`: derive stable fungus IDs and rename package contents
-- `scripts/ncbi/flatten_ncbi_genomes.sh`: flatten renamed package outputs into the genome root
-
-Near-term refactor target:
-
-- move helper logic into `src/clusterweave/`
-- keep shell scripts thin wrappers only
-
-Web/runtime notes:
-
-- `web/canonical_pipeline.py` is the current bridge from web jobs into the canonical shell scripts.
-- The lab QA runtime uses `ENGINE=docker` with a host Docker socket only in `docker-compose.yml`.
-- Public hosted deployments should keep the web/API layer as the central orchestrator and move heavy stages into constrained, prebuilt worker images.
-- See `docs/WEB_RUNTIME.md` for the runtime strategy, stage DAG boundary, and socket-safety rules.
+- public job projections and packages are allowlisted and token-gated;
+- raw genomes, raw tool databases, logs, scratch, and route internals stay
+  private;
+- resource planning and aggregate worker admission are one bounded system;
+- optional sequence inference or cross-kingdom evidence cannot invalidate the
+  successful core workflow unless explicitly required.

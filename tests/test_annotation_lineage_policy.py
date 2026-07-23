@@ -59,6 +59,76 @@ funannotate_predict_failure_status {shlex.quote(str(log_path))}
             )
             return tuple(result.stdout.strip().split("\t"))  # type: ignore[return-value]
 
+    def eligible_training_fallback(
+        self, log_text: str, configured_floor: str | None = None
+    ) -> str | None:
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = Path(tmp) / "funannotate.log"
+            log_path.write_text(log_text, encoding="utf-8")
+            command = f"""
+set -euo pipefail
+source <(awk '/^GENOME_MAPPING_FILE=/{{flag=1}} /^should_skip_discovered_stem\\(\\)/{{flag=0}} flag{{print}}' {shlex.quote(str(SCRIPT_PATH))})
+funannotate_busco_training_fallback_threshold {shlex.quote(str(log_path))}
+"""
+            run_env = dict(os.environ)
+            run_env["GENOME_ROOT"] = tmp
+            if configured_floor is not None:
+                run_env["FUNANNOTATE_MIN_TRAINING_MODELS_FALLBACK"] = configured_floor
+            result = subprocess.run(
+                ["bash", "-lc", command],
+                cwd=str(REPO_ROOT),
+                env=run_env,
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            if result.returncode != 0:
+                return None
+            return result.stdout.strip()
+
+    def p2g_failure_detected(self, log_text: str) -> bool:
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = Path(tmp) / "funannotate.log"
+            log_path.write_text(log_text, encoding="utf-8")
+            command = f"""
+set -euo pipefail
+source <(awk '/^GENOME_MAPPING_FILE=/{{flag=1}} /^should_skip_discovered_stem\\(\\)/{{flag=0}} flag{{print}}' {shlex.quote(str(SCRIPT_PATH))})
+funannotate_predict_failed_in_p2g {shlex.quote(str(log_path))}
+"""
+            result = subprocess.run(
+                ["bash", "-lc", command],
+                cwd=str(REPO_ROOT),
+                env=dict(os.environ, GENOME_ROOT=tmp),
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            return result.returncode == 0
+
+    def public_tool_activity_message(self, tool: str, line: str) -> tuple[int, str]:
+        command = f"""
+set -euo pipefail
+source <(awk '/^tool_activity_public_message\\(\\)/{{flag=1}} /^tool_activity_emit_progress\\(\\)/{{flag=0}} flag{{print}}' {shlex.quote(str(SCRIPT_PATH))})
+if message="$(tool_activity_public_message {shlex.quote(tool)} {shlex.quote(line)})"; then
+  printf '0\t%s\n' "$message"
+else
+  printf '1\t\n'
+fi
+"""
+        result = subprocess.run(
+            ["bash", "-lc", command],
+            cwd=str(REPO_ROOT),
+            env=dict(os.environ),
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        status, message = result.stdout.rstrip("\n").split("\t", 1)
+        return int(status), message
+
     def test_ascomycota_lineage_uses_configured_dataset_and_binomial_species(self) -> None:
         policy = self.resolve_policy(
             "Aspergillus_nidulans_FGSC_A4",
@@ -175,6 +245,76 @@ printf '%s\t%s\n' "$ANNOTATION_FALLBACK_FAILURE_REASON" "$ANNOTATION_FALLBACK_FA
 
         self.assertEqual(status, "funannotate_busco_training_insufficient")
         self.assertEqual(detail, "validated_busco_models=153 required_training_models=200")
+
+    def test_busco_training_fallback_accepts_qualified_186_of_200_models(self) -> None:
+        threshold = self.eligible_training_fallback(
+            "186 BUSCO predictions validated\n"
+            "ERROR: Not enough gene models 186 to train Augustus (200 required), exiting\n"
+        )
+
+        self.assertEqual(threshold, "150")
+
+    def test_busco_training_fallback_rejects_validated_count_below_floor(self) -> None:
+        threshold = self.eligible_training_fallback(
+            "149 BUSCO predictions validated\n"
+            "ERROR: Not enough gene models 149 to train Augustus (200 required), exiting\n"
+        )
+
+        self.assertIsNone(threshold)
+
+    def test_busco_training_fallback_floor_is_safely_clamped_below_default(self) -> None:
+        threshold = self.eligible_training_fallback(
+            "199 BUSCO predictions validated\n"
+            "ERROR: Not enough gene models 199 to train Augustus (200 required), exiting\n",
+            configured_floor="0200",
+        )
+
+        self.assertEqual(threshold, "199")
+
+    def test_p2g_classifier_ignores_generic_protein_alignment_path(self) -> None:
+        self.assertFalse(
+            self.p2g_failure_detected(
+                "Existing protein alignments: /work/predict_misc/protein_alignments.gff3\n"
+                "186 BUSCO predictions validated\n"
+            )
+        )
+
+    def test_p2g_classifier_accepts_actual_diamond_command_error(self) -> None:
+        self.assertTrue(
+            self.p2g_failure_detected(
+                "CMD ERROR: diamond blastx --query proteins.fa --db uniprot.dmnd\n"
+            )
+        )
+
+    def test_public_activity_does_not_report_zero_failed_counter_as_error(self) -> None:
+        status, message = self.public_tool_activity_message(
+            "funannotate",
+            "Progress: 309221 complete, 0 failed, 6448 remaining",
+        )
+
+        self.assertEqual(status, 1)
+        self.assertEqual(message, "")
+
+    def test_public_activity_still_reports_actual_funannotate_error(self) -> None:
+        status, message = self.public_tool_activity_message(
+            "funannotate",
+            "ERROR: command failed with an exception",
+        )
+
+        self.assertEqual(status, 0)
+        self.assertEqual(message, "funannotate reported an error")
+
+    def test_training_fallback_is_checked_before_p2g_retry(self) -> None:
+        text = SCRIPT_PATH.read_text(encoding="utf-8")
+        retry_block = text.split("local predict_succeeded=0", 1)[1].split(
+            'pred_gbk="$(find', 1
+        )[0]
+
+        self.assertLess(
+            retry_block.index("funannotate_busco_training_fallback_threshold"),
+            retry_block.index("funannotate_predict_failed_in_p2g"),
+        )
+        self.assertIn('--min_training_models "${training_fallback_floor}"', retry_block)
 
 
 if __name__ == "__main__":

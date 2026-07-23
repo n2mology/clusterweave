@@ -69,6 +69,7 @@ class NodeRecord:
     sample_id: str = UNKNOWN
     label_number: str = ""
     bgc_class: str = UNKNOWN
+    taxon_group: str = UNKNOWN
     ecology_category: str = UNKNOWN
     is_mibig: bool = False
     has_mibig_annotation: bool = False
@@ -597,6 +598,55 @@ def load_product_labels(annotation_table: Path | None) -> tuple[dict[str, tuple[
     return compact, []
 
 
+def load_taxon_groups(
+    annotation_table: Path | None,
+) -> tuple[dict[str, str], list[str]]:
+    """Load canonical fungi/bacteria labels keyed by BiG-SCAPE record."""
+
+    if annotation_table is None or not annotation_table.exists():
+        return {}, []
+    delimiter = "\t"
+    first_line = annotation_table.read_text(
+        encoding="utf-8-sig", errors="ignore"
+    ).splitlines()
+    if first_line and "," in first_line[0] and "\t" not in first_line[0]:
+        delimiter = ","
+    taxon_by_record: dict[str, str] = {}
+    conflicts: set[str] = set()
+    for row in read_table_rows(annotation_table, delimiter=delimiter):
+        record = clean(row.get("bigscape_record")) or clean(row.get("Record"))
+        taxon = clean(row.get("taxon_group")).lower()
+        if not record or taxon not in {"fungi", "bacteria"}:
+            continue
+        previous = taxon_by_record.get(record)
+        if previous is not None and previous != taxon:
+            conflicts.add(record)
+            taxon_by_record.pop(record, None)
+            continue
+        if record not in conflicts:
+            taxon_by_record[record] = taxon
+    warnings = (
+        [f"Conflicting taxon labels were omitted for {len(conflicts)} BiG-SCAPE record(s)."]
+        if conflicts
+        else []
+    )
+    return taxon_by_record, warnings
+
+
+def assign_taxon_groups(
+    nodes: dict[str, NodeRecord], taxon_by_record: dict[str, str]
+) -> list[str]:
+    for record, taxon in taxon_by_record.items():
+        if record in nodes:
+            nodes[record].taxon_group = taxon
+    missing = [record for record in taxon_by_record if record not in nodes]
+    return (
+        [f"Taxon-labeled records not present in the selected BiG-SCAPE network: {len(missing)}"]
+        if missing
+        else []
+    )
+
+
 def assign_product_labels(nodes: dict[str, NodeRecord], products_by_record: dict[str, tuple[ProductEvidence, ...]]) -> list[str]:
     missing = [record for record in products_by_record if record not in nodes]
     for record, products in products_by_record.items():
@@ -1064,13 +1114,19 @@ def build_layout(
             comp_set = set(comp)
             local_edges = component_edges(comp_set, edges)
             local_pos, box_w, box_h = local_component_layout(comp, local_edges, layout_iterations)
-            if x + box_w > margin + pack_network_width and x > margin:
+            label_width = max(
+                (estimated_svg_text_width(line, PRODUCT_LABEL_FONT_SIZE, "700") for line in component_product_label_lines(comp, nodes)),
+                default=0.0,
+            )
+            packed_width = max(box_w, label_width + 12.0)
+            if x + packed_width > margin + pack_network_width and x > margin:
                 y_cursor += row_height + row_gap
                 row_height = 0.0
                 x = row_left_for(y_cursor)
+            component_x = x + (packed_width - box_w) / 2.0
             for node_id, (local_x, local_y) in local_pos.items():
-                positions[node_id] = (x + local_x, y_cursor + local_y)
-            x += box_w + gap
+                positions[node_id] = (component_x + local_x, y_cursor + local_y)
+            x += packed_width + gap
             row_height = max(row_height, box_h)
         return y_cursor + row_height + row_gap
 
@@ -1235,8 +1291,8 @@ def wrap_label_text(text: str, max_chars: int = 24, max_lines: int = 2) -> list[
     if len(lines) > max_lines:
         kept = lines[:max_lines]
         kept[-1] = shorten(" ".join(lines[max_lines - 1 :]), max_chars)
-        return kept
-    return lines
+        return [shorten(line, max_chars) for line in kept]
+    return [shorten(line, max_chars) for line in lines]
 
 
 def component_product_label_lines(component: list[str], nodes: dict[str, NodeRecord]) -> list[str]:
@@ -1343,6 +1399,13 @@ def render_svg(
     pre_body_lines: Iterable[str] | None = None,
     section_titles: dict[str, str | None] | None = None,
     section_x: float = 36.0,
+    svg_title: str = "BiG-SCAPE gene cluster family network",
+    svg_description: str = (
+        "Network of biosynthetic gene clusters grouped by BiG-SCAPE. "
+        "Node labels identify genomes, node fill denotes broad BGC class, and "
+        "edges represent BiG-SCAPE similarity."
+    ),
+    sample_display_labels: dict[str, str] | None = None,
 ) -> None:
     r = node_radius(len(nodes))
     show_ecology = has_ecology_signal(nodes)
@@ -1468,12 +1531,13 @@ def render_svg(
     for sample_id in samples:
         label = label_by_sample[sample_id]
         count = sample_counts[sample_id]
-        legend_text_widths.append(estimated_svg_text_width(f"{label} = {sample_display_text(sample_id)} ({count})", 11, "800"))
+        display_sample_id = clean((sample_display_labels or {}).get(sample_id)) or sample_id
+        legend_text_widths.append(estimated_svg_text_width(f"{label} = {sample_display_text(display_sample_id)} ({count})", 11, "800"))
         lines.append(
             f'<text x="{legend_x:.1f}" y="{y:.1f}" font-family="Arial, Helvetica, sans-serif" '
             f'font-size="{display_font_size(11):g}" font-weight="400" text-anchor="start" fill="#222222">'
             f'<tspan font-weight="800">{escape(label)}</tspan><tspan> = </tspan>'
-            f'{svg_sample_name_tspans(sample_id, f" ({count})")}</text>'
+            f'{svg_sample_name_tspans(display_sample_id, f" ({count})")}</text>'
         )
         y += 20
     y += 14
@@ -1536,8 +1600,16 @@ def render_svg(
     )
 
     output_width = int(math.ceil(max(layout.section_right, legend_box_x + legend_box_w + legend_padding, 1.0)))
+    accessible_title = clean(svg_title) or "BiG-SCAPE gene cluster family network"
+    accessible_description = clean(svg_description) or (
+        "Network of biosynthetic gene clusters grouped by BiG-SCAPE."
+    )
     document_lines = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{output_width}" height="{layout.height}" viewBox="0 0 {output_width} {layout.height}">',
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{output_width}" height="{layout.height}" '
+        f'viewBox="0 0 {output_width} {layout.height}" role="img" '
+        f'aria-labelledby="bigscape-svg-title" aria-describedby="bigscape-svg-description">',
+        f'<title id="bigscape-svg-title">{escape(accessible_title)}</title>',
+        f'<desc id="bigscape-svg-description">{escape(accessible_description)}</desc>',
         '<rect x="0" y="0" width="100%" height="100%" fill="#FFFFFF"/>',
         *lines,
         "</svg>",
@@ -1558,6 +1630,7 @@ def write_graphml(path: Path, nodes: dict[str, NodeRecord], edges: list[EdgeReco
         "sample_id": "string",
         "bgc_class": "string",
         "raw_class": "string",
+        "taxon_group": "string",
         "ecology_category": "string",
         "is_mibig": "boolean",
         "has_mibig_annotation": "boolean",
@@ -1595,6 +1668,7 @@ def write_graphml(path: Path, nodes: dict[str, NodeRecord], edges: list[EdgeReco
             "sample_id": node.sample_id,
             "bgc_class": node.bgc_class,
             "raw_class": node.raw_class,
+            "taxon_group": node.taxon_group,
             "ecology_category": node.ecology_category,
             "is_mibig": str(node.is_mibig).lower(),
             "has_mibig_annotation": str(node.has_mibig_annotation).lower(),
@@ -1650,6 +1724,7 @@ def node_attribute_rows(nodes: dict[str, NodeRecord], positions: dict[str, tuple
                 "bgc_class": node.bgc_class,
                 "raw_class": node.raw_class,
                 "category": node.category,
+                "taxon_group": node.taxon_group,
                 "ecology_category": node.ecology_category,
                 "is_mibig": str(node.is_mibig).lower(),
                 "has_mibig_annotation": str(node.has_mibig_annotation).lower(),
@@ -1781,6 +1856,9 @@ def main(argv: list[str] | None = None) -> int:
     product_labels, product_warnings = load_product_labels(annotation_table)
     warnings.extend(product_warnings)
     warnings.extend(assign_product_labels(nodes, product_labels))
+    taxon_groups, taxon_warnings = load_taxon_groups(annotation_table)
+    warnings.extend(taxon_warnings)
+    warnings.extend(assign_taxon_groups(nodes, taxon_groups))
     edges, edge_warnings = load_edges(inputs.network_path, set(nodes), args.distance_threshold, args.similarity_threshold)
     warnings.extend(edge_warnings)
     nodes, edges, mibig_scope_warnings = filter_dataset_dependent_mibig_references(
@@ -1834,6 +1912,7 @@ def main(argv: list[str] | None = None) -> int:
             "bgc_class",
             "raw_class",
             "category",
+            "taxon_group",
             "ecology_category",
             "is_mibig",
             "has_mibig_annotation",
