@@ -24,7 +24,11 @@ from bigscape_public_db import (
 from genbank_readiness import inspect_genbank_translation_stream
 from result_attestation import write_result_attestation
 from result_policy import (
+    PUBLIC_EVIDENCE_MANIFEST_PATH,
+    PUBLIC_RESULTS_MANIFEST_PATH,
     is_public_analysis_relative_path,
+    public_archive_entry_name,
+    public_evidence_role,
     result_is_public_bigscape_database,
 )
 from taxon_routing import (
@@ -427,9 +431,38 @@ def _sanitize_stored_log_line(
     compact = re.sub(r"\s+", "", text)
     if len(compact) >= 40 and re.fullmatch(r"[ACGTUNRYSWKMBDHV.-]+", compact, re.IGNORECASE):
         text = "[raw nucleotide sequence redacted]"
-    elif len(compact) >= 40 and re.fullmatch(r"[ACDEFGHIKLMNPQRSTVWYBXZJUO*.-]+", compact, re.IGNORECASE):
+    elif (
+        len(compact) >= 40
+        and re.fullmatch(
+            r"[ACDEFGHIKLMNPQRSTVWYBXZJUO*.-]+", compact, re.IGNORECASE
+        )
+        and _has_raw_protein_sequence_layout(text)
+    ):
         text = "[raw protein sequence redacted]"
     return text[:4096], False
+
+
+def _has_raw_protein_sequence_layout(value: str) -> bool:
+    """Distinguish sequence-only lines from ordinary prose.
+
+    The extended amino-acid alphabet spans every English letter, so alphabet
+    membership alone cannot identify a protein sequence. Raw tool output is
+    either one uninterrupted sequence token or fixed-width uppercase chunks;
+    normal workflow messages contain mixed-case, variable-width words.
+    """
+
+    text = str(value or "").strip()
+    chunks = re.split(r"\s+", text) if text else []
+    if len(chunks) <= 1:
+        return bool(chunks)
+    if text != text.upper():
+        return False
+    width = len(chunks[0])
+    return (
+        width >= 10
+        and all(len(chunk) == width for chunk in chunks[:-1])
+        and 1 <= len(chunks[-1]) <= width
+    )
 
 
 def _safe_command_log(cmd: list[str]) -> str:
@@ -661,6 +694,18 @@ def _safe_genome_id(value: object) -> str:
 def _safe_manifest_text(value: object, *, limit: int = 500) -> str:
     text = re.sub(r"[\t\r\n]+", " ", str(value or "")).strip()
     return text[:limit]
+
+
+_PUBLIC_SOURCE_ACCESSION_RE = re.compile(
+    r"^(?:GC[AF]|NZ)_[A-Z0-9][A-Z0-9._-]{3,158}$"
+)
+
+
+def _public_source_accession(value: object) -> str:
+    """Return a public accession token, never an arbitrary metadata value."""
+
+    text = _safe_manifest_text(value, limit=160).upper()
+    return text if _PUBLIC_SOURCE_ACCESSION_RE.fullmatch(text) else ""
 
 
 def _safe_input_path_key(value: object) -> str:
@@ -1089,10 +1134,83 @@ def _taxonomy_metadata_from_mapping_files(
     return rows
 
 
+def _write_routed_workflow_metadata(
+    layout: ProjectLayout,
+    routes: list[dict[str, str]],
+    scope: str,
+    *,
+    ecology_enabled: bool,
+) -> None:
+    summary_root = layout.results_root / "summary_tables"
+    ecology_names = (
+        "ecofun_metadata_normalized.tsv",
+        "ecofun_metadata_template.tsv",
+        "ecobac_metadata_normalized.tsv",
+        "ecobac_metadata_template.tsv",
+    )
+    if ecology_enabled and layout.metadata_file is not None and layout.metadata_file.is_file():
+        return
+    if ecology_enabled:
+        output_root = summary_root
+    else:
+        for name in ecology_names:
+            (summary_root / name).unlink(missing_ok=True)
+        output_root = layout.work_root / "routing"
+
+    if scope == "bacteria":
+        output = output_root / "ecobac_metadata_normalized.tsv"
+        fields = [
+            "accession",
+            "genome_id_current",
+            "taxid",
+            "organism_name",
+            "ecobac_primary",
+            "ecobac_secondary",
+        ]
+        rows = [
+            {
+                "accession": row["source_accession"],
+                "genome_id_current": row["genome_id"],
+                "taxid": row["taxid"],
+                "organism_name": row["organism_name"],
+                "ecobac_primary": "",
+                "ecobac_secondary": "",
+            }
+            for row in routes
+        ]
+    else:
+        output = output_root / "ecofun_metadata_normalized.tsv"
+        fields = [
+            "accession",
+            "genome_id_current",
+            "taxonomy_id",
+            "genome_size_mb",
+            "genome_id_original_if_different",
+            "ecofun_primary",
+            "ecofun_secondary",
+        ]
+        rows = [
+            {
+                "accession": row["source_accession"],
+                "genome_id_current": row["genome_id"],
+                "taxonomy_id": row["taxid"],
+                "genome_size_mb": "",
+                "genome_id_original_if_different": "",
+                "ecofun_primary": "",
+                "ecofun_secondary": "",
+            }
+            for row in routes
+        ]
+    _write_tsv(output, fields, rows)
+    layout.metadata_file = output
+
+
 def _write_taxon_manifests(
     layout: ProjectLayout,
     routes: list[dict[str, str]],
     taxonomy_metadata: object = None,
+    *,
+    ecology_enabled: bool = False,
 ) -> None:
     summary_root = layout.results_root / "summary_tables"
     safe_routes = [
@@ -1163,40 +1281,32 @@ def _write_taxon_manifests(
         for row in safe_routes
         if row["taxon_group"] == "bacteria"
     ]
-    _write_tsv(
-        summary_root / "fungal_id_legend.tsv",
-        ["fungal_id", "genome_id", "taxid", "organism_name", "source_accession"],
-        fungal_rows,
-    )
-    _write_tsv(
-        summary_root / "bacteria_id_legend.tsv",
-        ["bacteria_id", "genome_id", "taxid", "organism_name", "source_accession"],
-        bacterial_rows,
-    )
-    ecobac_path = summary_root / "ecobac_metadata_normalized.tsv"
-    if bacterial_rows and not ecobac_path.exists():
+    fungal_legend = summary_root / "fungal_id_legend.tsv"
+    if fungal_rows:
         _write_tsv(
-            ecobac_path,
-            [
-                "accession",
-                "genome_id_current",
-                "taxid",
-                "organism_name",
-                "ecobac_primary",
-                "ecobac_secondary",
-            ],
-            [
-                {
-                    "accession": row["source_accession"],
-                    "genome_id_current": row["genome_id"],
-                    "taxid": row["taxid"],
-                    "organism_name": row["organism_name"],
-                    "ecobac_primary": "",
-                    "ecobac_secondary": "",
-                }
-                for row in bacterial_rows
-            ],
+            fungal_legend,
+            ["fungal_id", "genome_id", "taxid", "organism_name", "source_accession"],
+            fungal_rows,
         )
+    else:
+        fungal_legend.unlink(missing_ok=True)
+
+    bacterial_legend = summary_root / "bacteria_id_legend.tsv"
+    if bacterial_rows:
+        _write_tsv(
+            bacterial_legend,
+            ["bacteria_id", "genome_id", "taxid", "organism_name", "source_accession"],
+            bacterial_rows,
+        )
+    else:
+        bacterial_legend.unlink(missing_ok=True)
+
+    _write_routed_workflow_metadata(
+        layout,
+        safe_routes,
+        scope,
+        ecology_enabled=ecology_enabled,
+    )
 
 
 def _read_taxon_manifest(layout: ProjectLayout) -> list[dict[str, str]]:
@@ -1315,7 +1425,10 @@ def _stage_uploaded_inputs(input_files: list[Path], layout: ProjectLayout, setti
         normalized_routes
     )
     _write_taxon_manifests(
-        layout, normalized_routes, settings.get("taxonomy_metadata")
+        layout,
+        normalized_routes,
+        settings.get("taxonomy_metadata"),
+        ecology_enabled=_cfg_bool(settings, "run_ecology_analysis", False),
     )
 
 
@@ -1364,7 +1477,10 @@ def _restore_existing_layout_inputs(
             routes
         )
         _write_taxon_manifests(
-            layout, routes, settings.get("taxonomy_metadata") if settings else None
+            layout,
+            routes,
+            settings.get("taxonomy_metadata") if settings else None,
+            ecology_enabled=_cfg_bool(settings or {}, "run_ecology_analysis", False),
         )
     job.add_log("Reusing existing staged ClusterWeave layout for rerun.")
 
@@ -1847,23 +1963,143 @@ def _fsync_file(path: Path) -> None:
 
 def _write_public_manifest(
     manifest_path: Path,
-    job_dir: Path,
-    public_paths: list[Path],
-) -> dict[Path, tuple[int, int, int, int, int]]:
+    public_entries: list[tuple[Path, str]],
+    *,
+    known_records: Optional[
+        Mapping[Path, tuple[tuple[int, int, int, int, int], str]]
+    ] = None,
+) -> dict[Path, tuple[tuple[int, int, int, int, int], str]]:
     lines = ["path\tbytes\tsha256"]
-    identities: dict[Path, tuple[int, int, int, int, int]] = {}
-    for path in public_paths:
+    records: dict[Path, tuple[tuple[int, int, int, int, int], str]] = {}
+    reusable = known_records or {}
+    for path, rel in public_entries:
         before = _file_identity(path)
-        rel = path.relative_to(job_dir).as_posix()
-        digest = _sha256(path)
+        known = reusable.get(path)
+        if known is not None:
+            if known[0] != before:
+                raise RuntimeError(
+                    "Scientific evidence changed after its evidence manifest was generated"
+                )
+            digest = known[1]
+        else:
+            digest = _sha256(path)
         after = _file_identity(path)
         if after != before:
             raise RuntimeError("Public result changed while its manifest was generated")
-        identities[path] = after
+        records[path] = (after, digest)
         lines.append(f"{rel}\t{after[2]}\t{digest}")
     manifest_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     _fsync_file(manifest_path)
-    return identities
+    return records
+
+
+def _evidence_genome_id(rel_path: str, role: str) -> str:
+    parts = rel_path.split("/")
+    if role == "staged_genome_genbank" and len(parts) == 2:
+        return Path(parts[1]).stem
+    if role in {"antismash_region_genbank", "funbgcex_bgc_genbank"} and len(parts) >= 2:
+        return parts[1]
+    return ""
+
+
+def _evidence_taxon_metadata(layout: ProjectLayout) -> dict[str, tuple[str, str]]:
+    manifest = layout.results_root / "summary_tables" / "genome_taxon_manifest.tsv"
+    try:
+        if manifest.is_symlink() or not manifest.is_file():
+            return {}
+        manifest.resolve(strict=True).relative_to(layout.results_root.resolve(strict=True))
+        rows: dict[str, tuple[str, str]] = {}
+        with manifest.open("r", encoding="utf-8-sig", newline="") as handle:
+            for raw in csv.DictReader(handle, delimiter="\t"):
+                genome_id = _safe_manifest_text(raw.get("genome_id"), limit=120)
+                if not genome_id:
+                    continue
+                taxon_group = _safe_manifest_text(
+                    raw.get("taxon_group"), limit=20
+                ).lower()
+                if taxon_group not in {"fungi", "bacteria"}:
+                    taxon_group = ""
+                source_accession = _public_source_accession(
+                    raw.get("source_accession")
+                )
+                rows[genome_id.casefold()] = (taxon_group, source_accession)
+        return rows
+    except (OSError, ValueError, csv.Error):
+        return {}
+
+
+def _write_evidence_manifest(
+    manifest_path: Path,
+    layout: ProjectLayout,
+) -> dict[Path, tuple[tuple[int, int, int, int, int], str]]:
+    """Write a portable, path-redacted checksum index for exact genome evidence."""
+
+    metadata = _evidence_taxon_metadata(layout)
+    evidence: list[tuple[Path, str, str]] = []
+    if layout.results_root.exists():
+        for path in sorted(layout.results_root.rglob("*")):
+            if not _is_public_result_file(path, layout):
+                continue
+            rel = path.relative_to(layout.results_root).as_posix()
+            role = public_evidence_role(rel)
+            if not role or role == "evidence_manifest":
+                continue
+            evidence.append((path, rel, role))
+
+    lines = [
+        "path\trole\tgenome_id\ttaxon_group\tsource_accession\tbytes\tsha256"
+    ]
+    records: dict[Path, tuple[tuple[int, int, int, int, int], str]] = {}
+    for path, rel, role in evidence:
+        before = _file_identity(path)
+        digest = _sha256(path)
+        after = _file_identity(path)
+        if after != before:
+            raise RuntimeError(
+                "Scientific evidence changed while its evidence manifest was generated"
+            )
+        records[path] = (after, digest)
+        genome_id = _safe_manifest_text(_evidence_genome_id(rel, role), limit=120)
+        taxon_group, source_accession = metadata.get(
+            genome_id.casefold(), ("", "")
+        )
+        lines.append(
+            "\t".join(
+                [
+                    rel,
+                    role,
+                    genome_id,
+                    taxon_group,
+                    source_accession,
+                    str(after[2]),
+                    digest,
+                ]
+            )
+        )
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    _fsync_file(manifest_path)
+    return records
+
+
+def _zip_info(name: str) -> zipfile.ZipInfo:
+    info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+    info.compress_type = zipfile.ZIP_DEFLATED
+    info.external_attr = 0o100644 << 16
+    return info
+
+
+def _portable_package_manifest(
+    public_entries: list[tuple[Path, str]],
+    records: Mapping[Path, tuple[tuple[int, int, int, int, int], str]],
+) -> bytes:
+    lines = ["path\tbytes\tsha256"]
+    for path, rel in public_entries:
+        identity, digest = records[path]
+        lines.append(
+            f"{public_archive_entry_name(rel)}\t{identity[2]}\t{digest}"
+        )
+    return ("\n".join(lines) + "\n").encode("utf-8")
 
 
 def _public_bigscape_max_bytes() -> int:
@@ -1943,26 +2179,43 @@ def _collect_result_files(
 
     if attested_bigscape_databases is None:
         attested_bigscape_databases = _prepare_public_bigscape_results(job, layout)
-    public_paths: list[Path] = []
+    token = secrets.token_hex(8)
+    evidence_path = layout.results_root / PUBLIC_EVIDENCE_MANIFEST_PATH
+    evidence_temp = evidence_path.with_name(f".{evidence_path.name}.{token}.tmp")
+    known_records = _write_evidence_manifest(evidence_temp, layout)
+
+    public_entries: list[tuple[Path, str]] = []
     if layout.results_root.exists():
         for path in sorted(layout.results_root.rglob("*")):
             if not _is_public_result_file(path, layout):
                 continue
-            rel = path.relative_to(layout.results_root).as_posix()
+            analysis_rel = path.relative_to(layout.results_root).as_posix()
+            if analysis_rel == PUBLIC_EVIDENCE_MANIFEST_PATH:
+                # Keep the previous published index intact until this refresh
+                # and its package have both passed the publication checks.
+                continue
             if (
-                result_is_public_bigscape_database(rel)
+                result_is_public_bigscape_database(analysis_rel)
                 and path.resolve() not in attested_bigscape_databases
             ):
                 continue
-            public_paths.append(path)
+            public_entries.append((path, path.relative_to(job_dir).as_posix()))
+    public_entries.append(
+        (evidence_temp, evidence_path.relative_to(job_dir).as_posix())
+    )
+    public_entries.sort(key=lambda entry: entry[1])
 
-    manifest_path = downloads_dir / "public_results_manifest.tsv"
+    manifest_path = downloads_dir / Path(PUBLIC_RESULTS_MANIFEST_PATH).name
     archive_path = downloads_dir / f"{layout.project_name}_public_results.zip"
-    token = secrets.token_hex(8)
     manifest_temp = downloads_dir / f".{manifest_path.name}.{token}.tmp"
     archive_temp = downloads_dir / f".{archive_path.name}.{token}.tmp"
     try:
-        identities = _write_public_manifest(manifest_temp, job_dir, public_paths)
+        records = _write_public_manifest(
+            manifest_temp,
+            public_entries,
+            known_records=known_records,
+        )
+        package_manifest = _portable_package_manifest(public_entries, records)
         with zipfile.ZipFile(
             archive_temp,
             "w",
@@ -1970,20 +2223,20 @@ def _collect_result_files(
             compresslevel=1,
             allowZip64=True,
         ) as archive:
-            archive.write(
-                manifest_temp,
-                manifest_path.relative_to(job_dir).as_posix(),
+            archive.writestr(
+                _zip_info(PUBLIC_RESULTS_MANIFEST_PATH),
+                package_manifest,
             )
-            for path in public_paths:
-                archive.write(path, path.relative_to(job_dir).as_posix())
-                if _file_identity(path) != identities[path]:
+            for path, rel in public_entries:
+                archive.write(path, public_archive_entry_name(rel))
+                if _file_identity(path) != records[path][0]:
                     raise RuntimeError(
                         "Public result changed while its archive was generated"
                     )
         _fsync_file(archive_temp)
         if any(
             _file_identity(path) != identity
-            for path, identity in identities.items()
+            for path, (identity, _digest) in records.items()
         ):
             raise RuntimeError(
                 "Public result changed before its manifest and archive were published"
@@ -1991,6 +2244,7 @@ def _collect_result_files(
         if before_publish is not None:
             before_publish()
         os.replace(archive_temp, archive_path)
+        os.replace(evidence_temp, evidence_path)
         os.replace(manifest_temp, manifest_path)
         # The manifest hashes were produced and identity-checked immediately
         # above. Sign their compact index now; request handlers never need to
@@ -2000,17 +2254,19 @@ def _collect_result_files(
             job.id,
             verify_hashes=False,
             viewer_path=job.bigscape_viewer_database,
+            archive_path=archive_path.relative_to(job_dir).as_posix(),
         )
 
     finally:
         manifest_temp.unlink(missing_ok=True)
         archive_temp.unlink(missing_ok=True)
+        evidence_temp.unlink(missing_ok=True)
 
     job.result_files = [
         archive_path.relative_to(job_dir).as_posix(),
         manifest_path.relative_to(job_dir).as_posix(),
     ]
-    job.result_files.extend(path.relative_to(job_dir).as_posix() for path in public_paths)
+    job.result_files.extend(rel for _path, rel in public_entries)
 
 
 async def run_pipeline(
@@ -2113,7 +2369,10 @@ async def run_pipeline(
                     prepared_routes
                 )
                 _write_taxon_manifests(
-                    layout, prepared_routes, cfg.get("taxonomy_metadata")
+                    layout,
+                    prepared_routes,
+                    cfg.get("taxonomy_metadata"),
+                    ecology_enabled=_cfg_bool(cfg, "run_ecology_analysis", False),
                 )
 
         target_before = _cfg_str(cfg, "target_genome")

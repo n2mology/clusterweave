@@ -438,6 +438,11 @@ def main() -> None:
         default="",
         help="Optional ecology label to prioritize. Defaults to the target genome's ecology label when available.",
     )
+    parser.add_argument(
+        "--skip-ecology-tables",
+        action="store_true",
+        help="Keep neutral ranking inputs but do not publish ecology-specific tables.",
+    )
     args = parser.parse_args()
 
     results_root = args.project_root / "data" / "results" / args.project_name
@@ -943,55 +948,59 @@ def main() -> None:
         )
     )
 
-    write_tsv(
-        dse_detail_out,
-        [
-            "genome",
-            "accession",
-            "ecofun_primary",
-            "ecofun_secondary",
-            "ecology_group",
-            "class_norm",
-            "shared_gcf_count",
-            "unshared_gcf_count",
-            "total_gcf_count",
-        ],
-        gcf_summary_detail_rows,
-    )
-    write_tsv(
-        dse_summary_out,
-        [
-            "ecology_group",
-            "class_norm",
-            "genome_count",
-            "shared_gcf_total",
-            "unshared_gcf_total",
-            "total_gcf",
-            "mean_shared_gcf_per_genome",
-            "mean_unshared_gcf_per_genome",
-            "mean_total_gcf_per_genome",
-        ],
-        gcf_summary_rows,
-    )
-    write_tsv(
-        gcf_context_out,
-        [
-            "gcf_id",
-            "gcf_selected_category",
-            "gcf_selected_threshold",
-            "candidate_row_count",
-            "genome_count",
-            "focus_ecology_label",
-            "focus_genome_count",
-            "nonfocus_genome_count",
-            "ecology_pattern",
-            "top_antismash_class",
-            "example_annotation",
-            "consensus_profile",
-            "genomes",
-        ],
-        gcf_context_rows,
-    )
+    if args.skip_ecology_tables:
+        for ecology_output in (dse_detail_out, dse_summary_out, gcf_context_out):
+            ecology_output.unlink(missing_ok=True)
+    else:
+        write_tsv(
+            dse_detail_out,
+            [
+                "genome",
+                "accession",
+                "ecofun_primary",
+                "ecofun_secondary",
+                "ecology_group",
+                "class_norm",
+                "shared_gcf_count",
+                "unshared_gcf_count",
+                "total_gcf_count",
+            ],
+            gcf_summary_detail_rows,
+        )
+        write_tsv(
+            dse_summary_out,
+            [
+                "ecology_group",
+                "class_norm",
+                "genome_count",
+                "shared_gcf_total",
+                "unshared_gcf_total",
+                "total_gcf",
+                "mean_shared_gcf_per_genome",
+                "mean_unshared_gcf_per_genome",
+                "mean_total_gcf_per_genome",
+            ],
+            gcf_summary_rows,
+        )
+        write_tsv(
+            gcf_context_out,
+            [
+                "gcf_id",
+                "gcf_selected_category",
+                "gcf_selected_threshold",
+                "candidate_row_count",
+                "genome_count",
+                "focus_ecology_label",
+                "focus_genome_count",
+                "nonfocus_genome_count",
+                "ecology_pattern",
+                "top_antismash_class",
+                "example_annotation",
+                "consensus_profile",
+                "genomes",
+            ],
+            gcf_context_rows,
+        )
     write_tsv(
         candidate_ranking_out,
         [
@@ -1084,9 +1093,12 @@ def main() -> None:
             target_shortlist_rows,
         )
 
-    print(f"Wrote ecology-group per-genome GCF detail: {dse_detail_out}")
-    print(f"Wrote ecology-group GCF summary:         {dse_summary_out}")
-    print(f"Wrote GCF ecology distribution:         {gcf_context_out}")
+    if args.skip_ecology_tables:
+        print("Skipped ecology-specific summary tables: ecology analysis was not selected")
+    else:
+        print(f"Wrote ecology-group per-genome GCF detail: {dse_detail_out}")
+        print(f"Wrote ecology-group GCF summary:         {dse_summary_out}")
+        print(f"Wrote GCF ecology distribution:         {gcf_context_out}")
     print(f"Wrote targeted candidate ranking:       {candidate_ranking_out}")
     if target_shortlist_rows:
         print(f"Wrote target reviewer shortlist:        {target_shortlist_out}")

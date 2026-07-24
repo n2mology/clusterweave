@@ -1,7 +1,7 @@
 {
   "name": "clusterweave-release-qa",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "scripts": {
     "test:browser": "playwright test --config tests/browser/playwright.config.js"
   },

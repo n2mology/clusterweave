@@ -3416,10 +3416,11 @@ process_genome() {
   local total_genomes="$4"
   local GENLOG fasta gb_src staged_gbk ant_out fbx_out ant_err ant_stdout fbx_err fbx_stdout
   local gbk_used gbk_status fallback_method antismash_status funbgcex_status ant_done fbx_done
-  local per_tmp ant_filtered_input ant_input antismash_input_sanitized ant_sanitize_summary antismash_duplicate_cds_dropped
+  local per_tmp ant_filtered_input ant_input antismash_input_sanitized ant_sanitize_summary
+  local antismash_duplicate_cds_dropped antismash_invalid_non_cds_dropped antismash_codon_start_removed
   local fbx_input gbk_dir antismash_record_ids_file antismash_record_count antismash_record_ids_stable antismash_shard_root antismash_run_mode antismash_run_ok
   local taxon_group taxon_source route_status prediction_method detector_profile funbgcex_applicability genome_input_root
-  local bacteria_source bacterial_record_map bacterial_sanitize_summary python_cmd
+  local bacteria_source bacterial_record_map bacterial_sanitize_summary bacterial_stage_temp python_cmd
   local GENOME_ROOT GENOME_MAPPING_FILE
   local -a antismash_record_ids=()
   local -a ANT_FLAGS_ARRAY=()
@@ -3510,10 +3511,17 @@ process_genome() {
             --max-record-bp "${ANTISMASH_MAX_RECORD_BP}" 2>> "${GENLOG}"
         )"; then
         printf '%s\n' "${bacterial_sanitize_summary}" | tee -a "${GENLOG}"
-        gbk_used="${ant_input}"
-        gbk_status="bacterial_sequence_sanitized"
-        antismash_input_sanitized=1
-        genome_stage_progress "${genome_id}" "annotation" 25 "Feature-free bacterial GenBank ready"
+        bacterial_stage_temp="${staged_gbk}.tmp.${BASHPID:-$$}"
+        if cp -f "${ant_input}" "${bacterial_stage_temp}" \
+            && mv -f "${bacterial_stage_temp}" "${staged_gbk}"; then
+          gbk_used="${staged_gbk}"
+          gbk_status="bacterial_sequence_sanitized"
+          antismash_input_sanitized=1
+          genome_stage_progress "${genome_id}" "annotation" 25 "Feature-free bacterial GenBank ready"
+        else
+          rm -f "${bacterial_stage_temp}" 2>/dev/null || true
+          gbk_status="bacterial_staging_failed"
+        fi
       else
         gbk_status="bacterial_sanitizer_failed"
       fi
@@ -3633,9 +3641,12 @@ process_genome() {
       ant_sanitize_summary="${genome_id}: antismash_input_duplicate_cds_locations sanitizer_failed=1 dropped_duplicate_cds=0"
     }
     printf '%s\n' "${ant_sanitize_summary}" | tee -a "${GENLOG}"
-    antismash_duplicate_cds_dropped="$(printf '%s\n' "${ant_sanitize_summary}" | sed -nE 's/.*dropped_duplicate_cds=([0-9]+).*/\1/p' | head -n1)"
+    antismash_duplicate_cds_dropped="$(printf '%s\n' "${ant_sanitize_summary}" | sed -nE 's/.*dropped_duplicate_cds[^0-9]*([0-9]+).*/\1/p' | head -n1)"
     antismash_invalid_non_cds_dropped="$(printf '%s\n' "${ant_sanitize_summary}" | sed -nE 's/.*dropped_invalid_non_cds_compound_features[^0-9]*([0-9]+).*/\1/p' | head -n1)"
-    if [[ "${antismash_duplicate_cds_dropped:-0}" -gt 0 || "${antismash_invalid_non_cds_dropped:-0}" -gt 0 ]]; then
+    antismash_codon_start_removed="$(printf '%s\n' "${ant_sanitize_summary}" | sed -nE 's/.*removed_unsafe_codon_start_qualifiers[^0-9]*([0-9]+).*/\1/p' | head -n1)"
+    if [[ "${antismash_duplicate_cds_dropped:-0}" -gt 0 \
+        || "${antismash_invalid_non_cds_dropped:-0}" -gt 0 \
+        || "${antismash_codon_start_removed:-0}" -gt 0 ]]; then
       antismash_input_sanitized=1
     fi
 

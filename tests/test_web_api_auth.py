@@ -1343,6 +1343,64 @@ ORIGIN
         )
         self.assertEqual(status, 404)
 
+    def test_signed_prebuilt_archive_streams_directly_and_mutation_rebuilds(self) -> None:
+        job_id = "prebuiltarchive"
+        read_token = "read-prebuilt"
+        self.write_job(job_id, read_token)
+        root = self.job_store.job_dir(job_id)
+        manifest_bytes = (
+            root / "downloads" / "public_results_manifest.tsv"
+        ).read_bytes()
+        figure_bytes = (root / "results" / "figure.svg").read_bytes()
+        package_rel = "downloads/demo_public_results.zip"
+        package = root / package_rel
+        with zipfile.ZipFile(package, "w", compression=zipfile.ZIP_STORED) as archive:
+            archive.writestr("downloads/public_results_manifest.tsv", manifest_bytes)
+            archive.writestr("results/figure.svg", figure_bytes)
+        signed_package = package.read_bytes()
+        importlib.import_module("result_attestation").write_result_attestation(
+            root,
+            job_id,
+            verify_hashes=True,
+            path_validator=lambda path: self.app.result_file_is_publicly_servable(
+                root, path
+            ),
+            archive_path=package_rel,
+        )
+        public_id = self.fixture_public_run_id(job_id)
+
+        with mock.patch.object(
+            self.app,
+            "build_public_archive",
+            side_effect=AssertionError("signed package was recompressed"),
+        ):
+            status, body, _ = self.request(
+                "GET",
+                f"/api/results/{public_id}/archive",
+                headers=self.auth(read_token),
+            )
+        self.assertEqual(status, 200)
+        self.assertEqual(body, signed_package)
+
+        tampered = bytearray(signed_package)
+        tampered[-1] ^= 1
+        package.write_bytes(tampered)
+        with mock.patch.object(
+            self.app,
+            "build_public_archive",
+            wraps=self.app.build_public_archive,
+        ) as rebuilt:
+            status, body, _ = self.request(
+                "GET",
+                f"/api/results/{public_id}/archive",
+                headers=self.auth(read_token),
+            )
+        self.assertEqual(status, 200)
+        self.assertTrue(rebuilt.called)
+        self.assertNotEqual(body, bytes(tampered))
+        with zipfile.ZipFile(io.BytesIO(body)) as archive:
+            self.assertEqual(archive.read("results/figure.svg"), figure_bytes)
+
     def test_direct_manifest_route_is_target_bounded_while_listing_uses_allowlist(self) -> None:
         job_id = "directmanifest"
         read_token = "read-direct-manifest"
@@ -2980,6 +3038,8 @@ ORIGIN
             [
                 '[08:00:01] ANTISMASH_RECORD_PROGRESS genome=fungus_id1 record=private_record_alpha ordinal=2/5 percent=40 bar=[########------------] message="antiSMASH record shard complete"',
                 '[08:00:02] ANTISMASH_RECORD_PROGRESS genome=fungus_id1 record=private_record_beta ordinal=3/5 percent=41 bar=[########------------] message="TOKEN=fake-record-secret /data/jobs/jobone/private/record.gbk"',
+                '[08:00:03] TOOL_PROGRESS genome=fungus_id1 tool=antismash phase=record_2 message="Scanning protein domains"',
+                '[08:00:04] TOOL_HEARTBEAT genome=fungus_id1 tool=antismash phase=record_2 elapsed=900s',
             ],
         )
 
@@ -2988,12 +3048,25 @@ ORIGIN
         )
         self.assertEqual(status, 200)
         genome = payload["genome_progress"][0]
-        self.assertEqual(genome["percent"], 49)
+        self.assertEqual(genome["percent"], 42)
         self.assertEqual(genome["stage"], "antismash")
         self.assertEqual(genome["tool"], "antiSMASH")
         self.assertEqual(genome["status"], "running")
-        self.assertEqual(genome["message"], "Record 3 of 5 · 41%")
+        self.assertEqual(genome["message"], "Scanning protein domains")
+        self.assertEqual(genome["activity_message"], "Scanning protein domains")
+        self.assertEqual(
+            genome["region_progress"],
+            {"processed": 1, "total": 5, "active": 1, "failed": 0},
+        )
+        self.assertTrue(
+            any(
+                event.get("title")
+                == "antiSMASH regions: 1 of 5 processed · 1 active"
+                for event in payload["public_events"]
+            )
+        )
         rendered = json.dumps(payload["genome_progress"])
+        self.assertNotIn("Still running", rendered)
         self.assertNotIn("private_record_alpha", rendered)
         self.assertNotIn("private_record_beta", rendered)
         self.assertNotIn("fake-record-secret", rendered)
@@ -3088,6 +3161,10 @@ ORIGIN
         genome = payload["genome_progress"][0]
         self.assertEqual(genome["percent"], 52)
         self.assertEqual(genome["status"], "running")
+        self.assertEqual(
+            genome["region_progress"],
+            {"processed": 1, "total": 2, "active": 0, "failed": 1},
+        )
         self.assertFalse(genome["terminal"])
 
         logs.append(
@@ -3150,7 +3227,7 @@ ORIGIN
         self.assertEqual(genome["stage_states"]["genome_acquired"]["status"], "complete")
         self.assertEqual(genome["stage_states"]["antismash"]["status"], "failed")
         self.assertEqual(genome["stage_states"]["funbgcex"]["status"], "complete")
-        self.assertEqual(genome["stage_states"]["complete"]["status"], "queued")
+        self.assertEqual(genome["stage_states"]["complete"]["status"], "complete")
         self.assertTrue(genome["terminal"])
 
 
@@ -3961,11 +4038,17 @@ ORIGIN
         prefix = "data/results/demo"
         files = {
             f"{prefix}/antismash/genome_a/index.html": b"<!doctype html><title>antiSMASH</title>",
+            f"{prefix}/antismash/genome_a/contig.region001.gbk": b"LOCUS antiSMASH region\n",
+            f"{prefix}/antismash/genome_a/regions/contig.region002.gbk": b"LOCUS nested near miss\n",
             f"{prefix}/antismash/genome_a/css/main.css": b"body { color: #123; }\n",
             f"{prefix}/antismash/genome_a/js/app.js": b"window.bundleReady = true;\n",
             f"{prefix}/antismash/genome_a/knownclusterblast/region1/hit.html": b"<!doctype html><title>hit</title>",
             f"{prefix}/funbgcex/genome_a/allBGCs.html": b"<!doctype html><a href='results/x/HTMLs/BGC1.html'>BGC1</a>",
             f"{prefix}/funbgcex/genome_a/results/x/HTMLs/BGC1.html": b"<!doctype html><title>BGC1</title>",
+            f"{prefix}/funbgcex/genome_a/results/genome_a.funbgcex_results/BGCs/BGC1.gbk": b"LOCUS FunBGCeX BGC\n",
+            f"{prefix}/funbgcex/genome_a/all_clusters/genome_a_BGCs/BGC1.gbk": b"LOCUS duplicate mirror\n",
+            f"{prefix}/input_gbks/genome_a.gbk": b"LOCUS staged genome\n",
+            f"{prefix}/evidence/clusterweave_evidence_manifest.tsv": b"path\trole\tgenome_id\ttaxon_group\tsource_accession\tbytes\tsha256\n",
             f"{prefix}/antismash/genome_a/private.sqlite": b"SQLite format 3\x00private",
             f"{prefix}/antismash/genome_a/genome_a.antismash.json": b"{\"records\":[]}",
         }
@@ -3976,6 +4059,8 @@ ORIGIN
         public_paths = [
             rel_path for rel_path in files
             if not rel_path.endswith(("private.sqlite", ".antismash.json"))
+            and "/regions/" not in rel_path
+            and "/all_clusters/" not in rel_path
         ]
         self.write_public_manifest_job("bundlejob", "read-bundle", public_paths)
         self.write_public_manifest_job("otherjob", "read-other", [])
@@ -3998,14 +4083,34 @@ ORIGIN
             category="funbgcex",
             role="index",
         )
+        staged = self.find_public_artifact(
+            artifacts,
+            filename="genome_a.gbk",
+            category="evidence",
+            role="staged-genome-genbank",
+        )
+        evidence_manifest = self.find_public_artifact(
+            artifacts,
+            filename="clusterweave_evidence_manifest.tsv",
+            category="evidence",
+            role="manifest",
+        )
         self.assertEqual(
             {
                 (artifact["category"], artifact["filename"])
                 for artifact in artifacts
-                if artifact["role"] != "manifest"
+                if artifact["filename"] != "public_results_manifest.tsv"
             },
-            {("antismash", "index.html"), ("funbgcex", "allBGCs.html")},
+            {
+                ("antismash", "index.html"),
+                ("funbgcex", "allBGCs.html"),
+                ("evidence", "genome_a.gbk"),
+                ("evidence", "clusterweave_evidence_manifest.tsv"),
+            },
         )
+        self.assertEqual(staged["mime"], "text/plain; charset=utf-8")
+        self.assertFalse(staged["previewable"])
+        self.assertEqual(evidence_manifest["kind"], "data")
 
         anti_root_url = f"/api/results/{public_id}/artifacts/{anti_root['id']}"
         fun_root_url = f"/api/results/{public_id}/artifacts/{fun_root['id']}"
@@ -4053,6 +4158,10 @@ ORIGIN
                 nested_html,
                 "hit.html",
                 "#r1c1",
+                "html",
+                "page",
+                "text/html; charset=utf-8",
+                True,
             ),
             (
                 fun_root,
@@ -4060,17 +4169,43 @@ ORIGIN
                 funbgcex_html,
                 "BGC1.html",
                 "",
+                "html",
+                "region",
+                "text/html; charset=utf-8",
+                True,
+            ),
+            (
+                anti_root,
+                "contig.region001.gbk",
+                f"{prefix}/antismash/genome_a/contig.region001.gbk",
+                "contig.region001.gbk",
+                "",
+                "artifact",
+                "antismash-region-genbank",
+                "text/plain; charset=utf-8",
+                False,
+            ),
+            (
+                fun_root,
+                "results/genome_a.funbgcex_results/BGCs/BGC1.gbk",
+                f"{prefix}/funbgcex/genome_a/results/genome_a.funbgcex_results/BGCs/BGC1.gbk",
+                "BGC1.gbk",
+                "",
+                "artifact",
+                "funbgcex-bgc-genbank",
+                "text/plain; charset=utf-8",
+                False,
             ),
         ]
-        for owner, reference, expected_path, filename, fragment in resolved_cases:
+        for owner, reference, expected_path, filename, fragment, kind, role, mime, sandboxed in resolved_cases:
             with self.subTest(reference=reference):
                 status, payload, _ = resolve(owner, reference, "read-bundle")
                 self.assertEqual(status, 200)
                 self.assertEqual(payload["fragment"], fragment)
                 resolved = payload["artifact"]
                 self.assertEqual(resolved["filename"], filename)
-                self.assertEqual(resolved["kind"], "html")
-                self.assertEqual(resolved["role"], "region" if filename == "BGC1.html" else "page")
+                self.assertEqual(resolved["kind"], kind)
+                self.assertEqual(resolved["role"], role)
                 self.assertNotIn(expected_path, json.dumps(resolved))
 
                 status, body, headers = self.request(
@@ -4080,10 +4215,11 @@ ORIGIN
                 )
                 self.assertEqual(status, 200)
                 self.assertEqual(body, files[expected_path])
-                self.assertEqual(
-                    headers.get("Content-Type"), "text/html; charset=utf-8"
-                )
-                self.assertIn("sandbox", headers.get("Content-Security-Policy", ""))
+                self.assertEqual(headers.get("Content-Type"), mime)
+                if sandboxed:
+                    self.assertIn("sandbox", headers.get("Content-Security-Policy", ""))
+                else:
+                    self.assertNotIn("Content-Security-Policy", headers)
 
                 status, denied, _ = self.request(
                     "GET",
@@ -4115,6 +4251,8 @@ ORIGIN
             f"{prefix}/antismash/genome_a/private.sqlite",
             f"{prefix}/antismash/genome_a/genome_a.antismash.json",
             f"{prefix}/antismash/index.html",
+            f"{prefix}/antismash/genome_a/regions/contig.region002.gbk",
+            f"{prefix}/funbgcex/genome_a/all_clusters/genome_a_BGCs/BGC1.gbk",
         ]:
             with self.subTest(rel_path=rel_path, private=True):
                 status, _, _ = self.request(

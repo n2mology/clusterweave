@@ -33,6 +33,34 @@ def has_translation(feature: object) -> bool:
     return any(str(value).strip() for value in qualifiers.get("translation", []))
 
 
+def codon_start_exceeds_first_part(feature: object) -> bool:
+    """Detect a compound CDS that antiSMASH cannot frameshift safely.
+
+    antiSMASH applies ``codon_start`` only to the first biological location
+    part. If that part is no longer than the requested offset, Biopython
+    rejects the adjusted location before antiSMASH can use the supplied
+    translation. The antiSMASH-only copy can omit the qualifier in this
+    narrow case because the translated protein remains authoritative.
+    """
+    if getattr(feature, "type", "") != "CDS" or not has_translation(feature):
+        return False
+    location = getattr(feature, "location", None)
+    if not isinstance(location, CompoundLocation) or not location.parts:
+        return False
+    qualifiers = getattr(feature, "qualifiers", None) or {}
+    values = qualifiers.get("codon_start", [])
+    if not isinstance(values, (list, tuple)):
+        values = [values]
+    if not values:
+        return False
+    raw_start = str(values[0]).strip()
+    try:
+        offset = int(raw_start[0]) - 1
+    except (IndexError, ValueError):
+        return False
+    return offset > 0 and len(location.parts[0]) <= offset
+
+
 def qualifier_label(feature: object) -> str:
     qualifiers = getattr(feature, "qualifiers", None) or {}
     for key in ("locus_tag", "protein_id", "ID", "gene"):
@@ -71,12 +99,22 @@ def sanitize(source: Path, destination: Path, genome_id: str) -> dict[str, objec
     duplicate_groups: set[tuple[str, str]] = set()
     dropped_duplicate_cds = 0
     dropped_invalid_non_cds = 0
+    removed_unsafe_codon_start = 0
     examples: list[str] = []
     for record in SeqIO.parse(source, "genbank"):
         record.annotations.setdefault("molecule_type", "DNA")
         keep_by_key: dict[tuple[str, str], int] = {}
         dropped_indexes: set[int] = set()
         for index, feature in enumerate(record.features or []):
+            if codon_start_exceeds_first_part(feature):
+                feature.qualifiers.pop("codon_start", None)
+                removed_unsafe_codon_start += 1
+                if len(examples) < 5:
+                    examples.append(
+                        f"record={record.id or record.name or 'record'} "
+                        f"type={feature.type} label={qualifier_label(feature)} "
+                        "action=removed_unsafe_codon_start"
+                    )
             if invalid_non_cds_compound(feature):
                 dropped_indexes.add(index)
                 dropped_invalid_non_cds += 1
@@ -116,6 +154,7 @@ def sanitize(source: Path, destination: Path, genome_id: str) -> dict[str, objec
         "duplicate_location_groups": len(duplicate_groups),
         "dropped_duplicate_cds": dropped_duplicate_cds,
         "dropped_invalid_non_cds_compound_features": dropped_invalid_non_cds,
+        "removed_unsafe_codon_start_qualifiers": removed_unsafe_codon_start,
         "examples": examples,
     }
 

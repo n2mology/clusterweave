@@ -20,6 +20,7 @@ from result_attestation import ResultAttestation
 from result_policy import (
     PUBLIC_RESULTS_MANIFEST_PATH,
     normalized_job_result_path,
+    public_evidence_role,
     result_is_public_bigscape_database,
 )
 
@@ -56,6 +57,7 @@ _MIME_OVERRIDES = {
     ".sqlite3": "application/vnd.sqlite3",
     ".db": "application/vnd.sqlite3",
     ".zip": "application/zip",
+    ".gbk": "text/plain; charset=utf-8",
 }
 
 
@@ -194,9 +196,11 @@ def _artifact_category(rel_path: str) -> tuple[str, str, str, str]:
     elif root in {"summary", "summary_tables"}:
         category = "summaries"
         family_parts = full_parts[: offset + 1]
-    elif root == "integrated_evidence":
+    elif root in {"integrated_evidence", "evidence", "input_gbks"}:
         category = "evidence"
         family_parts = full_parts[: offset + 1]
+        if root == "input_gbks" and len(parts) == 2:
+            genome_label = Path(parts[1]).stem
     elif root == "downloads" or rel_path == PUBLIC_RESULTS_MANIFEST_PATH:
         category = "downloads"
         family_parts = full_parts[:1]
@@ -243,6 +247,13 @@ def _artifact_role(rel_path: str, category: str, kind: str) -> str:
     stem = Path(filename).stem
     if rel_path == PUBLIC_RESULTS_MANIFEST_PATH:
         return "manifest"
+    evidence_role = public_evidence_role(rel_path)
+    if evidence_role:
+        return (
+            "manifest"
+            if evidence_role == "evidence_manifest"
+            else evidence_role.replace("_", "-")
+        )
     if result_is_public_bigscape_database(rel_path):
         return "public-database"
     if kind == "html":

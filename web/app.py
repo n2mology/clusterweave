@@ -76,6 +76,7 @@ from result_policy import (
     PUBLIC_BIGSCAPE_EXPORT_VERSION,
     PUBLIC_BIGSCAPE_PATH_POLICY,
     PUBLIC_BIGSCAPE_ROOTS,
+    public_archive_entry_name,
     result_is_public_bigscape_database,
     result_is_public_bigscape_viewer_database,
     normalized_job_result_path,
@@ -349,6 +350,7 @@ INLINE_MIME_OVERRIDES = {
     ".csv": "text/csv; charset=utf-8",
     ".txt": "text/plain; charset=utf-8",
     ".json": "application/json; charset=utf-8",
+    ".gbk": "text/plain; charset=utf-8",
     ".sqlite": "application/vnd.sqlite3",
 }
 
@@ -2232,13 +2234,6 @@ def authorize_bigscape_viewer_database(
     return full, identity
 
 
-def public_archive_entry_name(rel_path: str) -> str:
-    parts = normalized_job_result_path(rel_path).split("/")
-    if len(parts) >= 4 and [part.lower() for part in parts[:2]] == ["data", "results"]:
-        return "/".join(parts[3:])
-    return "/".join(parts)
-
-
 def public_safe_archive_entries(
     job: dict[str, object],
     base_dir: Path,
@@ -2269,6 +2264,38 @@ def public_safe_archive_entries(
         seen.add(archive_name)
         entries.append((full, archive_name, rel_path, identity))
     return entries
+
+
+def authorize_prebuilt_public_archive(
+    job: dict[str, object],
+    base_dir: Path,
+) -> tuple[Path, tuple[int, int, int, int, int]] | None:
+    """Authorize the exact package identity signed at canonical publication."""
+
+    job_id = str(job.get("id") or "")
+    if not job_id:
+        return None
+    base = base_dir.resolve()
+    attestation = read_result_attestation(base, job_id)
+    if (
+        attestation is None
+        or not attestation.archive_path
+        or len(attestation.archive_identity) != 5
+        or not result_is_public_archive(attestation.archive_path)
+    ):
+        return None
+    try:
+        full = (base / attestation.archive_path).resolve(strict=True)
+        full.relative_to(base)
+        identity = _public_file_identity(full)
+    except (OSError, ValueError):
+        return None
+    if (
+        identity != attestation.archive_identity
+        or identity[2] != attestation.archive_size
+    ):
+        return None
+    return full, identity
 
 
 def _zip_info(name: str) -> zipfile.ZipInfo:
@@ -2760,6 +2787,9 @@ def public_genome_progress(
                 "_warning_tool": "",
                 "_warning_message": "",
                 "_stage_states": {},
+                "_activity_message": "",
+                "_antismash_records": {},
+                "_antismash_record_total": 0,
             }
             states[genome_id] = state
         else:
@@ -2970,15 +3000,39 @@ def public_genome_progress(
                 state["annotation_method"] = "existing_cds"
             total_records = max(1, int(values["total"]))
             ordinal = min(total_records, max(1, int(values["ordinal"])))
-            record_percent = min(100, max(0, int(values["percent"])))
-            # Record shards occupy 35-69%; the explicit GENOME_PROGRESS 70
-            # milestone is reserved for whole-genome antiSMASH completion.
-            overall_percent = 35 + min(34, (record_percent * 34 + 50) // 100)
             raw_message = str(values.get("message") or "")
             safe_message = public_tool_activity_message(raw_message)
-            detail = f"Record {ordinal} of {total_records} · {record_percent}%"
-            if safe_message != "Running":
-                detail = f"{detail} · {safe_message}"
+            record_key = str(values.get("record") or f"record-{ordinal}")
+            record_states = state.setdefault("_antismash_records", {})
+            assert isinstance(record_states, dict)
+            lowered_message = raw_message.lower()
+            if "failed" in lowered_message:
+                record_states[record_key] = "failed"
+            elif "complete" in lowered_message:
+                record_states[record_key] = "complete"
+            elif "starting" in lowered_message or record_key not in record_states:
+                record_states[record_key] = "active"
+            state["_antismash_record_total"] = max(
+                int(state.get("_antismash_record_total", 0) or 0),
+                total_records,
+            )
+            processed_records = sum(
+                status in {"complete", "failed"}
+                for status in record_states.values()
+            )
+            # Record shards occupy 35-69%. Their launch ordinals are not
+            # completion percentages because multiple records run at once.
+            # Advance the band only when a shard reaches a terminal state.
+            overall_percent = 35 + min(
+                34,
+                (
+                    processed_records * 34
+                    + int(state["_antismash_record_total"]) // 2
+                )
+                // int(state["_antismash_record_total"]),
+            )
+            if safe_message != "Running" or not state.get("_activity_message"):
+                state["_activity_message"] = safe_message
             update_state(
                 state,
                 stage="antismash",
@@ -2987,11 +3041,16 @@ def public_genome_progress(
                 # A record warning is provisional.  The authoritative
                 # GENOME_PROGRESS milestone decides when the genome is done.
                 status="running",
-                message=detail,
+                message=state.get("_activity_message") or "antiSMASH active",
                 observed_at=observed_at,
             )
             update_stage_state(state, "genome_acquired", "complete", "Genome acquired")
-            update_stage_state(state, "antismash", "running", detail)
+            update_stage_state(
+                state,
+                "antismash",
+                "running",
+                state.get("_activity_message") or "antiSMASH active",
+            )
             continue
 
         progress_match = re.match(
@@ -3016,6 +3075,10 @@ def public_genome_progress(
                 state["_warning_tool"] = ""
                 state["_warning_message"] = ""
                 state["_stage_states"] = {}
+                state["_activity_message"] = ""
+                state["_antismash_records"] = {}
+                state["_antismash_record_total"] = 0
+                state.pop("region_progress", None)
             raw_message = str(values.get("message") or "")
             progress_stage = str(values.get("stage") or "").strip().lower()
             if progress_stage == "funannotate" or re.search(
@@ -3070,6 +3133,7 @@ def public_genome_progress(
                     status = "warning"
                 else:
                     safe_message = "BGC detection complete"
+            state["_activity_message"] = safe_message
             update_state(
                 state,
                 stage="complete" if percent >= 100 and not warning else projected_stage,
@@ -3105,11 +3169,19 @@ def public_genome_progress(
             if warning:
                 remember_tool_failure(state, projected_tool, safe_message)
             if percent >= 100:
+                terminal_complete = str(state.get("status") or "") in {
+                    "complete",
+                    "complete_with_warning",
+                }
                 update_stage_state(
                     state,
                     "complete",
-                    "queued" if state.get("_warning") else "complete",
-                    "Not complete" if state.get("_warning") else "Genome workflow complete",
+                    "complete" if terminal_complete else "queued",
+                    (
+                        "Genome workflow complete"
+                        if terminal_complete
+                        else "Not complete"
+                    ),
                 )
             continue
 
@@ -3130,22 +3202,34 @@ def public_genome_progress(
             else:
                 marker_stage = "annotation"
             activity = tool_marker.get("message") or "Running"
-            if tool_marker.get("kind") == "heartbeat":
-                activity = f"Still running ({public_tool_activity_elapsed_text(tool_marker.get('elapsed'))})"
+            heartbeat = tool_marker.get("kind") == "heartbeat"
+            if heartbeat:
+                activity = str(state.get("_activity_message") or "")
+                if not activity:
+                    activity = f"{marker_tool} active"
+                    state["_activity_message"] = activity
+                message_update: object = None
+            else:
+                state["_activity_message"] = activity
+                message_update = activity
             marker_failed = tool_marker.get("kind") == "raw_error"
             update_state(
                 state,
                 stage=marker_stage,
                 tool=marker_tool,
                 status="warning" if marker_failed else "running",
-                message=activity,
+                message=message_update,
                 observed_at=observed_at,
                 warning=marker_failed,
             )
             update_stage_state(state, "genome_acquired", "complete", "Genome acquired")
-            update_stage_state(
-                state, marker_stage, "failed" if marker_failed else "running", activity
-            )
+            if not heartbeat or message_update is not None:
+                update_stage_state(
+                    state,
+                    marker_stage,
+                    "failed" if marker_failed else "running",
+                    activity,
+                )
             if marker_failed:
                 remember_tool_failure(state, marker_tool, activity)
             continue
@@ -3172,6 +3256,26 @@ def public_genome_progress(
             state["warning_tool"] = state["_warning_tool"]
         if state.get("_warning_message"):
             state["warning_message"] = state["_warning_message"]
+        if state.get("_activity_message"):
+            state["activity_message"] = state["_activity_message"]
+        record_states = state.get("_antismash_records")
+        record_total = int(state.get("_antismash_record_total", 0) or 0)
+        if isinstance(record_states, dict) and record_total > 0:
+            successful_records = sum(
+                status == "complete" for status in record_states.values()
+            )
+            failed_records = sum(
+                status == "failed" for status in record_states.values()
+            )
+            active_records = sum(
+                status == "active" for status in record_states.values()
+            )
+            state["region_progress"] = {
+                "processed": successful_records + failed_records,
+                "total": record_total,
+                "active": active_records,
+                "failed": failed_records,
+            }
         stage_states = state.get("_stage_states")
         if isinstance(stage_states, dict):
             state["stage_states"] = stage_states
@@ -3180,6 +3284,9 @@ def public_genome_progress(
         state.pop("_warning_tool", None)
         state.pop("_warning_message", None)
         state.pop("_stage_states", None)
+        state.pop("_activity_message", None)
+        state.pop("_antismash_records", None)
+        state.pop("_antismash_record_total", None)
     return output
 
 
@@ -3189,10 +3296,62 @@ def public_activity_from_logs(job_id: str, lines: list[str]) -> list[dict[str, s
     current_stage = "prep"
     genome_total = 0
     genome_position: dict[str, str] = {}
+    antismash_record_states: dict[str, dict[str, str]] = {}
+    antismash_record_totals: dict[str, int] = {}
 
     for line in lines:
         observed_at, message = public_activity_parts(line)
         if not message:
+            continue
+
+        record_progress_match = re.match(
+            r'^ANTISMASH_RECORD_PROGRESS\s+genome=(?P<genome>\S+)\s+record=(?P<record>\S+)\s+ordinal=(?P<ordinal>\d+)/(?P<total>\d+)\s+percent=(?P<percent>\d+)\s+bar=\[[^\]]*\]\s+message="(?P<message>.*)"\s*$',
+            message,
+            re.IGNORECASE,
+        )
+        if record_progress_match:
+            values = record_progress_match.groupdict()
+            genome_label = public_activity_label(values.get("genome"))
+            record_key = str(values.get("record") or values.get("ordinal") or "record")
+            total = max(1, int(values.get("total") or 1))
+            records = antismash_record_states.setdefault(genome_label, {})
+            raw_record_message = str(values.get("message") or "")
+            lowered_record_message = raw_record_message.lower()
+            if "failed" in lowered_record_message:
+                records[record_key] = "failed"
+            elif "complete" in lowered_record_message:
+                records[record_key] = "complete"
+            elif "starting" in lowered_record_message or record_key not in records:
+                records[record_key] = "active"
+            antismash_record_totals[genome_label] = max(
+                antismash_record_totals.get(genome_label, 0),
+                total,
+            )
+            processed = sum(
+                status in {"complete", "failed"} for status in records.values()
+            )
+            active = sum(status == "active" for status in records.values())
+            failed = sum(status == "failed" for status in records.values())
+            title_parts = [
+                f"antiSMASH regions: {processed} of {antismash_record_totals[genome_label]} processed"
+            ]
+            if active:
+                title_parts.append(f"{active} active")
+            if failed:
+                title_parts.append(f"{failed} failed")
+            meta_parts = [genome_label]
+            position = genome_position.get(genome_label)
+            if position:
+                meta_parts.append(f"Genome {position}")
+            add_public_activity_event(
+                events,
+                seen,
+                "annotation",
+                " · ".join(title_parts),
+                " / ".join(part for part in meta_parts if part),
+                observed_at,
+                refresh=True,
+            )
             continue
 
         tool_marker = public_tool_activity_marker(message)
@@ -5780,19 +5939,25 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 base_dir = job_dir(job_id).resolve()
                 safe_job_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", job_id).strip("._") or "clusterweave"
-                try:
-                    archive_path = build_public_archive(job, base_dir)
-                except (OSError, RuntimeError, zipfile.BadZipFile):
-                    self._send_json(
-                        HTTPStatus.CONFLICT,
-                        {
-                            "detail": (
-                                "Public result files changed while the package was "
-                                "prepared; retry the download."
-                            )
-                        },
-                    )
-                    return
+                authorized_archive = authorize_prebuilt_public_archive(job, base_dir)
+                temporary_archive = authorized_archive is None
+                expected_identity = None
+                if authorized_archive is not None:
+                    archive_path, expected_identity = authorized_archive
+                else:
+                    try:
+                        archive_path = build_public_archive(job, base_dir)
+                    except (OSError, RuntimeError, zipfile.BadZipFile):
+                        self._send_json(
+                            HTTPStatus.CONFLICT,
+                            {
+                                "detail": (
+                                    "Public result files changed while the package was "
+                                    "prepared; retry the download."
+                                )
+                            },
+                        )
+                        return
                 try:
                     self._send_file(
                         HTTPStatus.OK,
@@ -5806,9 +5971,11 @@ class Handler(BaseHTTPRequestHandler):
                             "Cache-Control": "no-store",
                             "X-Content-Type-Options": "nosniff",
                         },
+                        expected_identity=expected_identity,
                     )
                 finally:
-                    archive_path.unlink(missing_ok=True)
+                    if temporary_archive:
+                        archive_path.unlink(missing_ok=True)
                 return
 
             if len(parts) >= 5 and parts[4] == "files":

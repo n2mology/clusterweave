@@ -11,7 +11,7 @@ authors:
   - given-names: "Tomas"
     family-names: "Rush"
     orcid: "https://orcid.org/0000-0002-3207-1466"
-version: 1.0.0
+version: 1.0.1
 date-released: 2026-07-23
 license: BSD-3-Clause
 doi: "10.11578/PMI/dc.20260608.2"

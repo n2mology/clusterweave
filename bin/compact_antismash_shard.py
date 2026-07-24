@@ -201,7 +201,7 @@ def compact_shard(
             "region_count": len(regions),
         }
         _atomic_json_write(staged_dir / MARKER_NAME, {"records": [marker]})
-        # Keep the marker human-readable and independent from antiSMASH's schema.
+        # Keep the marker clear and independent from antiSMASH's schema.
         marker_path = staged_dir / MARKER_NAME
         marker_path.write_text(
             json.dumps(marker, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8"

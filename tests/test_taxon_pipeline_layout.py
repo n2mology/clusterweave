@@ -118,6 +118,69 @@ class TaxonPipelineLayoutTests(unittest.TestCase):
             )
             self.assertNotIn(str(root), routing_text)
 
+    def test_fungal_only_without_ecology_keeps_neutral_metadata_private(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            upload = root / "fungus.fna"
+            upload.write_text(">contig\nACGT\n", encoding="utf-8")
+            settings: dict[str, object] = {
+                "analysis_scope": "fungi",
+                "run_ecology_analysis": False,
+                "taxon_routes": [route("fungus", "Fungus_A", "fungi")],
+            }
+            layout = self.make_layout(root)
+
+            _stage_uploaded_inputs([upload], layout, settings, Job(id="job", name="demo"))
+
+            tables = layout.results_root / "summary_tables"
+            self.assertTrue((tables / "fungal_id_legend.tsv").is_file())
+            self.assertFalse((tables / "bacteria_id_legend.tsv").exists())
+            self.assertFalse((tables / "ecofun_metadata_normalized.tsv").exists())
+            self.assertFalse((tables / "ecofun_metadata_template.tsv").exists())
+            self.assertEqual(layout.metadata_file, layout.work_root / "routing" / "ecofun_metadata_normalized.tsv")
+            self.assertTrue(layout.metadata_file.is_file())
+
+    def test_bacterial_only_without_ecology_omits_fungal_and_ecobac_tables(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            upload = root / "bacterium.fna"
+            upload.write_text(">contig\nACGT\n", encoding="utf-8")
+            settings: dict[str, object] = {
+                "analysis_scope": "bacteria",
+                "run_ecology_analysis": False,
+                "taxon_routes": [route("bacterium", "Bacterium_A", "bacteria")],
+            }
+            layout = self.make_layout(root)
+
+            _stage_uploaded_inputs([upload], layout, settings, Job(id="job", name="demo"))
+
+            tables = layout.results_root / "summary_tables"
+            self.assertTrue((tables / "bacteria_id_legend.tsv").is_file())
+            self.assertFalse((tables / "fungal_id_legend.tsv").exists())
+            self.assertFalse((tables / "ecobac_metadata_normalized.tsv").exists())
+            self.assertEqual(layout.metadata_file, layout.work_root / "routing" / "ecobac_metadata_normalized.tsv")
+            self.assertTrue(layout.metadata_file.is_file())
+
+    def test_selected_ecology_publishes_only_the_applicable_metadata_schema(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            upload = root / "fungus.fna"
+            upload.write_text(">contig\nACGT\n", encoding="utf-8")
+            settings: dict[str, object] = {
+                "analysis_scope": "fungi",
+                "run_ecology_analysis": True,
+                "taxon_routes": [route("fungus", "Fungus_A", "fungi")],
+            }
+            layout = self.make_layout(root)
+
+            _stage_uploaded_inputs([upload], layout, settings, Job(id="job", name="demo"))
+
+            tables = layout.results_root / "summary_tables"
+            self.assertEqual(layout.metadata_file, tables / "ecofun_metadata_normalized.tsv")
+            self.assertTrue(layout.metadata_file.is_file())
+            self.assertFalse((tables / "ecobac_metadata_normalized.tsv").exists())
+            self.assertFalse((tables / "bacteria_id_legend.tsv").exists())
+
     def test_fasta_and_genbank_with_same_stem_share_one_bacterial_route(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

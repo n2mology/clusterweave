@@ -29,7 +29,7 @@ class CrossKingdomEvidenceUiTests(unittest.TestCase):
         self.assertNotIn("integrated_evidence_run_manifest", allowlist)
 
         predicate = self.text.split("function crossKingdomEvidenceArtifact(path)", 1)[1].split(
-            "function isCrossKingdomEvidenceArtifact", 1
+            "function isPackageOnlyResultArtifact", 1
         )[0]
         self.assertIn(
             "normalized.match(/^data\\/results\\/[^/]+\\/integrated_evidence\\/([^/]+)$/i)",
@@ -38,42 +38,32 @@ class CrossKingdomEvidenceUiTests(unittest.TestCase):
         self.assertIn("CROSS_KINGDOM_EVIDENCE_FILENAMES.includes(name)", predicate)
         self.assertNotIn("rglob", predicate)
 
-    def test_optional_category_is_absent_until_exact_outputs_exist(self) -> None:
-        tabs = self.text.split("const RESULT_FOLDER_TABS", 1)[1].split("function resultFolderTabs", 1)[0]
-        self.assertIn("{ key: 'evidence', label: 'CROSS-KINGDOM', optionalWhenAvailable: true }", tabs)
-        visibility = self.text.split("function resultFolderTabs(counts = {})", 1)[1].split(
-            "function resultPathExt", 1
+    def test_evidence_artifacts_are_package_only_and_never_form_a_result_tab(self) -> None:
+        tabs = self.text.split("const RESULT_FOLDER_TABS", 1)[1].split(
+            "function resultFolderTabs", 1
         )[0]
-        self.assertIn("!tab.optionalWhenAvailable", visibility)
-        self.assertIn("Number((counts || {})[resultCategoryKey(tab.key)] || 0) > 0", visibility)
-        self.assertIn("return resultFolderTabs(counts).map(tab => tab.key)", self.text)
-        self.assertIn("return resultFolderTabs(counts).map(tab => {", self.text)
-
-        self.assertIn("evidence: normalized.filter(isCrossKingdomEvidenceArtifact)", self.text)
-        self.assertIn("evidence: artifacts.evidence.length", self.text)
-        self.assertIn("if (artifacts.evidence.length)", self.text)
-        self.assertIn("if (key === 'evidence') return isCrossKingdomEvidenceArtifact(path);", self.text)
-        self.assertIn("|| isCrossKingdomEvidenceArtifact(path)", self.text)
-
-    def test_captions_preserve_cross_kingdom_scientific_boundary(self) -> None:
-        labels = self.text.split("function crossKingdomEvidenceLabel(path)", 1)[1].split(
-            "function isSyntenyArtifact", 1
-        )[0]
-        self.assertIn("Plain-language Cross-Kingdom evidence cards", labels)
-        self.assertIn("Lossless Cross-Kingdom evidence table", labels)
-        self.assertIn("Bounded Cross-Kingdom evidence JSON", labels)
-        self.assertNotIn("confirmed", labels.casefold())
-
-        category_copy = self.text.split("function resultCategoryCopy(category)", 1)[1].split(
-            "function resultCategoryIcon", 1
-        )[0]
+        self.assertNotIn("key: 'evidence'", tabs)
+        self.assertNotIn("label: 'EVIDENCE'", tabs)
+        self.assertIn("function isPackageOnlyResultArtifact(path)", self.text)
         self.assertIn(
-            "Optional Cross-Kingdom context profiles; no evolutionary event, mechanism, or direction is inferred.",
-            category_copy,
+            "['evidence', 'integrated_evidence', 'cross_kingdom', 'putative_transfer']",
+            self.text,
         )
-        self.assertNotIn("confirmed", category_copy.casefold())
-        self.assertIn("if (isCrossKingdomEvidenceArtifact(normalized)) return crossKingdomEvidenceLabel(normalized);", self.text)
-        self.assertIn("/^data\\/results\\/[^/]+\\/integrated_evidence$/i.test(normalized)", self.text)
+        self.assertIn(
+            "activeResultFiles = indexedFiles.filter(path => !isPackageOnlyResultArtifact(path))",
+            self.text,
+        )
+        self.assertIn("if (isPackageOnlyResultArtifact(path)) return false;", self.text)
+        self.assertNotIn("artifacts.evidence", self.text)
+        self.assertNotIn("resultCategoryLabel('evidence')", self.text)
+        self.assertNotIn("resultCategoryCopy('evidence')", self.text)
+        self.assertNotIn("evidence: artifacts.evidence.length", self.text)
+
+    def test_package_download_remains_available_for_hidden_artifacts(self) -> None:
+        self.assertIn("let activeResultPackageFileCount = 0;", self.text)
+        self.assertIn("activeResultPackageFileCount = indexedFiles.length;", self.text)
+        self.assertIn("activeResultPackageFileCount < 1", self.text)
+        self.assertIn("/archive`", self.text)
 
 
 if __name__ == "__main__":

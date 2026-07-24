@@ -33,6 +33,9 @@ class BacterialStageOneContractTests(unittest.TestCase):
         process = self.text.split("process_genome() {", 1)[1]
         self.assertIn('"${BACTERIAL_GENBANK_SANITIZER}"', process)
         self.assertIn('--record-map "${bacterial_record_map}"', process)
+        self.assertIn('bacterial_stage_temp="${staged_gbk}.tmp.${BASHPID:-$$}"', process)
+        self.assertIn('mv -f "${bacterial_stage_temp}" "${staged_gbk}"', process)
+        self.assertIn('gbk_used="${staged_gbk}"', process)
         self.assertIn('funbgcex_status="not_applicable_taxon"', process)
         funbgcex = process.split("# ---------------- FunBGCeX ----------------", 1)[1]
         self.assertIn('if [[ "${taxon_group}" == "bacteria" ]]', funbgcex)

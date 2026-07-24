@@ -74,7 +74,7 @@ def canonical_record_key(record: str, gbk: str) -> tuple[str, str]:
     """Return the canonical ``(genome_id, region_id)`` encoded by BiG-SCAPE.
 
     ClusterWeave stages records as ``<genome_id>__<region_id>``. BiG-SCAPE's
-    ``Organism`` annotation is human-readable and therefore must never be used
+    ``Organism`` annotation is naturally-readable and therefore must never be used
     as a machine join key.
     """
 

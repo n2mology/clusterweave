@@ -489,7 +489,7 @@ def choose_comparators(
 
 
 def panel_family_slug(target_row: dict[str, str]) -> str:
-    """Return a stable, human-interpretable selected-GCF discriminator."""
+    """Return a stable, natural-interpretable selected-GCF discriminator."""
 
     family = "_".join(selected_gcf_ids(target_row))
     if not family:

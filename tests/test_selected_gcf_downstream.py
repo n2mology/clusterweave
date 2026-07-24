@@ -271,6 +271,37 @@ class SelectedGcfDownstreamTests(unittest.TestCase):
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
 
+    def test_no_ecology_mode_keeps_ranking_but_omits_ecology_tables(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            results, summary = self.create_project(root)
+            metadata = results / "summary_tables" / "ecofun_metadata_normalized.tsv"
+            stale = [
+                summary / "ecology_group_gcf_by_genome.tsv",
+                summary / "ecology_group_gcf_summary.tsv",
+                summary / "gcf_ecology_distribution.tsv",
+            ]
+            for path in stale:
+                path.write_text("stale\n", encoding="utf-8")
+
+            self.run_checked(
+                [
+                    sys.executable,
+                    str(BIN / "build_candidate_tables.py"),
+                    "--project-root",
+                    str(root),
+                    "--project-name",
+                    "demo",
+                    "--metadata",
+                    str(metadata),
+                    "--skip-ecology-tables",
+                ]
+            )
+
+            self.assertTrue((summary / "targeted_candidate_ranking.tsv").is_file())
+            for path in stale:
+                self.assertFalse(path.exists(), path)
+
     def test_selected_view_drives_ranking_shortlists_atlas_and_panels(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

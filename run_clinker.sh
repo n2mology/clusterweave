@@ -143,10 +143,17 @@ EXPORT_SHORTLIST_PY="${EXPORT_SHORTLIST_PY:-${PROJECT_DIR}/bin/export_priority_s
 EXPORT_SHARED_FAMILY_PY="${EXPORT_SHARED_FAMILY_PY:-${PROJECT_DIR}/bin/export_shared_family_shortlist.py}"
 STAGE_CLINKER_PY="${STAGE_CLINKER_PY:-${PROJECT_DIR}/bin/stage_clinker_panels.py}"
 NORMALIZE_METADATA_PY="${NORMALIZE_METADATA_PY:-${PROJECT_DIR}/bin/normalize_metadata.py}"
+RUN_ECOLOGY_ANALYSIS="${RUN_ECOLOGY_ANALYSIS:-0}"
 AUTO_NORMALIZE_METADATA="${AUTO_NORMALIZE_METADATA:-1}"
 ACCESSIONS_MAP="${ACCESSIONS_MAP:-${DATA_ROOT}/genomes/fungi/${PROJECT_NAME}/accessions_fungusID_taxonomyID.txt}"
-METADATA_TSV="${METADATA_TSV:-${RESULTS_ROOT}/summary_tables/${DEFAULT_METADATA_NAME}}"
-METADATA_TEMPLATE_TSV="${METADATA_TEMPLATE_TSV:-${RESULTS_ROOT}/summary_tables/${DEFAULT_METADATA_TEMPLATE_NAME}}"
+WORK_ROOT="${WORK_ROOT:-/tmp/${PROJECT_NAME}_clusterweave_work}"
+if [[ "${RUN_ECOLOGY_ANALYSIS}" == "1" ]]; then
+  DEFAULT_METADATA_ROOT="${RESULTS_ROOT}/summary_tables"
+else
+  DEFAULT_METADATA_ROOT="${WORK_ROOT}/routing"
+fi
+METADATA_TSV="${METADATA_TSV:-${DEFAULT_METADATA_ROOT}/${DEFAULT_METADATA_NAME}}"
+METADATA_TEMPLATE_TSV="${METADATA_TEMPLATE_TSV:-${DEFAULT_METADATA_ROOT}/${DEFAULT_METADATA_TEMPLATE_NAME}}"
 
 ts(){ date +"%Y-%m-%d %H:%M:%S"; }
 log(){ echo "[$(ts)] [INFO] $*"; }
@@ -712,6 +719,9 @@ if [[ "${REFRESH_REVIEWER_SHORTLIST}" == "1" || "${REFRESH_FAMILY_ATLAS}" == "1"
   fi
   if [[ -n "${FOCUS_ECOLOGY_LABEL}" ]]; then
     reviewer_args+=(--focus-ecology-label "${FOCUS_ECOLOGY_LABEL}")
+  fi
+  if [[ "${RUN_ECOLOGY_ANALYSIS}" != "1" ]]; then
+    reviewer_args+=(--skip-ecology-tables)
   fi
   "${reviewer_args[@]}"
 else

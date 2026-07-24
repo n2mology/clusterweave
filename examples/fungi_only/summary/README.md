@@ -20,7 +20,10 @@ small tabular artifacts for downstream documentation or tests.
 
 ## Excluded
 
-The example summary intentionally excludes raw genome and sequence files,
-per-region GenBank files, full third-party tool output trees, detailed ecology
-metadata tables, temporary working directories, downloaded databases, container
-artifacts, private job links, and large logs.
+This repository-safe example summary intentionally excludes genome and sequence
+files, per-region GenBank files, full third-party tool output trees, detailed
+ecology metadata tables, temporary working directories, downloaded databases,
+container artifacts, private job links, and large logs. The authenticated
+**Download package** from a completed run serves a different purpose: it keeps
+the staged genome and BGC GenBank files together with their redacted checksum
+manifest for further review.

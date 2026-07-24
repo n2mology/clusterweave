@@ -130,6 +130,33 @@ class CanonicalPhylogenyIntegrationTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("[raw protein sequence redacted]", rendered)
             self.assertIn("[private key redacted]", rendered)
 
+    def test_stored_log_sequence_filter_preserves_workflow_prose(self) -> None:
+        messages = [
+            "Canonical ClusterWeave workflow finished successfully.",
+            "CANONICAL CLUSTERWEAVE WORKFLOW FINISHED SUCCESSFULLY.",
+            "Publication package and checksummed evidence manifest are ready.",
+        ]
+        for message in messages:
+            with self.subTest(message=message):
+                rendered, private_key_block = (
+                    canonical_pipeline._sanitize_stored_log_line(message)
+                )
+                self.assertEqual(rendered, message)
+                self.assertFalse(private_key_block)
+
+        sequences = [
+            "MKWVTFISLLLLFSSAYSRGVFRRDTHKSEIAHRFKDLGE",
+            "MKWVTFISLL LLFSSAYSRG VFRRDTHKSE IAHRFKDLGE",
+            "mkwvtfisllllfssaysrgvfrrdthkseiahrfkdlge",
+        ]
+        for sequence in sequences:
+            with self.subTest(sequence=sequence):
+                rendered, private_key_block = (
+                    canonical_pipeline._sanitize_stored_log_line(sequence)
+                )
+                self.assertEqual(rendered, "[raw protein sequence redacted]")
+                self.assertFalse(private_key_block)
+
     async def test_requested_phylogeny_runs_after_core_and_remains_nonfatal(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

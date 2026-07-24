@@ -16,7 +16,7 @@ browser -> web/API -> job store -> worker/admission
 ```
 
 NCBI taxonomy is authoritative. Each job freezes `analysis_scope` and a
-canonical per-genome route. Human-readable inputs remain under explicit
+canonical per-genome route. Inputs exist under explicit
 `data/genomes/fungi/<project>` and `data/genomes/bacteria/<project>` roots,
 while downstream tools consume one manifest and one unique region universe.
 
@@ -33,8 +33,11 @@ executor. Public services must supply their own isolation and operations layer.
 Important boundaries:
 
 - public job projections and packages are allowlisted and token-gated;
-- raw genomes, raw tool databases, logs, scratch, and route internals stay
-  private;
+- an authenticated workbench package contains the staged genome GenBank files,
+  antiSMASH region GenBank files, canonical FunBGCeX BGC GenBank files, and a
+  portable checksum manifest needed for further scientific review;
+- original upload objects and download caches, duplicate tool trees, tool
+  databases, logs, scratch files, commands, and route internals stay private;
 - resource planning and aggregate worker admission are one bounded system;
 - optional sequence inference or cross-kingdom evidence cannot invalidate the
   successful core workflow unless explicitly required.

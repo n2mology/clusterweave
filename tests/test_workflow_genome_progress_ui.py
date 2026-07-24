@@ -21,23 +21,38 @@ def genome_progress_helper_block() -> str:
     )[0]
 
 
+def job_runtime_helper_block() -> str:
+    source = JS_PATH.read_text(encoding="utf-8")
+    return "function jobRuntimeBounds" + source.split(
+        "function jobRuntimeBounds", 1
+    )[1].split("function stageRuntimeHint", 1)[0]
+
+
 def run_node_json(body: str) -> object:
     if NODE is None:
         raise unittest.SkipTest("Node.js is required for frontend progress tests")
-    prelude = """
+    prelude = r"""
 let activeJobId = 'job-a';
 let genomeProgressSnapshotKey = '';
 let genomeProgressSnapshot = new Map();
 const GENOME_PROGRESS_TERMINAL_STATES = new Set([
   'complete', 'completed', 'done', 'success', 'succeeded',
+  'complete_with_warning',
   'warning', 'dropped', 'failed', 'error', 'skipped',
   'not_applicable', 'not_applicable_taxon', 'not-applicable', 'not applicable',
 ]);
-const GENOME_PROGRESS_WARNING_STATES = new Set(['warning', 'dropped', 'failed', 'error']);
+const GENOME_PROGRESS_WARNING_STATES = new Set([
+  'complete_with_warning', 'warning', 'dropped', 'failed', 'error',
+]);
 const GENOME_PROGRESS_ACTIVE_STATES = new Set(['running', 'active', 'processing']);
 function parseTimestampMs(value) {
   if (!value) return null;
-  const ms = new Date(value).getTime();
+  const raw = typeof value === 'string' ? value.trim() : value;
+  const normalized = typeof raw === 'string'
+    && /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(raw)
+    ? `${raw.replace(' ', 'T')}Z`
+    : raw;
+  const ms = new Date(normalized).getTime();
   return Number.isNaN(ms) ? null : ms;
 }
 function escapeHtml(value) {
@@ -85,6 +100,88 @@ process.stdout.write(JSON.stringify({
         self.assertEqual(result["grouping"], "BiG-SCAPE grouping")
         self.assertEqual(result["complete"], "Workflow complete")
         self.assertEqual(result["failed"], "Workflow needs review")
+
+    def test_region_ribbon_uses_processed_and_active_counts_without_visible_percent_or_timer(self) -> None:
+        result = run_node_json(
+            """
+const item = normalizeGenomeProgressItem({
+  genome_id: 'fungus-a',
+  display_label: 'Fungus a',
+  taxon_group: 'fungi',
+  annotation_method: 'existing_cds',
+  stage: 'antismash',
+  tool: 'antiSMASH',
+  percent: 45,
+  status: 'running',
+  message: 'Starting antiSMASH record shard',
+  activity_message: 'Scanning protein domains',
+  region_progress: {processed: 2, total: 7, active: 3, failed: 0},
+  stage_states: {
+    genome_acquired: {status: 'complete'},
+    antismash: {status: 'running'},
+  },
+}, 0);
+const stages = genomeProgressStageModel(item);
+const ribbon = genomeProgressRibbonText(item, item.activityMessage, stages);
+const html = renderGenomeProgressCard(item);
+process.stdout.write(JSON.stringify({ribbon, html, stages}));
+"""
+        )
+        self.assertEqual(
+            result["ribbon"],
+            "Region (2/7) · 3 active · Scanning protein domains",
+        )
+        self.assertNotIn("Still running", result["html"])
+        self.assertNotIn('class="genome-progress-percent"', result["html"])
+        self.assertIn("has-live-region-work", result["html"])
+        self.assertEqual(result["stages"][1]["progress"], 29)
+
+    def test_total_job_runtime_clock_uses_days_and_freezes_at_terminal_timestamp(self) -> None:
+        result = run_node_json(
+            job_runtime_helper_block()
+            + """
+const originalNow = Date.now;
+Date.now = () => Date.parse('2026-07-24T00:42:46Z');
+const naiveUtcActive = jobRuntimeBounds({
+  status: 'running',
+  created_at: '2026-07-24T00:34:24.525808',
+});
+Date.now = () => Date.parse('2026-07-24T03:04:05Z');
+const active = jobRuntimeBounds({
+  status: 'running',
+  created_at: '2026-07-23T00:00:00Z',
+});
+const complete = jobRuntimeBounds({
+  status: 'success',
+  created_at: '2026-07-20T00:00:00Z',
+  completed_at: '2026-07-21T02:03:04Z',
+  updated_at: '2026-07-23T23:59:59Z',
+});
+const failed = jobRuntimeBounds({
+  status: 'failed',
+  created_at: '2026-07-20T00:00:00Z',
+  failed_at: '2026-07-20T00:00:05Z',
+});
+Date.now = originalNow;
+process.stdout.write(JSON.stringify({
+  naiveUtc: formatJobRuntimeClock(naiveUtcActive.end - naiveUtcActive.start),
+  naiveUtcStart: naiveUtcActive.start,
+  explicitUtcStart: Date.parse('2026-07-24T00:34:24.525808Z'),
+  active: formatJobRuntimeClock(active.end - active.start),
+  activeFlag: active.active,
+  complete: formatJobRuntimeClock(complete.end - complete.start),
+  completeFlag: complete.active,
+  failed: formatJobRuntimeClock(failed.end - failed.start),
+}));
+"""
+        )
+        self.assertEqual(result["naiveUtc"], "(00:00:08:21)")
+        self.assertEqual(result["naiveUtcStart"], result["explicitUtcStart"])
+        self.assertEqual(result["active"], "(01:03:04:05)")
+        self.assertTrue(result["activeFlag"])
+        self.assertEqual(result["complete"], "(01:02:03:04)")
+        self.assertFalse(result["completeFlag"])
+        self.assertEqual(result["failed"], "(00:00:00:05)")
 
     def test_same_attempt_progress_is_monotonic_across_timeout_older_and_zero_payloads(self) -> None:
         result = run_node_json(
@@ -325,15 +422,13 @@ process.stdout.write(JSON.stringify({
             '<div class="genome-progress-meter-row">', 1
         )[0]
         self.assertNotIn("genome-progress-percent", header)
-        self.assertLess(
-            result["queuedHtml"].index('class="genome-progress-track"'),
-            result["queuedHtml"].index('class="genome-progress-percent"'),
-        )
+        self.assertNotIn('class="genome-progress-percent"', result["queuedHtml"])
         self.assertIn(
             '<small title="NCBI genome downloaded | queued">'
             "NCBI genome downloaded | queued</small>",
             result["queuedHtml"],
         )
+        self.assertNotIn('class="genome-progress-percent"', result["lateAntismashHtml"])
         self.assertNotIn("NCBI NCBI", result["queuedHtml"])
         self.assertNotIn("NCBI genome download complete", result["queuedHtml"])
 
@@ -401,7 +496,7 @@ const warning = normalizeGenomeProgressItem({
     genome_acquired: {status: 'complete'},
     antismash: {status: 'failed'},
     funbgcex: {status: 'complete'},
-    complete: {status: 'queued'},
+    complete: {status: 'complete'},
   },
 }, 0);
 const complete = normalizeGenomeProgressItem({
@@ -437,13 +532,14 @@ process.stdout.write(JSON.stringify({
             result["stages"],
             r'is-warning[^>]*[^<]*<span[^>]*></span><b>antiSMASH</b>.*'
             r'is-complete[^>]*[^<]*<span[^>]*></span><b>FunBGCeX</b>.*'
-            r'is-upcoming[^>]*[^<]*<span[^>]*></span><b>Complete</b>',
+            r'is-complete[^>]*[^<]*<span[^>]*></span><b>Complete</b>',
         )
         self.assertIn("overlapping exon coordinates", result["card"])
+        self.assertIn("is-complete has-advisory", result["card"])
         self.assertNotIn("needs review", result["card"])
         self.assertEqual(
             result["summary"],
-            "1 complete · 1 active · 1 queued · errors: 1",
+            "2 complete · 1 active · 1 queued · warnings: 1",
         )
 
 
@@ -453,6 +549,15 @@ class WorkflowGenomeProgressStaticTests(unittest.TestCase):
         cls.js = JS_PATH.read_text(encoding="utf-8")
         cls.css = CSS_PATH.read_text(encoding="utf-8")
         cls.index = INDEX_PATH.read_text(encoding="utf-8")
+
+    def test_results_header_has_one_collision_safe_persistent_job_timer(self) -> None:
+        self.assertIn('id="results-job-runtime"', self.index)
+        self.assertEqual(self.index.count('id="results-job-runtime"'), 1)
+        self.assertIn("function formatJobRuntimeClock", self.js)
+        self.assertIn("renderJobRuntime(activeJobMeta)", self.js)
+        self.assertIn("job?.completed_at || job?.failed_at", self.js)
+        self.assertIn(".results-run-state", self.css)
+        self.assertIn("font-variant-numeric: tabular-nums", self.css)
 
     def test_pre_grouping_rows_are_the_only_visible_progress_presentation(self) -> None:
         self.assertIn(
@@ -543,7 +648,8 @@ class WorkflowGenomeProgressStaticTests(unittest.TestCase):
             "}", 1
         )[0]
         self.assertIn("display: grid", meter_rule)
-        self.assertIn("grid-template-columns: minmax(0, 1fr) auto", meter_rule)
+        self.assertIn("grid-template-columns: minmax(0, 1fr)", meter_rule)
+        self.assertNotIn("auto", meter_rule.split("grid-template-columns:", 1)[1].split(";", 1)[0])
         self.assertIn("align-items: center", meter_rule)
         progress_grid = self.css.split(".genome-progress-grid {", 1)[1].split(
             "}", 1
@@ -570,7 +676,7 @@ class WorkflowGenomeProgressStaticTests(unittest.TestCase):
             "title.textContent = bgcWorkflowTitle(payload, genomeLayerActive)",
             self.js,
         )
-        self.assertIn("20260722-summary-atlas1", self.index)
+        self.assertIn("20260723-timer-utc1", self.index)
 
 
     def test_live_polling_uses_current_attempt_and_stable_result_surfaces(self) -> None:

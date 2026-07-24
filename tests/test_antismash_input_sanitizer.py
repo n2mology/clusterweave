@@ -105,7 +105,7 @@ sanitize_antismash_duplicate_cds_locations {shlex.quote(str(source))} {shlex.quo
             self.assertIn('/protein_id="KEEP001"', sanitized)
             self.assertIn('/protein_id="UNIQUE001"', sanitized)
             self.assertNotIn('DROP001', sanitized)
-            self.assertIn("dropped_duplicate_cds=1", result.stdout)
+            self.assertRegex(result.stdout, r'"dropped_duplicate_cds"\s*:\s*1')
             self.assertIn("CKF44_07303", result.stdout)
             self.assertIn("DROP001", result.stdout)
 

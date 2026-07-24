@@ -33,4 +33,6 @@ review-oriented Markdown forms. FunBGCeX fields are not applicable to bacterial
 genomes and remain empty or explicitly marked as such.
 
 No job ID, result token, private URL, raw genome, third-party result tree,
-database, log, cache, or machine path is included.
+database, log, cache, or machine path is included in this repository-safe
+snapshot. For a completed authenticated run, **Download package** separately
+preserves the staged genome and BGC GenBank files needed for further review.

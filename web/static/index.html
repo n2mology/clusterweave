@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <meta name="description" content="ClusterWeave runs fungal, bacterial, or mixed biosynthetic gene cluster discovery from public genome assemblies, NCBI accessions, and supported genome uploads." />
 <meta name="robots" content="index, follow" />
-<title>ClusterWeave - BGC Analysis</title>
+<title>ClusterWeave</title>
 <link rel="icon" href="/favicon.ico?v=20260722-ui-colors" type="image/x-icon" sizes="16x16 32x32 48x48 64x64 128x128 256x256">
-<link rel="stylesheet" href="assets/clusterweave.css?v=20260723-credit-height1">
+<link rel="stylesheet" href="assets/clusterweave.css?v=20260723-timer-utc1">
 <link rel="stylesheet" href="assets/clusterweave-game.css?v=20260721-play-centered2">
 </head>
 <body data-ui-mode="guided" data-access="public" data-workflow-state="idle" data-job-state="idle" data-results-available="false" data-results-dashboard="closed" data-result-focus="overview" data-entry-mode="new" data-existing-run-loaded="false" data-management-view="closed" data-ops-panel="collapsed" data-ops-tab="jobs" data-results-panel="collapsed">
@@ -159,7 +159,7 @@
                 <div class="project-tight email-results-card email-notification-panel is-disabled" id="email-notification-panel" aria-disabled="true"><label for="notify-email">EMAIL RESULTS</label><input class="mock-input email-results-input" type="email" id="notify-email" autocomplete="email" placeholder="email off" disabled /></div>
                 <div class="submit-run-slot">
                   <div class="submit-button-shell is-project-locked" id="submit-button-shell">
-                    <button class="brutal-button" id="run-btn" type="button" onclick="startAnalysis()" disabled>Submit run</button>
+                    <button class="brutal-button is-validation-pending" id="run-btn" type="button" onclick="startAnalysis()" disabled>Validate</button>
                     <span class="submit-lock-overlay" id="submit-lock-overlay" aria-hidden="true">PROJECT REQUIRED</span>
                   </div>
                   <div class="submit-feedback-rail">
@@ -302,7 +302,7 @@
       </section>
 
       <aside class="module results-panel" id="results-card" tabindex="-1" aria-label="Result blocks">
-        <div class="module-head"><strong>Result blocks</strong><span id="results-status">Token view</span></div>
+        <div class="module-head"><strong>Result blocks</strong><span class="results-run-state"><time class="results-job-runtime" id="results-job-runtime" aria-label="Total job runtime" hidden></time><span id="results-status">Token view</span></span></div>
         <div class="module-body">
           <div class="clusterweave-results-heading">
             <h3 id="results-title">Outputs</h3>
@@ -517,10 +517,15 @@
 <div class="completion-callout hidden" id="completion-callout" aria-hidden="true"><button class="brutal-button" type="button" id="ready-results-btn" onclick="showResultDashboard()">Review results</button></div>
 <button class="results-panel-toggle" id="results-panel-toggle" type="button" onclick="toggleResultsPanel()" aria-controls="results-card" aria-expanded="false" title="Show results access panel"><span data-results-toggle-icon aria-hidden="true">‹</span><span class="sr-only" data-results-toggle-label>Show results access panel</span></button>
 <div class="sr-only" id="clusterweave-game-handoff" role="status" aria-live="assertive" aria-atomic="true"></div>
+<aside class="archive-download-tray" id="archive-download-tray" aria-live="polite" aria-atomic="true" aria-busy="false" hidden>
+  <div class="archive-download-head"><span class="archive-download-spinner" aria-hidden="true"></span><strong id="archive-download-title">PACKAGE DOWNLOAD</strong><span id="archive-download-percent">PREPARING</span></div>
+  <div class="archive-download-progress" id="archive-download-progress" role="progressbar" aria-label="Package download progress" aria-valuemin="0" aria-valuemax="100"><span id="archive-download-progress-fill"></span></div>
+  <div class="archive-download-detail" id="archive-download-detail">Preparing the full result package.</div>
+</aside>
 
 <script src="assets/clusterweave-game-content.js?v=20260714-runner6"></script>
 <script src="assets/clusterweave-game-core.js?v=20260714-runner6"></script>
 <script src="assets/clusterweave-game.js?v=20260721-play-centered3"></script>
-<script src="assets/clusterweave.js?v=20260722-summary-atlas1"></script>
+<script src="assets/clusterweave.js?v=20260723-timer-utc1"></script>
 </body>
 </html>

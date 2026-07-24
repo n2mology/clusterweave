@@ -7,9 +7,13 @@ pure (no job-store or pipeline imports) so both runtimes can use it.
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
 
 PUBLIC_RESULTS_MANIFEST_PATH = "downloads/public_results_manifest.tsv"
+PUBLIC_EVIDENCE_MANIFEST_PATH = "evidence/clusterweave_evidence_manifest.tsv"
+
+_ANTISMASH_REGION_GBK_RE = re.compile(r"(?:^|[._-])region[0-9]+\.gbk$")
 
 PUBLIC_SUMMARY_FILENAMES = {
     "all_tools_bgc_comparison.csv",
@@ -177,10 +181,65 @@ def _private_filename(filename: str) -> bool:
     )
 
 
+def _analysis_relative_parts(rel_path: str) -> list[str]:
+    normalized = normalized_job_result_path(rel_path)
+    if not normalized:
+        return []
+    parts = normalized.split("/")
+    if (
+        len(parts) >= 4
+        and [part.lower() for part in parts[:2]] == ["data", "results"]
+        and bool(parts[2])
+    ):
+        return parts[3:]
+    return parts
+
+
+def public_evidence_role(rel_path: str) -> str:
+    """Return the exact public scientific-evidence role for one path."""
+
+    parts = _analysis_relative_parts(rel_path)
+    if not parts:
+        return ""
+    lower = [part.lower() for part in parts]
+    if "/".join(lower) == PUBLIC_EVIDENCE_MANIFEST_PATH:
+        return "evidence_manifest"
+    if (
+        len(parts) == 2
+        and lower[0] == "input_gbks"
+        and Path(parts[1]).suffix.lower() == ".gbk"
+    ):
+        return "staged_genome_genbank"
+    if (
+        len(parts) == 3
+        and lower[0] == "antismash"
+        and _ANTISMASH_REGION_GBK_RE.search(lower[2]) is not None
+    ):
+        return "antismash_region_genbank"
+    if (
+        len(parts) == 6
+        and lower[0] == "funbgcex"
+        and lower[2] == "results"
+        and lower[3].endswith(".funbgcex_results")
+        and lower[4] == "bgcs"
+        and Path(parts[5]).suffix.lower() == ".gbk"
+    ):
+        return "funbgcex_bgc_genbank"
+    return ""
+
+
+def result_is_public_evidence(rel_path: str) -> bool:
+    """Match only declared genome/BGC evidence files and their redacted index."""
+
+    return bool(public_evidence_role(rel_path))
+
+
 def result_path_forbidden(rel_path: str) -> bool:
     normalized = normalized_job_result_path(rel_path)
     if not normalized:
         return True
+    if result_is_public_evidence(normalized):
+        return False
     lower = normalized.lower()
     if lower in {"job.json", "logs.txt"}:
         return True
@@ -302,7 +361,11 @@ def is_public_analysis_relative_path(rel_path: str) -> bool:
     """Check a path relative to data/results/<project>."""
 
     normalized = normalized_job_result_path(rel_path)
-    if not normalized or result_path_forbidden(normalized):
+    if not normalized:
+        return False
+    if result_is_public_evidence(normalized):
+        return True
+    if result_path_forbidden(normalized):
         return False
     parts = normalized.split("/")
     filename = parts[-1]
@@ -346,6 +409,15 @@ def result_path_public_shape(rel_path: str) -> bool:
     return is_public_analysis_relative_path("/".join(parts[3:]))
 
 
+def public_archive_entry_name(rel_path: str) -> str:
+    """Map a job-relative result path to its portable package member name."""
+
+    parts = normalized_job_result_path(rel_path).split("/")
+    if len(parts) >= 4 and [part.lower() for part in parts[:2]] == ["data", "results"]:
+        return "/".join(parts[3:])
+    return "/".join(parts)
+
+
 is_public_job_result_path = result_path_public_shape
 
 
@@ -362,6 +434,7 @@ __all__ = [
     "PUBLIC_FIGURE_EXTENSIONS",
     "PUBLIC_INTEGRATED_EVIDENCE_FILENAMES",
     "LEGACY_PUBLIC_INTEGRATED_EVIDENCE_FILENAMES",
+    "PUBLIC_EVIDENCE_MANIFEST_PATH",
     "PUBLIC_RESULTS_MANIFEST_PATH",
     "PUBLIC_SUMMARY_FILENAMES",
     "PUBLIC_SUMMARY_TABLE_FILENAMES",
@@ -377,9 +450,12 @@ __all__ = [
     "is_result_path_forbidden",
     "normalize_result_path",
     "normalized_job_result_path",
+    "public_archive_entry_name",
+    "public_evidence_role",
     "result_is_public_archive",
     "result_is_public_bigscape_database",
     "result_is_public_bigscape_viewer_database",
+    "result_is_public_evidence",
     "result_path_forbidden",
     "result_path_public_shape",
     "result_tool_public_shape",

@@ -7,7 +7,7 @@ queue metadata, one worker/admission layer claims a job, and
 Python helpers transform or render declared outputs. The shipped runtime does
 not contain a second scientific implementation.
 
-Project-hosted access is **coming soon**. Version 1.0.0 can be run locally or
+Project-hosted access is **coming soon**. Version 1.0.1 can be run locally or
 through a separately administered institutional deployment.
 
 ## Shipped execution profiles
@@ -172,6 +172,15 @@ and private/raw BiG-SCAPE database policy. Keep
 `CLUSTERWEAVE_JOB_TOKEN_SECRET` stable because it signs result access and the
 completion indexes.
 
+At completion, ClusterWeave builds the full workbench ZIP once. It calculates
+the ZIP's SHA-256 checksum and records the ZIP's stable filesystem identity in
+the signed result index. An authenticated request can therefore stream the
+unchanged ZIP directly. If the package belongs to a legacy job, is missing, or
+has changed, ClusterWeave rebuilds it from the signed public manifest instead of
+trusting the stored file. This behavior avoids repeated compression of large
+antiSMASH and BiG-SCAPE outputs, although transfer time still depends on the
+package size and the available network bandwidth.
+
 After upgrading an installation with legacy jobs, an operator may run
 `python3 bin/backfill_result_attestations.py` in the web service environment. It
 writes bounded summaries and hashes terminal manifests once. Run it outside
@@ -192,6 +201,30 @@ antiSMASH and FunBGCeX HTML is fetched through opaque artifact routes and runs
 only in the existing scripts-only opaque-origin sandbox. HTTPS is required for a
 hosted deployment to protect tokens and result bytes in transit; TLS termination
 is outside this application-layer runtime.
+
+## Evidence workbench package
+
+An investigator may need the underlying sequence records after reviewing the
+interactive summaries. Therefore, the authenticated full package retains the
+following sequence-bearing files:
+
+- `input_gbks/<genome>.gbk` is the staged genome used by the downstream
+  analysis. For a bacterial genome, this is the retained feature-free GenBank
+  file prepared for antiSMASH and Prodigal.
+- `antismash/<genome>/*region<number>.gbk` contains the final antiSMASH region
+  records.
+- `funbgcex/<genome>/results/*.funbgcex_results/BGCs/*.gbk` contains the
+  canonical FunBGCeX BGC records. ClusterWeave omits the duplicate
+  `all_clusters` copy.
+- `evidence/clusterweave_evidence_manifest.tsv` records the portable path,
+  evidence role, genome and taxon labels, public source accession when present,
+  byte count, and SHA-256 checksum for each included evidence file.
+
+The package omits original upload objects, NCBI download caches, private job
+metadata, tokens, commands, environment files, logs, scratch files, database
+caches, and operator paths. However, the package does contain genome and BGC
+sequences. Operators and investigators should therefore protect its result
+link according to the sensitivity of the submitted genomes.
 
 ## Security and access rules
 

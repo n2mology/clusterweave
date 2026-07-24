@@ -177,6 +177,27 @@ test('admin job selection is metadata-only and QA lazily pages logs', async ({ p
   }));
   expect(completedPanelWidths.setup).toBeGreaterThan(0);
   expect(Math.abs(completedPanelWidths.setup - completedPanelWidths.results)).toBeLessThanOrEqual(1);
+  const totalRuntime = page.locator('#results-job-runtime');
+  await expect(totalRuntime).toBeVisible();
+  await expect(totalRuntime).toHaveText('(00:00:01:00)');
+  await expect(totalRuntime).toHaveAttribute('title', 'Final total job runtime');
+  for (const width of [1280, 760, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    const geometry = await page.evaluate(() => {
+      const header = document.querySelector('#results-card > .module-head')?.getBoundingClientRect();
+      const timer = document.getElementById('results-job-runtime')?.getBoundingClientRect();
+      const status = document.getElementById('results-status')?.getBoundingClientRect();
+      return header && timer && status ? {
+        header: { left: header.left, right: header.right },
+        timer: { left: timer.left, right: timer.right },
+        status: { left: status.left, right: status.right },
+      } : null;
+    });
+    expect(geometry).not.toBeNull();
+    expect(geometry.timer.left).toBeGreaterThanOrEqual(geometry.header.left);
+    expect(geometry.timer.right).toBeLessThanOrEqual(geometry.status.left + 0.5);
+    expect(geometry.status.right).toBeLessThanOrEqual(geometry.header.right + 0.5);
+  }
 
   await page.getByRole('tab', { name: 'QA Console' }).click();
   await expect.poll(() => logRequests.length).toBe(1);
@@ -190,6 +211,7 @@ test('admin job selection is metadata-only and QA lazily pages logs', async ({ p
   await expect(page.locator('#log-terminal .log-line').first()).toHaveText('line 0');
   await expect(page.locator('#load-earlier-logs')).toBeHidden();
   expect(logRequests.some(query => query.includes('before=500'))).toBeTruthy();
+  await expect(totalRuntime).toHaveText('(00:00:01:00)');
 
   await page.evaluate(() => syncActiveAdminLogs(false));
   await expect.poll(() => logRequests.length).toBe(3);
@@ -212,6 +234,8 @@ test('running admin job hydrates sanitized genome progress without QA logs', asy
       tool: 'antiSMASH',
       annotation_method: 'funannotate',
       message: 'antiSMASH record analysis in progress',
+      activity_message: 'Scanning protein domains',
+      region_progress: { processed: 2, total: 7, active: 3, failed: 0 },
       stage_states: {
         genome_acquired: { status: 'complete' },
         funannotate: { status: 'complete' },
@@ -369,9 +393,18 @@ test('running admin job hydrates sanitized genome progress without QA logs', asy
   await expect(page.locator('#bgc-genome-progress-layer')).toBeVisible();
   await expect(page.locator('#bgc-genome-progress-grid .genome-progress-row')).toHaveCount(6);
   const lateAntismash = page.locator('#bgc-genome-progress-grid .genome-progress-row').first();
-  await expect(lateAntismash.locator('.genome-progress-percent')).toHaveText('antiSMASH 89%');
-  await expect(lateAntismash.locator('[role="progressbar"]')).toHaveAttribute('aria-valuenow', '89');
+  await expect(lateAntismash.locator('.genome-progress-percent')).toHaveCount(0);
+  await expect(lateAntismash.locator('.genome-progress-status')).toHaveText(
+    'Region (2/7) · 3 active · Scanning protein domains',
+  );
+  await expect(lateAntismash.locator('[role="progressbar"]')).toHaveAttribute('aria-valuenow', '29');
   await expect(lateAntismash.locator('.genome-progress-segment')).toHaveCount(5);
+  const runningRuntime = page.locator('#results-job-runtime');
+  await expect(runningRuntime).toBeVisible();
+  await expect(runningRuntime).toHaveText(/^\(\d{2,}:\d{2}:\d{2}:\d{2}\)$/);
+  await expect(runningRuntime).toHaveAttribute('title', 'Total job runtime');
+  const initialRuntimeText = await runningRuntime.textContent();
+  await expect.poll(() => runningRuntime.textContent(), { timeout: 2500 }).not.toBe(initialRuntimeText);
   await expect(lateAntismash.locator('.genome-progress-segment[title="FunBGCeX: 0%"]')).toHaveCount(1);
   await expect(page.locator('#bgc-dna-progress-region')).toBeHidden();
   expect(logRequests).toHaveLength(0);

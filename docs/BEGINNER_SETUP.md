@@ -160,7 +160,7 @@ they are maintained differently:
 - A **tagged archive** is a fixed snapshot downloaded from the GitHub Releases
   page. An archive has no Git history and cannot be updated with `git pull`.
 
-ClusterWeave v1.0.0 is the current public release. Use the
+ClusterWeave v1.0.1 is the current public release. Use the
 [ClusterWeave releases page](https://github.com/n2mology/clusterweave/releases)
 when you need its immutable tag or source archive.
 
@@ -174,10 +174,10 @@ git clone https://github.com/n2mology/clusterweave.git
 cd clusterweave
 ```
 
-For a reproducible v1.0.0 checkout, request the tag explicitly:
+For a reproducible v1.0.1 checkout, request the tag explicitly:
 
 ```bash
-git clone --branch v1.0.0 --depth 1 https://github.com/n2mology/clusterweave.git
+git clone --branch v1.0.1 --depth 1 https://github.com/n2mology/clusterweave.git
 cd clusterweave
 ```
 
@@ -292,7 +292,16 @@ When the run reaches a terminal state, **RESULT BLOCKS** shows the applicable
 output tabs. **FUNBGCEX** is absent or not applicable for this bacterial run;
 that is expected. Use **ANTISMASH**, **BIG-SCAPE**, **CLINKER**, **SUMMARY**, and
 **FIGURES** only when the corresponding output exists. Select **Download
-package** to download the allowlisted archive.
+package** when you want to keep the run for review outside the browser.
+ClusterWeave downloads one ZIP workbench archive containing the derived reports
+and tables, the staged genome GenBank files, the antiSMASH region GenBank files,
+and the canonical FunBGCeX BGC GenBank files when FunBGCeX applies.
+
+The archive also contains a redacted evidence manifest with the size and
+SHA-256 checksum of every included genome or BGC GenBank file. These package-only
+files are not exposed as a separate result tab. Because the package contains
+genome and BGC sequences, keep the result link private whenever the submitted
+genomes are not public.
 
 ## Reopen results later
 
@@ -378,7 +387,7 @@ actually published and reviewed:
 ```bash
 git fetch --tags origin
 git tag --list
-git switch --detach v1.0.0
+git switch --detach v1.0.1
 docker compose build
 docker compose up -d
 ```

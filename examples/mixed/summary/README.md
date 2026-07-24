@@ -23,6 +23,9 @@ not applicable rather than being interpreted as missing detections.
 
 ## Excluded
 
-The bundle excludes raw genome and sequence files, per-region GenBank files,
-full third-party output trees, databases, logs, caches, private result metadata,
-and machine-specific paths.
+This repository-safe summary snapshot excludes genome and sequence files,
+per-region GenBank files, full third-party output trees, databases, logs,
+caches, private result metadata, and machine-specific paths. The authenticated
+**Download package** from a completed run serves a different purpose: it keeps
+the staged genome and BGC GenBank files together with their redacted checksum
+manifest for further review.

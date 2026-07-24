@@ -8,7 +8,7 @@ import unittest
 try:
     from Bio import SeqIO
     from Bio.Seq import Seq
-    from Bio.SeqFeature import CompoundLocation, FeatureLocation, SeqFeature
+    from Bio.SeqFeature import AfterPosition, CompoundLocation, FeatureLocation, SeqFeature
     from Bio.SeqRecord import SeqRecord
 except ModuleNotFoundError as exc:
     BIO_AVAILABLE = False
@@ -62,6 +62,79 @@ class AntiSmashInputPreparationTests(unittest.TestCase):
             self.assertEqual(summary["dropped_duplicate_cds"], 1)
             self.assertEqual([feature.type for feature in result.features], ["CDS"])
             self.assertEqual(result.features[0].qualifiers["locus_tag"], ["TEST_1"])
+
+    def test_sanitize_removes_only_unsafe_compound_codon_start_from_antismash_copy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source.gbk"
+            sanitized = root / "sanitized.gbk"
+            record = SeqRecord(Seq("A" * 2000), id="CM_TEST.1", name="CM_TEST.1")
+            record.annotations["molecule_type"] = "DNA"
+            location = CompoundLocation(
+                [
+                    FeatureLocation(
+                        AfterPosition(1800),
+                        AfterPosition(1801),
+                        strand=-1,
+                    ),
+                    FeatureLocation(1500, 1750, strand=-1),
+                ]
+            )
+            safe_location = CompoundLocation(
+                [
+                    FeatureLocation(1200, 1210, strand=-1),
+                    FeatureLocation(1000, 1150, strand=-1),
+                ]
+            )
+            record.features = [
+                SeqFeature(
+                    location,
+                    type="CDS",
+                    qualifiers={
+                        "locus_tag": ["TEST_PARTIAL"],
+                        "codon_start": ["3"],
+                        "translation": ["M" + "A" * 70],
+                    },
+                ),
+                SeqFeature(
+                    safe_location,
+                    type="CDS",
+                    qualifiers={
+                        "locus_tag": ["TEST_SAFE"],
+                        "codon_start": ["3"],
+                        "translation": ["M" + "G" * 40],
+                    },
+                ),
+            ]
+            SeqIO.write([record], source, "genbank")
+            original = source.read_bytes()
+
+            summary = MODULE.sanitize(source, sanitized, "fungus")
+            result = SeqIO.read(sanitized, "genbank")
+            cds = next(
+                feature
+                for feature in result.features
+                if feature.qualifiers.get("locus_tag") == ["TEST_PARTIAL"]
+            )
+            safe_cds = next(
+                feature
+                for feature in result.features
+                if feature.qualifiers.get("locus_tag") == ["TEST_SAFE"]
+            )
+
+            self.assertEqual(source.read_bytes(), original)
+            self.assertEqual(summary["removed_unsafe_codon_start_qualifiers"], 1)
+            self.assertEqual(summary["dropped_duplicate_cds"], 0)
+            self.assertEqual(
+                summary["dropped_invalid_non_cds_compound_features"],
+                0,
+            )
+            self.assertNotIn("codon_start", cds.qualifiers)
+            self.assertEqual(cds.qualifiers["locus_tag"], ["TEST_PARTIAL"])
+            self.assertIn("translation", cds.qualifiers)
+            self.assertIsInstance(cds.location, CompoundLocation)
+            self.assertEqual(len(cds.location.parts[0]), 1)
+            self.assertEqual(safe_cds.qualifiers["codon_start"], ["3"])
 
     def test_split_records_writes_exactly_one_requested_record_per_shard(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

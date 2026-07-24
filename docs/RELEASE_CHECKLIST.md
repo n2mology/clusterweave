@@ -1,4 +1,4 @@
-# ClusterWeave v1.0.0 release checklist
+# ClusterWeave v1.0.1 release checklist
 
 Use this checklist when preparing and verifying a source release. Commit, tag,
 push, and GitHub Release actions follow only after the applicable checks pass

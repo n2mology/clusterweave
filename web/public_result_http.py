@@ -151,14 +151,20 @@ def handle_public_result_get(handler: object, route: str, query: dict[str, list[
 
     if len(parts) == 5 and parts[4] == "archive":
         safe_public_id = re.sub(r"[^A-Za-z0-9_-]+", "_", public_id) or "result"
-        try:
-            archive_path = api.build_public_archive(job, base)
-        except (OSError, RuntimeError, zipfile.BadZipFile):
-            handler._send_json(
-                HTTPStatus.CONFLICT,
-                {"detail": "Public results changed while the package was prepared; retry."},
-            )
-            return True
+        authorized_archive = api.authorize_prebuilt_public_archive(job, base)
+        temporary_archive = authorized_archive is None
+        expected_identity = None
+        if authorized_archive is not None:
+            archive_path, expected_identity = authorized_archive
+        else:
+            try:
+                archive_path = api.build_public_archive(job, base)
+            except (OSError, RuntimeError, zipfile.BadZipFile):
+                handler._send_json(
+                    HTTPStatus.CONFLICT,
+                    {"detail": "Public results changed while the package was prepared; retry."},
+                )
+                return True
         try:
             handler._send_file(
                 HTTPStatus.OK,
@@ -171,9 +177,11 @@ def handle_public_result_get(handler: object, route: str, query: dict[str, list[
                     "Cache-Control": "private, no-store",
                     "X-Content-Type-Options": "nosniff",
                 },
+                expected_identity=expected_identity,
             )
         finally:
-            archive_path.unlink(missing_ok=True)
+            if temporary_archive:
+                archive_path.unlink(missing_ok=True)
         return True
 
     if len(parts) == 5 and parts[4] == "bigscape-viewer-database":

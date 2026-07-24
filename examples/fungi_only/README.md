@@ -11,4 +11,7 @@ provenance.
 
 Canonical figure names include `fungi_big_scape_multipanel.svg` and
 `bgc_overlap.svg`. No raw genomes, raw third-party result trees, private job
-metadata, tokens, logs, or machine paths are included.
+metadata, tokens, logs, or machine paths are included in this repository-safe
+example snapshot. A completed authenticated run has a different purpose:
+**Download package** preserves the staged genome and BGC GenBank files needed
+for further review of that run.

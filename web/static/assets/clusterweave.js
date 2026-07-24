@@ -67,6 +67,7 @@ let resultDashboardOpen = false;
 let resultFocusMode = 'overview';
 let activeResultCategory = 'figures';
 let activeResultFiles = [];
+let activeResultPackageFileCount = 0;
 let activeResultArtifacts = null;
 // Public result surfaces use opaque run and artifact identifiers. The
 // presentation keys below are generated in-memory from server descriptors so
@@ -78,6 +79,9 @@ let publicResultRunIds = new Set();
 let resultArchiveObjectUrl = '';
 let resultArchiveRequestSeq = 0;
 let activeArchiveDownload = null;
+let archiveDownloadStatus = null;
+let archiveDownloadDismissTimer = null;
+let validatedIntakeSignature = '';
 let resultHelperObjectUrls = [];
 let summaryReaderSeq = 0;
 let summaryReaderJobId = '';
@@ -1168,6 +1172,7 @@ function resetToIdleWorkbench() {
   resultDashboardOpen = false;
   activeResultCategory = 'figures';
   activeResultFiles = [];
+  activeResultPackageFileCount = 0;
   document.body.dataset.resultsAvailable = 'false';
   activeResultArtifacts = null;
   const logTerminal = document.getElementById('log-terminal');
@@ -6648,6 +6653,44 @@ function syncDataUseAcknowledgment() {
   return required && !checkbox?.checked;
 }
 
+function submissionValidationSignature() {
+  const files = selectedFiles
+    .map(file => [String(file.name || ''), Number(file.size || 0), Number(file.lastModified || 0)])
+    .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  const accessionSources = accessionFileSources
+    .map(source => [String(source.name || ''), [...(source.accessions || [])].map(normalizeAccessionDraft).sort()])
+    .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  const taxonAssignments = Object.entries(taxonAssignmentsPayload())
+    .sort(([left], [right]) => left.localeCompare(right));
+  const ecologyRows = inputEcologyEnabled()
+    ? currentEcologyMetadataRows().map(row => ({
+      input: String(row.input || ''),
+      accession: String(row.accession || ''),
+      primary: String(row.primary || ''),
+      secondary: String(row.secondary || ''),
+    })).sort((a, b) => a.input.localeCompare(b.input))
+    : [];
+  return JSON.stringify({
+    projectName: projectNameValue(),
+    analysisScope: normalizeAnalysisScope(stagedAnalysisScope),
+    manualAccessions: manualAccessionLines().map(normalizeAccessionDraft).sort(),
+    files,
+    accessionSources,
+    taxonAssignments,
+    ecologyEnabled: inputEcologyEnabled(),
+    ecologyRows,
+  });
+}
+
+function syncRunButtonPresentation(button = document.getElementById('run-btn')) {
+  if (!button) return;
+  const submitReady = !!validatedIntakeSignature
+    && validatedIntakeSignature === submissionValidationSignature();
+  button.classList.toggle('is-validation-pending', !submitReady);
+  button.classList.toggle('is-submit-ready', submitReady);
+  button.textContent = submitReady ? 'Submit run' : 'Validate';
+}
+
 function renderFileList() {
   const list = document.getElementById('file-list');
   const btn  = document.getElementById('run-btn');
@@ -6708,6 +6751,11 @@ function renderFileList() {
   const checkerState = renderInputChecker();
   const checkerBlocked = !canUseAdminSurfaces() && checkerState.blocked > 0;
   btn.disabled = inputSourceCount === 0 || draftPending || ackMissing || projectMissing || queuePaused || checkerBlocked || assignmentBlocked;
+  const currentValidationSignature = submissionValidationSignature();
+  if (validatedIntakeSignature && validatedIntakeSignature !== currentValidationSignature) {
+    validatedIntakeSignature = '';
+  }
+  syncRunButtonPresentation(btn);
   if (queuePaused) {
     stat.textContent = 'SUBMISSIONS PAUSED - QUEUE LOCKED BY OPERATOR';
   } else if (draftPending) {
@@ -6929,6 +6977,29 @@ async function startAnalysis() {
     return;
   }
 
+  const requestedValidationSignature = submissionValidationSignature();
+  if (validatedIntakeSignature !== requestedValidationSignature) {
+    const runButton = document.getElementById('run-btn');
+    const uploadStatus = document.getElementById('upload-status');
+    runButton.disabled = true;
+    uploadStatus.textContent = 'Validating inputs…';
+    await refreshSelectedGenomeChecks();
+    renderFileList();
+    const refreshedAssignment = taxonAssignmentValidation();
+    const refreshedChecker = renderInputChecker();
+    const refreshedAssignmentBlocked = normalizeAnalysisScope(stagedAnalysisScope) === 'both'
+      && (refreshedAssignment.unresolved.length || refreshedAssignment.issues.length);
+    if ((!canUseAdminSurfaces() && refreshedChecker.blocked > 0) || refreshedAssignmentBlocked) {
+      renderFileList();
+      return;
+    }
+    validatedIntakeSignature = submissionValidationSignature();
+    syncRunButtonPresentation(runButton);
+    runButton.disabled = false;
+    uploadStatus.textContent = 'Validation passed. Review the inputs, then select Submit run.';
+    return;
+  }
+
   const publicFixed = publicWorkflowLocked();
   const cpus = effectiveCpuCount();
   const annotationStrategy = effectiveAnnotationStrategy();
@@ -7040,6 +7111,7 @@ async function startAnalysis() {
       runSetupReceipt.taxonCounts = normalizeTaxonCounts(input_summary.taxon_counts || input_summary.taxonCounts || input_summary);
     }
     if (read_token) rememberOpenedRun(submittedRunId, read_token, { name, status: 'pending' });
+    validatedIntakeSignature = '';
     selectedFiles = [];
     acceptedManualAccessions = [];
     accessionFileSources = [];
@@ -7555,6 +7627,7 @@ function showEmptyResults() {
   lastSubmittedRun = null;
   activeResultCategory = 'figures';
   activeResultFiles = [];
+  activeResultPackageFileCount = 0;
   activeResultArtifacts = null;
   activePublicRunId = '';
   activeResultArtifactByKey = new Map();
@@ -7567,6 +7640,7 @@ function showEmptyResults() {
   resetWeaveActivity();
   resetStages(currentStageControlJob());
   setResultsLoaded(false);
+  renderJobRuntime(null);
   const badge = document.getElementById('results-status');
   if (badge) {
     badge.className = 'badge badge-pending ml-auto';
@@ -7691,7 +7765,6 @@ async function loadJob(jobId, autoScroll = false, options = {}) {
   hydratePublicResultActivity.inFlightSignature = '';
   clusterweaveGameEpoch += 1;
   syncClusterweaveGameHost({ lifecycle: 'loading', job: null });
-  cancelActiveArchiveDownload();
   activeJobId = jobId;
   resetGenomeProgressSnapshot(jobId);
   const loadingContext = options.analysisScope
@@ -7717,6 +7790,7 @@ async function loadJob(jobId, autoScroll = false, options = {}) {
   resultDashboardOpen = preferResultsDashboard;
   activeResultCategory = 'figures';
   activeResultFiles = [];
+  activeResultPackageFileCount = 0;
   activeResultArtifacts = null;
   activeResultArtifactByKey = new Map();
   activeResultArtifactById = new Map();
@@ -8261,7 +8335,12 @@ function formatDuration(ms) {
 
 function parseTimestampMs(value) {
   if (!value) return null;
-  const ms = new Date(value).getTime();
+  const raw = typeof value === 'string' ? value.trim() : value;
+  const normalized = typeof raw === 'string'
+    && /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(raw)
+    ? `${raw.replace(' ', 'T')}Z`
+    : raw;
+  const ms = new Date(normalized).getTime();
   return Number.isNaN(ms) ? null : ms;
 }
 
@@ -8377,6 +8456,53 @@ function jobElapsedText(job = activeJobMeta) {
   return formatDuration(end - start);
 }
 
+function jobRuntimeBounds(job = activeJobMeta) {
+  const start = parseTimestampMs(job?.started_at || job?.created_at);
+  if (start === null) return null;
+  const status = String(job?.status || '').trim().toLowerCase();
+  const active = status === 'running' || status === 'pending';
+  const terminal = parseTimestampMs(
+    job?.completed_at || job?.failed_at || job?.finished_at || job?.updated_at,
+  );
+  const end = active ? Date.now() : (terminal ?? Date.now());
+  return { start, end: Math.max(start, end), active };
+}
+
+function formatJobRuntimeClock(milliseconds) {
+  const total = Math.max(0, Math.floor((Number(milliseconds) || 0) / 1000));
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  return `(${String(days).padStart(2, '0')}:${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')})`;
+}
+
+function renderJobRuntime(job = activeJobMeta) {
+  const timer = document.getElementById('results-job-runtime');
+  if (!timer) return;
+  const bounds = jobRuntimeBounds(job);
+  if (!bounds) {
+    timer.hidden = true;
+    timer.textContent = '';
+    timer.removeAttribute('datetime');
+    return;
+  }
+  const elapsedMs = bounds.end - bounds.start;
+  const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  timer.hidden = false;
+  timer.textContent = formatJobRuntimeClock(elapsedMs);
+  timer.dateTime = `PT${totalSeconds}S`;
+  timer.setAttribute(
+    'aria-label',
+    `Total job runtime: ${days} days, ${hours} hours, ${minutes} minutes, ${seconds} seconds`,
+  );
+  timer.title = bounds.active ? 'Total job runtime' : 'Final total job runtime';
+}
+
 function stageRuntimeHint(key) {
   return STAGE_RUNTIME_HINTS[key] || 'Run dependent';
 }
@@ -8419,6 +8545,7 @@ function currentWorkflowStage() {
 }
 
 function setWorkflowExperienceState(job = activeJobMeta) {
+  renderJobRuntime(job);
   const status = String((job && job.status) || '').toLowerCase();
   let state = 'idle';
   if (status === 'success') state = 'complete';
@@ -8722,6 +8849,18 @@ function genomeProgressTaxon(value) {
   return 'Genome';
 }
 
+function normalizeGenomeRegionProgress(item) {
+  const source = item?.region_progress ?? item?.regionProgress;
+  if (!source || typeof source !== 'object' || Array.isArray(source)) return null;
+  const total = Math.max(0, Math.round(Number(source.total) || 0));
+  if (!total) return null;
+  const bounded = value => Math.max(0, Math.min(total, Math.round(Number(value) || 0)));
+  const processed = bounded(source.processed ?? source.finished ?? source.complete);
+  const failed = Math.min(processed, bounded(source.failed));
+  const active = Math.min(total - processed, bounded(source.active));
+  return { processed, total, active, failed };
+}
+
 function normalizeGenomeProgressItem(item, index) {
   if (!item || typeof item !== 'object') return null;
   const percent = genomeProgressPercent(item);
@@ -8736,9 +8875,10 @@ function normalizeGenomeProgressItem(item, index) {
       ? 'complete'
       : '';
   const status = rawStatus || messageState || (percent >= 100 ? 'complete' : percent > 0 ? 'running' : 'waiting');
-  const warning = status === 'complete_with_warning'
-    || GENOME_PROGRESS_WARNING_STATES.has(status)
-    || messageState === 'warning';
+  const completedWithWarning = status === 'complete_with_warning';
+  const warning = !completedWithWarning && (
+    GENOME_PROGRESS_WARNING_STATES.has(status) || messageState === 'warning'
+  );
   const terminal = item.terminal === true
     || GENOME_PROGRESS_TERMINAL_STATES.has(status)
     || (percent >= 100 && status !== 'running');
@@ -8760,6 +8900,12 @@ function normalizeGenomeProgressItem(item, index) {
     '',
     180,
   );
+  const activityMessage = safeGenomeProgressText(
+    item.activity_message ?? item.activityMessage ?? message,
+    message,
+    180,
+  );
+  const regionProgress = normalizeGenomeRegionProgress(item);
   const rawStageStates = item.stage_states ?? item.stageStates;
   const stageStates = {};
   if (rawStageStates && typeof rawStageStates === 'object' && !Array.isArray(rawStageStates)) {
@@ -8786,12 +8932,16 @@ function normalizeGenomeProgressItem(item, index) {
     tool,
     annotationMethod,
     message,
+    activityMessage,
     warningTool,
     warningMessage,
+    regionProgress,
     stageStates,
     updatedAt: String(item.updated_at ?? item.updatedAt ?? '').trim(),
     terminal,
     warning,
+    completedWithWarning,
+    hasWarning: warning || completedWithWarning || !!warningMessage,
   };
 }
 
@@ -8906,6 +9056,9 @@ function genomeProgressStageKey(label) {
 function genomeProgressStageFraction(item, key, status) {
   if (status === 'complete') return 1;
   if (!['running', 'failed'].includes(status)) return 0;
+  if (key === 'antismash' && item.regionProgress?.total) {
+    return Math.max(0, Math.min(1, item.regionProgress.processed / item.regionProgress.total));
+  }
   const ranges = {
     genome_acquired: [0, 8],
     funannotate: [10, 25],
@@ -8970,52 +9123,76 @@ function genomeProgressMeterModel(item, stages = genomeProgressStageModel(item))
   return { label: 'Queued', percent: 0, text: 'Queued' };
 }
 
+function genomeProgressRibbonText(item, statusMessage, stages) {
+  const current = stages.find(stage => stage.status === 'running' || stage.status === 'failed');
+  const region = item.regionProgress;
+  const pieces = [];
+  if (current?.key === 'antismash' && region?.total) {
+    pieces.push(`Region (${region.processed}/${region.total})`);
+    if (region.active) pieces.push(`${region.active} active`);
+  }
+  const activity = safeGenomeProgressText(statusMessage, '', 180);
+  if (activity && !pieces.some(piece => piece === activity)) pieces.push(activity);
+  return pieces.join(' · ') || 'Waiting for the next genome milestone';
+}
+
 function renderGenomeProgressMeter(item, statusMessage, stages) {
   const meter = genomeProgressMeterModel(item, stages);
-  const valueText = `${meter.text} · overall milestone ${item.percent}% · ${statusMessage}`;
+  const ribbonText = genomeProgressRibbonText(item, statusMessage, stages);
+  const valueText = `${ribbonText} · overall milestone ${item.percent}%`;
   return `
     <div class="genome-progress-meter-row">
       <div class="genome-progress-track" role="progressbar" aria-label="${escapeHtml(`${item.label} current stage progress`)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${meter.percent}" aria-valuetext="${escapeHtml(valueText)}" style="--genome-stage-count: ${stages.length}">
-        ${stages.map(stage => `<span class="genome-progress-segment ${stage.stateClass}" title="${escapeHtml(`${stage.label}: ${stage.progress}%`)}"><span class="genome-progress-segment-fill" style="--genome-stage-progress: ${stage.progress}%"></span></span>`).join('')}
+        ${stages.map(stage => {
+          const liveRegionClass = stage.key === 'antismash'
+            && stage.status === 'running'
+            && item.regionProgress?.active ? ' has-live-region-work' : '';
+          return `<span class="genome-progress-segment ${stage.stateClass}${liveRegionClass}" title="${escapeHtml(`${stage.label}: ${stage.progress}%`)}"><span class="genome-progress-segment-fill" style="--genome-stage-progress: ${stage.progress}%"></span></span>`;
+        }).join('')}
       </div>
-      <b class="genome-progress-percent" aria-hidden="true">${escapeHtml(meter.text)}</b>
     </div>`;
 }
 
 function renderGenomeProgressCard(item) {
   const active = GENOME_PROGRESS_ACTIVE_STATES.has(item.status);
   const stateClass = item.warning ? 'is-warning' : item.terminal ? 'is-complete' : active ? 'is-running' : 'is-waiting';
-  const stateLabel = item.warning ? 'error' : item.terminal ? 'complete' : active ? 'running' : 'queued';
+  const advisoryClass = item.completedWithWarning ? ' has-advisory' : '';
+  const stateLabel = item.warning ? 'error'
+    : item.completedWithWarning ? 'complete with warning'
+      : item.terminal ? 'complete' : active ? 'running' : 'queued';
+  const liveMessage = item.activityMessage || item.message;
   const statusMessage = item.warningMessage || (
-    item.warning && item.warningTool && !item.message.toLowerCase().includes(item.warningTool.toLowerCase())
-      ? `${item.message} · ${item.warningTool} error` : item.message
+    item.warning && item.warningTool && !liveMessage.toLowerCase().includes(item.warningTool.toLowerCase())
+      ? `${liveMessage} · ${item.warningTool} error` : liveMessage
   );
   const stageModel = genomeProgressStageModel(item);
   const meter = genomeProgressMeterModel(item, stageModel);
-  const aria = `${item.label}, ${item.taxon}, ${meter.text}, ${stateLabel}. ${statusMessage}`;
+  const ribbonText = genomeProgressRibbonText(item, statusMessage, stageModel);
+  const aria = `${item.label}, ${item.taxon}, ${meter.text}, ${stateLabel}. ${ribbonText}`;
   return `
-    <article class="genome-progress-row ${stateClass}" role="listitem" data-genome-progress-id="${escapeHtml(item.id)}" aria-label="${escapeHtml(aria)}">
+    <article class="genome-progress-row ${stateClass}${advisoryClass}" role="listitem" data-genome-progress-id="${escapeHtml(item.id)}" aria-label="${escapeHtml(aria)}">
       <div class="genome-progress-row-head">
         <span class="genome-progress-organism"><strong title="${escapeHtml(item.label)}">${escapeHtml(item.label)}</strong><span class="genome-progress-taxon">${escapeHtml(item.taxon)}</span></span>
       </div>
       ${renderGenomeProgressMeter(item, statusMessage, stageModel)}
       ${renderGenomeProgressStages(item, stageModel)}
-      <div class="genome-progress-status"><small title="${escapeHtml(statusMessage)}">${escapeHtml(statusMessage)}</small></div>
+      <div class="genome-progress-status"><small title="${escapeHtml(ribbonText)}">${escapeHtml(ribbonText)}</small></div>
     </article>`;
 }
 
 function genomeProgressSummaryText(items) {
   const rows = Array.isArray(items) ? items : [];
   const errorCount = rows.filter(item => item.warning).length;
+  const advisoryCount = rows.filter(item => item.completedWithWarning).length;
   const completeCount = rows.filter(item => item.terminal && !item.warning).length;
   const activeCount = rows.filter(
     item => !item.terminal && !item.warning && GENOME_PROGRESS_ACTIVE_STATES.has(item.status),
   ).length;
   const queuedCount = Math.max(0, rows.length - completeCount - activeCount - errorCount);
   if (rows.length && completeCount === rows.length) {
-    return `All ${rows.length} genome milestone${rows.length === 1 ? '' : 's'} complete`;
+    return `All ${rows.length} genome milestone${rows.length === 1 ? '' : 's'} complete${advisoryCount ? ` · warnings: ${advisoryCount}` : ''}`;
   }
-  return `${completeCount} complete · ${activeCount} active · ${queuedCount} queued${errorCount ? ` · errors: ${errorCount}` : ''}`;
+  return `${completeCount} complete · ${activeCount} active · ${queuedCount} queued${advisoryCount ? ` · warnings: ${advisoryCount}` : ''}${errorCount ? ` · errors: ${errorCount}` : ''}`;
 }
 
 function bgcWorkflowTitle(payload, genomeLayerActive) {
@@ -9072,8 +9249,11 @@ function renderGenomeProgressLayer(payload) {
     item.status,
     item.stage,
     item.message,
+    item.activityMessage,
     item.terminal ? 1 : 0,
     item.warning ? 1 : 0,
+    item.completedWithWarning ? 1 : 0,
+    JSON.stringify(item.regionProgress || {}),
     JSON.stringify(item.stageStates || {}),
     item.warningMessage || '',
   ].join('\u001f')).join('\u001e');
@@ -9367,6 +9547,7 @@ function bootBgcWorkflowDna() {
 }
 
 function updateStageTelemetry() {
+  renderJobRuntime(activeJobMeta);
   if (!activeStageState) return;
   let currentKey = currentWorkflowStage();
   document.querySelectorAll('.stage-step').forEach(el => {
@@ -10941,10 +11122,6 @@ function resultCategoryKey(category) {
   const aliases = {
     summary: 'summaries',
     summaries: 'summaries',
-    evidence: 'evidence',
-    integrated_evidence: 'evidence',
-    cross_kingdom: 'evidence',
-    putative_transfer: 'evidence',
     clinker: 'synteny',
     antismash: 'antismash',
     funbgcex: 'funbgcex',
@@ -10966,7 +11143,6 @@ const RESULT_FOLDER_TABS = [
   { key: 'synteny', label: 'CLINKER' },
   { key: 'summaries', label: 'SUMMARY' },
   { key: 'figures', label: 'FIGURES' },
-  { key: 'evidence', label: 'CROSS-KINGDOM', optionalWhenAvailable: true },
 ];
 
 function resultFolderTabs(counts = {}) {
@@ -11113,27 +11289,13 @@ function crossKingdomEvidenceArtifact(path) {
   return { path: normalized, name };
 }
 
-function isCrossKingdomEvidenceArtifact(path) {
+function isPackageOnlyResultArtifact(path) {
+  const descriptor = resultArtifactDescriptor(path);
+  const category = String(descriptor?.category || '').trim().toLowerCase();
+  if (['evidence', 'integrated_evidence', 'cross_kingdom', 'putative_transfer'].includes(category)) {
+    return true;
+  }
   return !!crossKingdomEvidenceArtifact(path);
-}
-
-function crossKingdomEvidenceSortKey(path) {
-  const artifact = crossKingdomEvidenceArtifact(path);
-  const priority = artifact ? CROSS_KINGDOM_EVIDENCE_FILENAMES.indexOf(artifact.name) : 999;
-  return `${String(priority).padStart(3, '0')}:${normalizedResultPath(path).toLowerCase()}`;
-}
-
-function crossKingdomEvidenceLabel(path) {
-  const name = crossKingdomEvidenceArtifact(path)?.name || '';
-  const labels = {
-    'cross_kingdom_evidence_cards.txt': 'Plain-language Cross-Kingdom evidence cards',
-    'cross_kingdom_evidence.tsv': 'Lossless Cross-Kingdom evidence table',
-    'cross_kingdom_evidence.json': 'Bounded Cross-Kingdom evidence JSON',
-    'putative_transfer_evidence_cards.txt': 'Plain-language Cross-Kingdom evidence cards',
-    'putative_transfer_evidence.tsv': 'Lossless Cross-Kingdom evidence table',
-    'putative_transfer_evidence.json': 'Bounded Cross-Kingdom evidence JSON',
-  };
-  return labels[name] || '';
 }
 
 function isSyntenyArtifact(path) {
@@ -11147,13 +11309,14 @@ function isPrimaryResultCategory(path) {
     || isFunbgcexArtifact(path)
     || isBigscapeArtifact(path)
     || isSummaryArtifact(path)
-    || isCrossKingdomEvidenceArtifact(path)
+    || isPackageOnlyResultArtifact(path)
     || isSyntenyArtifact(path)
     || isDataResultsZip(path);
 }
 
 function resultCategoryMatches(category, path) {
   const key = resultCategoryKey(category);
+  if (isPackageOnlyResultArtifact(path)) return false;
   const descriptor = resultArtifactDescriptor(path);
   if (descriptor) {
     const descriptorKey = resultCategoryKey(descriptor.category);
@@ -11166,7 +11329,6 @@ function resultCategoryMatches(category, path) {
   if (key === 'funbgcex') return isFunbgcexArtifact(path);
   if (key === 'bigscape') return isBigscapeArtifact(path);
   if (key === 'summaries') return isSummaryArtifact(path);
-  if (key === 'evidence') return isCrossKingdomEvidenceArtifact(path);
   if (key === 'synteny') return isSyntenyArtifact(path);
   if (key === 'other') return !isPrimaryResultCategory(path);
   return true;
@@ -11262,7 +11424,6 @@ function artifactMetaLabel(path, category = '') {
     ? `BiG-SCAPE database ${fileNameFromPath(path)}`
     : 'BiG-SCAPE web view';
   if (key === 'summaries') return summaryArtifactLabel(path);
-  if (key === 'evidence') return crossKingdomEvidenceLabel(path);
   if (key === 'synteny') return isHtmlAsset(path) ? 'clinker synteny HTML panel' : 'clinker synteny artifact';
   if (key === 'figures') return figureCaption(path);
   return readableArtifactLabel(fileNameFromPath(path), 'artifact');
@@ -11376,7 +11537,6 @@ function buildResultArtifacts(files) {
       databaseFiles: bigscapeDatabaseFiles,
     },
     summaries: normalized.filter(isSummaryReaderArtifact).sort((a, b) => summarySortKey(a).localeCompare(summarySortKey(b))),
-    evidence: normalized.filter(isCrossKingdomEvidenceArtifact).sort((a, b) => crossKingdomEvidenceSortKey(a).localeCompare(crossKingdomEvidenceSortKey(b))),
     synteny: normalized.filter(isSyntenyArtifact).sort((a, b) => normalizedResultPath(a).localeCompare(normalizedResultPath(b))),
     figures: normalized
       .filter(path => isFigureAsset(path) && figureApplicableToAnalysis(path, capabilities))
@@ -11399,7 +11559,6 @@ function resultCategoryCounts(files) {
     funbgcex: artifacts.funbgcex.length,
     bigscape: artifacts.bigscape.html ? 1 : 0,
     summaries: artifacts.summaries.length,
-    evidence: artifacts.evidence.length,
     synteny: artifacts.synteny.length,
     other,
     downloads: normalized.length,
@@ -11437,7 +11596,6 @@ function resultCategoryLabel(category) {
     funbgcex: 'FUNBGCEX',
     bigscape: 'BIG-SCAPE',
     summaries: 'SUMMARY',
-    evidence: 'CROSS-KINGDOM',
     synteny: 'CLINKER',
     other: 'Other artifacts',
     downloads: 'Files',
@@ -11454,7 +11612,6 @@ function resultCategoryCopy(category) {
     funbgcex: 'Per-genome FunBGCeX HTML views.',
     bigscape: 'BiG-SCAPE clustering output; interactive view when a safe database is available.',
     summaries: 'Atlas shortlist and priority tables.',
-    evidence: 'Optional Cross-Kingdom context profiles; no evolutionary event, mechanism, or direction is inferred.',
     synteny: 'clinker panels grouped by family context.',
     other: 'Additional indexed artifacts.',
     downloads: 'All indexed artifacts as download rows.',
@@ -11467,7 +11624,7 @@ function resultCategoryCopy(category) {
 }
 
 function resultCategoryIcon(category) {
-  const icons = { antismash: '06', funbgcex: '07', bigscape: '08', summaries: '09', figures: '10', evidence: 'EVD', synteny: 'SYN', other: 'OUT', downloads: 'ZIP' };
+  const icons = { antismash: '06', funbgcex: '07', bigscape: '08', summaries: '09', figures: '10', synteny: 'SYN', other: 'OUT', downloads: 'ZIP' };
   return icons[resultCategoryKey(category)] || 'OUT';
 }
 
@@ -11529,9 +11686,6 @@ function resultLollipopItems(artifacts = activeResultArtifacts || buildResultArt
   }
   if (artifacts.figures.length) {
     items.push({ key: 'figures', count: artifacts.figures.length, unit: 'figure', label: resultCategoryLabel('figures'), copy: resultCategoryCopy('figures'), icon: resultCategoryIcon('figures') });
-  }
-  if (artifacts.evidence.length) {
-    items.push({ key: 'evidence', count: artifacts.evidence.length, unit: 'file', label: resultCategoryLabel('evidence'), copy: resultCategoryCopy('evidence'), icon: resultCategoryIcon('evidence') });
   }
   const totalFiles = Number((counts && counts.downloads) || activeResultFiles.length || 0);
   if (totalFiles) {
@@ -11630,8 +11784,10 @@ function updateResultDashboardVisibility(status, fileCount = null) {
 function renderResultBubblePanel(files, status) {
   const panel = document.getElementById('result-bubble-panel');
   if (!panel) return;
-  activeResultFiles = (files || []).map(normalizedResultPath).filter(Boolean);
-  document.body.dataset.resultsAvailable = activeResultFiles.length ? 'true' : 'false';
+  const indexedFiles = (files || []).map(normalizedResultPath).filter(Boolean);
+  activeResultPackageFileCount = indexedFiles.length;
+  activeResultFiles = indexedFiles.filter(path => !isPackageOnlyResultArtifact(path));
+  document.body.dataset.resultsAvailable = (activeResultFiles.length || activeResultPackageFileCount) ? 'true' : 'false';
   const artifacts = resultArtifacts(activeResultFiles);
   const counts = resultCategoryCounts(activeResultFiles);
   const folderItems = resultFolderTabItems(counts);
@@ -11652,18 +11808,104 @@ function renderResultBubblePanel(files, status) {
 function updateArchiveButton() {
   const btn = document.getElementById('download-package-btn');
   if (!btn) return;
-  const inFlight = !!(activeArchiveDownload && activeArchiveDownload.jobId === activeJobId);
-  btn.disabled = !activeJobId || !activeResultFiles.length || inFlight;
-  btn.textContent = inFlight ? 'Preparing package...' : 'Download package';
+  const inFlight = !!activeArchiveDownload;
+  const sameRun = inFlight && activeArchiveDownload.jobId === activeJobId;
+  const percent = inFlight && activeArchiveDownload.total > 0
+    ? Math.min(100, Math.floor((activeArchiveDownload.received / activeArchiveDownload.total) * 100))
+    : 0;
+  btn.disabled = !activeJobId || activeResultPackageFileCount < 1 || inFlight;
+  btn.textContent = inFlight
+    ? (sameRun && percent ? `Downloading ${percent}%` : 'Download in progress')
+    : 'Download package';
 }
 
-function cancelActiveArchiveDownload() {
-  resultArchiveRequestSeq += 1;
-  if (activeArchiveDownload?.controller) {
-    try { activeArchiveDownload.controller.abort(); } catch (err) {}
+function archiveDownloadDetail(download) {
+  const received = Number(download?.received || 0);
+  const total = Number(download?.total || 0);
+  const runId = String(download?.runId || 'result');
+  if (total > 0) return `${runId} · ${fmt_size(received)} of ${fmt_size(total)} received in the background.`;
+  if (received > 0) return `${runId} · ${fmt_size(received)} received in the background.`;
+  return `${runId} · preparing the full result package in the background.`;
+}
+
+function renderArchiveDownloadStatus(status = archiveDownloadStatus) {
+  const tray = document.getElementById('archive-download-tray');
+  const title = document.getElementById('archive-download-title');
+  const percentLabel = document.getElementById('archive-download-percent');
+  const detail = document.getElementById('archive-download-detail');
+  const progress = document.getElementById('archive-download-progress');
+  const fill = document.getElementById('archive-download-progress-fill');
+  if (!tray || !title || !percentLabel || !detail || !progress || !fill) return;
+  if (!status) {
+    tray.hidden = true;
+    tray.setAttribute('aria-busy', 'false');
+    return;
   }
-  activeArchiveDownload = null;
-  updateArchiveButton();
+  const state = String(status.state || 'running');
+  const received = Number(status.received || 0);
+  const total = Number(status.total || 0);
+  const percent = total > 0 ? Math.min(100, Math.floor((received / total) * 100)) : 0;
+  tray.hidden = false;
+  tray.dataset.state = state;
+  tray.setAttribute('aria-busy', state === 'running' ? 'true' : 'false');
+  title.textContent = state === 'complete' ? 'PACKAGE READY' : state === 'error' ? 'DOWNLOAD INTERRUPTED' : 'PACKAGE DOWNLOAD';
+  percentLabel.textContent = state === 'complete' ? '100%' : state === 'error' ? 'RETRY' : total > 0 ? `${percent}%` : 'WORKING';
+  detail.textContent = String(status.message || archiveDownloadDetail(status));
+  progress.classList.toggle('is-indeterminate', state === 'running' && total <= 0);
+  if (total > 0 || state === 'complete') {
+    const value = state === 'complete' ? 100 : percent;
+    progress.setAttribute('aria-valuenow', String(value));
+    fill.style.width = `${value}%`;
+  } else {
+    progress.removeAttribute('aria-valuenow');
+    fill.style.width = '';
+  }
+}
+
+function setArchiveDownloadStatus(status, dismissAfterMs = 0) {
+  if (archiveDownloadDismissTimer) {
+    clearTimeout(archiveDownloadDismissTimer);
+    archiveDownloadDismissTimer = null;
+  }
+  archiveDownloadStatus = status;
+  renderArchiveDownloadStatus(status);
+  if (status && dismissAfterMs > 0) {
+    archiveDownloadDismissTimer = setTimeout(() => {
+      archiveDownloadStatus = null;
+      archiveDownloadDismissTimer = null;
+      renderArchiveDownloadStatus(null);
+    }, dismissAfterMs);
+  }
+}
+
+async function readArchiveResponseBlob(response, requestId) {
+  const headerTotal = Number(response.headers.get('content-length') || 0);
+  if (!response.body || typeof response.body.getReader !== 'function') {
+    const blob = await response.blob();
+    if (activeArchiveDownload?.requestId === requestId) {
+      activeArchiveDownload.received = blob.size;
+      activeArchiveDownload.total = headerTotal || blob.size;
+      setArchiveDownloadStatus({ ...activeArchiveDownload, state: 'running' });
+    }
+    return blob;
+  }
+  const reader = response.body.getReader();
+  const chunks = [];
+  let received = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    chunks.push(value);
+    received += value.byteLength;
+    if (activeArchiveDownload?.requestId === requestId) {
+      activeArchiveDownload.received = received;
+      activeArchiveDownload.total = headerTotal;
+      setArchiveDownloadStatus({ ...activeArchiveDownload, state: 'running' });
+      updateArchiveButton();
+    }
+  }
+  return new Blob(chunks, { type: response.headers.get('content-type') || 'application/zip' });
 }
 
 async function downloadResultArchive(event) {
@@ -11672,15 +11914,23 @@ async function downloadResultArchive(event) {
   const requestJobId = activeJobId;
   const requestRunId = publicRunIdForJob(requestJobId);
   const requestId = ++resultArchiveRequestSeq;
-  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-  activeArchiveDownload = { jobId: requestJobId, requestId, controller };
+  activeArchiveDownload = {
+    jobId: requestJobId,
+    runId: requestRunId,
+    requestId,
+    received: 0,
+    total: 0,
+  };
+  setArchiveDownloadStatus({ ...activeArchiveDownload, state: 'running' });
   updateArchiveButton();
   try {
-    const options = controller ? { signal: controller.signal } : {};
-    const resp = await apiFetch(`api/results/${encodeURIComponent(requestRunId)}/archive`, options, { kind: 'job', jobId: requestRunId });
+    const resp = await apiFetch(
+      `api/results/${encodeURIComponent(requestRunId)}/archive`,
+      { cache: 'no-store' },
+      { kind: 'job', jobId: requestRunId },
+    );
     if (!resp.ok) throw new Error('Full package download is not available for this run yet.');
-    const blob = await resp.blob();
-    if (activeJobId !== requestJobId || activeArchiveDownload?.requestId !== requestId) return false;
+    const blob = await readArchiveResponseBlob(resp, requestId);
     if (resultArchiveObjectUrl) URL.revokeObjectURL(resultArchiveObjectUrl);
     resultArchiveObjectUrl = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -11689,14 +11939,19 @@ async function downloadResultArchive(event) {
     document.body.appendChild(a);
     a.click();
     a.remove();
+    setArchiveDownloadStatus({
+      ...activeArchiveDownload,
+      state: 'complete',
+      received: blob.size,
+      total: blob.size,
+      message: `${requestRunId} · package received; the browser download has started.`,
+    }, 6000);
   } catch (err) {
-    if (err?.name !== 'AbortError' && activeJobId === requestJobId && activeArchiveDownload?.requestId === requestId) {
-      const btn = document.getElementById('download-package-btn');
-      if (btn) btn.textContent = err.message || 'Package unavailable';
-      setTimeout(() => {
-        if (activeJobId === requestJobId) updateArchiveButton();
-      }, 2600);
-    }
+    setArchiveDownloadStatus({
+      ...(activeArchiveDownload || { runId: requestRunId }),
+      state: 'error',
+      message: err?.message || 'Package download was interrupted. Select Download package to retry.',
+    }, 8000);
   } finally {
     if (activeArchiveDownload?.requestId === requestId) activeArchiveDownload = null;
     updateArchiveButton();
@@ -13115,9 +13370,11 @@ function fileTypeLabel(path) {
 function fileRowLabel(path) {
   const normalized = normalizedResultPath(path);
   const lower = normalized.toLowerCase();
+  const descriptor = resultArtifactDescriptor(path);
   if (lower === 'downloads/public_results_manifest.tsv') return 'Public results manifest';
+  if (String(descriptor?.filename || '').toLowerCase() === 'clusterweave_evidence_manifest.tsv') return 'Checksummed evidence manifest';
+  if (descriptor?.role === 'staged-genome-genbank') return `${descriptor.genome_label || fileStemFromPath(descriptor.filename)} staged genome GenBank`;
   if (/^downloads\/[^/]+_public_results\.zip$/i.test(normalized)) return 'Generated public results package';
-  if (isCrossKingdomEvidenceArtifact(normalized)) return crossKingdomEvidenceLabel(normalized);
   if (isApprovedPhylogenyArtifact(normalized)) return phylogenyArtifactLabel(normalized);
   if (isFigureAsset(normalized)) return figureCaption(normalized);
   if (isSummaryArtifact(normalized)) return summaryArtifactLabel(normalized);
@@ -13707,7 +13964,8 @@ function renderResultCategorySummary(category, visibleCount, totalCount) {
 
 function renderFileTable(jobId, files, options = {}) {
   const container = document.getElementById('files-container');
-  activeResultFiles = (files || []).map(normalizedResultPath).filter(Boolean);
+  activeResultFiles = (files || []).map(normalizedResultPath).filter(Boolean)
+    .filter(path => !isPackageOnlyResultArtifact(path));
   const category = resultCategoryKey(options.category || activeResultCategory || 'downloads');
   const visibleFiles = resultFilesForCategory(category, activeResultFiles);
   const summary = renderResultCategorySummary(category, visibleFiles.length, activeResultFiles.length);

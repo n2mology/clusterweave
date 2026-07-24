@@ -27,6 +27,20 @@ class PublicResultManifestTests(unittest.TestCase):
         with zipfile.ZipFile(archive_path) as archive:
             return set(archive.namelist())
 
+    def test_public_source_accession_rejects_path_like_metadata(self) -> None:
+        self.assertEqual(
+            canonical_pipeline._public_source_accession("gca_000000001.1"),
+            "GCA_000000001.1",
+        )
+        for value in (
+            "/home/operator/private.gbk",
+            "file:///data/jobs/secret",
+            "GCA_000000001.1\tTOKEN=secret",
+            "TOKEN12345",
+        ):
+            with self.subTest(value=value):
+                self.assertEqual(canonical_pipeline._public_source_accession(value), "")
+
     def test_target_genome_accepts_accession_alias_from_prep_mapping(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             job_root = Path(tmp) / "job"
@@ -73,10 +87,16 @@ class PublicResultManifestTests(unittest.TestCase):
                 "summary/family_atlas_shortlist.md": "# shortlist\n",
                 "summary/family_atlas_shortlist.tsv": "rank\tgenome\n",
                 "summary_tables/ecofun_metadata_normalized.tsv": "accession\tgenome_id_current\n",
+                "summary_tables/genome_taxon_manifest.tsv": (
+                    "genome_id\ttaxon_group\tsource_accession\n"
+                    "genome_a\tfungi\tGCA_000000001.1\n"
+                ),
                 "antismash/genome_a/index.html": "<html>antiSMASH</html>\n",
                 "antismash/genome_a/style.css": "body{}\n",
-                "antismash/genome_a/region001.gbk": "LOCUS raw\n",
+                "antismash/genome_a/contig.region001.gbk": "LOCUS antiSMASH region\n",
                 "funbgcex/genome_a/index.html": "<html>FunBGCeX</html>\n",
+                "funbgcex/genome_a/results/genome_a.funbgcex_results/BGCs/BGC1.gbk": "LOCUS FunBGCeX BGC\n",
+                "funbgcex/genome_a/all_clusters/genome_a_BGCs/BGC1.gbk": "LOCUS duplicate mirror\n",
                 "funbgcex/genome_a/raw.tsv": "raw funbgcex\n",
                 "big_scape/output_files/index.html": "<html>BiG-SCAPE</html>\n",
                 "big_scape/output_files/data_sqlite.db": "/data/jobs/private/input.gbk\n",
@@ -87,7 +107,7 @@ class PublicResultManifestTests(unittest.TestCase):
                 "clinker/panel/inputs/raw.gbk": "LOCUS raw\n",
                 "clinker/panel/panel_manifest.tsv": "source_gbk_path\n/private/raw.gbk\n",
                 "clinker/panel/run_panel.sh": "docker run private\n",
-                "input_gbks/raw.gbk": "LOCUS raw\n",
+                "input_gbks/genome_a.gbk": "LOCUS staged genome\n",
                 "summary_tables/logs/raw.log": "SECRET=1\n",
                 "reproducibility/external_artifacts.tsv": "/private/path\n",
             }
@@ -125,7 +145,20 @@ class PublicResultManifestTests(unittest.TestCase):
             self.assertNotIn("data/results/demo/big_scape/public/clusterweave_viewer.sqlite", public_files)
             self.assertIn("data/results/demo/clinker/panel/panel.html", public_files)
             self.assertIn("data/results/demo/clinker/panel/panel.js", public_files)
-            self.assertNotIn("data/results/demo/antismash/genome_a/region001.gbk", public_files)
+            self.assertIn("data/results/demo/input_gbks/genome_a.gbk", public_files)
+            self.assertIn("data/results/demo/antismash/genome_a/contig.region001.gbk", public_files)
+            self.assertIn(
+                "data/results/demo/funbgcex/genome_a/results/genome_a.funbgcex_results/BGCs/BGC1.gbk",
+                public_files,
+            )
+            self.assertIn(
+                "data/results/demo/evidence/clusterweave_evidence_manifest.tsv",
+                public_files,
+            )
+            self.assertNotIn(
+                "data/results/demo/funbgcex/genome_a/all_clusters/genome_a_BGCs/BGC1.gbk",
+                public_files,
+            )
             self.assertNotIn("data/results/demo/funbgcex/genome_a/raw.tsv", public_files)
             self.assertNotIn("data/results/demo/big_scape/output_files/network.gml", public_files)
             self.assertNotIn("data/results/demo/clinker/panel/inputs/raw.gbk", public_files)
@@ -133,7 +166,6 @@ class PublicResultManifestTests(unittest.TestCase):
 
             joined = "\n".join(sorted(public_files))
             for private_marker in [
-                "input_gbks/",
                 "summary_tables/logs/",
                 "external_artifacts",
                 "panel_manifest",
@@ -148,18 +180,64 @@ class PublicResultManifestTests(unittest.TestCase):
 
             archive_path = job_root / "downloads" / "demo_public_results.zip"
             names = self.archive_names(archive_path)
-            self.assertEqual(names, manifest_paths | {"downloads/public_results_manifest.tsv"})
-            self.assertIn("data/results/demo/figures/bgc_overlap.svg", names)
-            self.assertIn("data/results/demo/summary/family_atlas_shortlist.tsv", names)
-            self.assertIn("data/results/demo/antismash/genome_a/index.html", names)
-            self.assertNotIn("data/results/demo/big_scape/output_files/data_sqlite.db", names)
-            self.assertNotIn("data/results/demo/big_scape/public/clusterweave_viewer.sqlite", names)
-            self.assertIn("data/results/demo/clinker/panel/panel.html", names)
+            portable_paths = {
+                path.removeprefix("data/results/demo/") for path in manifest_paths
+            }
+            self.assertEqual(names, portable_paths | {"downloads/public_results_manifest.tsv"})
+            self.assertIn("figures/bgc_overlap.svg", names)
+            self.assertIn("summary/family_atlas_shortlist.tsv", names)
+            self.assertIn("antismash/genome_a/index.html", names)
+            self.assertIn("antismash/genome_a/contig.region001.gbk", names)
+            self.assertIn("input_gbks/genome_a.gbk", names)
+            self.assertIn(
+                "funbgcex/genome_a/results/genome_a.funbgcex_results/BGCs/BGC1.gbk",
+                names,
+            )
+            self.assertIn("evidence/clusterweave_evidence_manifest.tsv", names)
+            self.assertNotIn("big_scape/output_files/data_sqlite.db", names)
+            self.assertNotIn("big_scape/public/clusterweave_viewer.sqlite", names)
+            self.assertIn("clinker/panel/panel.html", names)
             self.assertIn("downloads/public_results_manifest.tsv", names)
             self.assertNotIn("downloads/demo_public_results.zip", names)
-            self.assertNotIn("data/results/demo/antismash/genome_a/region001.gbk", names)
-            self.assertNotIn("data/results/demo/clinker/panel/inputs/raw.gbk", names)
-            self.assertNotIn("data/results/demo/reproducibility/external_artifacts.tsv", names)
+            self.assertNotIn(
+                "funbgcex/genome_a/all_clusters/genome_a_BGCs/BGC1.gbk", names
+            )
+            self.assertNotIn("clinker/panel/inputs/raw.gbk", names)
+            self.assertNotIn("reproducibility/external_artifacts.tsv", names)
+            self.assertTrue(all(not name.startswith("data/results/") for name in names))
+
+            evidence_text = (
+                results_root / "evidence" / "clusterweave_evidence_manifest.tsv"
+            ).read_text(encoding="utf-8")
+            evidence_lines = evidence_text.splitlines()
+            self.assertEqual(
+                evidence_lines[0],
+                "path\trole\tgenome_id\ttaxon_group\tsource_accession\tbytes\tsha256",
+            )
+            evidence_rows = [line.split("\t") for line in evidence_lines[1:]]
+            self.assertEqual(
+                {row[1] for row in evidence_rows},
+                {
+                    "staged_genome_genbank",
+                    "antismash_region_genbank",
+                    "funbgcex_bgc_genbank",
+                },
+            )
+            self.assertEqual({row[2] for row in evidence_rows}, {"genome_a"})
+            self.assertEqual({row[3] for row in evidence_rows}, {"fungi"})
+            self.assertEqual({row[4] for row in evidence_rows}, {"GCA_000000001.1"})
+            self.assertNotIn("all_clusters", evidence_text)
+            self.assertNotIn(str(job_root), evidence_text)
+            self.assertNotIn("private", evidence_text.lower())
+
+            with zipfile.ZipFile(archive_path) as archive:
+                package_manifest = archive.read(
+                    "downloads/public_results_manifest.tsv"
+                ).decode("utf-8").splitlines()
+            self.assertEqual(
+                {line.split("\t", 1)[0] for line in package_manifest[1:]},
+                portable_paths,
+            )
 
     def test_partial_failure_outputs_use_the_same_manifest_archive_contract(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -195,6 +273,8 @@ class PublicResultManifestTests(unittest.TestCase):
             expected_outputs = {
                 "data/results/partial/antismash/genome_a/index.html",
                 "data/results/partial/antismash/genome_a/style.css",
+                "data/results/partial/antismash/genome_a/region001.gbk",
+                "data/results/partial/evidence/clusterweave_evidence_manifest.tsv",
                 "data/results/partial/summary/family_atlas_shortlist.md",
                 "data/results/partial/summary_tables/ecofun_metadata_normalized.tsv",
             }
@@ -205,9 +285,13 @@ class PublicResultManifestTests(unittest.TestCase):
             )
             self.assertEqual(
                 self.archive_names(job_root / "downloads" / "partial_public_results.zip"),
-                expected_outputs | {"downloads/public_results_manifest.tsv"},
+                {
+                    path.removeprefix("data/results/partial/")
+                    for path in expected_outputs
+                }
+                | {"downloads/public_results_manifest.tsv"},
             )
-            self.assertNotIn("data/results/partial/antismash/genome_a/region001.gbk", job.result_files)
+            self.assertIn("data/results/partial/antismash/genome_a/region001.gbk", job.result_files)
             self.assertNotIn("data/results/partial/clinker/panel/panel_manifest.tsv", job.result_files)
 
     def test_full_bigscape_export_remains_packaged_while_viewer_stays_web_only(self) -> None:
@@ -254,8 +338,8 @@ class PublicResultManifestTests(unittest.TestCase):
             names = self.archive_names(
                 job_root / "downloads" / "demo_public_results.zip"
             )
-            self.assertIn(full_rel, names)
-            self.assertNotIn(viewer_rel, names)
+            self.assertIn("big_scape/public/clusterweave_public.sqlite", names)
+            self.assertNotIn("big_scape/public/clusterweave_viewer.sqlite", names)
             self.assertEqual(job.bigscape_viewer_database, viewer_rel)
 
     def test_collector_never_follows_allowlisted_symlinks(self) -> None:

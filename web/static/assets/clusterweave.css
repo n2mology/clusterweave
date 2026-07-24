@@ -465,7 +465,46 @@
     text-transform: uppercase;
   }
   .workflow-panel .module-head { background: var(--lavender); }
-  .results-panel .module-head { background: var(--acid); }
+  .results-panel .module-head {
+    min-width: 0;
+    background: var(--acid);
+  }
+  .results-panel .module-head > strong {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .results-run-state {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 72%;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: .34rem;
+    white-space: nowrap;
+  }
+  .results-job-runtime {
+    flex: 0 1 auto;
+    min-width: 0;
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: clamp(.48rem, 1.25vw, .61rem);
+    font-variant-numeric: tabular-nums;
+    font-weight: 900;
+    letter-spacing: -.035em;
+    line-height: 1;
+    text-transform: none;
+    white-space: nowrap;
+  }
+  .results-run-state #results-status {
+    flex: 0 0 auto;
+    min-width: max-content;
+    font-size: clamp(.48rem, 1.4vw, .66rem);
+    white-space: nowrap;
+  }
   .input-station-head {
     display: grid;
     grid-template-columns: auto auto;
@@ -1562,6 +1601,8 @@
   .access-code-control { background: var(--orange); color: white; }
   .access-code-control.is-accepted { background: var(--lavender); color: #050505; }
   .brutal-button.secondary { background: white; }
+  #run-btn.is-validation-pending { background: var(--orange); color: white; }
+  #run-btn.is-submit-ready { background: var(--acid); color: var(--ink); }
   .access-grid {
     display: grid;
     grid-template-columns: minmax(0, 1.16fr) minmax(14rem, .5fr);
@@ -1864,6 +1905,9 @@
   }
   .genome-progress-row.is-running { background: var(--blue-soft); }
   .genome-progress-row.is-complete { background: var(--acid); }
+  .genome-progress-row.is-complete.has-advisory {
+    box-shadow: inset .28rem 0 0 var(--orange);
+  }
   .genome-progress-row.is-warning { background: var(--pink-soft); }
   .genome-progress-row-head {
     min-width: 0;
@@ -1897,18 +1941,10 @@
     font-weight: 950;
     text-transform: uppercase;
   }
-  .genome-progress-percent {
-    min-width: max-content;
-    font-family: var(--mono);
-    font-size: .64rem;
-    font-variant-numeric: tabular-nums;
-    text-align: right;
-    white-space: nowrap;
-  }
   .genome-progress-meter-row {
     min-width: 0;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr);
     align-items: center;
     gap: .4rem;
   }
@@ -1937,6 +1973,18 @@
   }
   .genome-progress-segment.is-complete .genome-progress-segment-fill { background: #1aaf54; }
   .genome-progress-segment.is-warning .genome-progress-segment-fill { background: var(--orange); }
+  .genome-progress-segment.has-live-region-work::after {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 -35%;
+    width: 35%;
+    background: linear-gradient(90deg, transparent, rgba(0,194,255,.72), transparent);
+    pointer-events: none;
+    animation: genome-region-scan 1.6s linear infinite;
+  }
+  @keyframes genome-region-scan {
+    to { transform: translateX(390%); }
+  }
   .genome-progress-stages {
     min-width: 0;
     display: grid;
@@ -1981,7 +2029,8 @@
   .genome-progress-status small {
     display: block;
     min-width: 0;
-    font-size: .56rem;
+    font-size: clamp(.5rem, .78vw, .58rem);
+    font-variant-numeric: tabular-nums;
     font-weight: 850;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -3287,6 +3336,68 @@ body[data-ops-panel="open"] .ops-side-panel { transform: translateY(0); pointer-
 .log-line.public-event { color: var(--cyan); font-weight: 950; }
 
 .panel-resizer, .results-panel-toggle { display: none !important; }
+.archive-download-tray {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 96;
+  width: min(24rem, calc(100vw - 2rem));
+  display: grid;
+  gap: .38rem;
+  padding: .62rem .68rem;
+  border: 3px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--paper);
+  box-shadow: var(--shadow-small);
+  font-family: var(--mono);
+}
+.archive-download-tray[hidden] { display: none; }
+body[data-job-state="complete"] .archive-download-tray { bottom: 4.75rem; }
+.archive-download-tray[data-state="complete"] { background: var(--acid); }
+.archive-download-tray[data-state="error"] { background: var(--pink-soft); }
+.archive-download-head {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: .42rem;
+  font-size: .68rem;
+  font-weight: 950;
+}
+.archive-download-head strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.archive-download-spinner {
+  width: .78rem;
+  height: .78rem;
+  border: 2px solid var(--line);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin .85s linear infinite;
+}
+.archive-download-tray[data-state="complete"] .archive-download-spinner,
+.archive-download-tray[data-state="error"] .archive-download-spinner { animation: none; border-top-color: var(--line); }
+.archive-download-progress {
+  position: relative;
+  height: .58rem;
+  overflow: hidden;
+  border: 2px solid var(--line);
+  background: white;
+}
+.archive-download-progress > span {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: var(--cyan);
+  transition: width .14s linear;
+}
+.archive-download-progress.is-indeterminate > span {
+  width: 38%;
+  animation: archiveDownloadSweep 1.1s ease-in-out infinite;
+}
+.archive-download-tray[data-state="complete"] .archive-download-progress > span { width: 100%; background: #1aaf54; }
+.archive-download-tray[data-state="error"] .archive-download-progress > span { background: var(--orange); }
+.archive-download-detail { min-width: 0; font-size: .58rem; font-weight: 850; overflow-wrap: anywhere; }
+@keyframes archiveDownloadSweep { from { transform: translateX(-110%); } to { transform: translateX(265%); } }
+
 .completion-callout { position: fixed; right: 1rem; bottom: 1rem; z-index: 90; }
 
 @media (prefers-reduced-motion: reduce) {
@@ -3298,6 +3409,12 @@ body[data-ops-panel="open"] .ops-side-panel { transform: translateY(0); pointer-
 .result-dashboard-actions { display: none !important; }
 
 @media (max-width: 760px) {
+  .results-panel .module-head {
+    gap: .34rem;
+    padding-inline: .58rem;
+  }
+  .results-run-state { gap: .2rem; }
+  .results-job-runtime { font-size: clamp(.42rem, 2vw, .54rem); }
   body[data-job-state="complete"] .result-output-strip {
     grid-template-columns: minmax(0, 1fr);
     gap: .34rem;
@@ -3350,6 +3467,12 @@ body[data-ops-panel="open"] .ops-side-panel { transform: translateY(0); pointer-
   .genome-progress-layer,
   .genome-progress-row {
     transition-delay: 0s !important;
+  }
+  .genome-progress-segment.has-live-region-work::after {
+    inset-inline: 0;
+    width: 100%;
+    opacity: .18;
+    animation: none;
   }
 }
 

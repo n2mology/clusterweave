@@ -81,6 +81,34 @@ class ResultAttestationTests(unittest.TestCase):
         manifest.write_text(manifest.read_text(encoding="utf-8") + "\n", encoding="utf-8")
         self.assertIsNone(self.module.read_result_attestation(self.base, "attested"))
 
+    def test_signed_archive_identity_loads_without_rehash_and_stales_closed(self) -> None:
+        self.write_manifest()
+        archive = self.base / "downloads/demo_public_results.zip"
+        archive.write_bytes(b"PK signed package fixture")
+        written = self.module.write_result_attestation(
+            self.base,
+            "attested",
+            verify_hashes=True,
+            archive_path="downloads/demo_public_results.zip",
+        )
+        self.assertEqual(written.archive_path, "downloads/demo_public_results.zip")
+        self.assertEqual(written.archive_size, archive.stat().st_size)
+        self.assertRegex(written.archive_sha256, r"^[0-9a-f]{64}$")
+
+        with mock.patch.object(
+            self.module, "_file_digest", side_effect=AssertionError("interactive rehash")
+        ):
+            loaded = self.module.read_result_attestation(self.base, "attested")
+        self.assertEqual(written, loaded)
+
+        archive.write_bytes(b"PK changed package fixture")
+        stale = self.module.read_result_attestation(self.base, "attested")
+        self.assertIsNotNone(stale)
+        assert stale is not None
+        self.assertEqual(stale.files, written.files)
+        self.assertEqual(stale.archive_path, "")
+        self.assertEqual(stale.archive_identity, ())
+
     def test_traversal_manifest_is_rejected(self) -> None:
         manifest = self.base / "downloads/public_results_manifest.tsv"
         manifest.parent.mkdir(parents=True, exist_ok=True)

@@ -1169,7 +1169,11 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn('ANALYSIS_SCOPE="${ANALYSIS_SCOPE:-fungi}"', text)
         self.assertIn('DEFAULT_METADATA_NAME="ecobac_metadata_normalized.tsv"', text)
         self.assertIn('DEFAULT_METADATA_NAME="ecofun_metadata_normalized.tsv"', text)
-        self.assertIn('METADATA_TEMPLATE_TSV="${METADATA_TEMPLATE_TSV:-${RESULTS_ROOT}/summary_tables/${DEFAULT_METADATA_TEMPLATE_NAME}}"', text)
+        self.assertIn('RUN_ECOLOGY_ANALYSIS="${RUN_ECOLOGY_ANALYSIS:-0}"', text)
+        self.assertIn('DEFAULT_METADATA_ROOT="${RESULTS_ROOT}/summary_tables"', text)
+        self.assertIn('DEFAULT_METADATA_ROOT="${WORK_ROOT}/routing"', text)
+        self.assertIn('METADATA_TEMPLATE_TSV="${METADATA_TEMPLATE_TSV:-${DEFAULT_METADATA_ROOT}/${DEFAULT_METADATA_TEMPLATE_NAME}}"', text)
+        self.assertIn('reviewer_args+=(--skip-ecology-tables)', text)
         self.assertIn('EXPORT_FAMILY_ATLAS_PY="${EXPORT_FAMILY_ATLAS_PY:-${PROJECT_DIR}/bin/export_dataset_family_atlas.py}"', text)
         self.assertIn("ensure_metadata_tsv()", text)
         self.assertIn('local genome_dir="${DATA_ROOT}/genomes/fungi/${PROJECT_NAME}"', text)
@@ -1335,8 +1339,8 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertLess(len(index_text.splitlines()), 1000)
         self.assertIn('href="/favicon.ico', index_text)
         self.assertTrue((static_dir / "favicon.ico").exists())
-        self.assertIn('href="assets/clusterweave.css?v=20260723-credit-height1"', index_text)
-        self.assertIn('src="assets/clusterweave.js?v=20260722-summary-atlas1"', index_text)
+        self.assertIn('href="assets/clusterweave.css?v=20260723-timer-utc1"', index_text)
+        self.assertIn('src="assets/clusterweave.js?v=20260723-timer-utc1"', index_text)
         self.assertNotIn("<style>", index_text)
         self.assertNotIn("<script>\n", index_text)
         self.assertIn("function apiUrl(path)", js_text)
@@ -1689,16 +1693,21 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertNotIn("spine.classList.toggle('spine-field', !loaded)", ui_text)
         self.assertNotIn("launch.insertBefore(spine, command)", ui_text)
 
-    def test_web_result_focus_and_archive_state_are_run_scoped(self) -> None:
+    def test_web_result_focus_and_archive_download_survives_run_changes(self) -> None:
         ui_text = frontend_text()
         self.assertIn("let resultArchiveRequestSeq = 0;", ui_text)
         self.assertIn("let activeArchiveDownload = null;", ui_text)
-        self.assertIn("function cancelActiveArchiveDownload()", ui_text)
+        self.assertIn("let archiveDownloadStatus = null;", ui_text)
+        self.assertIn("async function readArchiveResponseBlob(response, requestId)", ui_text)
         self.assertIn("const requestJobId = activeJobId;", ui_text)
         self.assertIn("const requestId = ++resultArchiveRequestSeq;", ui_text)
-        self.assertIn("activeArchiveDownload = { jobId: requestJobId, requestId, controller };", ui_text)
-        self.assertIn("if (activeJobId !== requestJobId || activeArchiveDownload?.requestId !== requestId) return false;", ui_text)
-        self.assertIn("cancelActiveArchiveDownload();", ui_text)
+        self.assertIn("received: 0", ui_text)
+        self.assertIn("total: 0", ui_text)
+        self.assertIn("response.body.getReader", ui_text)
+        self.assertIn("setArchiveDownloadStatus", ui_text)
+        self.assertNotIn("function cancelActiveArchiveDownload()", ui_text)
+        self.assertNotIn("cancelActiveArchiveDownload();", ui_text)
+        self.assertNotIn("activeJobId !== requestJobId", ui_text)
         self.assertIn("function defaultFocusedResultCategory(counts)", ui_text)
         self.assertIn("resultCategoryAvailable('antismash', counts)", ui_text)
         self.assertIn("const completed = String(status || activeJobMeta?.status || '').toLowerCase() === 'success';", ui_text)
@@ -3674,7 +3683,7 @@ async function resolveResultArtifact(jobId, ownerArtifact, reference) {{
         self.assertNotIn("submit_token=", text)
         self.assertNotIn("admin_token=", text)
 
-    def test_web_human_language_contract_keeps_public_and_admin_purpose_clear(self) -> None:
+    def test_web_language_contract_keeps_public_and_admin_purpose_clear(self) -> None:
         text = frontend_text()
         for copy in [
             "Discover", "the", "hidden", "potential", "of", "fungi", "INPUT STATION", "New run", "Existing results",
@@ -3751,7 +3760,13 @@ async function resolveResultArtifact(jobId, ownerArtifact, reference) {{
         self.assertRegex(css_text, r"\.required-flag\s*\{[^}]*display:\s*(?:block|inline-flex)[^}]*background:\s*var\(--acid\)")
 
         self.assertIn('class="submit-button-shell is-project-locked" id="submit-button-shell"', html_text)
-        self.assertIn('id="run-btn" type="button" onclick="startAnalysis()" disabled', html_text)
+        self.assertIn('id="run-btn" type="button" onclick="startAnalysis()" disabled>Validate</button>', html_text)
+        self.assertIn("function submissionValidationSignature()", js_text)
+        self.assertIn("function syncRunButtonPresentation", js_text)
+        self.assertIn("button.textContent = submitReady ? 'Submit run' : 'Validate'", js_text)
+        self.assertIn("Validation passed. Review the inputs, then select Submit run.", js_text)
+        self.assertIn("#run-btn.is-validation-pending", css_text)
+        self.assertIn("#run-btn.is-submit-ready", css_text)
         self.assertIn(".submit-button-shell.is-project-locked .submit-lock-overlay", css_text)
         self.assertRegex(
             css_text,
@@ -3968,7 +3983,7 @@ async function resolveResultArtifact(jobId, ownerArtifact, reference) {{
 
     def test_release_metadata_and_runtime_acquisition_are_immutable(self) -> None:
         pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
-        self.assertIn('version = "1.0.0"', pyproject)
+        self.assertIn('version = "1.0.1"', pyproject)
 
         braker_pin = (
             "teambraker/braker3:v3.0.7.6@sha256:"

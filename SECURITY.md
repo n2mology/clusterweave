@@ -2,7 +2,7 @@
 
 ## Supported version
 
-ClusterWeave v1.0.0 is the current supported release. Security fixes target the
+ClusterWeave v1.0.1 is the current supported release. Security fixes target the
 current v1.x release line, and the affected version, Git revision, or tag should
 accompany every report.
 
@@ -35,7 +35,10 @@ by itself; required stages remain unavailable until a configured external
 executor and prepared runtimes pass preflight.
 
 Treat job result links, read tokens, administrator and submit tokens, `.env`,
-SMTP credentials, raw genomes, raw tool databases, backups, and logs as private.
-Never publish operations directories or runtime volumes. Do not run
-`docker compose down -v` during routine operation or an upgrade, because it
-deletes named data volumes.
+SMTP credentials, original genome uploads, raw tool databases, backups, and
+logs as private. The authenticated full result package also contains staged
+genome GenBank files and BGC GenBank files. Therefore, anyone who has a result
+link can read the sequence-bearing evidence in that package; protect the link
+when the submitted genomes are sensitive. Never publish operations directories
+or runtime volumes. Do not run `docker compose down -v` during routine
+operation or an upgrade, because it deletes named data volumes.

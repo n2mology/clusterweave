@@ -38,6 +38,10 @@ class ResultAttestation:
     manifest_sha256: str
     files: tuple[tuple[str, int, str], ...]
     viewer_path: str = ""
+    archive_path: str = ""
+    archive_size: int = 0
+    archive_sha256: str = ""
+    archive_identity: tuple[int, int, int, int, int] = ()
 
 
 def _secret() -> bytes:
@@ -124,6 +128,39 @@ def _file_digest(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _file_identity(path: Path) -> tuple[int, int, int, int, int]:
+    info = path.stat()
+    return (
+        int(info.st_dev),
+        int(info.st_ino),
+        int(info.st_size),
+        int(info.st_mtime_ns),
+        int(info.st_ctime_ns),
+    )
+
+
+def _archive_record(
+    base: Path,
+    rel_path: str,
+) -> tuple[str, int, str, tuple[int, int, int, int, int]]:
+    normalized = normalized_job_result_path(rel_path)
+    if not normalized or not result_is_public_archive(normalized):
+        raise ValueError("invalid public result package role")
+    candidate = base / normalized
+    if candidate.is_symlink():
+        raise OSError("public result package symlink rejected")
+    full = candidate.resolve(strict=True)
+    full.relative_to(base)
+    if not full.is_file():
+        raise OSError("public result package is not a regular file")
+    before = _file_identity(full)
+    digest = _file_digest(full)
+    after = _file_identity(full)
+    if before != after:
+        raise OSError("public result package changed while it was attested")
+    return normalized, after[2], digest, after
+
+
 def _validate_files(
     base: Path,
     rows: Iterable[tuple[str, int, str]],
@@ -152,6 +189,7 @@ def write_result_attestation(
     verify_hashes: bool,
     path_validator: Callable[[str], bool] | None = None,
     viewer_path: str = "",
+    archive_path: str = "",
 ) -> ResultAttestation:
     base = base_dir.resolve()
     manifest_path = (base / PUBLIC_RESULTS_MANIFEST_PATH).resolve()
@@ -173,6 +211,17 @@ def write_result_attestation(
         ):
             raise ValueError("invalid BiG-SCAPE viewer role")
     manifest_sha256 = hashlib.sha256(raw_manifest).hexdigest()
+    normalized_archive = ""
+    archive_size = 0
+    archive_sha256 = ""
+    archive_identity: tuple[int, int, int, int, int] = ()
+    if archive_path:
+        (
+            normalized_archive,
+            archive_size,
+            archive_sha256,
+            archive_identity,
+        ) = _archive_record(base, archive_path)
     generation = hashlib.sha256(
         f"{job_id}\0{manifest_sha256}".encode("utf-8")
     ).hexdigest()[:24]
@@ -192,6 +241,13 @@ def write_result_attestation(
         ],
         "viewer_path": normalized_viewer,
     }
+    if normalized_archive:
+        unsigned["archive"] = {
+            "path": normalized_archive,
+            "bytes": archive_size,
+            "sha256": archive_sha256,
+            "identity": list(archive_identity),
+        }
     payload = dict(unsigned)
     payload["signature"] = _signature(unsigned)
     target = base / RESULT_ATTESTATION_PATH
@@ -203,7 +259,15 @@ def write_result_attestation(
     finally:
         temp.unlink(missing_ok=True)
     return ResultAttestation(
-        str(job_id), generation, manifest_sha256, rows, normalized_viewer
+        str(job_id),
+        generation,
+        manifest_sha256,
+        rows,
+        normalized_viewer,
+        normalized_archive,
+        archive_size,
+        archive_sha256,
+        archive_identity,
     )
 
 
@@ -266,8 +330,57 @@ def read_result_attestation(base_dir: Path, job_id: str) -> ResultAttestation | 
                 or (base / viewer_path).is_symlink()
             ):
                 return None
+        archive_path = ""
+        archive_size = 0
+        archive_sha256 = ""
+        archive_identity: tuple[int, int, int, int, int] = ()
+        archive = payload.get("archive")
+        if archive is not None:
+            if not isinstance(archive, dict):
+                return None
+            raw_archive_path = str(archive.get("path") or "")
+            normalized_archive = normalized_job_result_path(raw_archive_path)
+            raw_identity = archive.get("identity")
+            try:
+                signed_size = int(archive.get("bytes", -1))
+                signed_identity = tuple(int(value) for value in raw_identity)
+            except (TypeError, ValueError):
+                return None
+            signed_digest = str(archive.get("sha256") or "")
+            if (
+                normalized_archive != raw_archive_path
+                or not result_is_public_archive(normalized_archive)
+                or signed_size < 0
+                or _SHA256_RE.fullmatch(signed_digest) is None
+                or len(signed_identity) != 5
+                or any(value < 0 for value in signed_identity)
+                or signed_identity[2] != signed_size
+            ):
+                return None
+            candidate = base / normalized_archive
+            try:
+                if candidate.is_symlink():
+                    raise OSError("public result package symlink rejected")
+                full = candidate.resolve(strict=True)
+                full.relative_to(base)
+                observed_identity = _file_identity(full)
+            except (OSError, ValueError):
+                observed_identity = ()
+            if observed_identity == signed_identity:
+                archive_path = normalized_archive
+                archive_size = signed_size
+                archive_sha256 = signed_digest
+                archive_identity = signed_identity
         return ResultAttestation(
-            str(job_id), generation, manifest_sha256, tuple(rows), viewer_path
+            str(job_id),
+            generation,
+            manifest_sha256,
+            tuple(rows),
+            viewer_path,
+            archive_path,
+            archive_size,
+            archive_sha256,
+            archive_identity,
         )
     except (OSError, ValueError, TypeError, UnicodeError, json.JSONDecodeError):
         return None

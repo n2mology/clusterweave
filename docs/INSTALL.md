@@ -21,9 +21,9 @@ external executor, such as the shipped Slurm backend, and is not a complete
 laptop workflow. Operators should read [WEB_RUNTIME.md](WEB_RUNTIME.md) and
 [CADES_SLURM_BACKEND.md](CADES_SLURM_BACKEND.md) before using that profile.
 
-Version 1.0.0 has Linux x86_64 build and smoke evidence. WSL2 and macOS use the
-same pinned amd64 images through Docker Desktop, although host integration and
-Apple Silicon emulation can affect performance.
+Version 1.0.1 targets Linux x86_64. WSL2 and macOS use the same pinned amd64
+images through Docker Desktop, although host integration and Apple Silicon
+emulation can affect performance.
 
 ## Prerequisites
 
@@ -67,10 +67,10 @@ cd clusterweave
 
 For an archival analysis, select the version from the
 [releases page](https://github.com/n2mology/clusterweave/releases) or clone the
-v1.0.0 tag directly:
+v1.0.1 tag directly:
 
 ```bash
-git clone --branch v1.0.0 --depth 1 https://github.com/n2mology/clusterweave.git
+git clone --branch v1.0.1 --depth 1 https://github.com/n2mology/clusterweave.git
 cd clusterweave
 ```
 
@@ -260,7 +260,7 @@ the version approved by the operator:
 ```bash
 git fetch --tags origin
 git tag --list
-git switch --detach v1.0.0
+git switch --detach v1.0.1
 docker compose build
 docker compose up -d
 ```

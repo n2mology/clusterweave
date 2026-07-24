@@ -22,10 +22,10 @@ protein features or funannotate when annotation is needed; bacterial genomes use
 feature-free sequence with Prodigal gene finding. antiSMASH and BiG-SCAPE apply
 to both domains, while FunBGCeX applies only to fungi.
 
-> Web-hosted access: **Coming soon.** ClusterWeave v1.0.0 is available for
+> Web-hosted access: **Coming soon.** ClusterWeave v1.0.1 is available for
 > local use through the Docker interface described below.
 
-Version 1.0.0 is the full public ClusterWeave release.
+Version 1.0.1 is the current public ClusterWeave release.
 
 ## What the results can and cannot say
 
@@ -76,10 +76,33 @@ path planned for hosted access. After starting a local instance, open
    - **FIGURES** presents taxon-specific multipanels and taxonomy/BGC/GCF
      context figures.
 
-Use **Download package** for the declared result archive. Individual rows also
-provide **Open** or **Download** when an artifact is eligible for public result
-access. Raw genomes, raw databases, private logs, scratch files, route internals,
-and operator state are not members of the public package.
+Select **Download package** when you want to preserve a run for review outside
+the browser. The downloaded ZIP is the run's full workbench archive. It contains
+the reports and tables shown in the interface, the staged genome GenBank files
+used by the downstream analysis, the antiSMASH region GenBank files, and the
+canonical FunBGCeX BGC GenBank files when FunBGCeX applies. (`.gbk` is a common
+filename extension for a GenBank file.) Individual result rows also provide
+**Open** or **Download** when that file is eligible for result access.
+
+The archive also contains
+`evidence/clusterweave_evidence_manifest.tsv`. This tab-separated evidence
+manifest records each included evidence file's path within the archive,
+evidence role, genome ID, taxon group, public NCBI source accession when one is
+available, byte count, and SHA-256 checksum. It omits internal job paths,
+commands, environment values, tokens, and operator fields.
+
+ClusterWeave builds the ZIP when it publishes the results, calculates its
+checksum, and records its filesystem identity in the signed completion index.
+Therefore, later requests can stream the same unchanged ZIP without compressing
+the result files again. A large archive can still take time to cross the
+network, but the server does not rebuild it for each download. Original upload
+objects and NCBI download caches, tool databases, private logs, scratch files,
+the duplicate FunBGCeX `all_clusters` tree, route internals, and operator state
+remain outside the archive.
+
+Because the archive contains genome and BGC sequences, anyone who has the
+result link can read sequence-bearing scientific output. Protect the link when
+the submitted genomes are not public.
 
 To return later, open **New run / Existing results** and paste either the full
 private result link or the job ID plus result access code. The browser keeps the
@@ -239,7 +262,7 @@ DE-AC05-00OR22725.
 Citation metadata is in [`CITATION.cff`](CITATION.cff). The companion software
 record resolves at
 [doi:10.11578/PMI/dc.20260608.2](https://doi.org/10.11578/PMI/dc.20260608.2).
-Version 1.0.0 is the current public release.
+Version 1.0.1 is the current public release.
 
 ClusterWeave's own source is available under the
 [BSD 3-Clause License](LICENSE). Downloaded tools, containers, databases, and
