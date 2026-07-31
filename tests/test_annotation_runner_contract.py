@@ -476,7 +476,7 @@ class AnnotationRunnerContractTests(unittest.TestCase):
                 "#!/usr/bin/env bash\n"
                 "trap 'printf terminated > \"$R11C_TERMINATED\"; exit 143' TERM INT\n"
                 "printf ready > \"$R11C_READY\"\n"
-                "while :; do sleep 1; done\n",
+                "while :; do :; done\n",
                 encoding="utf-8",
             )
             tool.chmod(0o755)
@@ -508,6 +508,12 @@ class AnnotationRunnerContractTests(unittest.TestCase):
             process.communicate(timeout=5)
 
             self.assertEqual(process.returncode, -signal.SIGTERM)
+            deadline = time.monotonic() + 5
+            while not terminated.exists() and time.monotonic() < deadline:
+                time.sleep(0.02)
+            self.assertTrue(
+                terminated.exists(), "fake child did not handle SIGTERM"
+            )
             self.assertEqual(terminated.read_text(encoding="utf-8"), "terminated")
 
 
