@@ -106,10 +106,10 @@ class BigscapeMultipanelRenderingTests(unittest.TestCase):
             "d59e7e3638228f66602f9c2514f65b6e1f20875f6e53530aab0413e67e4299a8",
         )
 
-    def test_multipanel_legends_remain_readable_at_3_15_and_50_genomes(self) -> None:
+    def test_multipanel_legends_remain_readable_at_3_15_50_and_75_genomes(self) -> None:
         namespace = "{http://www.w3.org/2000/svg}"
         classes = self.module.CHART_CLASSES
-        for genome_count in (3, 15, 50):
+        for genome_count in (3, 15, 50, 75):
             with self.subTest(genome_count=genome_count), tempfile.TemporaryDirectory() as tmpdir:
                 project_root = Path(tmpdir)
                 output_dir = project_root / "figures"
@@ -342,6 +342,12 @@ class BigscapeMultipanelRenderingTests(unittest.TestCase):
             self.assertIn("antiSMASH", svg)
             self.assertIn(">GCF<", svg)
             self.assertNotIn("FunBGCeX", svg)
+            self.assertFalse(warnings)
+            self.assertIn(">6</text>", svg)
+            self.assertRegex(
+                svg,
+                r'text x="[0-9.]+"[^>]*text-anchor="start"[^>]*>5</text>',
+            )
 
 
     def test_legacy_bacterial_multipanel_hides_only_ncbi_routing_prefix(self) -> None:

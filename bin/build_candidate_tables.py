@@ -14,6 +14,8 @@ if BIN_DIR not in sys.path:
 
 from gcf_view import (
     GCF_PROVENANCE_FIELDS,
+    ecology_group as report_ecology_group,
+    matches_focus_ecology as report_matches_focus_ecology,
     materialized_gcf_provenance,
     selected_gcf_id,
     selected_gcf_ids,
@@ -83,11 +85,11 @@ def unique_preserve(values: list[str]) -> list[str]:
 
 
 def ecology_group(primary_label: str) -> str:
-    return clean(primary_label) or "UNLABELED"
+    return report_ecology_group(primary_label)
 
 
 def matches_focus_ecology(ecology_value: str, focus_label: str) -> bool:
-    return bool(clean(focus_label)) and clean(ecology_value).casefold() == clean(focus_label).casefold()
+    return report_matches_focus_ecology(ecology_value, focus_label)
 
 
 def classes_from_terms(terms: list[str]) -> set[str]:

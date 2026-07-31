@@ -2342,12 +2342,10 @@ async def run_pipeline(
         )
 
         if layout.accession_file is not None and run_ncbi_install:
-            await _run_required_stage(
-                job,
-                "Installing NCBI CLI",
-                ["bash", str(_script(layout, "install_ncbi_cli.sh"))],
-                cwd=layout.repo_root,
-                env=env,
+            job.add_log(
+                "Compatibility setting run_ncbi_install is accepted, but canonical jobs "
+                "do not install runtime tools. Using the explicitly prepared NCBI CLI; "
+                "run the worker prepare-runtime command before submitting jobs."
             )
 
         if layout.accession_file is not None and run_genome_prep:
@@ -2389,6 +2387,7 @@ async def run_pipeline(
                 "No genome inputs were staged. Upload FASTA/GenBank files or provide an accession list with genome preparation enabled."
             )
 
+        job.add_log("Input preparation complete.")
         await _run_required_stage(
             job,
             "Running canonical ClusterWeave workflow",
@@ -2420,6 +2419,9 @@ async def run_pipeline(
                 if phylogeny_required:
                     raise FileNotFoundError(message)
                 job.add_log(f"WARN: {message} Core outputs are retained.")
+                job.add_log(
+                    "Sequence phylogeny follow-up complete with warning."
+                )
             else:
                 phylogeny_env = dict(env)
                 phylogeny_env["RUN_PHYLOGENY"] = "1"
@@ -2430,6 +2432,7 @@ async def run_pipeline(
                     os.environ.get("CLUSTERWEAVE_CHILD_DOCKER_PIDS_LIMIT", "256")
                 )
                 phylogeny_cmd = ["bash", str(phylogeny_script)]
+                phylogeny_complete = False
                 try:
                     if phylogeny_required:
                         await _run_required_stage(
@@ -2439,14 +2442,17 @@ async def run_pipeline(
                             cwd=layout.repo_root,
                             env=phylogeny_env,
                         )
+                        phylogeny_complete = True
                     else:
-                        await _run_optional_stage(
+                        phylogeny_complete = await _run_optional_stage(
                             job,
                             "Running optional sequence phylogeny",
                             phylogeny_cmd,
                             cwd=layout.repo_root,
                             env=phylogeny_env,
                         )
+                    if phylogeny_complete:
+                        job.add_log("Sequence phylogeny follow-up complete.")
                 finally:
                     if _cfg_bool(cfg, "capture_external_artifacts", True):
                         capture_script = (
@@ -2499,6 +2505,7 @@ async def run_pipeline(
                 cwd=layout.repo_root,
                 env=nplinker_env,
             )
+            job.add_log("NPLinker follow-up complete.")
 
         if run_cross_kingdom_evidence:
             evidence_script = layout.repo_root / "run_integrated_evidence.sh"
@@ -2508,20 +2515,29 @@ async def run_pipeline(
                     "run_integrated_evidence.sh is unavailable; prior outputs "
                     "are retained."
                 )
+                job.add_log(
+                    "Cross-kingdom evidence follow-up complete with warning."
+                )
             else:
                 evidence_env = dict(env)
                 evidence_env["RUN_CROSS_KINGDOM_EVIDENCE"] = "1"
                 evidence_env["PYTHON_BIN"] = os.environ.get(
                     "PYTHON_BIN", "python3"
                 )
-                await _run_optional_stage(
+                evidence_complete = await _run_optional_stage(
                     job,
                     "Running optional cross-kingdom evidence",
                     ["bash", str(evidence_script)],
                     cwd=layout.repo_root,
                     env=evidence_env,
                 )
+                job.add_log(
+                    "Cross-kingdom evidence follow-up complete."
+                    if evidence_complete
+                    else "Cross-kingdom evidence follow-up complete with warning."
+                )
 
+        job.set_stage("Collecting result files")
         _collect_result_files(job, job_dir, layout)
         job.status = JobStatus.SUCCESS
         job.stage = "complete"

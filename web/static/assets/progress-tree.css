@@ -1,0 +1,112 @@
+.qa-console-log-shell {
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: .35rem;
+}
+
+.qa-log-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: stretch;
+  gap: 0;
+}
+
+.qa-log-view-button {
+  min-width: 4.2rem;
+  border: 2px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  padding: .3rem .55rem;
+  font-family: var(--mono);
+  font-size: .68rem;
+  font-weight: 950;
+  line-height: 1;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.qa-log-view-button + .qa-log-view-button {
+  margin-left: -2px;
+}
+
+.qa-log-view-button.is-selected,
+.qa-log-view-button[aria-pressed="true"] {
+  position: relative;
+  z-index: 1;
+  background: var(--cyan);
+}
+
+.log-terminal[data-log-view="tree"] {
+  overflow-x: auto;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.progress-tree-row {
+  min-width: max-content;
+  display: grid;
+  grid-template-columns: max-content minmax(9rem, .42fr) minmax(22rem, 1fr);
+  align-items: baseline;
+  gap: .45rem;
+  line-height: 1.45;
+}
+
+.progress-tree-glyph,
+.progress-tree-meter {
+  white-space: pre;
+}
+
+.progress-tree-glyph {
+  color: #87efff;
+}
+
+.progress-tree-label {
+  min-width: 0;
+  color: #f7fff4;
+  font-weight: 900;
+}
+
+.progress-tree-meter {
+  color: #f7fff4;
+}
+
+.progress-tree-row.state-complete .progress-tree-meter {
+  color: #bfffcb;
+}
+
+.progress-tree-row.state-warning .progress-tree-meter,
+.progress-tree-row.state-warning_terminal .progress-tree-meter {
+  color: #fff1a6;
+}
+
+.progress-tree-row.state-failed .progress-tree-meter {
+  color: #ff9bbb;
+}
+
+.progress-tree-row.state-skipped {
+  opacity: .78;
+}
+
+@media (max-width: 760px) {
+  .qa-log-toolbar {
+    justify-content: stretch;
+  }
+
+  .qa-log-view-button {
+    flex: 1 1 50%;
+    min-height: 34px;
+  }
+
+  .progress-tree-row {
+    grid-template-columns: max-content minmax(7rem, .4fr) minmax(18rem, 1fr);
+    gap: .3rem;
+    font-size: .62rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qa-log-view-button,
+  .progress-tree-row {
+    animation: none;
+    transition: none;
+  }
+}

@@ -11,12 +11,6 @@ htmlcov/
 .DS_Store
 .venv/
 venv/
-
-# Dependencies and generated test reports.
-node_modules/
-/test-results/
-/playwright-report/
-/blob-report/
 /coverage/
 
 # Local runtime configuration and credentials.

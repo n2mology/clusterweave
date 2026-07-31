@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-import importlib
+from dataclasses import dataclass
 import os
 from pathlib import Path
 import threading
@@ -21,6 +21,37 @@ from result_attestation import (
     schedule_result_attestation_backfill,
 )
 from result_policy import PUBLIC_RESULTS_MANIFEST_PATH
+
+
+@dataclass(frozen=True)
+class PublicResultContext:
+    """Explicit dependencies shared by opaque-result lookup and HTTP routing."""
+
+    api: object | None
+    read_job: Callable[[str], dict[str, object] | None]
+    list_job_summaries: Callable[[], list[dict[str, object]]]
+
+
+_CONFIGURED_CONTEXT: PublicResultContext | None = None
+
+
+def configure_public_result_context(context: PublicResultContext) -> None:
+    """Set the compatibility context used by direct one-argument callers."""
+
+    global _CONFIGURED_CONTEXT
+    _CONFIGURED_CONTEXT = context
+
+
+def _standalone_context() -> PublicResultContext:
+    """Preserve direct backend calls without an import-time store mutation."""
+
+    from job_store import list_job_summaries, read_job
+
+    return PublicResultContext(
+        api=None,
+        read_job=read_job,
+        list_job_summaries=list_job_summaries,
+    )
 
 
 def _env_int(name: str, default: int, minimum: int = 1) -> int:
@@ -57,17 +88,20 @@ def _remember_run(public_id: str, internal_id: str) -> None:
             _RUN_LOOKUP.popitem(last=False)
 
 
-def resolve_public_job(public_id: object) -> dict[str, object] | None:
+def resolve_public_job(
+    public_id: object,
+    context: PublicResultContext | None = None,
+) -> dict[str, object] | None:
     """Resolve an opaque alias through bounded summaries, never raw job scans."""
 
     requested = str(public_id or "")
-    store = importlib.import_module("job_store")
+    active = context or _CONFIGURED_CONTEXT or _standalone_context()
     if not valid_public_run_id(requested):
         return None
     with _LOCK:
         cached_internal = _RUN_LOOKUP.get(requested, "")
     if cached_internal:
-        cached = store.read_job(cached_internal)
+        cached = active.read_job(cached_internal)
         if cached is not None and public_run_id_for_job(cached) == requested:
             _remember_run(requested, cached_internal)
             return cached
@@ -75,7 +109,7 @@ def resolve_public_job(public_id: object) -> dict[str, object] | None:
             _RUN_LOOKUP.pop(requested, None)
 
     matched_internal = ""
-    for summary in store.list_job_summaries():
+    for summary in active.list_job_summaries():
         if public_run_id_for_job(summary) != requested:
             continue
         candidate = str(summary.get("id") or "")
@@ -85,7 +119,7 @@ def resolve_public_job(public_id: object) -> dict[str, object] | None:
         matched_internal = candidate
     if not matched_internal:
         return None
-    job = store.read_job(matched_internal)
+    job = active.read_job(matched_internal)
     if job is None or public_run_id_for_job(job) != requested:
         return None
     _remember_run(requested, matched_internal)
@@ -164,4 +198,9 @@ def artifact_catalog_for_job(
     return catalog
 
 
-__all__ = ["artifact_catalog_for_job", "resolve_public_job"]
+__all__ = [
+    "PublicResultContext",
+    "artifact_catalog_for_job",
+    "configure_public_result_context",
+    "resolve_public_job",
+]

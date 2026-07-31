@@ -194,6 +194,40 @@ class IntegratedEvidenceRunnerTests(unittest.TestCase):
         self.assertTrue((output / "cross_kingdom_evidence.json").is_file())
         self.assertFalse(any((output / name).exists() for name in LEGACY_PUBLIC_OUTPUT_NAMES))
 
+        canonical_root = self.workspace()
+        canonical_candidates = canonical_root / "canonical_candidates.tsv"
+        ignored_legacy_candidates = canonical_root / "ignored_legacy_candidates.tsv"
+        self.write_candidates(
+            canonical_candidates,
+            [{"gcf_id": "GCF_CANONICAL", "cross_domain_gcf": "yes"}],
+        )
+        self.write_candidates(
+            ignored_legacy_candidates,
+            [{"gcf_id": "GCF_IGNORED_LEGACY", "cross_domain_gcf": "yes"}],
+        )
+        canonical = self.run_runner(
+            canonical_root,
+            requested=True,
+            candidates=canonical_candidates,
+            max_candidates=1,
+            extra_env={
+                "RUN_HGT_EVIDENCE": "0",
+                "HGT_EVIDENCE_MAX_CANDIDATES": "0",
+                "HGT_EVIDENCE_CANDIDATES_TSV": str(ignored_legacy_candidates),
+            },
+        )
+        self.assertEqual(canonical.returncode, 0, canonical.stderr)
+        payload = json.loads(
+            (
+                canonical_root
+                / "results"
+                / "demo"
+                / "integrated_evidence"
+                / "cross_kingdom_evidence.json"
+            ).read_text(encoding="utf-8")
+        )
+        self.assertEqual(payload["records"][0]["input"]["gcf_id"], "GCF_CANONICAL")
+
     def test_missing_candidates_is_nonfatal_and_quarantines_stale_public_evidence(self) -> None:
         root = self.workspace()
         results = root / "results" / "demo"

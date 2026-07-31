@@ -188,7 +188,7 @@ download_and_extract_with_includes() {
 }
 
 [[ -f "${ACCESSIONS_FILE}" ]] || die "ACCESSIONS_FILE not found: ${ACCESSIONS_FILE}"
-datasets_cmd="$(detect_datasets)" || die "datasets not found in PATH or ${NCBI_CLI_ROOT}"
+datasets_cmd="$(detect_datasets)" || die "datasets not found in PATH or ${NCBI_CLI_ROOT}. Run 'docker compose run --rm --no-deps worker prepare-runtime' (or pre-provision the configured external runtime), then check-runtime before submitting jobs."
 PYTHON_CMD="$(resolve_python)"
 mkdir -p "${GENOME_ROOT}"
 download_total=0

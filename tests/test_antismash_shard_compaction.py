@@ -102,6 +102,20 @@ class AntismashShardCompactionTests(unittest.TestCase):
             text=True,
         )
 
+    def test_existing_compaction_cli_keeps_required_argument_error(self) -> None:
+        result = subprocess.run(
+            [sys.executable, str(COMPACTOR)],
+            cwd=REPO_ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn(
+            "the following arguments are required: --shard-dir, --record-id, --json-name",
+            result.stderr,
+        )
+
     def test_compacts_to_target_json_regions_and_marker_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -207,28 +221,17 @@ class AntismashShardCompactionTests(unittest.TestCase):
                 result = self.run_compactor(shard, record_id, f"{record_id}.json")
                 self.assertEqual(result.returncode, 0, result.stderr)
 
-            pipeline = (REPO_ROOT / "run_annotation_and_detection.sh").read_text(
-                encoding="utf-8"
-            )
-            function_body = pipeline.split("merge_antismash_shard_jsons() {", 1)[1].split(
-                "\n}\n\nhtml_escape()", 1
-            )[0]
-            merge_function = "merge_antismash_shard_jsons() {" + function_body + "\n}\n"
             output = root / "merged.antismash.json"
-            shell = (
-                'funbgcex_python_exec() { python3 "$@"; }\n'
-                + merge_function
-                + '\nmerge_antismash_shard_jsons "$@"\n'
-            )
             result = subprocess.run(
                 [
-                    "bash",
-                    "-c",
-                    shell,
-                    "merge-test",
+                    sys.executable,
+                    str(COMPACTOR),
+                    "--merge-output",
                     str(output),
+                    "--record-json-pair",
                     "record1",
                     str(shard_one / "record1.json"),
+                    "--record-json-pair",
                     "record2",
                     str(shard_two / "record2.json"),
                 ],

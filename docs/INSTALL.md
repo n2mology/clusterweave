@@ -5,8 +5,9 @@ walkthrough. This document is the technical reference for the shipped Docker
 profiles, generated configuration, first-start preparation, routine operations,
 and recovery checks.
 
-Web-hosted access is **coming soon**. The commands below start a private local
-instance; they do not publish a service.
+Project-hosted access is coming soon. ClusterWeave v1.0.2 is currently
+available only for local use. The commands below start a private local instance;
+they do not publish a service.
 
 ## Choose the correct Compose profile
 
@@ -21,7 +22,7 @@ external executor, such as the shipped Slurm backend, and is not a complete
 laptop workflow. Operators should read [WEB_RUNTIME.md](WEB_RUNTIME.md) and
 [CADES_SLURM_BACKEND.md](CADES_SLURM_BACKEND.md) before using that profile.
 
-Version 1.0.1 targets Linux x86_64. WSL2 and macOS use the same pinned amd64
+Version 1.0.2 targets Linux x86_64. WSL2 and macOS use the same pinned amd64
 images through Docker Desktop, although host integration and Apple Silicon
 emulation can affect performance.
 
@@ -67,10 +68,10 @@ cd clusterweave
 
 For an archival analysis, select the version from the
 [releases page](https://github.com/n2mology/clusterweave/releases) or clone the
-v1.0.1 tag directly:
+v1.0.2 tag directly:
 
 ```bash
-git clone --branch v1.0.1 --depth 1 https://github.com/n2mology/clusterweave.git
+git clone --branch v1.0.2 --depth 1 https://github.com/n2mology/clusterweave.git
 cd clusterweave
 ```
 
@@ -97,6 +98,8 @@ and writes these local defaults:
 | `HOST_PORT` | `8080` | Host HTTP port |
 | `CLUSTERWEAVE_DOCKER_PLATFORM` | `linux/amd64` | Common architecture for worker and sibling tools |
 | `CLUSTERWEAVE_PUBLIC_BASE_URL` | `http://127.0.0.1:8080/` | Base used for local result links |
+| `CLUSTERWEAVE_MAX_ACCESSIONS` | `50` | Maximum NCBI assembly accessions accepted by one web job |
+| `CLUSTERWEAVE_MAX_GENOME_FILES` | `50` | Maximum uploaded genome files accepted by one web job |
 | `CLUSTERWEAVE_WORKER_CPU_LIMIT` | `4` | Worker-container CPU ceiling |
 | `CLUSTERWEAVE_MAX_CPUS_PER_JOB` | `4` | Maximum public job accepted by the web service |
 | `CLUSTERWEAVE_WORKER_MEM_LIMIT` | `16g` | Worker-container memory ceiling |
@@ -121,24 +124,71 @@ docker compose config --services
 docker compose config --volumes
 ```
 
-## Build and start
+### Configure local web job input limits
+
+Edit the private `.env` at the repository root. New files contain both settings
+at 50; the initializer leaves an existing `.env` unchanged. Each value must be
+a positive integer, and `0` does not mean uncapped.
+
+For example:
+
+```dotenv
+CLUSTERWEAVE_MAX_ACCESSIONS=75
+CLUSTERWEAVE_MAX_GENOME_FILES=75
+```
+
+From the repository root, inspect the focused resolved values:
+
+```bash
+docker compose config --quiet
+docker compose config | grep -E 'CLUSTERWEAVE_MAX_ACCESSIONS|CLUSTERWEAVE_MAX_GENOME_FILES'
+```
+
+Success means the first command returns without an error and the second prints
+the intended values under the web service.
+
+For an already running instance, edit `.env`, then recreate only the web service
+and inspect the public status from the repository root:
+
+```bash
+docker compose up -d --no-deps web
+curl --fail http://127.0.0.1:8080/api/system/status
+```
+
+A successful change appears in `public_quota` and in the browser input-limit
+guidance. Next, prepare the intended input set or continue with first-start
+preparation below.
+
+Larger counts increase processing time, storage use, and figure complexity.
+Support for a configured count is not a performance or scientific-scale
+guarantee. Synthetic scaling checks cover 75 genomes.
+
+## Build, prepare, check, and start
 
 ```bash
 docker compose build
+docker compose run --rm --no-deps worker prepare-runtime
+docker compose run --rm --no-deps worker check-runtime
 docker compose up -d
 docker compose ps
 curl --fail http://127.0.0.1:8080/
 ```
 
-The web service can answer before the worker completes first-start preparation.
-The worker stores preparation state under the job-data volume and downloads or
-prepares:
+`prepare-runtime` stores preparation state under the private software and
+database volumes and prepares:
 
 - antiSMASH databases under the antiSMASH named volume;
 - Pfam-A plus its indexes under the Pfam named volume;
 - NCBI Datasets and Dataformat under the shared software directory;
-- pinned BiG-SCAPE and clinker images;
-- the repository-built FunBGCeX image.
+- the pinned BiG-SCAPE, clinker, BRAKER3, and NPLinker base images;
+- the repository-built FunBGCeX and BUSCO-baked funannotate images;
+- pinned FastTree, MiBIG GenBank data, and the shared NPLinker environment;
+- checks for Rscript, antiSMASH, and the canonical shared GenBank/runner helpers.
+
+The command writes `runtime-preparation.v1.json` in the private software volume.
+It records image identities and SHA-256 values without exposing environment
+values. `check-runtime` reads and verifies the same boundary without pulling,
+downloading, building, installing, or rewriting the manifest.
 
 Follow worker preparation:
 
@@ -260,7 +310,7 @@ the version approved by the operator:
 ```bash
 git fetch --tags origin
 git tag --list
-git switch --detach v1.0.1
+git switch --detach v1.0.2
 docker compose build
 docker compose up -d
 ```
@@ -356,10 +406,13 @@ df -h .
 The first preparation needs outbound access to upstream registries and the NCBI
 and Pfam sources. Corporate proxies, registry authentication limits, DNS
 failure, full Docker storage, or an interrupted download can explain a stalled
-phase. After correcting the cause, restart the worker; completed assets remain
-cached and missing preparation retries:
+phase. After correcting the cause, rerun the explicit preparation and check before
+restarting the worker; completed assets remain cached and only missing
+preparation is acquired:
 
 ```bash
+docker compose run --rm --no-deps worker prepare-runtime
+docker compose run --rm --no-deps worker check-runtime
 docker compose restart worker
 docker compose logs -f worker
 ```
@@ -376,9 +429,11 @@ docker compose logs --tail=200 web worker
 curl --fail http://127.0.0.1:8080/api/system/status
 ```
 
-The web container can be healthy during worker bootstrap. The UI and API reject
-a job that requires an unavailable stage. Wait for the required phase to become
-ready, or use the worker log to resolve the failed preparation step.
+The web container can be healthy while the worker checks its prepared startup
+subset. The UI and API reject a job that requires an unavailable stage. Run
+`docker compose run --rm --no-deps worker check-runtime` for the complete,
+non-mutating report, or use the worker log to resolve the failed preparation
+step.
 
 ### Accession download fails
 

@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import shlex
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -306,15 +307,167 @@ printf '%s\t%s\n' "$ANNOTATION_FALLBACK_FAILURE_REASON" "$ANNOTATION_FALLBACK_FA
 
     def test_training_fallback_is_checked_before_p2g_retry(self) -> None:
         text = SCRIPT_PATH.read_text(encoding="utf-8")
-        retry_block = text.split("local predict_succeeded=0", 1)[1].split(
-            'pred_gbk="$(find', 1
-        )[0]
+        classifiers = "funannotate_predict_failed_in_p2g() {" + text.split(
+            "funannotate_predict_failed_in_p2g() {", 1
+        )[1].split("should_skip_discovered_stem() {", 1)[0]
+        predict = "run_funannotate_predict_to_gbk() {" + text.split(
+            "run_funannotate_predict_to_gbk() {", 1
+        )[1].split("annotate_genome_with_fallbacks() {", 1)[0]
+        with tempfile.TemporaryDirectory(prefix="cluster weave retries ") as tmp:
+            root = Path(tmp)
+            work = root / "work with spaces"
+            results = root / "results with spaces"
+            fake_bin = root / "fake bin"
+            fake_bin.mkdir()
+            (work / "tmp").mkdir(parents=True)
+            (work / "logs").mkdir()
+            results.mkdir()
+            fasta = root / "input with spaces.fna"
+            output = root / "output with spaces.gbk"
+            recorder = root / "attempts.txt"
+            fasta.write_text(">record\n" + "A" * 1200 + "\n", encoding="utf-8")
+            funannotate = fake_bin / "funannotate"
+            funannotate.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+            funannotate.chmod(0o755)
+            shell = f"""
+set -euo pipefail
+WORK_ROOT={shlex.quote(str(work))}
+RESULTS_ROOT={shlex.quote(str(results))}
+VENV_PY={shlex.quote(sys.executable)}
+ANNOTATION_RUNTIME_HELPER={shlex.quote(str(REPO_ROOT / 'bin' / 'annotation_runtime.py'))}
+ENGINE=apptainer
+FUNANNOTATE_SIF={shlex.quote(str(root / 'missing.sif'))}
+FUNANNOTATE_IMAGE_URI=docker://funannotate/test
+ANNO_CPUS=4
+FUNANNOTATE_BUSCO_SEED_SPECIES=rhizopus_oryzae
+FUNANNOTATE_RETRY_WITHOUT_PROTEIN_EVIDENCE=1
+FUNANNOTATE_MIN_TRAINING_MODELS_FALLBACK=150
+FUNANNOTATE_LAST_FAILURE_STATUS=
+FUNANNOTATE_LAST_FAILURE_DETAIL=
+ATTEMPT_COUNT=0
+ATTEMPT_RECORDER={shlex.quote(str(recorder))}
+log() {{ :; }}
+warn() {{ :; }}
+tool_activity_emit_progress() {{ :; }}
+resolve_funannotate_policy() {{
+  FUNANNOTATE_RESOLVED_BUSCO_DB=fungi
+  FUNANNOTATE_RESOLVED_SPECIES='Rhizopus delemar'
+  FUNANNOTATE_RESOLVED_SOURCE=taxonomy:mucorales
+}}
+validate_funannotate_busco_db() {{ printf '%s\n' "$1"; }}
+annotation_runtime_argv() {{
+  local argv_file="$WORK_ROOT/tmp/argv"
+  "$VENV_PY" "$ANNOTATION_RUNTIME_HELPER" "$@" > "$argv_file"
+  mapfile -d '' -t ANNOTATION_RUNTIME_ARGV < "$argv_file"
+}}
+funannotate_exec() {{
+  shift 2
+  local input= output= token=
+  while [[ "$#" -gt 0 ]]; do
+    token="$1"; shift
+    case "$token" in
+      -i) input="$1"; shift ;;
+      -o) output="$1"; shift ;;
+    esac
+  done
+  cp -f "$input" "$output"
+}}
+funannotate_exec_with_activity() {{
+  local fun_log="$4"
+  shift 4
+  ATTEMPT_COUNT=$((ATTEMPT_COUNT + 1))
+  printf '%s\t' "$@" >> "$ATTEMPT_RECORDER"
+  printf '\n' >> "$ATTEMPT_RECORDER"
+  if [[ "$ATTEMPT_COUNT" -eq 1 ]]; then
+    printf '%s\n' \
+      '186 BUSCO predictions validated' \
+      'ERROR: Not enough gene models 186 to train Augustus (200 required), exiting' \
+      'CMD ERROR: diamond blastx --query proteins.fa --db uniprot.dmnd' > "$fun_log"
+    return 2
+  fi
+  if [[ "$ATTEMPT_COUNT" -eq 2 ]]; then
+    printf '%s\n' 'CMD ERROR: diamond blastx --query proteins.fa --db uniprot.dmnd' >> "$fun_log"
+    return 2
+  fi
+  local output_dir= token=
+  while [[ "$#" -gt 0 ]]; do
+    token="$1"; shift
+    if [[ "$token" == -o ]]; then output_dir="$1"; shift; else :; fi
+  done
+  mkdir -p "$output_dir/predict_results"
+  printf 'LOCUS fake\n//\n' > "$output_dir/predict_results/result.gbk"
+}}
+gbk_has_cds_and_translation() {{ return 0; }}
+remap_gbk_ids_from_fasta_hashes() {{ return 1; }}
+rsync() {{ return 0; }}
+{classifiers}
+{predict}
+run_funannotate_predict_to_gbk {shlex.quote(str('Genome with spaces'))} {shlex.quote(str(fasta))} {shlex.quote(str(output))}
+"""
+            env = dict(os.environ)
+            env["PATH"] = f"{fake_bin}{os.pathsep}{env.get('PATH', '')}"
+            result = subprocess.run(
+                ["bash", "-c", shell],
+                cwd=REPO_ROOT,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
 
-        self.assertLess(
-            retry_block.index("funannotate_busco_training_fallback_threshold"),
-            retry_block.index("funannotate_predict_failed_in_p2g"),
-        )
-        self.assertIn('--min_training_models "${training_fallback_floor}"', retry_block)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            attempts = [
+                [token for token in line.split("\t") if token]
+                for line in recorder.read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual(len(attempts), 3)
+            self.assertNotIn("--min_training_models", attempts[0])
+            self.assertNotIn("--protein_alignments", attempts[0])
+            self.assertIn("--min_training_models", attempts[1])
+            self.assertNotIn("--protein_alignments", attempts[1])
+            self.assertIn("--min_training_models", attempts[2])
+            self.assertIn("--protein_alignments", attempts[2])
+
+
+    def test_missing_funannotate_sif_never_invokes_job_time_builder(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            marker = root / "builder-called"
+            builder = root / "build_funannotate.sh"
+            builder.write_text(
+                "#!/usr/bin/env bash\n"
+                f"touch {shlex.quote(str(marker))}\n",
+                encoding="utf-8",
+            )
+            builder.chmod(0o755)
+            missing_sif = root / "missing" / "funannotate.sif"
+            command = f"""
+set -u
+log() {{ :; }}
+warn() {{ printf '%s\\n' "$*" >&2; }}
+ENGINE=apptainer
+FUNANNOTATE_SIF={shlex.quote(str(missing_sif))}
+FUNANNOTATE_BUILD_SCRIPT={shlex.quote(str(builder))}
+AUTO_BUILD_FUNANNOTATE_SIF=1
+source <(awk '/^runtime_preparation_hint\\(\\)/{{flag=1}} /^ensure_primary_tooling\\(\\)/{{flag=0}} flag{{print}}' {shlex.quote(str(SCRIPT_PATH))})
+ensure_funannotate_sif_runtime
+"""
+            result = subprocess.run(
+                ["bash", "-lc", command],
+                cwd=str(REPO_ROOT),
+                env=dict(os.environ),
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            builder_called = marker.exists()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(builder_called)
+        self.assertIn("prepare-runtime", result.stderr)
+        self.assertIn("accepted for compatibility", result.stderr)
 
 
 if __name__ == "__main__":

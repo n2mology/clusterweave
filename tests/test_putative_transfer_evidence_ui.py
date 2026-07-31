@@ -5,13 +5,17 @@ import unittest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-FRONTEND = REPO_ROOT / "web" / "static" / "assets" / "clusterweave.js"
+CLASSIC_FRONTEND = REPO_ROOT / "web" / "static" / "assets" / "clusterweave.js"
+RESULT_READER_FRONTEND = REPO_ROOT / "web" / "static" / "assets" / "result-reader-boundary.js"
 
 
 class CrossKingdomEvidenceUiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.text = FRONTEND.read_text(encoding="utf-8")
+        cls.text = "\n".join([
+            RESULT_READER_FRONTEND.read_text(encoding="utf-8"),
+            CLASSIC_FRONTEND.read_text(encoding="utf-8"),
+        ])
 
     def test_discovery_is_exact_direct_child_allowlist(self) -> None:
         allowlist = self.text.split("const CROSS_KINGDOM_EVIDENCE_FILENAMES", 1)[1].split("]);", 1)[0]
@@ -50,7 +54,7 @@ class CrossKingdomEvidenceUiTests(unittest.TestCase):
             self.text,
         )
         self.assertIn(
-            "activeResultFiles = indexedFiles.filter(path => !isPackageOnlyResultArtifact(path))",
+            "state.activeResultFiles = indexedFiles.filter(path => !isPackageOnlyResultArtifact(path))",
             self.text,
         )
         self.assertIn("if (isPackageOnlyResultArtifact(path)) return false;", self.text)
@@ -61,8 +65,8 @@ class CrossKingdomEvidenceUiTests(unittest.TestCase):
 
     def test_package_download_remains_available_for_hidden_artifacts(self) -> None:
         self.assertIn("let activeResultPackageFileCount = 0;", self.text)
-        self.assertIn("activeResultPackageFileCount = indexedFiles.length;", self.text)
-        self.assertIn("activeResultPackageFileCount < 1", self.text)
+        self.assertIn("state.activeResultPackageFileCount = indexedFiles.length;", self.text)
+        self.assertIn("state.activeResultPackageFileCount < 1", self.text)
         self.assertIn("/archive`", self.text)
 
 

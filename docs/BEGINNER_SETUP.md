@@ -6,10 +6,10 @@ web service, worker, scientific tools, and reference data in containers. Docker
 Compose reads `docker-compose.yml` and starts the related containers together.
 You do not need to install the scientific tools one at a time.
 
-Web-hosted access is **coming soon**. Therefore, this tutorial uses the trusted
-local Docker profile. The release has been validated on Linux x86_64, and the
-sections below explain the corresponding Docker Desktop setup for WSL2, Intel
-macOS, and Apple Silicon.
+Project-hosted access is coming soon. The trusted local Docker profile is the
+only currently available v1.0.2 path. This release has been
+validated on Linux x86_64, and the sections below explain the corresponding
+Docker Desktop setup for WSL2, Intel macOS, and Apple Silicon.
 
 ## Before you begin
 
@@ -160,7 +160,7 @@ they are maintained differently:
 - A **tagged archive** is a fixed snapshot downloaded from the GitHub Releases
   page. An archive has no Git history and cannot be updated with `git pull`.
 
-ClusterWeave v1.0.1 is the current public release. Use the
+ClusterWeave v1.0.2 is the current public release. Use the
 [ClusterWeave releases page](https://github.com/n2mology/clusterweave/releases)
 when you need its immutable tag or source archive.
 
@@ -174,10 +174,10 @@ git clone https://github.com/n2mology/clusterweave.git
 cd clusterweave
 ```
 
-For a reproducible v1.0.1 checkout, request the tag explicitly:
+For a reproducible v1.0.2 checkout, request the tag explicitly:
 
 ```bash
-git clone --branch v1.0.1 --depth 1 https://github.com/n2mology/clusterweave.git
+git clone --branch v1.0.2 --depth 1 https://github.com/n2mology/clusterweave.git
 cd clusterweave
 ```
 
@@ -218,21 +218,73 @@ contents of `.env` into an issue, email, screenshot, or support message. The
 file contains credentials that protect local administrator actions and saved
 result links.
 
+## Change the local web job input limits
+
+New `.env` files set `CLUSTERWEAVE_MAX_ACCESSIONS=50` and
+`CLUSTERWEAVE_MAX_GENOME_FILES=50`. These are the maximum NCBI assembly
+accessions and uploaded genome files accepted by one web job.
+
+From the repository root, open the private `.env` file in a text editor. Change
+one or both values before starting the local instance. For example:
+
+```dotenv
+CLUSTERWEAVE_MAX_ACCESSIONS=75
+CLUSTERWEAVE_MAX_GENOME_FILES=75
+```
+
+Use a positive integer for each setting. `0` is invalid and does not mean
+uncapped. The initializer does not add these settings to an existing `.env`, so
+add them manually when updating an older local instance.
+
+Still at the repository root, check what Compose resolved:
+
+```bash
+docker compose config --quiet
+docker compose config | grep -E 'CLUSTERWEAVE_MAX_ACCESSIONS|CLUSTERWEAVE_MAX_GENOME_FILES'
+```
+
+Success means the first command returns without an error and the second prints
+both selected values under the web service.
+
+If the local instance is already running, edit `.env`, then run these commands
+from the repository root:
+
+```bash
+docker compose up -d --no-deps web
+curl --fail http://127.0.0.1:8080/api/system/status
+```
+
+A successful recreation reports the selected values in `public_quota`. The
+browser then displays the same limits and provides that many manual accession
+rows. Next, return to the browser and prepare the intended inputs.
+
+For a first start, continue with the build and start commands below.
+
+Larger counts increase processing time, storage use, and figure complexity.
+Support for a configured count is not a performance or scientific-scale
+guarantee. Synthetic scaling checks cover 75 genomes.
+
 ## Build and start the local instance
 
 Still at the repository root, run one command at a time:
 
 ```bash
 docker compose build
+docker compose run --rm --no-deps worker prepare-runtime
+docker compose run --rm --no-deps worker check-runtime
 docker compose up -d
 docker compose ps
 curl --fail http://127.0.0.1:8080/
 ```
 
-`docker compose build` builds the ClusterWeave web and worker images.
-`docker compose up -d` starts the containers in the background. `docker compose
-ps` should show the `web` and `worker` services running, and the `curl` command
-should return the HTML landing page without an HTTP error.
+`docker compose build` builds the ClusterWeave web and worker images. The
+explicit `prepare-runtime` command acquires and verifies every supported local
+runtime asset before a job can need it. The following `check-runtime` command is
+a non-mutating warm verification: it must not pull, download, build, install, or
+rewrite the preparation manifest. `docker compose up -d` then starts the
+containers in the background. `docker compose ps` should show the `web` and
+`worker` services running, and the `curl` command should return the HTML landing
+page without an HTTP error.
 
 Open [http://127.0.0.1:8080](http://127.0.0.1:8080) in a browser on the same
 computer. WSL2 users normally open this loopback address in their Windows
@@ -240,14 +292,21 @@ browser while Docker Desktop and the Ubuntu distribution remain running.
 
 ### Understand the first bootstrap
 
-The web page may load before the scientific worker is ready. On the first
-start, the worker prepares cached assets in this order:
+The explicit preparation command processes the startup assets in the same
+order the worker has historically reported, then prepares the remaining
+stage-specific assets:
 
 1. antiSMASH reference databases (approximately 5 GiB),
 2. the Pfam HMM database (approximately 1 GiB before indexes and working room),
 3. the NCBI Datasets and Dataformat command-line tools,
 4. pinned clinker and BiG-SCAPE container images,
-5. the local FunBGCeX image, followed by the worker loop.
+5. the local FunBGCeX image,
+6. the pinned BRAKER3 and BUSCO-baked funannotate images,
+7. pinned FastTree, MiBIG GenBank data, and the shared NPLinker environment.
+
+Image identities and acquired-file SHA-256 values are recorded under the
+private software volume. A later warm prepare or check validates those
+identities and does not reacquire an asset that is already complete.
 
 Follow the worker output:
 
@@ -387,7 +446,7 @@ actually published and reviewed:
 ```bash
 git fetch --tags origin
 git tag --list
-git switch --detach v1.0.1
+git switch --detach v1.0.2
 docker compose build
 docker compose up -d
 ```
@@ -482,10 +541,13 @@ docker system df
 df -h .
 ```
 
-After correcting a transient network or disk problem, restart only the worker so
-completed cached assets remain available and missing phases retry:
+After correcting a transient network or disk problem, rerun the explicit
+preparation and non-mutating check, then restart only the worker. Completed
+cached assets remain available and only missing preparation is acquired:
 
 ```bash
+docker compose run --rm --no-deps worker prepare-runtime
+docker compose run --rm --no-deps worker check-runtime
 docker compose restart worker
 docker compose logs -f worker
 ```

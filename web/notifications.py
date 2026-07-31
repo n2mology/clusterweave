@@ -198,9 +198,12 @@ def build_job_email(job: dict[str, Any], link: str, access_code: str = "") -> Em
     result_access_code = access_code or link.rsplit("/", 1)[-1]
     result_lines = [
         "You can find the results at" if status == "success" else "You can review logs and any partial results at",
-        link,
         "",
+        "RESULT ACCESS CREDENTIALS",
+        f"Private result link: {link}",
         f"Result access code: {result_access_code}",
+        f"Run ID: {job_id}",
+        "Save/copy your job credentials. Anyone with these can read the results.",
     ]
 
     lead = (

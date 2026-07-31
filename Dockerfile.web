@@ -14,6 +14,7 @@ COPY bin/backfill_result_attestations.py /app/backfill_result_attestations.py
 COPY web/bigscape_public_db.py /app/bigscape_public_db.py
 COPY web/genbank_readiness.py /app/genbank_readiness.py
 COPY web/job_store.py /app/job_store.py
+COPY web/legacy_job_results.py /app/legacy_job_results.py
 COPY web/notifications.py /app/notifications.py
 COPY web/public_results.py /app/public_results.py
 COPY web/public_result_backend.py /app/public_result_backend.py

@@ -9,6 +9,8 @@ from __future__ import annotations
 from pathlib import Path
 import re
 
+from legacy_job_results import legacy_result_path_public_shape
+
 
 PUBLIC_RESULTS_MANIFEST_PATH = "downloads/public_results_manifest.tsv"
 PUBLIC_EVIDENCE_MANIFEST_PATH = "evidence/clusterweave_evidence_manifest.tsv"
@@ -401,9 +403,8 @@ def result_path_public_shape(rel_path: str) -> bool:
 
     parts = normalized.split("/")
     lower_parts = [part.lower() for part in parts]
-    # Retain the small pre-canonical result layout used by historical jobs.
     if lower_parts[0] == "results":
-        return len(parts) >= 2 and Path(parts[-1]).suffix.lower() in PUBLIC_FIGURE_EXTENSIONS
+        return legacy_result_path_public_shape(normalized)
     if len(parts) < 4 or lower_parts[0:2] != ["data", "results"]:
         return False
     return is_public_analysis_relative_path("/".join(parts[3:]))

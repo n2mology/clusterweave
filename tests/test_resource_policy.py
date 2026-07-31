@@ -2,20 +2,33 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+import tempfile
 import unittest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WEB_DIR = REPO_ROOT / "web"
+BIN_DIR = REPO_ROOT / "bin"
 if str(WEB_DIR) not in sys.path:
     sys.path.insert(0, str(WEB_DIR))
+if str(BIN_DIR) not in sys.path:
+    sys.path.insert(0, str(BIN_DIR))
 
 from resource_policy import (  # noqa: E402
     MemoryFormula,
     ResourceRequest,
+    bounded_cpu_limit,
     bounded_resource_plan,
+    build_hosted_resource_plan,
     estimate_job_resources,
     genome_count_from_input_summary,
+)
+from annotation_runtime import (  # noqa: E402
+    build_annotation_resource_plan,
+    effective_cpu_count,
+    effective_memory_mb,
+    nonnegative_int,
+    positive_int,
 )
 
 
@@ -42,6 +55,193 @@ def request(
 
 
 class ResourcePolicyTests(unittest.TestCase):
+    def test_annotation_runtime_preserves_shell_numeric_input_rules(self) -> None:
+        self.assertEqual(positive_int("5", 32), 5)
+        self.assertEqual(positive_int("+5", 32), 32)
+        self.assertEqual(positive_int(" 5", 32), 32)
+        self.assertEqual(positive_int("0", 32), 32)
+        self.assertEqual(nonnegative_int("4096"), 4096)
+        self.assertEqual(nonnegative_int("+4096"), 0)
+
+    def test_annotation_runtime_detects_cgroup_cpu_and_memory_bounds(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "cpuset.cpus.effective").write_text("0-7\n", encoding="utf-8")
+            (root / "cpu.max").write_text("400000 100000\n", encoding="utf-8")
+            (root / "memory.max").write_text(
+                str(8 * 1024 * 1024 * 1024), encoding="utf-8"
+            )
+            (root / "memory.current").write_text(
+                str(2 * 1024 * 1024 * 1024), encoding="utf-8"
+            )
+            meminfo = root / "meminfo"
+            meminfo.write_text("MemAvailable: 16777216 kB\n", encoding="utf-8")
+
+            self.assertEqual(effective_cpu_count(root, online_cpus=12), 4)
+            self.assertEqual(
+                effective_memory_mb(root, meminfo_path=meminfo),
+                6144,
+            )
+            empty_cgroup = root / "empty"
+            empty_cgroup.mkdir()
+            low_meminfo = root / "low_meminfo"
+            low_meminfo.write_text("MemAvailable: 512 kB\n", encoding="utf-8")
+            self.assertEqual(
+                effective_memory_mb(empty_cgroup, meminfo_path=low_meminfo),
+                0,
+            )
+
+    def test_annotation_runtime_prefers_present_v2_cgroup_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "cpu").mkdir()
+            (root / "memory").mkdir()
+            (root / "cpuset.cpus.effective").write_text("0-7\n", encoding="utf-8")
+            (root / "cpu.max").write_text("max 100000\n", encoding="utf-8")
+            (root / "cpu" / "cpu.cfs_quota_us").write_text("100000\n", encoding="utf-8")
+            (root / "cpu" / "cpu.cfs_period_us").write_text("100000\n", encoding="utf-8")
+            (root / "memory.max").write_text("max\n", encoding="utf-8")
+            (root / "memory.current").write_text("0\n", encoding="utf-8")
+            (root / "memory" / "memory.limit_in_bytes").write_text(
+                str(2 * 1024 * 1024 * 1024), encoding="utf-8"
+            )
+            (root / "memory" / "memory.usage_in_bytes").write_text(
+                str(1024 * 1024 * 1024), encoding="utf-8"
+            )
+            meminfo = root / "meminfo"
+            meminfo.write_text("MemAvailable: 16777216 kB\n", encoding="utf-8")
+
+            self.assertEqual(effective_cpu_count(root, online_cpus=12), 8)
+            self.assertEqual(effective_memory_mb(root, meminfo_path=meminfo), 16384)
+
+    def test_annotation_runtime_plan_uses_shared_r02_policy(self) -> None:
+        result = build_annotation_resource_plan(
+            mode="conservative",
+            requested_cpus=12,
+            cpus_explicit=True,
+            effective_cpus=12,
+            effective_memory_mb=24576,
+            total_genomes=25,
+            genome_parallelism=5,
+            anno_cpus=8,
+            funbgcex_workers=10,
+            antismash_record_parallelism=4,
+            antismash_shard_cpus=9,
+            antismash_legacy_cpus=9,
+            memory_budget_mb=None,
+            auto_max_cpus=32,
+            auto_max_genome_parallelism=4,
+            auto_min_cpus_per_genome=2,
+            auto_memory_percent=70,
+            auto_memory_per_genome_mb=8192,
+            auto_max_anno_cpus=8,
+            auto_max_funbgcex_workers=2,
+            auto_max_antismash_record_parallelism=3,
+        )
+        expected = request(12, 25, 5, 4, 9, 9, 8, 10).bounded_plan()
+
+        self.assertEqual(result.plan, expected)
+        self.assertEqual(
+            result.shell_fields(),
+            (12, 5, 2, 2, 2, 2, 1, 2, 12, 24576, 0, 10, 10, 10, 10),
+        )
+
+    def test_annotation_runtime_auto_plan_preserves_cgroup_memory_shape(self) -> None:
+        result = build_annotation_resource_plan(
+            mode="auto",
+            requested_cpus=6,
+            cpus_explicit=False,
+            effective_cpus=12,
+            effective_memory_mb=24576,
+            total_genomes=25,
+            genome_parallelism=1,
+            anno_cpus=6,
+            funbgcex_workers=2,
+            antismash_record_parallelism=1,
+            antismash_shard_cpus=None,
+            antismash_legacy_cpus=None,
+            memory_budget_mb=None,
+            auto_max_cpus=32,
+            auto_max_genome_parallelism=4,
+            auto_min_cpus_per_genome=2,
+            auto_memory_percent=70,
+            auto_memory_per_genome_mb=8192,
+            auto_max_anno_cpus=8,
+            auto_max_funbgcex_workers=2,
+            auto_max_antismash_record_parallelism=3,
+        )
+
+        self.assertEqual(
+            result.shell_fields(),
+            (12, 2, 6, 6, 2, 3, 2, 6, 12, 24576, 24576, 12, 4, 12, 12),
+        )
+
+    def test_cpu_limit_uses_narrowest_configured_effective_and_worker_budget(self) -> None:
+        cases = [
+            (8, 16, None, 8),
+            (8, 4, None, 4),
+            (8, 16, 3, 3),
+            (1, 8, 4, 1),
+            (0, 0, 0, 1),
+        ]
+        for configured, effective, worker, expected in cases:
+            with self.subTest(
+                configured=configured,
+                effective=effective,
+                worker=worker,
+            ):
+                self.assertEqual(
+                    bounded_cpu_limit(
+                        configured,
+                        effective,
+                        worker_cpu_budget=worker,
+                    ),
+                    expected,
+                )
+
+    def test_resource_truth_table_covers_modes_cpu_limits_and_input_sizes(self) -> None:
+        settings = {
+            "genome_parallelism": 50,
+            "antismash_record_parallelism": 50,
+            "antismash_shard_cpus": 50,
+            "antismash_legacy_cpus": 50,
+            "anno_cpus": 50,
+            "workers": 50,
+        }
+        for mode in ("public", "admin", "local"):
+            for cpus in (1, 4, 8):
+                for genome_count in (1, 40, 50):
+                    with self.subTest(
+                        mode=mode,
+                        cpus=cpus,
+                        genome_count=genome_count,
+                    ):
+                        if mode in {"public", "admin"}:
+                            plan = build_hosted_resource_plan(
+                                cpus,
+                                genome_count,
+                                settings,
+                                genome_parallelism=4,
+                                antismash_record_parallelism=3,
+                                funannotate_cpus_per_genome=4,
+                                funbgcex_workers_per_genome=2,
+                            )
+                        else:
+                            plan = ResourceRequest.from_settings(
+                                cpus,
+                                settings,
+                                genome_count,
+                            ).bounded_plan()
+
+                        self.assertEqual(plan.job_cpus, cpus)
+                        self.assertEqual(plan.genome_count, genome_count)
+                        self.assertLessEqual(plan.genome_parallelism, genome_count)
+                        self.assertLessEqual(plan.annotation_cpu_slots, cpus)
+                        self.assertLessEqual(plan.funbgcex_cpu_slots, cpus)
+                        self.assertLessEqual(plan.antismash_sharded_cpu_slots, cpus)
+                        self.assertLessEqual(plan.antismash_legacy_cpu_slots, cpus)
+                        self.assertEqual(plan.cpu_slots, cpus)
+
     def test_bounded_plan_table(self) -> None:
         cases = [
             (

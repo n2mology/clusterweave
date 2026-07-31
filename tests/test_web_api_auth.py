@@ -240,10 +240,40 @@ class WebApiAuthTests(unittest.TestCase):
             "substep": "",
             "updated_at": self.job_store.now_iso(),
             "runtime": {"mode": "test"},
-            "worker": {"active_jobs": [], "active_count": 0},
+            "worker": {
+                "active_jobs": [],
+                "active_count": 0,
+                "resource_admission": {
+                    "cpu_budget": 8,
+                    "memory_budget_mb": 16384,
+                    "allocated_cpu_slots": 0,
+                    "allocated_memory_mb": 0,
+                    "available_cpu_slots": 8,
+                    "available_memory_mb": 16384,
+                    "reservations": {},
+                },
+            },
             "capabilities": {},
         }
         (worker_dir / "status.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    def set_worker_resource_budget(
+        self,
+        cpu_budget: int,
+        memory_budget_mb: int = 16384,
+    ) -> None:
+        path = Path(self.tmp.name) / "worker" / "status.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["updated_at"] = self.job_store.now_iso()
+        payload["worker"]["resource_admission"].update(
+            {
+                "cpu_budget": cpu_budget,
+                "memory_budget_mb": memory_budget_mb,
+                "available_cpu_slots": cpu_budget,
+                "available_memory_mb": memory_budget_mb,
+            }
+        )
+        path.write_text(json.dumps(payload), encoding="utf-8")
 
     def request(
         self,
@@ -582,6 +612,7 @@ class WebApiAuthTests(unittest.TestCase):
         )
         self.assertEqual(payload["public_quota"]["max_accessions"], 50)
         self.assertEqual(payload["public_quota"]["max_genome_files"], 50)
+        self.assertEqual(payload["public_quota"]["max_cpus_per_job"], 8)
         self.assertEqual(payload["jobs_processed"], 1)
         self.assertEqual(payload["running_jobs"], 1)
         self.assertEqual(payload["queued_jobs"], 1)
@@ -777,9 +808,27 @@ class WebApiAuthTests(unittest.TestCase):
         self.assertEqual(read_payload["applicability_counts"]["funbgcex"], 1)
         self.assertNotIn("taxon_routes", read_payload)
         self.assertNotIn("taxonomy_metadata", read_payload)
-        self.assertNotIn("accession_metadata", read_payload["input_summary"])
+        accession_receipt = read_payload["input_summary"]["accession_metadata"]
+        self.assertEqual(
+            accession_receipt,
+            [{
+                "accession": "GCA_000011425.1",
+                "organism_name": "Aspergillus nidulans FGSC A4",
+                "tax_id": 227321,
+                "taxa": "NCBI taxon 227321 / fungi",
+                "taxon_group": "fungi",
+                "order_name": "Eurotiales",
+                "family_name": "Aspergillaceae",
+                "class_name": "Eurotiomycetes",
+                "order_family": "Eurotiales:Aspergillaceae",
+            }],
+        )
+        self.assertNotIn("genome_id", accession_receipt[0])
+        self.assertNotIn("domain", accession_receipt[0])
+        self.assertNotIn("kingdom", accession_receipt[0])
+        self.assertNotIn("lineage_names", accession_receipt[0])
+        self.assertNotIn("lineage_ids", accession_receipt[0])
         self.assertNotIn("genome_readiness", read_payload["input_summary"])
-        self.assertNotIn("Eurotiales", json.dumps(read_payload))
 
         status, admin_payload, _ = self.request(
             "GET",
@@ -799,6 +848,67 @@ class WebApiAuthTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         self.assertEqual(historical["analysis_scope"], "fungi")
+
+    def test_input_validation_batches_every_accession_before_job_creation(self) -> None:
+        body = json.dumps(
+            {
+                "analysis_scope": "fungi",
+                "accessions": [
+                    "GCA_000011425.1",
+                    "GCF_000005845.2",
+                    "GCF_000001405.40",
+                ],
+            }
+        ).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+
+        status, denied, _ = self.request(
+            "POST",
+            "/api/inputs/validate",
+            body=body,
+            headers=headers,
+        )
+        self.assertEqual(status, 401)
+        self.assertIn("Submission access code", denied["detail"])
+
+        status, payload, _ = self.request(
+            "POST",
+            "/api/inputs/validate",
+            body=body,
+            headers={**headers, **self.auth("submit-secret")},
+        )
+        self.assertEqual(status, 200)
+        self.assertFalse(payload["valid"])
+        self.assertEqual(len(payload["results"]), 3)
+        by_accession = {row["accession"]: row for row in payload["results"]}
+        self.assertTrue(by_accession["GCA_000011425.1"]["accepted"])
+        self.assertFalse(by_accession["GCF_000005845.2"]["accepted"])
+        self.assertIn("not a fungal assembly", by_accession["GCF_000005845.2"]["detail"])
+        self.assertFalse(by_accession["GCF_000001405.40"]["accepted"])
+        self.assertIn("not a fungal assembly", by_accession["GCF_000001405.40"]["detail"])
+        self.assertEqual(list(self.job_store.JOBS_DIR.glob("*/job.json")), [])
+
+        self.app.NCBI_ACCESSION_PREFLIGHT = False
+        status, forced_payload, _ = self.request(
+            "POST",
+            "/api/inputs/validate",
+            body=body,
+            headers={**headers, **self.auth("submit-secret")},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(len(forced_payload["results"]), 3)
+        self.assertFalse(forced_payload["valid"])
+
+        self.app.SUBMIT_TOKEN = ""
+        self.app.SUBMIT_TOKEN_SHA256 = ""
+        status, token_free_payload, _ = self.request(
+            "POST",
+            "/api/inputs/validate",
+            body=body,
+            headers=headers,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(len(token_free_payload["results"]), 3)
 
     def test_ncbi_scope_matrix_mixed_auto_route_and_authority_bypasses_closed(self) -> None:
         status, bacteria, _ = self.submit(
@@ -3695,6 +3805,10 @@ ORIGIN
         self.assertIn(f"https://clusterweave.example.org/app/#/results/{public_id}/", body)
         self.assertIn("You can review logs and any partial results at", body)
         self.assertIn(f"The ClusterWeave job {public_id} you submitted", body)
+        self.assertIn("RESULT ACCESS CREDENTIALS", body)
+        self.assertIn("Private result link:", body)
+        self.assertIn(f"Run ID: {public_id}", body)
+        self.assertIn("Save/copy your job credentials. Anyone with these can read the results.", body)
         self.assertIn("Result access code:", body)
         self.assertIn("Suggested fixes:", body)
         self.assertNotIn("/data/jobs", body)
@@ -3728,6 +3842,10 @@ ORIGIN
         self.assertIn("has finished with status complete.", body)
         self.assertIn("You can find the results at", body)
         self.assertIn("https://clusterweave.example.org/#/results/donejob/read", body)
+        self.assertIn("RESULT ACCESS CREDENTIALS", body)
+        self.assertIn("Private result link: https://clusterweave.example.org/#/results/donejob/read", body)
+        self.assertIn(f"Run ID: {public_id}", body)
+        self.assertIn("Save/copy your job credentials. Anyone with these can read the results.", body)
         self.assertIn("Result access code: read", body)
         self.assertIn("Results will be kept for one month and then deleted automatically on 2026-07-28 01:03:29.", body)
         self.assertIn("https://github.com/n2mology/clusterweave", body)
@@ -4705,6 +4823,127 @@ ORIGIN
         self.assertEqual(status, 400)
         self.assertIn("50 genome files", payload["detail"])
 
+    def test_configured_75_input_limits_are_complete_and_enforced(self) -> None:
+        configured_accessions = [
+            f"GCF_{200000000 + idx:09d}.1" for idx in range(1, 77)
+        ]
+        original_fetch = self.app.fetch_ncbi_datasets_json
+
+        def configured_accession_fixture(path: str) -> dict[str, object]:
+            if path.startswith("genome/accession/") and path.endswith("/dataset_report"):
+                accession = path.split("/", 2)[2].rsplit("/", 1)[0]
+                if accession in configured_accessions:
+                    return {"reports": [{"accession": accession, "organism": {"tax_id": 227321, "organism_name": f"Aspergillus fixture {accession}"}, "assembly_info": {"assembly_status": "current"}}], "total_count": 1}
+            return original_fetch(path)
+
+        with mock.patch.multiple(
+            self.app,
+            MAX_ACCESSIONS=75,
+            MAX_GENOME_FILES=75,
+            MAX_JOB_INPUTS=150,
+        ):
+            with mock.patch.object(self.app, "fetch_ncbi_datasets_json", side_effect=configured_accession_fixture):
+                status, system, _ = self.request("GET", "/api/system/status")
+                self.assertEqual(status, 200)
+                self.assertEqual(system["public_quota"]["max_accessions"], 75)
+                self.assertEqual(system["public_quota"]["max_genome_files"], 75)
+
+                validation_body = json.dumps(
+                    {
+                        "analysis_scope": "fungi",
+                        "accessions": configured_accessions[:75],
+                    }
+                ).encode("utf-8")
+                status, validation, _ = self.request(
+                    "POST",
+                    "/api/inputs/validate",
+                    body=validation_body,
+                    headers={"Content-Type": "application/json", **self.auth("submit-secret")},
+                )
+                self.assertEqual(status, 200)
+                self.assertTrue(validation["valid"])
+                self.assertEqual(len(validation["results"]), 75)
+
+                for count in (51, 75):
+                    accession_text = ("\n".join(configured_accessions[:count]) + "\n").encode("utf-8")
+                    status, submitted, _ = self.submit(
+                        fields={"project_name": f"configured-{count}-accessions"},
+                        files=[("files", "accessions.txt", accession_text)],
+                    )
+                    self.assertEqual(status, 201)
+                    self.assertEqual(submitted["input_summary"]["accession_count"], count)
+
+                accession_76 = ("\n".join(configured_accessions) + "\n").encode("utf-8")
+                status, rejected, _ = self.submit(files=[("files", "accessions.txt", accession_76)])
+                self.assertEqual(status, 400)
+                self.assertIn("at most 75 accessions", rejected["detail"])
+
+                genome_files = [
+                    ("files", f"configured_genome_{idx:03d}.fna", f">seq{idx}\nATGC\n".encode("utf-8"))
+                    for idx in range(76)
+                ]
+                for count in (51, 75):
+                    status, submitted, _ = self.submit(
+                        fields={"project_name": f"configured-{count}-genomes"},
+                        files=genome_files[:count],
+                    )
+                    self.assertEqual(status, 201)
+                    self.assertEqual(submitted["input_summary"]["genome_file_count"], count)
+
+                status, rejected, _ = self.submit(
+                    fields={"project_name": "configured-76-genomes"},
+                    files=genome_files,
+                )
+                self.assertEqual(status, 400)
+                self.assertIn("75 genome files", rejected["detail"])
+
+                bacterial_genbank = (
+                    b"LOCUS       BacterialGenome         24 bp    DNA     linear   BCT 01-JAN-2026\n"
+                    b"  ORGANISM  Escherichia demo\n"
+                    b"            Bacteria; Pseudomonadota; Gammaproteobacteria.\n"
+                    b"FEATURES             Location/Qualifiers\n"
+                    b"     source          1..24\n"
+                    b"                     /organism=\"Escherichia demo\"\n"
+                    b"                     /db_xref=\"taxon:511145\"\n"
+                    b"ORIGIN\n"
+                    b"        1 atgcatgcat gcatgcatgc atgc\n"
+                    b"//\n"
+                )
+                authoritative_genbanks = [
+                    ("files", f"configured_bacterium_{idx:03d}.gbk", bacterial_genbank)
+                    for idx in range(35)
+                ]
+
+                mixed_accessions = configured_accessions[:40]
+                mixed_text = ("\n".join(mixed_accessions) + "\n").encode("utf-8")
+                mixed_files = [("files", "accessions.txt", mixed_text), *authoritative_genbanks]
+
+                status, submitted, _ = self.submit(
+                    fields={
+                        "project_name": "configured-75-mixed",
+                        "analysis_scope": "both",
+                    },
+                    files=mixed_files,
+                )
+                self.assertEqual(status, 201)
+                job = self.read_submitted_job(submitted)
+                self.assertIsNotNone(job)
+                assert job is not None
+                self.assertEqual(job["input_summary"]["accession_count"], 40)
+                self.assertEqual(job["input_summary"]["genome_file_count"], 35)
+                routes = job["taxon_routes"]
+                taxonomy_metadata = job["settings"]["taxonomy_metadata"]
+                self.assertEqual(len(routes), 75)
+                self.assertEqual(len(taxonomy_metadata), 75)
+                expected_inputs = set(
+                    configured_accessions[:40]
+                )
+                expected_inputs.update(
+                    Path(filename).stem for _, filename, _ in authoritative_genbanks
+                )
+                self.assertEqual({row["input_key"] for row in routes}, expected_inputs)
+                self.assertEqual({row["input_key"] for row in taxonomy_metadata}, expected_inputs)
+
     def test_public_upload_size_and_queue_quotas_are_enforced(self) -> None:
         self.app.MAX_UPLOAD_FILE_MB = 1
         status, payload, _ = self.submit(files=[("files", "large.fna", b"A" * (1024 * 1024 + 1))])
@@ -4829,6 +5068,50 @@ ORIGIN
         self.assertEqual(completed["completed_at"], "2026-01-01T00:00:00")
         self.assertEqual(completed["expires_at"], "2026-01-31T00:00:00")
 
+    def test_live_worker_budget_is_public_cpu_authority_and_accepted_plan_fits_admission(
+        self,
+    ) -> None:
+        self.set_worker_resource_budget(4)
+        self.app.MAX_CPUS_PER_JOB = 8
+
+        status, system, _ = self.request("GET", "/api/system/status")
+        self.assertEqual(status, 200)
+        self.assertEqual(system["public_quota"]["max_cpus_per_job"], 4)
+
+        files = [
+            (
+                "files",
+                f"resource-{index}.fna",
+                f">seq{index}\nATGCATGC\n".encode("utf-8"),
+            )
+            for index in range(40)
+        ]
+        with mock.patch.object(self.app.os, "cpu_count", return_value=8):
+            status, payload, _ = self.submit(
+                fields={"project_name": "admission-round-trip", "cpus": "8"},
+                files=files,
+            )
+        self.assertEqual(status, 201)
+        job = self.read_submitted_job(payload)
+        self.assertIsNotNone(job)
+        assert job is not None
+        self.assertEqual(job["cpus"], 4)
+
+        sys.modules.pop("worker", None)
+        worker = importlib.import_module("worker")
+        self.addCleanup(sys.modules.pop, "worker", None)
+        reservation = worker.estimate_claim_reservation(
+            self.submitted_internal_job_id(payload),
+            job["cpus"],
+            job["settings"],
+        )
+        admission = worker.ResourceAdmission(
+            cpu_budget=4,
+            memory_budget_mb=16384,
+            max_jobs=1,
+        )
+        self.assertIsNone(admission.capacity_reason(reservation))
+
     def test_public_operator_targets_are_bounded_after_input_count_is_known(self) -> None:
         self.app.PUBLIC_GENOME_PARALLELISM = 4
         self.app.PUBLIC_ANTISMASH_RECORD_PARALLELISM = 3
@@ -4905,6 +5188,7 @@ ORIGIN
 
     def test_hosted_admin_normal_webui_uses_operator_default_fanout(self) -> None:
         self.app.MAX_CPUS_PER_JOB = 12
+        self.set_worker_resource_budget(12)
         self.app.PUBLIC_GENOME_PARALLELISM = 3
         self.app.PUBLIC_ANTISMASH_RECORD_PARALLELISM = 3
         self.app.PUBLIC_FUNANNOTATE_CPUS_PER_GENOME = 4

@@ -15,9 +15,59 @@ if str(WEB_DIR) not in sys.path:
 
 import canonical_pipeline  # noqa: E402
 from canonical_pipeline import Job, JobStatus, ProjectLayout, _collect_result_files  # noqa: E402
+from resource_policy import build_hosted_resource_plan  # noqa: E402
 
 
 class CanonicalPhylogenyIntegrationTests(unittest.IsolatedAsyncioTestCase):
+    def test_hosted_resource_plan_round_trips_to_canonical_environment(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            layout = ProjectLayout(
+                project_name="resource_round_trip",
+                repo_root=REPO_ROOT,
+                data_root=root / "data",
+                genome_root=root / "data" / "genomes" / "fungi" / "resource_round_trip",
+                results_root=root / "data" / "results" / "resource_round_trip",
+                software_root=root / "software",
+                work_root=root / "work",
+                downloads_root=root / "downloads",
+            )
+            plan = build_hosted_resource_plan(
+                8,
+                50,
+                {},
+                genome_parallelism=4,
+                antismash_record_parallelism=3,
+                funannotate_cpus_per_genome=4,
+                funbgcex_workers_per_genome=2,
+            )
+            settings = {"threads": plan.job_cpus, **plan.as_settings()}
+
+            env = canonical_pipeline._base_env(layout, settings, plan.job_cpus)
+
+            self.assertEqual(
+                {
+                    "CPUS": env["CPUS"],
+                    "THREADS": env["THREADS"],
+                    "GENOME_PARALLELISM": env["GENOME_PARALLELISM"],
+                    "ANTISMASH_RECORD_PARALLELISM": env["ANTISMASH_RECORD_PARALLELISM"],
+                    "ANTISMASH_SHARD_CPUS": env["ANTISMASH_SHARD_CPUS"],
+                    "ANTISMASH_LEGACY_CPUS": env["ANTISMASH_LEGACY_CPUS"],
+                    "ANNO_CPUS": env["ANNO_CPUS"],
+                    "WORKERS": env["WORKERS"],
+                },
+                {
+                    "CPUS": "8",
+                    "THREADS": "8",
+                    "GENOME_PARALLELISM": "4",
+                    "ANTISMASH_RECORD_PARALLELISM": "2",
+                    "ANTISMASH_SHARD_CPUS": "1",
+                    "ANTISMASH_LEGACY_CPUS": "2",
+                    "ANNO_CPUS": "2",
+                    "WORKERS": "2",
+                },
+            )
+
     def test_legacy_evidence_settings_are_fallback_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

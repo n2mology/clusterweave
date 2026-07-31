@@ -10,6 +10,7 @@ import unittest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 INDEX_PATH = REPO_ROOT / "web" / "static" / "index.html"
 JS_PATH = REPO_ROOT / "web" / "static" / "assets" / "clusterweave.js"
+CONTROLLER_PATH = REPO_ROOT / "web" / "static" / "assets" / "intake-taxon-boundary.js"
 CSS_PATH = REPO_ROOT / "web" / "static" / "assets" / "clusterweave.css"
 NODE = shutil.which("node")
 
@@ -74,11 +75,12 @@ class InputStationUiTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.index = INDEX_PATH.read_text(encoding="utf-8")
         cls.js = JS_PATH.read_text(encoding="utf-8")
+        cls.controller = CONTROLLER_PATH.read_text(encoding="utf-8")
         cls.css = CSS_PATH.read_text(encoding="utf-8")
 
     def test_ncbi_only_input_has_no_synthetic_upload_or_acknowledgment_gate(self) -> None:
-        renderer = function_source(self.js, "renderFileList")
-        acknowledgment = function_source(self.js, "uploadedInputRequiresAcknowledgment")
+        renderer = function_source(self.controller, "renderFileList")
+        acknowledgment = function_source(self.controller, "uploadedInputRequiresAcknowledgment")
 
         self.assertNotIn("Manual entry", renderer)
         self.assertNotIn("MANUAL_ACCESSIONS_FILENAME", renderer)
@@ -87,22 +89,20 @@ class InputStationUiTests(unittest.TestCase):
 
         result = run_node_json(
             """
-let selectedFiles = [];
-let accessionFileSources = [];
-let taxonAssignmentSidecar = null;
+const state = {selectedFiles: [], accessionFileSources: [], taxonAssignmentSidecar: null};
 let admin = false;
 function canUseAdminSurfaces() { return admin; }
 """
             + acknowledgment
             + """
 const ncbiOnly = uploadedInputRequiresAcknowledgment();
-selectedFiles = [{name: 'uploaded.gbk'}];
+state.selectedFiles = [{name: 'uploaded.gbk'}];
 const uploaded = uploadedInputRequiresAcknowledgment();
-selectedFiles = [];
-accessionFileSources = [{name: 'accessions.txt'}];
+state.selectedFiles = [];
+state.accessionFileSources = [{name: 'accessions.txt'}];
 const uploadedAccessionList = uploadedInputRequiresAcknowledgment();
-accessionFileSources = [];
-taxonAssignmentSidecar = {name: 'taxon_assignments.tsv'};
+state.accessionFileSources = [];
+state.taxonAssignmentSidecar = {name: 'taxon_assignments.tsv'};
 const uploadedSidecar = uploadedInputRequiresAcknowledgment();
 admin = true;
 const adminUpload = uploadedInputRequiresAcknowledgment();
@@ -122,27 +122,33 @@ process.stdout.write(JSON.stringify({
         self.assertFalse(result["adminUpload"])
 
     def test_static_asset_versions_bypass_the_prior_day_cache(self) -> None:
-        self.assertIn("clusterweave.css?v=20260723-timer-utc1", self.index)
+        self.assertIn("clusterweave.css?v=20260723-timer-utc1-citation-align1", self.index)
         self.assertIn("clusterweave.js?v=20260723-timer-utc1", self.index)
         self.assertNotIn("clusterweave.css?v=20260713-workflow-bars4", self.index)
         self.assertNotIn("clusterweave.js?v=20260713-workflow-bars4", self.index)
 
     def test_accession_list_upload_tracks_its_source_and_removal_owns_rows(self) -> None:
-        add_source = "async " + function_source(self.js, "addAccessionFileSource")
-        remove_source = function_source(self.js, "removeAccessionFileSource")
-        owned = function_source(self.js, "accessionFileOwnedAccessions")
-        detach = function_source(self.js, "detachAccessionFromFileSources")
-        acknowledgment = function_source(self.js, "uploadedInputRequiresAcknowledgment")
+        add_source = "async " + function_source(self.controller, "addAccessionFileSource")
+        remove_source = function_source(self.controller, "removeAccessionFileSource")
+        owned = function_source(self.controller, "accessionFileOwnedAccessions")
+        detach = function_source(self.controller, "detachAccessionFromFileSources")
+        acknowledgment = function_source(self.controller, "uploadedInputRequiresAcknowledgment")
 
         result = run_node_json(
             """
-let accessionFileSources = [];
-let acceptedManualAccessions = [];
-let brutalAccessionDrafts = Array.from({length: 50}, () => '');
+const state = {
+  accessionFileSources: [],
+  acceptedManualAccessions: [],
+  selectedFiles: [],
+  taxonAssignmentSidecar: null,
+};
+function accessionLimit() { return 75; }
+function resizedAccessionDrafts(values = []) {
+  return Array.from({length: accessionLimit()}, (_, index) => values[index] || '');
+}
+let brutalAccessionDrafts = resizedAccessionDrafts();
 let brutalAccessionCommitted = new Set();
 let brutalEcoSelections = new Map();
-let selectedFiles = [];
-let taxonAssignmentSidecar = null;
 function canUseAdminSurfaces() { return false; }
 function normalizeAccessionDraft(value) { return String(value || '').trim().toUpperCase(); }
 function parseAccessionText(text) {
@@ -155,7 +161,7 @@ function parseAccessionText(text) {
 function manualAccessionLines() {
   const seen = new Set();
   const merged = [];
-  [...acceptedManualAccessions, ...accessionFileSources.flatMap(source => source.accessions || [])].forEach((value) => {
+  [...state.acceptedManualAccessions, ...state.accessionFileSources.flatMap(source => source.accessions || [])].forEach((value) => {
     const normalized = normalizeAccessionDraft(value);
     if (!normalized || seen.has(normalized)) return;
     seen.add(normalized);
@@ -165,7 +171,7 @@ function manualAccessionLines() {
 }
 function importAccessionsToLoader(accessions) {
   const imported = accessions.map(normalizeAccessionDraft).filter(Boolean);
-  acceptedManualAccessions.push(...imported);
+  state.acceptedManualAccessions.push(...imported);
   imported.forEach((accession, index) => { brutalAccessionDrafts[index] = accession; });
   return imported;
 }
@@ -174,7 +180,7 @@ function setBrutalInputNotice() {}
 function renderBrutalAccessionRows() {}
 function syncBrutalAcceptedFromDrafts() {
   const fileOwned = accessionFileOwnedAccessions();
-  acceptedManualAccessions = acceptedDraftAccessions().filter(accession => !fileOwned.has(accession));
+  state.acceptedManualAccessions = acceptedDraftAccessions().filter(accession => !fileOwned.has(accession));
 }
 const uploadStatus = {textContent: ''};
 const document = {getElementById(id) { return id === 'upload-status' ? uploadStatus : null; }};
@@ -196,15 +202,15 @@ const document = {getElementById(id) { return id === 'upload-status' ? uploadSta
   });
   const afterAdd = {
     added,
-    sourceCount: accessionFileSources.length,
-    sourceName: accessionFileSources[0]?.name || '',
+    sourceCount: state.accessionFileSources.length,
+    sourceName: state.accessionFileSources[0]?.name || '',
     accessions: manualAccessionLines(),
-    manualOwned: acceptedManualAccessions.slice(),
+    manualOwned: state.acceptedManualAccessions.slice(),
     acknowledgment: uploadedInputRequiresAcknowledgment(),
   };
   removeAccessionFileSource(0);
   const afterRemove = {
-    sourceCount: accessionFileSources.length,
+    sourceCount: state.accessionFileSources.length,
     accessions: manualAccessionLines(),
     acknowledgment: uploadedInputRequiresAcknowledgment(),
   };
@@ -214,7 +220,7 @@ const document = {getElementById(id) { return id === 'upload-status' ? uploadSta
   });
   detachAccessionFromFileSources('GCA_000011425.1');
   const afterDetach = {
-    sourceCount: accessionFileSources.length,
+    sourceCount: state.accessionFileSources.length,
     acknowledgment: uploadedInputRequiresAcknowledgment(),
   };
   process.stdout.write(JSON.stringify({afterAdd, afterRemove, afterDetach}));
@@ -234,9 +240,9 @@ const document = {getElementById(id) { return id === 'upload-status' ? uploadSta
         self.assertFalse(result["afterDetach"]["acknowledgment"])
 
     def test_uploaded_input_reveals_acknowledgment_and_gates_submit(self) -> None:
-        acknowledgment = function_source(self.js, "uploadedInputRequiresAcknowledgment")
-        sync = function_source(self.js, "syncDataUseAcknowledgment")
-        renderer = function_source(self.js, "renderFileList")
+        acknowledgment = function_source(self.controller, "uploadedInputRequiresAcknowledgment")
+        sync = function_source(self.controller, "syncDataUseAcknowledgment")
+        renderer = function_source(self.controller, "renderFileList")
 
         self.assertIn("syncDataUseAcknowledgment()", renderer)
         self.assertIn("ackMissing", renderer)
@@ -274,9 +280,7 @@ const document = {
     return null;
   },
 };
-let selectedFiles = [];
-let accessionFileSources = [];
-let taxonAssignmentSidecar = null;
+const state = {selectedFiles: [], accessionFileSources: [], taxonAssignmentSidecar: null};
 function canUseAdminSurfaces() { return false; }
 """
             + acknowledgment
@@ -285,7 +289,7 @@ function canUseAdminSurfaces() { return false; }
             + """
 const emptyMissing = syncDataUseAcknowledgment();
 const empty = {hidden: panel.hidden, inert: panel.inert, missing: emptyMissing};
-selectedFiles = [{name: 'uploaded.gbk'}];
+state.selectedFiles = [{name: 'uploaded.gbk'}];
 const uploadMissing = syncDataUseAcknowledgment();
 const upload = {hidden: panel.hidden, inert: panel.inert, missing: uploadMissing};
 checkbox.checked = true;
@@ -303,8 +307,8 @@ process.stdout.write(JSON.stringify({empty, upload, accepted}));
         self.assertFalse(result["accepted"]["missing"])
 
     def test_project_name_input_immediately_removes_the_submit_lock(self) -> None:
-        initializer = function_source(self.js, "initializeBrutalInputStation")
-        renderer = function_source(self.js, "renderFileList")
+        initializer = function_source(self.controller, "initializeBrutalInputStation")
+        renderer = function_source(self.controller, "renderFileList")
 
         project_listener = initializer.index("document.getElementById('project-name')")
         project_listener_end = initializer.index("document.getElementById('target-genome')", project_listener)
@@ -316,9 +320,9 @@ process.stdout.write(JSON.stringify({empty, upload, accepted}));
         self.assertIn("classList.toggle('is-project-locked'", renderer)
 
     def test_uploaded_genome_row_toggles_target_and_exposes_ecology_without_a_target_badge(self) -> None:
-        renderer = function_source(self.js, "renderFileList")
-        click_handler = function_source(self.js, "handleUploadedGenomeTargetClick")
-        remove = function_source(self.js, "removeFile")
+        renderer = function_source(self.controller, "renderFileList")
+        click_handler = function_source(self.controller, "handleUploadedGenomeTargetClick")
+        remove = function_source(self.controller, "removeFile")
 
         self.assertIn("data-target-genome", renderer)
         self.assertNotIn("data-target-select", renderer)
@@ -359,7 +363,7 @@ process.stdout.write(JSON.stringify({empty, upload, accepted}));
             r'<div class="data-use-ack" id="data-use-ack-panel"[^>]*hidden[^>]*inert',
         )
 
-        renderer = function_source(self.js, "renderBrutalInputLog")
+        renderer = function_source(self.controller, "renderBrutalInputLog")
         result = run_node_json(
             """
 const drawer = {hidden: false};
@@ -372,7 +376,7 @@ const document = {
   },
   querySelectorAll() { return []; },
 };
-const brutalInputNotices = new Map();
+const state = {brutalInputNotices: new Map()};
 function brutalAccessionDraftIssues() { return []; }
 function conciseInputNotice(value) { return String(value || '').trim(); }
 function escapeHtml(value) { return String(value); }

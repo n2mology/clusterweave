@@ -45,6 +45,8 @@ ANTISMASH_RETAIN_SHARD_WORK="${ANTISMASH_RETAIN_SHARD_WORK:-0}"  # 1 retains com
 ANTISMASH_SHARD_COMPACTOR="${ANTISMASH_SHARD_COMPACTOR:-${SCRIPT_DIR}/bin/compact_antismash_shard.py}"
 ANTISMASH_WEB_RESULTS_PREPARER="${ANTISMASH_WEB_RESULTS_PREPARER:-${SCRIPT_DIR}/bin/prepare_antismash_web_results.py}"
 ANTISMASH_INPUT_PREPARER="${ANTISMASH_INPUT_PREPARER:-${SCRIPT_DIR}/bin/prepare_antismash_input.py}"
+ANNOTATION_GENBANK_HELPER="${ANNOTATION_GENBANK_HELPER:-${SCRIPT_DIR}/bin/annotation_genbank.py}"
+ANNOTATION_RUNTIME_HELPER="${ANNOTATION_RUNTIME_HELPER:-${SCRIPT_DIR}/bin/annotation_runtime.py}"
 BACTERIAL_GENBANK_SANITIZER="${BACTERIAL_GENBANK_SANITIZER:-${SCRIPT_DIR}/bin/sanitize_bacterial_genbank.py}"
 ANTISMASH_MIN_RECORD_BP="${ANTISMASH_MIN_RECORD_BP:-1000}"
 ANTISMASH_MAX_RECORD_BP="${ANTISMASH_MAX_RECORD_BP:-50000000}"
@@ -245,11 +247,8 @@ ensure_docker_image() {
     log "${label} Docker image present: ${image}"
     return 0
   fi
-  if annotation_prompt_pull "${label}"; then
-    log "Pulling ${label} Docker image: ${image}"
-    docker pull "${image}" >> "${PIPELOG}" 2>&1 && return 0
-    warn "Failed to pull ${label} Docker image: ${image}"
-  fi
+  warn "${label} Docker image missing: ${image}"
+  runtime_preparation_hint
   return 1
 }
 
@@ -315,238 +314,60 @@ minimum_int() {
 }
 
 count_cpuset_cpus() {
-  local spec="${1:-}"
-  local total=0
-  local part=""
-  local first=0
-  local last=0
-  local IFS=','
-  local -a parts=()
-  read -r -a parts <<< "${spec}"
-  for part in "${parts[@]}"; do
-    if [[ "${part}" =~ ^([0-9]+)-([0-9]+)$ ]]; then
-      first="${BASH_REMATCH[1]}"
-      last="${BASH_REMATCH[2]}"
-      if [[ "${last}" -ge "${first}" ]]; then
-        total=$((total + last - first + 1))
-      fi
-    elif [[ "${part}" =~ ^[0-9]+$ ]]; then
-      total=$((total + 1))
-    fi
-  done
-  printf '%s\n' "${total}"
+  "${VENV_PY}" "${ANNOTATION_RUNTIME_HELPER}" count-cpuset --spec "${1:-}"
 }
 
 detect_online_cpus() {
-  local candidate=""
-
-  if have nproc; then
-    # GNU nproc treats OpenMP limits as CPU availability hints.  ClusterWeave
-    # intentionally caps numeric libraries (normally to one thread), but that
-    # child-library policy must not collapse the job-level resource planner.
-    candidate="$(
-      unset OMP_NUM_THREADS OMP_THREAD_LIMIT
-      nproc 2>/dev/null || true
-    )"
-  elif have getconf; then
-    candidate="$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)"
-  fi
-
-  printf '%s\n' "${candidate}"
+  "${VENV_PY}" "${ANNOTATION_RUNTIME_HELPER}" online-cpus
 }
 
 detect_effective_cpus() {
   local cgroup_root="${1:-/sys/fs/cgroup}"
-  local effective=0
-  local candidate=0
-  local quota=""
-  local period=""
-  local cpuset=""
-  local path=""
-
-  candidate="$(detect_online_cpus)"
-  if [[ "${candidate}" =~ ^[0-9]+$ && "${candidate}" -ge 1 ]]; then
-    effective="${candidate}"
-  fi
-
-  for path in "${cgroup_root}/cpuset.cpus.effective" "${cgroup_root}/cpuset/cpuset.cpus"; do
-    [[ -r "${path}" ]] || continue
-    cpuset="$(<"${path}")"
-    candidate="$(count_cpuset_cpus "${cpuset}")"
-    if [[ "${candidate}" -ge 1 && ("${effective}" -eq 0 || "${candidate}" -lt "${effective}") ]]; then
-      effective="${candidate}"
-    fi
-    break
-  done
-
-  if [[ -r "${cgroup_root}/cpu.max" ]]; then
-    read -r quota period < "${cgroup_root}/cpu.max" || true
-    if [[ "${quota}" =~ ^[0-9]+$ && "${period}" =~ ^[0-9]+$ && "${period}" -ge 1 ]]; then
-      candidate=$((quota / period))
-      if [[ "${candidate}" -lt 1 ]]; then candidate=1; fi
-      if [[ "${effective}" -eq 0 || "${candidate}" -lt "${effective}" ]]; then
-        effective="${candidate}"
-      fi
-    fi
-  elif [[ -r "${cgroup_root}/cpu/cpu.cfs_quota_us" && -r "${cgroup_root}/cpu/cpu.cfs_period_us" ]]; then
-    quota="$(<"${cgroup_root}/cpu/cpu.cfs_quota_us")"
-    period="$(<"${cgroup_root}/cpu/cpu.cfs_period_us")"
-    if [[ "${quota}" =~ ^[0-9]+$ && "${quota}" -ge 1 && "${period}" =~ ^[0-9]+$ && "${period}" -ge 1 ]]; then
-      candidate=$((quota / period))
-      if [[ "${candidate}" -lt 1 ]]; then candidate=1; fi
-      if [[ "${effective}" -eq 0 || "${candidate}" -lt "${effective}" ]]; then
-        effective="${candidate}"
-      fi
-    fi
-  fi
-
-  if [[ "${effective}" -lt 1 ]]; then effective=1; fi
-  printf '%s\n' "${effective}"
+  "${VENV_PY}" "${ANNOTATION_RUNTIME_HELPER}" effective-cpus \
+    --cgroup-root "${cgroup_root}"
 }
 
 detect_effective_memory_mb() {
-  local effective=0
-  local candidate=0
-  local limit=""
-  local current=""
-  local remaining=0
-  local host_available=""
-
-  if [[ -r /proc/meminfo ]]; then
-    host_available="$(awk '/^MemAvailable:/ {printf "%d\n", $2 / 1024; exit}' /proc/meminfo)"
-    if [[ "${host_available}" =~ ^[0-9]+$ && "${host_available}" -ge 1 ]]; then
-      effective="${host_available}"
-    fi
-  fi
-
-  if [[ -r /sys/fs/cgroup/memory.max ]]; then
-    limit="$(</sys/fs/cgroup/memory.max)"
-    current="$(</sys/fs/cgroup/memory.current)"
-    if [[ "${limit}" =~ ^[0-9]+$ && "${limit}" -lt 1152921504606846976 && "${current}" =~ ^[0-9]+$ ]]; then
-      remaining=$((limit - current))
-      candidate=$((remaining / 1048576))
-      if [[ "${candidate}" -lt 1 ]]; then candidate=1; fi
-      if [[ "${effective}" -eq 0 || "${candidate}" -lt "${effective}" ]]; then
-        effective="${candidate}"
-      fi
-    fi
-  elif [[ -r /sys/fs/cgroup/memory/memory.limit_in_bytes ]]; then
-    limit="$(</sys/fs/cgroup/memory/memory.limit_in_bytes)"
-    current="$(</sys/fs/cgroup/memory/memory.usage_in_bytes)"
-    if [[ "${limit}" =~ ^[0-9]+$ && "${limit}" -lt 1152921504606846976 && "${current}" =~ ^[0-9]+$ ]]; then
-      remaining=$((limit - current))
-      candidate=$((remaining / 1048576))
-      if [[ "${candidate}" -lt 1 ]]; then candidate=1; fi
-      if [[ "${effective}" -eq 0 || "${candidate}" -lt "${effective}" ]]; then
-        effective="${candidate}"
-      fi
-    fi
-  fi
-
-  printf '%s\n' "${effective}"
+  "${VENV_PY}" "${ANNOTATION_RUNTIME_HELPER}" effective-memory
 }
 
 freeze_resource_plan() {
-  local total_genomes=""
+  local total_genomes="$(positive_int_or_default "${1:-}" 1)"
   local requested_cpus="${CPUS}"
-  local desired_genome_parallelism="${GENOME_PARALLELISM}"
-  local cpu_genome_limit=1
-  local memory_genome_limit=1
-  local usable_memory_mb=0
-  local auto_max_cpus=1
-  local auto_max_genomes=1
-  local auto_min_cpus_per_genome=1
-  local auto_memory_percent=70
-  local auto_memory_per_genome_mb=8192
-  local auto_max_anno_cpus=1
-  local auto_max_funbgcex_workers=1
-  local auto_max_record_parallelism=1
-  local max_shard_cpus=1
-  local annotation_slots=0
-  local funbgcex_slots=0
-  local antismash_shard_slots=0
-  local antismash_legacy_slots=0
-
-  total_genomes="$(positive_int_or_default "${1:-}" 1)"
+  local plan_fields=""
+  local annotation_slots=0 funbgcex_slots=0 antismash_shard_slots=0 antismash_legacy_slots=0
   RESOURCE_EFFECTIVE_CPUS="$(detect_effective_cpus)"
   RESOURCE_EFFECTIVE_MEMORY_MB="$(detect_effective_memory_mb)"
-  RESOURCE_MEMORY_BUDGET_MB=0
-
-  if [[ "${PIPELINE_RESOURCE_MODE}" == "auto" ]]; then
-    auto_max_cpus="$(positive_int_or_default "${PIPELINE_AUTO_MAX_CPUS}" 32)"
-    if [[ "${CPUS_REQUEST_EXPLICIT}" -eq 0 ]]; then
-      CPUS="${RESOURCE_EFFECTIVE_CPUS}"
-    fi
-    CPUS="$(minimum_int "$(positive_int_or_default "${CPUS}" 1)" "${RESOURCE_EFFECTIVE_CPUS}" "${auto_max_cpus}")"
-
-    auto_max_genomes="$(positive_int_or_default "${PIPELINE_AUTO_MAX_GENOME_PARALLELISM}" 4)"
-    auto_min_cpus_per_genome="$(positive_int_or_default "${PIPELINE_AUTO_MIN_CPUS_PER_GENOME}" 2)"
-    auto_memory_percent="$(positive_int_or_default "${PIPELINE_AUTO_MEMORY_PERCENT}" 70)"
-    if [[ "${auto_memory_percent}" -gt 100 ]]; then auto_memory_percent=100; fi
-    auto_memory_per_genome_mb="$(positive_int_or_default "${PIPELINE_AUTO_MEMORY_PER_GENOME_MB}" 8192)"
-
-    RESOURCE_MEMORY_BUDGET_MB="${RESOURCE_EFFECTIVE_MEMORY_MB}"
-    if [[ "${PIPELINE_MEMORY_BUDGET_MB}" =~ ^[0-9]+$ && "${PIPELINE_MEMORY_BUDGET_MB}" -ge 1 ]]; then
-      if [[ "${RESOURCE_MEMORY_BUDGET_MB}" -ge 1 ]]; then
-        RESOURCE_MEMORY_BUDGET_MB="$(minimum_int "${RESOURCE_MEMORY_BUDGET_MB}" "${PIPELINE_MEMORY_BUDGET_MB}")"
-      else
-        RESOURCE_MEMORY_BUDGET_MB="${PIPELINE_MEMORY_BUDGET_MB}"
-      fi
-    fi
-    if [[ "${RESOURCE_MEMORY_BUDGET_MB}" -ge 1 ]]; then
-      usable_memory_mb=$((RESOURCE_MEMORY_BUDGET_MB * auto_memory_percent / 100))
-    fi
-
-    cpu_genome_limit=$((CPUS / auto_min_cpus_per_genome))
-    if [[ "${cpu_genome_limit}" -lt 1 ]]; then cpu_genome_limit=1; fi
-    memory_genome_limit="${auto_max_genomes}"
-    if [[ "${usable_memory_mb}" -ge 1 ]]; then
-      memory_genome_limit=$((usable_memory_mb / auto_memory_per_genome_mb))
-      if [[ "${memory_genome_limit}" -lt 1 ]]; then memory_genome_limit=1; fi
-    fi
-    desired_genome_parallelism="$(minimum_int "${total_genomes}" "${auto_max_genomes}" "${cpu_genome_limit}" "${memory_genome_limit}")"
-  else
-    CPUS="$(positive_int_or_default "${CPUS}" 6)"
-    if [[ "${CPUS_REQUEST_EXPLICIT}" -eq 0 ]]; then
-      CPUS="$(minimum_int "${CPUS}" "${RESOURCE_EFFECTIVE_CPUS}")"
-    fi
-  fi
-
-  GENOME_PARALLELISM="$(minimum_int "$(positive_int_or_default "${desired_genome_parallelism}" 1)" "${total_genomes}" "${CPUS}")"
-  PER_GENOME_CPU_BUDGET=$((CPUS / GENOME_PARALLELISM))
-  if [[ "${PER_GENOME_CPU_BUDGET}" -lt 1 ]]; then PER_GENOME_CPU_BUDGET=1; fi
-
-  if [[ "${PIPELINE_RESOURCE_MODE}" == "auto" ]]; then
-    auto_max_anno_cpus="$(positive_int_or_default "${PIPELINE_AUTO_MAX_ANNO_CPUS}" 8)"
-    auto_max_funbgcex_workers="$(positive_int_or_default "${PIPELINE_AUTO_MAX_FUNBGCEX_WORKERS}" 2)"
-    auto_max_record_parallelism="$(positive_int_or_default "${PIPELINE_AUTO_MAX_ANTISMASH_RECORD_PARALLELISM}" 3)"
-    ANNO_CPUS="$(minimum_int "${auto_max_anno_cpus}" "${PER_GENOME_CPU_BUDGET}")"
-    WORKERS="$(minimum_int "${auto_max_funbgcex_workers}" "${PER_GENOME_CPU_BUDGET}")"
-    ANTISMASH_RECORD_PARALLELISM="$(minimum_int "${auto_max_record_parallelism}" "${PER_GENOME_CPU_BUDGET}")"
-  else
-    ANNO_CPUS="$(minimum_int "$(positive_int_or_default "${ANNO_CPUS}" 1)" "${PER_GENOME_CPU_BUDGET}")"
-    WORKERS="$(minimum_int "$(positive_int_or_default "${WORKERS}" 1)" "${PER_GENOME_CPU_BUDGET}")"
-    ANTISMASH_RECORD_PARALLELISM="$(minimum_int "$(positive_int_or_default "${ANTISMASH_RECORD_PARALLELISM}" 1)" "${PER_GENOME_CPU_BUDGET}")"
-  fi
-
-  ANTISMASH_SHARD_CPUS_DEFAULT=$((PER_GENOME_CPU_BUDGET / ANTISMASH_RECORD_PARALLELISM))
-  if [[ "${ANTISMASH_SHARD_CPUS_DEFAULT}" -lt 1 ]]; then ANTISMASH_SHARD_CPUS_DEFAULT=1; fi
-  max_shard_cpus="${ANTISMASH_SHARD_CPUS_DEFAULT}"
-  if [[ "${PIPELINE_RESOURCE_MODE}" == "auto" || -z "${ANTISMASH_SHARD_CPUS_REQUESTED}" ]]; then
-    ANTISMASH_SHARD_CPUS="${max_shard_cpus}"
-  else
-    ANTISMASH_SHARD_CPUS="$(minimum_int "$(positive_int_or_default "${ANTISMASH_SHARD_CPUS_REQUESTED}" "${max_shard_cpus}")" "${max_shard_cpus}")"
-  fi
-  if [[ "${PIPELINE_RESOURCE_MODE}" == "auto" || -z "${ANTISMASH_LEGACY_CPUS_REQUESTED}" ]]; then
-    ANTISMASH_LEGACY_CPUS="${PER_GENOME_CPU_BUDGET}"
-  else
-    ANTISMASH_LEGACY_CPUS="$(minimum_int "$(positive_int_or_default "${ANTISMASH_LEGACY_CPUS_REQUESTED}" "${PER_GENOME_CPU_BUDGET}")" "${PER_GENOME_CPU_BUDGET}")"
-  fi
-
-  annotation_slots=$((GENOME_PARALLELISM * ANNO_CPUS))
-  funbgcex_slots=$((GENOME_PARALLELISM * WORKERS))
-  antismash_shard_slots=$((GENOME_PARALLELISM * ANTISMASH_RECORD_PARALLELISM * ANTISMASH_SHARD_CPUS))
-  antismash_legacy_slots=$((GENOME_PARALLELISM * ANTISMASH_LEGACY_CPUS))
+  plan_fields="$(
+    "${VENV_PY}" "${ANNOTATION_RUNTIME_HELPER}" resource-plan \
+      --mode "${PIPELINE_RESOURCE_MODE}" \
+      --requested-cpus "${CPUS}" \
+      --cpus-explicit "${CPUS_REQUEST_EXPLICIT}" \
+      --effective-cpus "${RESOURCE_EFFECTIVE_CPUS}" \
+      --effective-memory-mb "${RESOURCE_EFFECTIVE_MEMORY_MB}" \
+      --total-genomes "${total_genomes}" \
+      --genome-parallelism "${GENOME_PARALLELISM}" \
+      --anno-cpus "${ANNO_CPUS}" \
+      --funbgcex-workers "${WORKERS}" \
+      --antismash-record-parallelism "${ANTISMASH_RECORD_PARALLELISM}" \
+      --antismash-shard-cpus "${ANTISMASH_SHARD_CPUS_REQUESTED}" \
+      --antismash-legacy-cpus "${ANTISMASH_LEGACY_CPUS_REQUESTED}" \
+      --memory-budget-mb "${PIPELINE_MEMORY_BUDGET_MB}" \
+      --auto-max-cpus "${PIPELINE_AUTO_MAX_CPUS}" \
+      --auto-max-genome-parallelism "${PIPELINE_AUTO_MAX_GENOME_PARALLELISM}" \
+      --auto-min-cpus-per-genome "${PIPELINE_AUTO_MIN_CPUS_PER_GENOME}" \
+      --auto-memory-percent "${PIPELINE_AUTO_MEMORY_PERCENT}" \
+      --auto-memory-per-genome-mb "${PIPELINE_AUTO_MEMORY_PER_GENOME_MB}" \
+      --auto-max-anno-cpus "${PIPELINE_AUTO_MAX_ANNO_CPUS}" \
+      --auto-max-funbgcex-workers "${PIPELINE_AUTO_MAX_FUNBGCEX_WORKERS}" \
+      --auto-max-antismash-record-parallelism "${PIPELINE_AUTO_MAX_ANTISMASH_RECORD_PARALLELISM}"
+  )" || die "Failed to build the annotation resource plan"
+  IFS=$'\t' read -r \
+    CPUS GENOME_PARALLELISM PER_GENOME_CPU_BUDGET ANNO_CPUS WORKERS \
+    ANTISMASH_RECORD_PARALLELISM ANTISMASH_SHARD_CPUS ANTISMASH_LEGACY_CPUS \
+    RESOURCE_EFFECTIVE_CPUS RESOURCE_EFFECTIVE_MEMORY_MB RESOURCE_MEMORY_BUDGET_MB \
+    annotation_slots funbgcex_slots antismash_shard_slots antismash_legacy_slots \
+    <<< "${plan_fields}"
   if [[ "${annotation_slots}" -gt "${CPUS}" || "${funbgcex_slots}" -gt "${CPUS}" || "${antismash_shard_slots}" -gt "${CPUS}" || "${antismash_legacy_slots}" -gt "${CPUS}" ]]; then
     die "Resource plan invariant failed: a stage can exceed CPUS=${CPUS}"
   fi
@@ -813,259 +634,84 @@ resolve_python_cmd() {
   die "No usable Python interpreter found. Install python3 or set PYTHON_BIN."
 }
 
+ANNOTATION_RUNTIME_ARGV=()
+annotation_runtime_argv() {
+  local argv_file=""
+  argv_file="$(mktemp "${WORK_ROOT}/tmp/annotation_runtime_argv.XXXXXX")" \
+    || die "Could not allocate annotation runtime argv file"
+  if ! "${VENV_PY}" "${ANNOTATION_RUNTIME_HELPER}" "$@" > "${argv_file}"; then
+    rm -f "${argv_file}" 2>/dev/null || true
+    die "Could not construct annotation runtime argv for $1"
+  fi
+  mapfile -d '' -t ANNOTATION_RUNTIME_ARGV < "${argv_file}"
+  rm -f "${argv_file}" 2>/dev/null || true
+  [[ "${#ANNOTATION_RUNTIME_ARGV[@]}" -gt 0 ]] \
+    || die "Annotation runtime helper returned an empty argv for $1"
+}
+
+braker3_exec() {
+  if [[ "${ENGINE}" == "docker" ]]; then
+    CLUSTERWEAVE_CHILD_DOCKER_CPUS="${ANNO_CPUS}" \
+      docker_exec "$(docker_image_from_uri "${BRAKER_IMAGE_URI}")" "$@"
+  elif [[ -f "${BRAKER_SIF}" ]]; then
+    sing_exec "${BRAKER_SIF}" "$@"
+  else
+    "$@"
+  fi
+}
+
+funannotate_exec() {
+  local use_docker="$1"
+  local use_sif="$2"
+  shift 2
+  if [[ "${use_docker}" -eq 1 ]]; then
+    CLUSTERWEAVE_CHILD_DOCKER_CPUS="${ANNO_CPUS}" \
+      docker_exec "$(docker_image_from_uri "${FUNANNOTATE_IMAGE_URI}")" "$@"
+  elif [[ "${use_sif}" -eq 1 ]]; then
+    sing_exec "${FUNANNOTATE_SIF}" "$@"
+  else
+    "$@"
+  fi
+}
+
+funannotate_exec_with_activity() {
+  local use_docker="$1"
+  local use_sif="$2"
+  local genome_id="$3"
+  local fun_log="$4"
+  shift 4
+  if [[ "${use_docker}" -eq 1 ]]; then
+    CLUSTERWEAVE_CHILD_DOCKER_CPUS="${ANNO_CPUS}" \
+      run_tool_with_activity "${genome_id}" "funannotate" "predict" "${fun_log}" "${fun_log}" \
+      docker_exec "$(docker_image_from_uri "${FUNANNOTATE_IMAGE_URI}")" "$@"
+  elif [[ "${use_sif}" -eq 1 ]]; then
+    run_tool_with_activity "${genome_id}" "funannotate" "predict" "${fun_log}" "${fun_log}" \
+      sing_exec "${FUNANNOTATE_SIF}" "$@"
+  else
+    run_tool_with_activity "${genome_id}" "funannotate" "predict" "${fun_log}" "${fun_log}" "$@"
+  fi
+}
+
 ###############################################################################
-# Converter bootstrap (pure stdlib python; no pip/venv dependency)
+# Tracked GFF3-to-GenBank converter
 ###############################################################################
 CONVERT_PY="${CONVERT_PY:-${PROJECT_DIR}/bin/gff3_to_gbk_with_translations.py}"
 GENBANK_TRANSLATION_CHECKER="${GENBANK_TRANSLATION_CHECKER:-${PROJECT_DIR}/bin/check_genbank_translations.py}"
-VENV_PY="${VENV_PY:-python3}"
 
 setup_converter() {
   if [[ -s "${CONVERT_PY}" ]]; then
     log "Using existing converter: ${CONVERT_PY}"
     return 0
   fi
-
-  mkdir -p "$(dirname "${CONVERT_PY}")"
-
-  command -v "${VENV_PY}" >/dev/null 2>&1 || die "Python interpreter not found for converter: ${VENV_PY}"
-
-  log "Writing converter: ${CONVERT_PY}"
-  cat > "${CONVERT_PY}" <<'PY'
-from pathlib import Path
-from collections import defaultdict
-from datetime import datetime
-import argparse
-import re
-
-CODON_TABLE = {
-    "TTT": "F", "TTC": "F", "TTA": "L", "TTG": "L",
-    "TCT": "S", "TCC": "S", "TCA": "S", "TCG": "S",
-    "TAT": "Y", "TAC": "Y", "TAA": "*", "TAG": "*",
-    "TGT": "C", "TGC": "C", "TGA": "*", "TGG": "W",
-    "CTT": "L", "CTC": "L", "CTA": "L", "CTG": "L",
-    "CCT": "P", "CCC": "P", "CCA": "P", "CCG": "P",
-    "CAT": "H", "CAC": "H", "CAA": "Q", "CAG": "Q",
-    "CGT": "R", "CGC": "R", "CGA": "R", "CGG": "R",
-    "ATT": "I", "ATC": "I", "ATA": "I", "ATG": "M",
-    "ACT": "T", "ACC": "T", "ACA": "T", "ACG": "T",
-    "AAT": "N", "AAC": "N", "AAA": "K", "AAG": "K",
-    "AGT": "S", "AGC": "S", "AGA": "R", "AGG": "R",
-    "GTT": "V", "GTC": "V", "GTA": "V", "GTG": "V",
-    "GCT": "A", "GCC": "A", "GCA": "A", "GCG": "A",
-    "GAT": "D", "GAC": "D", "GAA": "E", "GAG": "E",
-    "GGT": "G", "GGC": "G", "GGA": "G", "GGG": "G",
-}
-
-COMPLEMENT = str.maketrans("ACGTRYMKBDHVNacgtrymkbdhvn", "TGCAYRKMVHDBNtgcayrkmvhdbn")
-ATTR_RE = re.compile(r'([^=;]+)=([^;]+)')
-
-
-def normalize_seqid(value: str) -> str:
-    return value.split()[0]
-
-
-def parse_attrs(attr_str: str) -> dict[str, str]:
-    attrs = {}
-    for match in ATTR_RE.finditer(attr_str.strip()):
-        attrs[match.group(1)] = match.group(2)
-    return attrs
-
-
-def parse_fasta(path: Path) -> dict[str, dict[str, str]]:
-    records = {}
-    current_id = None
-    current_desc = ""
-    parts: list[str] = []
-    with path.open() as handle:
-        for raw_line in handle:
-            line = raw_line.strip()
-            if not line:
-                continue
-            if line.startswith(">"):
-                if current_id is not None:
-                    records[current_id] = {
-                        "id": current_id,
-                        "description": current_desc,
-                        "seq": "".join(parts).upper(),
-                    }
-                header = line[1:].strip()
-                tokens = header.split(None, 1)
-                current_id = tokens[0]
-                current_desc = header
-                parts = []
-            else:
-                parts.append(line)
-    if current_id is not None:
-        records[current_id] = {
-            "id": current_id,
-            "description": current_desc,
-            "seq": "".join(parts).upper(),
-        }
-    return records
-
-
-def reverse_complement(seq: str) -> str:
-    return seq.translate(COMPLEMENT)[::-1]
-
-
-def translate_cds(seq: str) -> str:
-    protein = []
-    usable = len(seq) - (len(seq) % 3)
-    for idx in range(0, usable, 3):
-        codon = seq[idx:idx + 3]
-        protein.append(CODON_TABLE.get(codon, "X"))
-    return "".join(protein)
-
-
-def format_location(parts: list[dict[str, int]], strand: str) -> str:
-    ordered = sorted(parts, key=lambda item: item["start"])
-    spans = [f"{item['start']}..{item['end']}" for item in ordered]
-    loc = spans[0] if len(spans) == 1 else f"join({','.join(spans)})"
-    return f"complement({loc})" if strand == "-" else loc
-
-
-def wrap_qualifier(prefix: str, value: str) -> list[str]:
-    width = 80
-    lines = []
-    current = f'{prefix}"{value}"'
-    prefix_to_use = "                     "
-    while len(prefix_to_use) + len(current) > width:
-        take = width - len(prefix_to_use)
-        lines.append(prefix_to_use + current[:take])
-        current = current[take:]
-    lines.append(prefix_to_use + current)
-    return lines
-
-
-def format_origin(seq: str) -> list[str]:
-    lines = ["ORIGIN"]
-    for offset in range(0, len(seq), 60):
-        chunk = seq[offset:offset + 60].lower()
-        groups = [chunk[i:i + 10] for i in range(0, len(chunk), 10)]
-        lines.append(f"{offset + 1:>9} {' '.join(groups)}")
-    lines.append("//")
-    return lines
-
-
-def gff_to_gbk_with_translations(fasta: Path, gff3: Path, out_gbk: Path) -> tuple[int, int]:
-    seqs = parse_fasta(fasta)
-    if not seqs:
-        raise RuntimeError(f"No contigs read from FASTA: {fasta}")
-    seqs_norm = {normalize_seqid(key): value for key, value in seqs.items()}
-
-    cds_by_parent: dict[str, list[dict[str, object]]] = defaultdict(list)
-    with gff3.open() as handle:
-        for raw_line in handle:
-            if not raw_line.strip() or raw_line.startswith("#"):
-                continue
-            parts = raw_line.rstrip("\n").split("\t")
-            if len(parts) != 9:
-                continue
-            seqid, source, feature_type, start, end, score, strand, phase, attrs = parts
-            if feature_type != "CDS":
-                continue
-            parsed = parse_attrs(attrs)
-            parent = parsed.get("Parent") or parsed.get("transcript_id") or parsed.get("ID")
-            if not parent:
-                parent = f"{seqid}:{start}-{end}:{strand}"
-            seqid_norm = normalize_seqid(seqid)
-            # Gene IDs can repeat across contigs (e.g., g1.t1), so key by contig+parent.
-            parent_key = f"{seqid_norm}::{parent}"
-            cds_by_parent[parent_key].append({
-                "seqid": seqid_norm,
-                "parent": parent,
-                "start": int(start),
-                "end": int(end),
-                "strand": strand if strand in {"+", "-"} else "+",
-                "phase": phase,
-            })
-
-    if not cds_by_parent:
-        raise RuntimeError(f"No CDS features found in GFF3: {gff3}")
-
-    cds_count = 0
-    tr_count = 0
-    out_lines: list[str] = []
-    today = datetime.utcnow().strftime("%d-%b-%Y").upper()
-
-    for seqid_norm, record in seqs_norm.items():
-        seq = record["seq"]
-        matching = []
-        for _parent_key, cds_list in cds_by_parent.items():
-            contig_parts = [item for item in cds_list if item["seqid"] == seqid_norm]
-            if not contig_parts:
-                continue
-            parent = str(contig_parts[0].get("parent", "unknown"))
-            strand = str(contig_parts[0]["strand"])
-            ordered_for_seq = sorted(contig_parts, key=lambda item: int(item["start"]), reverse=(strand == "-"))
-            pieces = [seq[int(item["start"]) - 1:int(item["end"])] for item in ordered_for_seq]
-            cds_seq = "".join(pieces)
-            if strand == "-":
-                cds_seq = reverse_complement(cds_seq)
-            phase = contig_parts[0]["phase"]
-            try:
-                phase_int = int(phase) if phase not in {"", "."} else 0
-            except ValueError:
-                phase_int = 0
-            if phase_int in (1, 2):
-                cds_seq = cds_seq[phase_int:]
-            protein = translate_cds(cds_seq)
-            matching.append({
-                "parent": parent,
-                "strand": strand,
-                "parts": [{"start": int(item["start"]), "end": int(item["end"])} for item in contig_parts],
-                "protein": protein,
-            })
-
-        if not matching:
-            continue
-
-        locus = record["id"][:16]
-        out_lines.append(f"LOCUS       {locus:<16}{len(seq):>11} bp    DNA              UNK {today}")
-        out_lines.append(f"DEFINITION  {record['description'] or record['id']}")
-        out_lines.append(f"ACCESSION   {record['id']}")
-        out_lines.append(f"VERSION     {record['id']}")
-        out_lines.append("KEYWORDS    .")
-        out_lines.append("SOURCE      .")
-        out_lines.append("  ORGANISM  .")
-        out_lines.append("            .")
-        out_lines.append("FEATURES             Location/Qualifiers")
-        out_lines.append(f"     source          1..{len(seq)}")
-        for feature in sorted(matching, key=lambda item: min(part['start'] for part in item['parts'])):
-            out_lines.append(f"     CDS             {format_location(feature['parts'], feature['strand'])}")
-            out_lines.extend(wrap_qualifier('/locus_tag=', str(feature['parent'])))
-            out_lines.extend(wrap_qualifier('/product=', 'predicted_protein'))
-            out_lines.extend(wrap_qualifier('/translation=', str(feature['protein'])))
-            cds_count += 1
-            tr_count += 1
-        out_lines.extend(format_origin(seq))
-
-    out_gbk.parent.mkdir(parents=True, exist_ok=True)
-    out_gbk.write_text("\n".join(out_lines) + "\n")
-    return cds_count, tr_count
-
-
-if __name__ == "__main__":
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--fasta", required=True)
-    ap.add_argument("--gff3", required=True)
-    ap.add_argument("--out_gbk", required=True)
-    args = ap.parse_args()
-    cds, tr = gff_to_gbk_with_translations(Path(args.fasta), Path(args.gff3), Path(args.out_gbk))
-    print(f"WROTE {args.out_gbk}")
-    print(f"CDS features: {cds}")
-    print(f"/translation=: {tr}")
-PY
-  chmod +x "${CONVERT_PY}" || true
-
-  [[ -f "${CONVERT_PY}" ]] || die "Converter script missing after setup"
+  die "GFF3-to-GenBank converter not found: ${CONVERT_PY}. Restore the tracked helper or set CONVERT_PY to an existing compatible converter."
 }
 
 ###############################################################################
 # Input discovery/resolution
 ###############################################################################
 GENOME_MAPPING_FILE="${GENOME_MAPPING_FILE:-${GENOME_ROOT}/accessions_fungusID_taxonomyID.txt}"
+VENV_PY="${VENV_PY:-python3}"
+ANNOTATION_INPUT_HELPER="${ANNOTATION_INPUT_HELPER:-${SCRIPT_DIR:-.}/bin/annotation_input.py}"
 declare -A ROUTE_TAXON_BY_GENOME=()
 declare -A ROUTE_ROOT_BY_GENOME=()
 declare -A ROUTE_PREDICTION_BY_GENOME=()
@@ -1077,55 +723,31 @@ HAS_FUNGAL_ROUTES=0
 HAS_BACTERIAL_ROUTES=0
 
 load_taxon_routes() {
-  local input_key genome_id taxon_group taxon_source taxid organism_name source_accession
-  local prediction_method detector_profile input_path_key route_status route_reason
-  local route_line=""
-  [[ -s "${GENOME_TAXON_MANIFEST}" ]] || {
-    HAS_FUNGAL_ROUTES=1
-    return 0
-  }
-  while IFS= read -r route_line || [[ -n "${route_line}" ]]; do
-    IFS=$'\034' read -r \
-        input_key genome_id taxon_group taxon_source taxid organism_name source_accession \
-        prediction_method detector_profile input_path_key route_status route_reason \
-        <<< "${route_line//$'\t'/$'\034'}"
-    [[ "${input_key}" == "input_key" ]] && continue
-    [[ -n "${genome_id}" ]] || continue
-    case "${route_status,,}" in
-      failed|invalid|rejected|unresolved|unsupported) continue ;;
-    esac
-    case "${taxon_group,,}" in
-      fungi)
-        taxon_group="fungi"
-        HAS_FUNGAL_ROUTES=1
-        ;;
-      bacteria)
-        taxon_group="bacteria"
-        HAS_BACTERIAL_ROUTES=1
-        ;;
-      *)
-        die "Invalid taxon_group='${taxon_group}' for genome ${genome_id} in ${GENOME_TAXON_MANIFEST}"
-        ;;
-    esac
-    [[ -z "${ROUTE_TAXON_BY_GENOME[${genome_id}]+set}" ]] \
-      || die "Duplicate genome_id in canonical taxon manifest: ${genome_id}"
-    ROUTE_TAXON_BY_GENOME["${genome_id}"]="${taxon_group}"
-    if [[ "${taxon_group}" == "bacteria" ]]; then
-      ROUTE_ROOT_BY_GENOME["${genome_id}"]="${BACTERIA_GENOME_ROOT}"
-      ROUTE_PREDICTION_BY_GENOME["${genome_id}"]="${prediction_method:-prodigal}"
-      ROUTE_DETECTOR_BY_GENOME["${genome_id}"]="${detector_profile:-antismash}"
-    else
-      ROUTE_ROOT_BY_GENOME["${genome_id}"]="${FUNGI_GENOME_ROOT}"
-      ROUTE_PREDICTION_BY_GENOME["${genome_id}"]="${prediction_method:-funannotate}"
-      ROUTE_DETECTOR_BY_GENOME["${genome_id}"]="${detector_profile:-antismash+funbgcex}"
+  local kind genome_id taxon_group root prediction_method detector_profile taxon_source route_status
+  local route_output=""
+  route_output="$(
+    "${VENV_PY}" "${ANNOTATION_INPUT_HELPER}" routes \
+      --manifest "${GENOME_TAXON_MANIFEST}" \
+      --fungi-root "${FUNGI_GENOME_ROOT}" \
+      --bacteria-root "${BACTERIA_GENOME_ROOT}"
+  )" || die "Failed to load canonical taxon manifest: ${GENOME_TAXON_MANIFEST}"
+  while IFS=$'\034' read -r \
+      kind genome_id taxon_group root prediction_method detector_profile \
+      taxon_source route_status; do
+    if [[ "${kind}" == "meta" ]]; then
+      ROUTE_MANIFEST_ACTIVE="${genome_id}"
+      HAS_FUNGAL_ROUTES="${taxon_group}"
+      HAS_BACTERIAL_ROUTES="${root}"
+      continue
     fi
-    ROUTE_SOURCE_BY_GENOME["${genome_id}"]="${taxon_source:-legacy_default}"
-    ROUTE_STATUS_BY_GENOME["${genome_id}"]="${route_status:-routed}"
-    ROUTE_MANIFEST_ACTIVE=1
-  done < "${GENOME_TAXON_MANIFEST}"
-  if [[ "${ROUTE_MANIFEST_ACTIVE}" -eq 0 ]]; then
-    HAS_FUNGAL_ROUTES=1
-  fi
+    [[ "${kind}" == "route" ]] || continue
+    ROUTE_TAXON_BY_GENOME["${genome_id}"]="${taxon_group}"
+    ROUTE_ROOT_BY_GENOME["${genome_id}"]="${root}"
+    ROUTE_PREDICTION_BY_GENOME["${genome_id}"]="${prediction_method}"
+    ROUTE_DETECTOR_BY_GENOME["${genome_id}"]="${detector_profile}"
+    ROUTE_SOURCE_BY_GENOME["${genome_id}"]="${taxon_source}"
+    ROUTE_STATUS_BY_GENOME["${genome_id}"]="${route_status}"
+  done <<< "${route_output//$'\t'/$'\034'}"
 }
 
 route_taxon_for_genome() {
@@ -1168,19 +790,11 @@ mapping_file_for_taxon() {
 }
 
 genome_stem_has_file() {
-  local stem="$1"
-  local root="${2:-${GENOME_ROOT}}"
-  local ext
-  for ext in fna fa fsa fasta gb gbk gbff; do
-    [[ -s "${root}/${stem}.${ext}" ]] && return 0
-  done
-  return 1
+  "${VENV_PY}" "${ANNOTATION_INPUT_HELPER}" has-input --root "${2:-${GENOME_ROOT}}" --stem "$1"
 }
 
 mapped_canonical_stem() {
-  local stem="$1"
-  [[ -f "${GENOME_MAPPING_FILE}" ]] || return 1
-  awk -F '\t' -v stem="${stem}" '$1 == stem && $2 != "" && $2 != stem { print $2; exit }' "${GENOME_MAPPING_FILE}"
+  "${VENV_PY}" "${ANNOTATION_INPUT_HELPER}" mapped-canonical --mapping-file "${GENOME_MAPPING_FILE}" --stem "$1"
 }
 
 funannotate_trim() {
@@ -1529,12 +1143,14 @@ funannotate_record_predict_failure() {
 
 should_skip_discovered_stem() {
   local stem="$1"
-  local canonical
-  canonical="$(mapped_canonical_stem "${stem}" || true)"
-  [[ -n "${canonical}" ]] || return 1
-  genome_stem_has_file "${canonical}" || return 1
+  local canonical=""
+  canonical="$(
+    "${VENV_PY}" "${ANNOTATION_INPUT_HELPER}" materialized-alias \
+      --mapping-file "${GENOME_MAPPING_FILE}" \
+      --fungi-root "${FUNGI_GENOME_ROOT}" \
+      --stem "${stem}"
+  )" || return 1
   warn "skipping accession alias genome stem: ${stem} maps to existing ${canonical}"
-  return 0
 }
 
 discover_stems() {
@@ -1542,33 +1158,17 @@ discover_stems() {
     printf '%s\n' "${!ROUTE_TAXON_BY_GENOME[@]}" | LC_ALL=C sort
     return 0
   fi
-  find "${FUNGI_GENOME_ROOT}" -maxdepth 1 -type f \
-    \( -iname "*.fa" -o -iname "*.fna" -o -iname "*.fsa" -o -iname "*.fasta" -o -iname "*.gb" -o -iname "*.gbk" -o -iname "*.gbff" \) \
-    -printf "%f\n" 2>/dev/null \
-  | sed -E 's/\.(fa|fna|fsa|fasta|gb|gbk|gbff)$//' \
-  | sort -u \
-  | while IFS= read -r stem; do
-      should_skip_discovered_stem "${stem}" && continue
-      printf '%s\n' "${stem}"
-    done
+  "${VENV_PY}" "${ANNOTATION_INPUT_HELPER}" discover \
+    --fungi-root "${FUNGI_GENOME_ROOT}" \
+    --mapping-file "${GENOME_MAPPING_FILE}"
 }
 
 resolve_fasta_for_stem() {
-  local stem="$1"
-  local root="${2:-${GENOME_ROOT}}"
-  local cands=( "${root}/${stem}.fna" "${root}/${stem}.fa" "${root}/${stem}.fsa" "${root}/${stem}.fasta" )
-  local f
-  for f in "${cands[@]}"; do [[ -s "${f}" ]] && { echo "${f}"; return 0; }; done
-  return 1
+  "${VENV_PY}" "${ANNOTATION_INPUT_HELPER}" resolve --kind fasta --root "${2:-${GENOME_ROOT}}" --stem "$1"
 }
 
 resolve_genbank_for_stem() {
-  local stem="$1"
-  local root="${2:-${GENOME_ROOT}}"
-  local cands=( "${root}/${stem}.gbk" "${root}/${stem}.gb" "${root}/${stem}.gbff" )
-  local f
-  for f in "${cands[@]}"; do [[ -s "${f}" ]] && { echo "${f}"; return 0; }; done
-  return 1
+  "${VENV_PY}" "${ANNOTATION_INPUT_HELPER}" resolve --kind genbank --root "${2:-${GENOME_ROOT}}" --stem "$1"
 }
 
 ###############################################################################
@@ -1599,97 +1199,15 @@ gbk_has_cds() {
 backfill_gbk_translations_from_existing_cds() {
   local in_gbk="$1"
   local out_gbk="$2"
-
-  # Use the configured FunBGCeX runtime for Biopython-backed GBK repair.
-  funbgcex_python_exec - "$in_gbk" "$out_gbk" <<'PY'
-import sys
-from Bio import SeqIO
-
-inp, outp = sys.argv[1], sys.argv[2]
-out_records = []
-
-for rec in SeqIO.parse(inp, "genbank"):
-    rec.annotations.setdefault("molecule_type", "DNA")
-    for feat in rec.features:
-        if feat.type != "CDS":
-            continue
-        quals = feat.qualifiers or {}
-        tx = quals.get("translation", [])
-        if any(str(t).strip() for t in tx):
-            continue
-
-        cds_seq = feat.extract(rec.seq)
-
-        codon_start = 1
-        try:
-            codon_start = int((quals.get("codon_start", ["1"]) or ["1"])[0])
-        except Exception:
-            codon_start = 1
-        if codon_start in (2, 3):
-            cds_seq = cds_seq[codon_start - 1:]
-
-        table = 1
-        try:
-            table = int((quals.get("transl_table", ["1"]) or ["1"])[0])
-        except Exception:
-            table = 1
-
-        prot = str(cds_seq.translate(table=table, to_stop=False)).rstrip("*").strip()
-        if prot:
-            quals["translation"] = [prot]
-            feat.qualifiers = quals
-
-    out_records.append(rec)
-
-with open(outp, "w") as h:
-    SeqIO.write(out_records, h, "genbank")
-PY
+  repository_helper_python_exec "${ANNOTATION_GENBANK_HELPER}" \
+    backfill-translations "${in_gbk}" "${out_gbk}"
 }
 
 normalize_gbk_record_headers() {
   local in_gbk="$1"
   local out_gbk="$2"
-
-  funbgcex_python_exec - "$in_gbk" "$out_gbk" <<'PY'
-import re
-import sys
-from Bio import SeqIO
-
-inp, outp = sys.argv[1], sys.argv[2]
-records = list(SeqIO.parse(inp, "genbank"))
-version_re = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*?)(\.\d+)?$")
-changed = 0
-
-for rec in records:
-    raw_id = ((rec.id or "").split() or [""])[0].strip()
-    raw_name = (rec.name or "").strip()
-    accessions = [str(acc).strip() for acc in (rec.annotations.get("accessions") or []) if str(acc).strip()]
-
-    base_id = ""
-    for candidate in [raw_id, raw_name, *(accessions or [])]:
-        if not candidate:
-            continue
-        match = version_re.match(candidate.rstrip("."))
-        if match:
-            base_id = match.group(1)
-            break
-        base_id = candidate.rstrip(".")
-        break
-
-    if base_id:
-        desired_name = base_id[:16].rstrip(".")
-        if desired_name and rec.name != desired_name:
-            rec.name = desired_name
-            changed += 1
-
-        normalized_accs = [base_id]
-        if accessions != normalized_accs:
-            rec.annotations["accessions"] = normalized_accs
-            changed += 1
-
-SeqIO.write(records, outp, "genbank")
-print(f"normalized_records={len(records)} changed_fields={changed}")
-PY
+  repository_helper_python_exec "${ANNOTATION_GENBANK_HELPER}" \
+    normalize-headers "${in_gbk}" "${out_gbk}"
 }
 
 normalize_gbk_record_headers_in_place() {
@@ -1706,30 +1224,14 @@ normalize_gbk_record_headers_in_place() {
 
 
 
-annotation_prompt_pull() {
-  local label="$1"
-  case "${AUTO_PULL_IMAGES}" in
-    always) return 0 ;;
-    never)  return 1 ;;
-    ask)
-      if [[ -t 0 ]]; then
-        read -r -p "Pull missing ${label} image now? [y/N] " ans
-        [[ "${ans}" =~ ^[Yy]$ ]] && return 0 || return 1
-      fi
-      return 1
-      ;;
-    *)
-      warn "AUTO_PULL_IMAGES must be ask|always|never; got '${AUTO_PULL_IMAGES}'. Using 'ask'."
-      if [[ -t 0 ]]; then
-        read -r -p "Pull missing ${label} image now? [y/N] " ans
-        [[ "${ans}" =~ ^[Yy]$ ]] && return 0 || return 1
-      fi
-      return 1
-      ;;
-  esac
+runtime_preparation_hint() {
+  warn "Runtime acquisition is disabled during canonical jobs."
+  warn "Prepare local assets with: docker compose run --rm --no-deps worker prepare-runtime"
+  warn "Verify them with: docker compose run --rm --no-deps worker check-runtime"
+  warn "External executors must pre-provision the configured site-managed runtime."
 }
 
-ensure_sif_or_prompt_pull() {
+ensure_prepared_sif() {
   local label="$1"
   local sif="$2"
   local uri="$3"
@@ -1739,26 +1241,14 @@ ensure_sif_or_prompt_pull() {
     return $?
   fi
 
-  if [[ -f "${sif}" ]]; then
+  if [[ -s "${sif}" ]]; then
     log "${label} SIF present: ${sif}"
     return 0
   fi
 
   warn "${label} SIF missing: ${sif}"
-  warn "${label} image source: ${uri}"
-
-  if annotation_prompt_pull "${label}"; then
-    mkdir -p "$(dirname "${sif}")"
-    log "Pulling ${label} image -> ${sif}"
-    if "${ENGINE}" pull --force "${sif}" "${uri}" >> "${PIPELOG}" 2>&1; then
-      log "Pulled ${label} SIF: ${sif}"
-      return 0
-    fi
-    warn "Failed to pull ${label} image automatically."
-  fi
-
-  warn "To install manually:"
-  warn "  ${ENGINE} pull \"${sif}\" \"${uri}\""
+  warn "${label} configured image source: ${uri}"
+  runtime_preparation_hint
   return 1
 }
 
@@ -1787,75 +1277,13 @@ configure_funbgcex_host_runtime() {
   else
     have "${py}" || die "FunBGCeX python not found in PATH: ${py}"
   fi
-  funbgcex_host_deps_ok || die "Install HMMER and DIAMOND on the host, or use the repo-local FunBGCeX SIF build path."
+  funbgcex_host_deps_ok || die "Install HMMER and DIAMOND on the host, or prepare the configured FunBGCeX runtime."
   "${py}" -c "import Bio" >/dev/null 2>&1 || die "FunBGCeX python is missing Biopython support: ${py}"
 
   FUNBGCEX_RUNTIME="host"
   FUNBGCEX_CMD="${cmd}"
   FUNBGCEX_PYTHON_CMD="${py}"
   log "FunBGCeX runtime configured from host/venv: ${FUNBGCEX_CMD}"
-}
-
-bootstrap_funbgcex_venv() {
-  local py
-  py="$(resolve_python_cmd)"
-  mkdir -p "${FUNBGCEX_PIP_CACHE}" "$(dirname "${FUNBGCEX_VENV_DIR}")"
-
-  if [[ -x "${FUNBGCEX_VENV_DIR}/bin/funbgcex" && -x "${FUNBGCEX_VENV_DIR}/bin/python" ]]; then
-    configure_funbgcex_host_runtime "${FUNBGCEX_VENV_DIR}/bin/funbgcex" "${FUNBGCEX_VENV_DIR}/bin/python"
-    return 0
-  fi
-
-  log "Bootstrapping FunBGCeX environment in ${FUNBGCEX_VENV_DIR}"
-  "${py}" -m venv "${FUNBGCEX_VENV_DIR}" >> "${PIPELOG}" 2>&1 || die "Failed to create FunBGCeX venv: ${FUNBGCEX_VENV_DIR}"
-  "${FUNBGCEX_VENV_DIR}/bin/python" -m pip install --cache-dir "${FUNBGCEX_PIP_CACHE}" -U pip setuptools wheel >> "${PIPELOG}" 2>&1 \
-    || die "Failed to upgrade pip/setuptools/wheel in ${FUNBGCEX_VENV_DIR}"
-  "${FUNBGCEX_VENV_DIR}/bin/python" -m pip install --cache-dir "${FUNBGCEX_PIP_CACHE}" "funbgcex==${FUNBGCEX_VERSION}" biopython >> "${PIPELOG}" 2>&1 \
-    || die "Failed to install funbgcex==${FUNBGCEX_VERSION} into ${FUNBGCEX_VENV_DIR}"
-
-  configure_funbgcex_host_runtime "${FUNBGCEX_VENV_DIR}/bin/funbgcex" "${FUNBGCEX_VENV_DIR}/bin/python"
-}
-
-ensure_funbgcex_build_recipe() {
-  [[ -s "${FUNBGCEX_DEF}" ]] || die "FunBGCeX definition file not found: ${FUNBGCEX_DEF}"
-  [[ -s "${FUNBGCEX_BUILD_SCRIPT}" ]] || die "FunBGCeX build helper not found: ${FUNBGCEX_BUILD_SCRIPT}"
-}
-
-build_funbgcex_sif() {
-  if [[ -s "${FUNBGCEX_SIF}" ]]; then
-    log "FunBGCeX SIF present: ${FUNBGCEX_SIF}"
-    return 0
-  fi
-
-  [[ "${AUTO_BUILD_FUNBGCEX_SIF}" == "1" ]] || return 1
-
-  ensure_funbgcex_build_recipe
-  mkdir -p "$(dirname "${FUNBGCEX_SIF}")"
-
-  log "Building repo-local FunBGCeX SIF at ${FUNBGCEX_SIF}"
-  log "FunBGCeX build recipe: ${FUNBGCEX_DEF}"
-  if ENGINE="${ENGINE}" \
-     SIF_OUT="${FUNBGCEX_SIF}" \
-     DEF="${FUNBGCEX_DEF}" \
-     DOCKERFILE="${FUNBGCEX_DOCKERFILE}" \
-     bash "${FUNBGCEX_BUILD_SCRIPT}" >> "${PIPELOG}" 2>&1; then
-    [[ -s "${FUNBGCEX_SIF}" ]] || die "FunBGCeX build reported success but SIF is missing: ${FUNBGCEX_SIF}"
-    log "Built FunBGCeX SIF: ${FUNBGCEX_SIF}"
-    return 0
-  fi
-
-  warn "Automatic FunBGCeX SIF build failed."
-  warn "To retry manually:"
-  warn "  ENGINE=${ENGINE} SIF_OUT=\"${FUNBGCEX_SIF}\" DEF=\"${FUNBGCEX_DEF}\" bash \"${FUNBGCEX_BUILD_SCRIPT}\""
-  return 1
-}
-
-build_funbgcex_docker_image() {
-  [[ "${AUTO_BUILD_FUNBGCEX_DOCKER}" == "1" ]] || return 1
-  [[ -s "${FUNBGCEX_DOCKERFILE}" ]] || return 1
-
-  log "Building repo-local FunBGCeX Docker image: ${FUNBGCEX_DOCKER_IMAGE}"
-  docker build -t "${FUNBGCEX_DOCKER_IMAGE}" -f "${FUNBGCEX_DOCKERFILE}" "$(dirname "${FUNBGCEX_DOCKERFILE}")" >> "${PIPELOG}" 2>&1
 }
 
 ensure_funbgcex_runtime() {
@@ -1871,15 +1299,11 @@ ensure_funbgcex_runtime() {
       log "FunBGCeX runtime configured from Docker image: ${FUNBGCEX_DOCKER_IMAGE}"
       return 0
     fi
-    if build_funbgcex_docker_image || ensure_docker_image "FunBGCeX" "${FUNBGCEX_DOCKER_IMAGE}"; then
-      FUNBGCEX_RUNTIME="docker"
-      FUNBGCEX_CMD="run_funbgcex"
-      FUNBGCEX_PYTHON_CMD="python3"
-      log "FunBGCeX runtime configured from Docker image: ${FUNBGCEX_DOCKER_IMAGE}"
-      return 0
-    fi
     warn "FunBGCeX Docker image is unavailable: ${FUNBGCEX_DOCKER_IMAGE}"
-    [[ "${ENGINE}" == "docker" ]] && return 1
+    if [[ "${ENGINE}" == "docker" ]]; then
+      runtime_preparation_hint
+      return 1
+    fi
   fi
 
   if [[ -s "${FUNBGCEX_SIF}" ]]; then
@@ -1887,20 +1311,6 @@ ensure_funbgcex_runtime() {
     FUNBGCEX_CMD="funbgcex"
     FUNBGCEX_PYTHON_CMD="python3"
     log "FunBGCeX SIF present: ${FUNBGCEX_SIF}"
-    return 0
-  fi
-
-  if build_funbgcex_sif; then
-    FUNBGCEX_RUNTIME="sif"
-    FUNBGCEX_CMD="funbgcex"
-    FUNBGCEX_PYTHON_CMD="python3"
-    return 0
-  fi
-
-  if [[ -n "${FUNBGCEX_IMAGE_URI}" ]] && ensure_sif_or_prompt_pull "FunBGCeX" "${FUNBGCEX_SIF}" "${FUNBGCEX_IMAGE_URI}"; then
-    FUNBGCEX_RUNTIME="sif"
-    FUNBGCEX_CMD="funbgcex"
-    FUNBGCEX_PYTHON_CMD="python3"
     return 0
   fi
 
@@ -1919,18 +1329,13 @@ ensure_funbgcex_runtime() {
       configure_funbgcex_host_runtime "${cmd_path}" "${py}"
       return 0
     fi
-    warn "Host funbgcex found at ${cmd_path}, but its dependencies are incomplete; continuing to other runtime options."
-  fi
-
-  if [[ "${FUNBGCEX_BOOTSTRAP}" == "1" ]]; then
-    bootstrap_funbgcex_venv
-    return 0
+    warn "Host funbgcex found at ${cmd_path}, but its dependencies are incomplete."
   fi
 
   warn "FunBGCeX SIF missing: ${FUNBGCEX_SIF}"
-  warn "Automatic repo-local SIF build is controlled by AUTO_BUILD_FUNBGCEX_SIF=${AUTO_BUILD_FUNBGCEX_SIF}."
-  [[ -n "${FUNBGCEX_IMAGE_URI}" ]] && warn "Optional FunBGCeX image source: ${FUNBGCEX_IMAGE_URI}"
-  warn "Check your container builder, or provide FUNBGCEX_SIF manually."
+  warn "AUTO_BUILD_FUNBGCEX_SIF=${AUTO_BUILD_FUNBGCEX_SIF}, AUTO_BUILD_FUNBGCEX_DOCKER=${AUTO_BUILD_FUNBGCEX_DOCKER}, and FUNBGCEX_BOOTSTRAP=${FUNBGCEX_BOOTSTRAP} are accepted compatibility inputs; canonical jobs do not acquire runtimes."
+  [[ -n "${FUNBGCEX_IMAGE_URI}" ]] && warn "Configured FunBGCeX image source: ${FUNBGCEX_IMAGE_URI}"
+  runtime_preparation_hint
   return 1
 }
 
@@ -1943,7 +1348,7 @@ funbgcex_python_exec() {
   esac
 }
 
-antismash_input_python_exec() {
+repository_helper_python_exec() {
   # The Docker worker is built from the pinned antiSMASH image and already
   # carries Biopython plus this repository. A sibling FunBGCeX container sees
   # the named /data volume but cannot see the worker-only /clusterweave path,
@@ -1953,6 +1358,10 @@ antismash_input_python_exec() {
   else
     funbgcex_python_exec "$@"
   fi
+}
+
+antismash_input_python_exec() {
+  repository_helper_python_exec "$@"
 }
 
 run_funbgcex_cli() {
@@ -1980,10 +1389,6 @@ run_funbgcex_cli() {
   esac
 }
 
-ensure_funannotate_build_recipe() {
-  [[ -s "${FUNANNOTATE_BUILD_SCRIPT}" ]] || die "funannotate build helper not found: ${FUNANNOTATE_BUILD_SCRIPT}"
-}
-
 ensure_funannotate_docker_runtime() {
   local image=""
   image="$(docker_image_from_uri "${FUNANNOTATE_IMAGE_URI}")"
@@ -1994,19 +1399,10 @@ ensure_funannotate_docker_runtime() {
     return 0
   fi
 
-  if [[ "${AUTO_BUILD_FUNANNOTATE_DOCKER}" == "1" ]]; then
-    ensure_funannotate_build_recipe
-    log "Building repo-local funannotate Docker image: ${image}"
-    if IMAGE_TAG="${image}"        FUNANNOTATE_BASE_IMAGE="$(docker_image_from_uri "${FUNANNOTATE_BASE_IMAGE_URI}")"        bash "${FUNANNOTATE_BUILD_SCRIPT}" docker >> "${PIPELOG}" 2>&1; then
-      docker image inspect "${image}" >/dev/null 2>&1 || die "funannotate Docker build reported success but image is missing: ${image}"
-      log "Built funannotate Docker image: ${image}"
-      return 0
-    fi
-    warn "Automatic funannotate Docker image build failed."
-    warn "To retry manually: IMAGE_TAG="${image}" FUNANNOTATE_BASE_IMAGE="$(docker_image_from_uri "${FUNANNOTATE_BASE_IMAGE_URI}")" bash "${FUNANNOTATE_BUILD_SCRIPT}" docker"
-  fi
-
-  ensure_docker_image "funannotate" "${image}"
+  warn "funannotate Docker image missing: ${image}"
+  warn "AUTO_BUILD_FUNANNOTATE_DOCKER=${AUTO_BUILD_FUNANNOTATE_DOCKER} is accepted for compatibility; canonical jobs do not build images."
+  runtime_preparation_hint
+  return 1
 }
 
 ensure_funannotate_sif_runtime() {
@@ -2015,22 +1411,9 @@ ensure_funannotate_sif_runtime() {
     return 0
   fi
 
-  if [[ "${AUTO_BUILD_FUNANNOTATE_SIF}" == "1" ]]; then
-    ensure_funannotate_build_recipe
-    mkdir -p "$(dirname "${FUNANNOTATE_SIF}")"
-    log "Building repo-local funannotate SIF at ${FUNANNOTATE_SIF}"
-    if ENGINE="${ENGINE}"        SIF_OUT="${FUNANNOTATE_SIF}"        FUNANNOTATE_BASE_IMAGE="$(docker_image_from_uri "${FUNANNOTATE_BASE_IMAGE_URI}")"        bash "${FUNANNOTATE_BUILD_SCRIPT}" sif >> "${PIPELOG}" 2>&1; then
-      [[ -s "${FUNANNOTATE_SIF}" ]] || die "funannotate SIF build reported success but SIF is missing: ${FUNANNOTATE_SIF}"
-      log "Built funannotate SIF: ${FUNANNOTATE_SIF}"
-      return 0
-    fi
-    warn "Automatic funannotate SIF build failed."
-    warn "To retry manually: ENGINE=${ENGINE} SIF_OUT="${FUNANNOTATE_SIF}" FUNANNOTATE_BASE_IMAGE="$(docker_image_from_uri "${FUNANNOTATE_BASE_IMAGE_URI}")" bash "${FUNANNOTATE_BUILD_SCRIPT}" sif"
-  fi
-
   warn "funannotate SIF missing: ${FUNANNOTATE_SIF}"
-  warn "Automatic repo-local SIF build is controlled by AUTO_BUILD_FUNANNOTATE_SIF=${AUTO_BUILD_FUNANNOTATE_SIF}."
-  warn "Provide a baked FUNANNOTATE_SIF or build it with ${FUNANNOTATE_BUILD_SCRIPT}."
+  warn "AUTO_BUILD_FUNANNOTATE_SIF=${AUTO_BUILD_FUNANNOTATE_SIF} is accepted for compatibility; canonical jobs do not build images."
+  runtime_preparation_hint
   return 1
 }
 
@@ -2040,17 +1423,17 @@ ensure_primary_tooling() {
       log "antiSMASH available on worker PATH."
     else
       ensure_docker_image "antiSMASH" "${ANTISMASH_DOCKER_IMAGE}" \
-        || die "antiSMASH is required but unavailable. Install it in the worker or provide ANTISMASH_DOCKER_IMAGE."
+        || die "antiSMASH is required but unavailable after runtime preparation. Provide ANTISMASH_DOCKER_IMAGE."
     fi
   else
-    ensure_sif_or_prompt_pull "antiSMASH" "${ANTISMASH_SIF}" "${ANTISMASH_IMAGE_URI}" \
-      || die "antiSMASH is required but unavailable. Provide ANTISMASH_SIF or allow pulling from ${ANTISMASH_IMAGE_URI}."
+    ensure_prepared_sif "antiSMASH" "${ANTISMASH_SIF}" "${ANTISMASH_IMAGE_URI}" \
+      || die "antiSMASH is required but unavailable after runtime preparation. Provide ANTISMASH_SIF."
   fi
   if [[ "${HAS_FUNGAL_ROUTES}" -eq 1 ]]; then
     ensure_funbgcex_runtime \
-      || die "FunBGCeX is required for fungal routes but unavailable. Provide FUNBGCEX_SIF manually or fix the repo-local SIF build path."
+      || die "FunBGCeX is required for fungal routes but unavailable after runtime preparation."
   else
-    log "Skipping FunBGCeX runtime bootstrap: no fungal routes are present."
+    log "Skipping FunBGCeX runtime check: no fungal routes are present."
   fi
 }
 
@@ -2090,7 +1473,7 @@ ensure_annotation_tooling() {
       log "BRAKER3 available on host PATH (braker.pl)."
     elif [[ "${ENGINE}" == "docker" ]] && ensure_docker_image "BRAKER3" "$(docker_image_from_uri "${BRAKER_IMAGE_URI}")"; then
       braker_ok=1
-    elif [[ "${ENGINE}" != "docker" ]] && ensure_sif_or_prompt_pull "BRAKER3" "${BRAKER_SIF}" "${BRAKER_IMAGE_URI}"; then
+    elif [[ "${ENGINE}" != "docker" ]] && ensure_prepared_sif "BRAKER3" "${BRAKER_SIF}" "${BRAKER_IMAGE_URI}"; then
       braker_ok=1
     fi
   fi
@@ -2107,10 +1490,10 @@ ensure_annotation_tooling() {
   fi
 
   if [[ "${need_braker}" -eq 1 && "${braker_ok}" -eq 0 ]]; then
-    die "BRAKER3 is required by ANNOTATION_FALLBACK_ORDER but unavailable. Enable image/tooling or remove braker3 from order."
+    die "BRAKER3 is required by ANNOTATION_FALLBACK_ORDER but unavailable after runtime preparation. Remove braker3 from the order only if it is not required."
   fi
   if [[ "${need_fun}" -eq 1 && "${fun_ok}" -eq 0 ]]; then
-    die "funannotate is required by ANNOTATION_FALLBACK_ORDER but unavailable. Install funannotate or provide FUNANNOTATE_SIF."
+    die "funannotate is required by ANNOTATION_FALLBACK_ORDER but unavailable after runtime preparation. Provide FUNANNOTATE_SIF or a prepared Docker image."
   fi
   if [[ "${need_braker}" -eq 0 && "${need_fun}" -eq 0 ]]; then
     warn "No annotation fallback methods configured. Annotated GenBank inputs can still run; FASTA-only inputs may be dropped."
@@ -2128,16 +1511,19 @@ run_braker3_to_gbk() {
   local braker_species="${BRAKER_SPECIES_PREFIX}_${genome_id}"
   local gff3=""
   local tmp_out="${out_gbk}.tmp"
-  local ev_args=()
+  local evidence_kind=""
+  local evidence_path=""
 
   if [[ -z "${BRAKER_BAM}" && -z "${BRAKER_PROT_SEQ}" ]]; then
     warn "${genome_id}: BRAKER3 requires evidence (--bam or --prot_seq). Set BRAKER_BAM or BRAKER_PROT_SEQ; skipping BRAKER3."
     return 3
   fi
   if [[ -n "${BRAKER_BAM}" ]]; then
-    ev_args=(--bam "${BRAKER_BAM}")
+    evidence_kind="bam"
+    evidence_path="${BRAKER_BAM}"
   else
-    ev_args=(--prot_seq "${BRAKER_PROT_SEQ}")
+    evidence_kind="prot_seq"
+    evidence_path="${BRAKER_PROT_SEQ}"
   fi
 
   : > "${braker_log}"
@@ -2145,24 +1531,21 @@ run_braker3_to_gbk() {
   rm -f "${tmp_out}" 2>/dev/null || true
   log "${genome_id}: trying BRAKER3 annotation (outdir=${braker_out})"
 
-  if [[ "${ENGINE}" == "docker" ]]; then
-    if ! CLUSTERWEAVE_CHILD_DOCKER_CPUS="${ANNO_CPUS}" docker_exec "$(docker_image_from_uri "${BRAKER_IMAGE_URI}")" braker.pl --genome "${fasta}" "${ev_args[@]}" --workingdir "${braker_out}" --species "${braker_species}" --fungus --gff3 --threads "${ANNO_CPUS}" >> "${braker_log}" 2>&1; then
-      warn "${genome_id}: BRAKER3 failed (see ${braker_log})"
-      return 2
-    fi
-  elif [[ -f "${BRAKER_SIF}" ]]; then
-    if ! sing_exec "${BRAKER_SIF}" braker.pl --genome "${fasta}" "${ev_args[@]}" --workingdir "${braker_out}" --species "${braker_species}" --fungus --gff3 --threads "${ANNO_CPUS}" >> "${braker_log}" 2>&1; then
-      warn "${genome_id}: BRAKER3 failed (see ${braker_log})"
-      return 2
-    fi
-  elif command -v braker.pl >/dev/null 2>&1; then
-    if ! braker.pl --genome "${fasta}" "${ev_args[@]}" --workingdir "${braker_out}" --species "${braker_species}" --fungus --gff3 --threads "${ANNO_CPUS}" >> "${braker_log}" 2>&1; then
-      warn "${genome_id}: BRAKER3 failed (see ${braker_log})"
-      return 2
-    fi
-  else
+  if [[ "${ENGINE}" != "docker" && ! -f "${BRAKER_SIF}" ]] \
+      && ! command -v braker.pl >/dev/null 2>&1; then
     warn "${genome_id}: BRAKER3 unavailable (missing BRAKER_SIF and braker.pl); skipping BRAKER3"
     return 3
+  fi
+  annotation_runtime_argv braker3 \
+    --fasta "${fasta}" \
+    --evidence-kind "${evidence_kind}" \
+    --evidence-path "${evidence_path}" \
+    --working-dir "${braker_out}" \
+    --species "${braker_species}" \
+    --cpus "${ANNO_CPUS}"
+  if ! braker3_exec "${ANNOTATION_RUNTIME_ARGV[@]}" >> "${braker_log}" 2>&1; then
+    warn "${genome_id}: BRAKER3 failed (see ${braker_log})"
+    return 2
   fi
 
   gff3="$(find "${braker_out}" -type f \( -name 'braker.gff3' -o -name '*.gff3' \) | head -n1)"
@@ -2192,60 +1575,8 @@ remap_gbk_ids_from_fasta_hashes() {
   local in_gbk="$3"
   local out_gbk="$4"
   local map_tsv="$5"
-  funbgcex_python_exec - "$original_fasta" "$renamed_fasta" "$in_gbk" "$out_gbk" "$map_tsv" <<'PY'
-import hashlib
-import sys
-from collections import defaultdict
-from Bio import SeqIO
-
-orig_fa, ren_fa, in_gbk, out_gbk, map_tsv = sys.argv[1:]
-
-def hash_to_ids(path):
-    out = defaultdict(list)
-    for rec in SeqIO.parse(path, "fasta"):
-        sid = (rec.id or "").split()[0]
-        if not sid:
-            continue
-        h = hashlib.md5(str(rec.seq).upper().encode("utf-8")).hexdigest()
-        out[h].append(sid)
-    return out
-
-orig = hash_to_ids(orig_fa)
-ren = hash_to_ids(ren_fa)
-
-ren_to_orig = {}
-for h, ren_ids in ren.items():
-    if len(ren_ids) != 1:
-        continue
-    orig_ids = orig.get(h, [])
-    if len(orig_ids) != 1:
-        continue
-    ren_to_orig[ren_ids[0]] = orig_ids[0]
-
-with open(map_tsv, "w", encoding="utf-8") as oh:
-    oh.write("renamed_id\toriginal_id\n")
-    for rid in sorted(ren_to_orig):
-        oh.write(f"{rid}\t{ren_to_orig[rid]}\n")
-
-records = list(SeqIO.parse(in_gbk, "genbank"))
-remapped = 0
-for rec in records:
-    old = (rec.id or "").split()[0]
-    new = ren_to_orig.get(old)
-    if not new or new == old:
-        continue
-    rec.id = new
-    rec.name = new[:16]
-    if rec.description == old:
-        rec.description = new
-    elif rec.description.startswith(old + " "):
-        rec.description = new + rec.description[len(old):]
-    rec.annotations["accessions"] = [new]
-    remapped += 1
-
-SeqIO.write(records, out_gbk, "genbank")
-print(f"map_entries={len(ren_to_orig)} total_records={len(records)} remapped_records={remapped}")
-PY
+  repository_helper_python_exec "${ANNOTATION_GENBANK_HELPER}" remap-ids \
+    "${original_fasta}" "${renamed_fasta}" "${in_gbk}" "${out_gbk}" "${map_tsv}"
 }
 run_funannotate_predict_to_gbk() {
   local genome_id="$1"
@@ -2328,33 +1659,17 @@ run_funannotate_predict_to_gbk() {
 
   log "${genome_id}: running funannotate prepare workflow (sort + clean)"
   tool_activity_emit_progress "${genome_id}" "funannotate" "prepare" "Preparing assembly"
-  if [[ "${use_docker}" -eq 1 ]]; then
-    if ! CLUSTERWEAVE_CHILD_DOCKER_CPUS="${ANNO_CPUS}" docker_exec "$(docker_image_from_uri "${FUNANNOTATE_IMAGE_URI}")" "${fun_cmd}" sort -i "${fasta}" -o "${sorted_fa}" --minlen 500 >> "${fun_log}" 2>&1; then
-      warn "${genome_id}: funannotate sort failed (see ${fun_log})"
-      return 2
-    fi
-    if ! CLUSTERWEAVE_CHILD_DOCKER_CPUS="${ANNO_CPUS}" docker_exec "$(docker_image_from_uri "${FUNANNOTATE_IMAGE_URI}")" "${fun_cmd}" clean -i "${sorted_fa}" -o "${cleaned_fa}" -m 500 >> "${fun_log}" 2>&1; then
-      warn "${genome_id}: funannotate clean failed; using sorted FASTA for predict"
-      cp -f "${sorted_fa}" "${cleaned_fa}"
-    fi
-  elif [[ "${use_sif}" -eq 1 ]]; then
-    if ! sing_exec "${FUNANNOTATE_SIF}" "${fun_cmd}" sort -i "${fasta}" -o "${sorted_fa}" --minlen 500 >> "${fun_log}" 2>&1; then
-      warn "${genome_id}: funannotate sort failed (see ${fun_log})"
-      return 2
-    fi
-    if ! sing_exec "${FUNANNOTATE_SIF}" "${fun_cmd}" clean -i "${sorted_fa}" -o "${cleaned_fa}" -m 500 >> "${fun_log}" 2>&1; then
-      warn "${genome_id}: funannotate clean failed; using sorted FASTA for predict"
-      cp -f "${sorted_fa}" "${cleaned_fa}"
-    fi
-  else
-    if ! "${fun_cmd}" sort -i "${fasta}" -o "${sorted_fa}" --minlen 500 >> "${fun_log}" 2>&1; then
-      warn "${genome_id}: funannotate sort failed (see ${fun_log})"
-      return 2
-    fi
-    if ! "${fun_cmd}" clean -i "${sorted_fa}" -o "${cleaned_fa}" -m 500 >> "${fun_log}" 2>&1; then
-      warn "${genome_id}: funannotate clean failed; using sorted FASTA for predict"
-      cp -f "${sorted_fa}" "${cleaned_fa}"
-    fi
+  annotation_runtime_argv funannotate-sort \
+    --tool-command "${fun_cmd}" --input "${fasta}" --output "${sorted_fa}"
+  if ! funannotate_exec "${use_docker}" "${use_sif}" "${ANNOTATION_RUNTIME_ARGV[@]}" >> "${fun_log}" 2>&1; then
+    warn "${genome_id}: funannotate sort failed (see ${fun_log})"
+    return 2
+  fi
+  annotation_runtime_argv funannotate-clean \
+    --tool-command "${fun_cmd}" --input "${sorted_fa}" --output "${cleaned_fa}"
+  if ! funannotate_exec "${use_docker}" "${use_sif}" "${ANNOTATION_RUNTIME_ARGV[@]}" >> "${fun_log}" 2>&1; then
+    warn "${genome_id}: funannotate clean failed; using sorted FASTA for predict"
+    cp -f "${sorted_fa}" "${cleaned_fa}"
   fi
 
   [[ -s "${predict_fa}" ]] || { warn "${genome_id}: prepared FASTA missing for funannotate predict"; return 2; }
@@ -2368,13 +1683,19 @@ run_funannotate_predict_to_gbk() {
     mkdir -p "${fun_run}"
     log "${genome_id}: trying funannotate predict (${attempt_label}, outdir=${fun_run})"
     tool_activity_emit_progress "${genome_id}" "funannotate" "predict" "Predicting genes"
-    if [[ "${use_docker}" -eq 1 ]]; then
-      CLUSTERWEAVE_CHILD_DOCKER_CPUS="${ANNO_CPUS}" run_tool_with_activity "${genome_id}" "funannotate" "predict" "${fun_log}" "${fun_log}" docker_exec "$(docker_image_from_uri "${FUNANNOTATE_IMAGE_URI}")" "${fun_cmd}" predict -i "${predict_fa}" -o "${fun_run}" --species "${species_name}" --organism fungus --busco_db "${busco_db}" "${fun_predict_extra[@]}" "${attempt_extra[@]}" --cpus "${ANNO_CPUS}" --name "${safe_name}_" --tmpdir "${fun_tmp}" --force
-    elif [[ "${use_sif}" -eq 1 ]]; then
-      run_tool_with_activity "${genome_id}" "funannotate" "predict" "${fun_log}" "${fun_log}" sing_exec "${FUNANNOTATE_SIF}" "${fun_cmd}" predict -i "${predict_fa}" -o "${fun_run}" --species "${species_name}" --organism fungus --busco_db "${busco_db}" "${fun_predict_extra[@]}" "${attempt_extra[@]}" --cpus "${ANNO_CPUS}" --name "${safe_name}_" --tmpdir "${fun_tmp}" --force
-    else
-      run_tool_with_activity "${genome_id}" "funannotate" "predict" "${fun_log}" "${fun_log}" "${fun_cmd}" predict -i "${predict_fa}" -o "${fun_run}" --species "${species_name}" --organism fungus --busco_db "${busco_db}" "${fun_predict_extra[@]}" "${attempt_extra[@]}" --cpus "${ANNO_CPUS}" --name "${safe_name}_" --tmpdir "${fun_tmp}" --force
-    fi
+    annotation_runtime_argv funannotate-predict \
+      --tool-command "${fun_cmd}" \
+      --input "${predict_fa}" \
+      --output-dir "${fun_run}" \
+      --species "${species_name}" \
+      --busco-db "${busco_db}" \
+      --cpus "${ANNO_CPUS}" \
+      --name "${safe_name}_" \
+      --temp-dir "${fun_tmp}" \
+      -- "${fun_predict_extra[@]}" "${attempt_extra[@]}"
+    funannotate_exec_with_activity \
+      "${use_docker}" "${use_sif}" "${genome_id}" "${fun_log}" \
+      "${ANNOTATION_RUNTIME_ARGV[@]}"
   }
 
   local predict_succeeded=0
@@ -2546,18 +1867,28 @@ antismash_supported_flags() {
 ###############################################################################
 # Done checks (RESULTS_ROOT canonical)
 ###############################################################################
-antismash_done() {
+antismash_outputs_valid() {
   local outdir="$1"
   [[ -d "${outdir}" ]] || return 1
-  [[ -f "${outdir}/.done" ]] || return 1
   [[ -s "${outdir}/index.html" ]] || return 1
 
-  # The marker is written only after a successful process and assembled output.
-  # Also require browseable antiSMASH state, not interrupted region GBKs alone.
   if [[ -n "$(find "${outdir}" -maxdepth 3 -type f \( -name "regions.js" -o -name "*.antismash.json" -o -name "overview*.js" \) -print -quit 2>/dev/null)" ]]; then
     return 0
   fi
   return 1
+}
+
+antismash_done() {
+  local outdir="$1"
+  [[ -f "${outdir}/.done" ]] || return 1
+  antismash_outputs_valid "${outdir}"
+}
+
+mark_antismash_done() {
+  local outdir="$1"
+  rm -f "${outdir}/.done" 2>/dev/null || true
+  antismash_outputs_valid "${outdir}" || return 1
+  touch "${outdir}/.done"
 }
 
 funbgcex_outputs_valid() {
@@ -2574,91 +1905,35 @@ funbgcex_done() {
   funbgcex_outputs_valid "${outdir}"
 }
 
+mark_funbgcex_done() {
+  local outdir="$1"
+  rm -f "${outdir}/.done" 2>/dev/null || true
+  funbgcex_outputs_valid "${outdir}" || return 1
+  touch "${outdir}/.done"
+}
+
 ###############################################################################
 # GBK diagnostics/filtering (run via the configured FunBGCeX runtime)
 ###############################################################################
 gbk_diag_summary() {
   local gbk="$1"
   local label="${2:-GBK}"
-  funbgcex_python_exec - "$gbk" "$label" <<'PY'
-import sys
-from Bio import SeqIO
-p, label = sys.argv[1], sys.argv[2]
-nrec=0
-cds=0
-cds_tx=0
-bad_tx=0
-try:
-    for rec in SeqIO.parse(p, "genbank"):
-        nrec += 1
-        for feat in rec.features:
-            if feat.type != "CDS":
-                continue
-            cds += 1
-            q = feat.qualifiers or {}
-            txs = q.get("translation", [])
-            if any(str(t).strip() for t in txs):
-                cds_tx += 1
-            else:
-                bad_tx += 1
-except Exception as e:
-    print(f"{label}: PARSE_FAIL file={p} err={e}")
-    sys.exit(0)
-print(f"{label}: file={p}")
-print(f"{label}: records={nrec} cds={cds} cds_with_nonempty_translation={cds_tx} cds_missing_or_empty_translation={bad_tx}")
-PY
+  repository_helper_python_exec "${ANNOTATION_GENBANK_HELPER}" diagnose "${gbk}" "${label}"
 }
 
 filter_gbk_drop_gene_less_records() {
   local in_gbk="$1"
   local out_gbk="$2"
-  funbgcex_python_exec - "$in_gbk" "$out_gbk" <<'PY'
-import sys
-from Bio import SeqIO
-
-inp, outp = sys.argv[1], sys.argv[2]
-out_recs=[]
-dropped=0
-kept=0
-
-for rec in SeqIO.parse(inp, "genbank"):
-    has_cds = any(f.type == "CDS" for f in (rec.features or []))
-    if not has_cds:
-        dropped += 1
-        continue
-    rec.annotations.setdefault("molecule_type","DNA")
-    out_recs.append(rec)
-    kept += 1
-
-SeqIO.write(out_recs, outp, "genbank")
-print(f"kept_records={kept} dropped_records={dropped}")
-PY
+  repository_helper_python_exec "${ANNOTATION_GENBANK_HELPER}" \
+    drop-gene-less "${in_gbk}" "${out_gbk}"
 }
 
 
 list_genbank_record_ids() {
   local gbk="$1"
   local min_record_bp="${2:-${ANTISMASH_MIN_RECORD_BP:-1000}}"
-  funbgcex_python_exec - "${gbk}" "${min_record_bp}" <<'PY'
-import sys
-from Bio import SeqIO
-
-path = sys.argv[1]
-min_record_bp = int(sys.argv[2])
-if min_record_bp < 1:
-    raise RuntimeError(f"Invalid antiSMASH minimum record length: {min_record_bp}")
-seen = set()
-for record in SeqIO.parse(path, "genbank"):
-    record_id = str(record.id or record.name or "").strip()
-    if not record_id or "\t" in record_id or "\n" in record_id or "\r" in record_id:
-        raise RuntimeError(f"Invalid GenBank record ID in {path}: {record_id!r}")
-    if record_id in seen:
-        raise RuntimeError(f"Duplicate GenBank record ID in {path}: {record_id}")
-    seen.add(record_id)
-    if len(record.seq) < min_record_bp:
-        continue
-    print(record_id)
-PY
+  repository_helper_python_exec "${ANNOTATION_GENBANK_HELPER}" \
+    list-record-ids "${gbk}" "${min_record_bp}"
 }
 
 
@@ -2786,6 +2061,7 @@ run_antismash_record_shard() {
 merge_antismash_shard_jsons() {
   local output_json="$1"
   local python_cmd=""
+  local -a merge_args=()
   shift
   [[ "$#" -gt 0 ]] || return 1
   if declare -F resolve_python_cmd >/dev/null 2>&1; then
@@ -2797,66 +2073,13 @@ merge_antismash_shard_jsons() {
   else
     return 1
   fi
-  "${python_cmd}" - "${output_json}" "$@" <<'PY'
-import json
-import os
-import sys
-
-output_path = sys.argv[1]
-record_and_path_args = sys.argv[2:]
-if len(record_and_path_args) % 2:
-    raise RuntimeError("antiSMASH shard JSON merge requires record/path pairs")
-merged = None
-merged_records = []
-merged_timings = {}
-
-for offset in range(0, len(record_and_path_args), 2):
-    expected_record_id = record_and_path_args[offset]
-    input_path = record_and_path_args[offset + 1]
-    with open(input_path, encoding="utf-8") as handle:
-        document = json.load(handle)
-    if not isinstance(document, dict):
-        raise RuntimeError(f"antiSMASH shard JSON is not an object: {input_path}")
-    records = document.get("records")
-    if not isinstance(records, list) or not records:
-        raise RuntimeError(f"antiSMASH shard JSON has no records: {input_path}")
-    matching_records = [
-        record for record in records
-        if isinstance(record, dict) and (
-            str(record.get("id", "")) == expected_record_id
-            or str(record.get("original_id", "")) == expected_record_id
-        )
-    ]
-    if len(matching_records) != 1:
-        analysed_records = [
-            record for record in records
-            if isinstance(record, dict) and (record.get("areas") or record.get("modules"))
-        ]
-        if len(analysed_records) == 1:
-            matching_records = analysed_records
-    if len(matching_records) != 1:
-        raise RuntimeError(
-            f"antiSMASH shard JSON did not contain exactly one target record "
-            f"{expected_record_id!r}: {input_path}"
-        )
-    if merged is None:
-        merged = document
-    merged_records.append(matching_records[0])
-    timings = document.get("timings", {})
-    if not isinstance(timings, dict):
-        raise RuntimeError(f"antiSMASH shard JSON timings is not an object: {input_path}")
-    merged_timings.update(timings)
-
-if merged is None:
-    raise RuntimeError("No antiSMASH shard JSON documents were provided")
-merged["records"] = merged_records
-merged["timings"] = merged_timings
-temporary_path = output_path + ".tmp"
-with open(temporary_path, "w", encoding="utf-8") as handle:
-    json.dump(merged, handle, ensure_ascii=False, separators=(",", ":"))
-    handle.write("\n")
-os.replace(temporary_path, output_path)
-PY
+  while [[ "$#" -gt 0 ]]; do
+    [[ "$#" -ge 2 ]] || return 1
+    merge_args+=(--record-json-pair "$1" "$2")
+    shift 2
+  done
+  "${python_cmd}" "${ANTISMASH_SHARD_COMPACTOR}" \
+    --merge-output "${output_json}" "${merge_args[@]}"
 }
 
 render_antismash_shard_web_bundle() {
@@ -3143,10 +2366,7 @@ run_antismash_sharded() {
     cleanup_antismash_assembled_outputs "${ant_out}" "${canonical_json}"
     return 1
   fi
-  if ! touch "${ant_out}/.done"; then
-    cleanup_antismash_assembled_outputs "${ant_out}" "${canonical_json}"
-    return 1
-  fi
+  return 0
 }
 
 ###############################################################################
@@ -3212,21 +2432,22 @@ Resource planning:
   CLUSTERWEAVE_TOOL_DOCKER_MEMORY=... Optional hard --memory limit on every Docker tool child
   CLUSTERWEAVE_TOOL_DOCKER_PIDS_LIMIT=... Optional hard --pids-limit on every Docker tool child
 
-Image bootstrap:
-  AUTO_PULL_IMAGES=ask|always|never (default: ${AUTO_PULL_IMAGES})
+Runtime preparation compatibility:
+  Prepare/check runtimes explicitly before jobs with the worker prepare-runtime/check-runtime commands.
+  AUTO_PULL_IMAGES=ask|always|never Accepted compatibility input; jobs never pull (default: ${AUTO_PULL_IMAGES})
   ANTISMASH_IMAGE_URI=...       Source URI for antiSMASH image (default: ${ANTISMASH_IMAGE_URI})
   FUNBGCEX_IMAGE_URI=...        Optional source URI for FunBGCeX image (default: unset)
-  AUTO_BUILD_FUNBGCEX_SIF=0|1   Auto-build a repo-local FunBGCeX SIF if needed (default: ${AUTO_BUILD_FUNBGCEX_SIF})
+  AUTO_BUILD_FUNBGCEX_SIF=0|1   Accepted compatibility input; jobs never build (default: ${AUTO_BUILD_FUNBGCEX_SIF})
   FUNBGCEX_DEF=...              Singularity definition used for the local FunBGCeX build
   FUNBGCEX_DOCKERFILE=...       Dockerfile used for the local FunBGCeX build fallback path
   FUNBGCEX_BUILD_SCRIPT=...     Helper script used to build the local FunBGCeX SIF
   BRAKER_IMAGE_URI=...          Source URI for BRAKER3 image (default: ${BRAKER_IMAGE_URI})
   FUNANNOTATE_IMAGE_URI=...     Baked funannotate image URI for Docker mode (default: ${FUNANNOTATE_IMAGE_URI})
   FUNANNOTATE_BASE_IMAGE_URI=... Upstream base used by the one-time bake (default: ${FUNANNOTATE_BASE_IMAGE_URI})
-  AUTO_BUILD_FUNANNOTATE_SIF=0|1 Auto-build a repo-local funannotate SIF if needed (default: ${AUTO_BUILD_FUNANNOTATE_SIF})
-  AUTO_BUILD_FUNANNOTATE_DOCKER=0|1 Auto-build a repo-local funannotate Docker image if needed (default: ${AUTO_BUILD_FUNANNOTATE_DOCKER})
+  AUTO_BUILD_FUNANNOTATE_SIF=0|1 Accepted compatibility input; jobs never build (default: ${AUTO_BUILD_FUNANNOTATE_SIF})
+  AUTO_BUILD_FUNANNOTATE_DOCKER=0|1 Accepted compatibility input; jobs never build (default: ${AUTO_BUILD_FUNANNOTATE_DOCKER})
   FUNANNOTATE_BUILD_SCRIPT=...  Helper script used to bake funannotate DBs into the local runtime
-  FUNBGCEX_BOOTSTRAP=0|1        Advanced fallback: auto-create a local FunBGCeX venv if needed (default: ${FUNBGCEX_BOOTSTRAP})
+  FUNBGCEX_BOOTSTRAP=0|1        Accepted compatibility input; jobs never create a venv (default: ${FUNBGCEX_BOOTSTRAP})
   FUNBGCEX_VERSION=...          FunBGCeX version for the advanced host bootstrap path (default: ${FUNBGCEX_VERSION})
 EOF
 }
@@ -3283,7 +2504,10 @@ esac
 [[ -d "${BACTERIA_GENOME_ROOT}" ]] || die "BACTERIA_GENOME_ROOT not found: ${BACTERIA_GENOME_ROOT}"
 [[ -s "${ANTISMASH_SHARD_COMPACTOR}" ]] || die "antiSMASH shard compactor not found: ${ANTISMASH_SHARD_COMPACTOR}"
 [[ -s "${ANTISMASH_INPUT_PREPARER}" ]] || die "antiSMASH input preparer not found: ${ANTISMASH_INPUT_PREPARER}"
+[[ -s "${ANNOTATION_GENBANK_HELPER}" ]] || die "annotation GenBank helper not found: ${ANNOTATION_GENBANK_HELPER}"
+[[ -s "${ANNOTATION_RUNTIME_HELPER}" ]] || die "annotation runtime helper not found: ${ANNOTATION_RUNTIME_HELPER}"
 [[ -s "${BACTERIAL_GENBANK_SANITIZER}" ]] || die "bacterial GenBank sanitizer not found: ${BACTERIAL_GENBANK_SANITIZER}"
+[[ -s "${ANNOTATION_INPUT_HELPER}" ]] || die "annotation input helper not found: ${ANNOTATION_INPUT_HELPER}"
 [[ -s "${GENBANK_TRANSLATION_CHECKER}" ]] || die "GenBank translation checker not found: ${GENBANK_TRANSLATION_CHECKER}"
 
 load_taxon_routes
@@ -3725,7 +2949,7 @@ process_genome() {
       fi
     fi
 
-    if [[ "${antismash_run_ok}" -eq 1 ]] && touch "${ant_out}/.done" && antismash_done "${ant_out}"; then
+    if [[ "${antismash_run_ok}" -eq 1 ]] && mark_antismash_done "${ant_out}"; then
       if [[ "${antismash_input_sanitized:-0}" -eq 1 ]]; then
         antismash_status="ran_ok_sanitized"
       else
@@ -3777,8 +3001,7 @@ process_genome() {
     log "${genome_id}: running FunBGCeX (outdir=${fbx_out})" | tee -a "${GENLOG}"
     genome_stage_progress "${genome_id}" "funbgcex" 80 "Running FunBGCeX"
     if run_funbgcex_cli "${gbk_dir}" "${fbx_out}" >"${fbx_stdout}" 2>"${fbx_err}" \
-        && funbgcex_outputs_valid "${fbx_out}" \
-        && touch "${fbx_out}/.done"; then
+        && mark_funbgcex_done "${fbx_out}"; then
       funbgcex_status="ran_ok"
       log "${genome_id}: FunBGCeX OK" | tee -a "${GENLOG}"
       genome_stage_progress "${genome_id}" "funbgcex" 100 "FunBGCeX complete"
@@ -3793,6 +3016,11 @@ process_genome() {
     "${genome_id}" "${fasta}" "${gbk_used}" "${gbk_status}" "${antismash_status}" "${funbgcex_status}" \
     "${taxon_group}" "${prediction_method}" "${detector_profile}" "${funbgcex_applicability}"
 
+  if [[ "${antismash_status}" == "failed" || "${funbgcex_status}" == "failed" ]]; then
+    genome_stage_progress "${genome_id}" "annotation" 100 "Genome workflow complete with warning"
+  else
+    genome_stage_progress "${genome_id}" "annotation" 100 "Genome workflow complete"
+  fi
   sync_logs_genome "${genome_id}"
   return 0
 

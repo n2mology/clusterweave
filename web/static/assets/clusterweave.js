@@ -42,22 +42,14 @@ let activeStageState = null;
 let weaveActivity = { jobId: null, lastLogCount: null, lastStatus: null, events: [] };
 let dnaPopoverDragOffsets = new Map();
 let dnaPopoverDragTargets = new Map();
-let activeFileTree = null;
-let activeFileTreeIndex = new Map();
-let activeFileTreeJobId = null;
-let figureZoomState = new Map();
-let activeFigurePan = null;
+
 let jobHistoryInFlight = false;
 let lastJobHistoryRenderKey = '';
 let jobHistoryById = new Map();
-let activeOpsTab = 'jobs';
 let rerunScopeOpenJobId = '';
-let lastOpsPanelFocus = null;
-let opsPanelKeyboardWired = false;
-let currentUIMode = 'guided';
 let accessMode = 'public'; // public, admin, local
 let authChecked = false;
-let resultObjectUrls = [];
+
 let smtpEnabled = false;
 let lastSubmittedRun = null;
 let submittedRunReceipt = null;
@@ -76,24 +68,13 @@ let activePublicRunId = '';
 let activeResultArtifactByKey = new Map();
 let activeResultArtifactById = new Map();
 let publicResultRunIds = new Set();
-let resultArchiveObjectUrl = '';
-let resultArchiveRequestSeq = 0;
-let activeArchiveDownload = null;
-let archiveDownloadStatus = null;
-let archiveDownloadDismissTimer = null;
+
 let validatedIntakeSignature = '';
-let resultHelperObjectUrls = [];
-let summaryReaderSeq = 0;
-let summaryReaderJobId = '';
-let activeSummaryView = 'all_bgcs';
-let allBgcTableState = null;
-let syntenyReaderJobId = '';
-let activeSyntenyTaxon = '';
-let figureReaderJobId = '';
-let activeFigureView = '';
+
 let resultAccessCollapsed = false;
 let runStackOpen = false;
 let runStackDismissalWired = false;
+const MANUAL_ACCESSIONS_FILENAME = 'manual_accessions.txt';
 let publicQuota = {
   max_accessions: 50,
   max_genome_files: 50,
@@ -109,7 +90,6 @@ let gsapMotion = {
   lastWeaveMotionKey: '',
   lastDashboardMotionKey: '',
 };
-let motionLifecycleWired = false;
 let bgcWorkflowDna = null;
 let bgcWorkflowDnaLoading = false;
 let bgcWorkflowPendingPayload = null;
@@ -117,11 +97,363 @@ let clusterweaveGameEpoch = 0;
 let clusterweaveGameDnaSuspended = false;
 let bgcWorkflowDnaGenomeLayerSuspended = false;
 let clusterweaveGameAdapterWired = false;
-let genomeProgressSnapshotKey = '';
-let genomeProgressSnapshot = new Map();
+let clusterweaveGameAssetsPromise = null;
+let clusterweaveGamePendingHost = null;
+let clusterweaveGameDemandWired = false;
+let clusterweaveGameConnectionState = navigator.onLine === false ? 'browser-offline' : 'connected';
 
 const GSAP_BROWSER_PATH = 'vendor/gsap-3.15.0/gsap.min.js';
 const WORKFLOW_DNA_MODULE_PATH = new URL('assets/workflow-dna-progress.js?v=20260713-fanout-ui1', window.location.href).toString();
+const API_RESULT_MODULE_PATH = new URL('assets/api-result-boundary.js?v=20260725-r12a1', window.location.href).toString();
+const RESULT_READER_MODULE_PATH = new URL('assets/result-reader-boundary.js?v=20260727-r12e1', window.location.href).toString();
+const INTAKE_TAXON_MODULE_PATH = new URL('assets/intake-taxon-boundary.js?v=20260727-r12f1-upload-copy1', window.location.href).toString();
+const JOB_LIFECYCLE_MODULE_PATH = new URL('assets/job-lifecycle-boundary.js?v=20260727-r12g1', window.location.href).toString();
+const PROGRESS_TREE_MODULE_PATH = new URL('assets/progress-tree.js?v=20260730-stage-tree2', window.location.href).toString();
+const PROGRESS_TREE_CONTRACT_PATH = new URL('assets/progress-tree-contract.json?v=20260730-stage-tree2', window.location.href).toString();
+const DIAGNOSTICS_ACCESS_MODULE_PATH = new URL('assets/diagnostics-access-boundary.js?v=20260727-r12h1', window.location.href).toString();
+const MOTION_MODULE_PATH = new URL('assets/motion-boundary.js?v=20260727-r12h1', window.location.href).toString();
+const CLUSTERWEAVE_GAME_ASSET_SELECTOR = 'meta[name="clusterweave-game-asset"]';
+let apiResultBoundary = null;
+let resultReaderBoundary = null;
+let intakeTaxonBoundary = null;
+let intakeControllerBoundary = null;
+let jobLifecycleBoundary = null;
+let jobLifecycleControllerBoundary = null;
+let diagnosticsAccessBoundary = null;
+let diagnosticsControllerBoundary = null;
+let motionBoundary = null;
+const progressTreeConsolePromise = Promise.all([
+  import(PROGRESS_TREE_MODULE_PATH),
+  fetch(PROGRESS_TREE_CONTRACT_PATH, { cache: 'no-store' }).then(response => {
+    if (!response.ok) throw new Error('Progress-tree contract is unavailable');
+    return response.json();
+  }),
+]).then(([module, contract]) => module.createProgressTreeConsole({
+  documentImpl: document,
+  contract,
+  createRawLineElement: text => createLogLineElement(text),
+}));
+const resultReaderState = {
+  get activeJobId() { return activeJobId; },
+  set activeJobId(value) { activeJobId = value; },
+  get activeJobMeta() { return activeJobMeta; },
+  set activeJobMeta(value) { activeJobMeta = value; },
+  get activeResultArtifactById() { return activeResultArtifactById; },
+  set activeResultArtifactById(value) { activeResultArtifactById = value; },
+  get activeResultArtifactByKey() { return activeResultArtifactByKey; },
+  set activeResultArtifactByKey(value) { activeResultArtifactByKey = value; },
+  get activeResultArtifacts() { return activeResultArtifacts; },
+  set activeResultArtifacts(value) { activeResultArtifacts = value; },
+  get activeResultCategory() { return activeResultCategory; },
+  set activeResultCategory(value) { activeResultCategory = value; },
+  get activeResultFiles() { return activeResultFiles; },
+  set activeResultFiles(value) { activeResultFiles = value; },
+  get activeResultPackageFileCount() { return activeResultPackageFileCount; },
+  set activeResultPackageFileCount(value) { activeResultPackageFileCount = value; },
+  get resultDashboardOpen() { return resultDashboardOpen; },
+  set resultDashboardOpen(value) { resultDashboardOpen = value; },
+  get resultFocusMode() { return resultFocusMode; },
+  set resultFocusMode(value) { resultFocusMode = value; },
+};
+const intakeControllerState = {
+  get selectedFiles() { return selectedFiles; },
+  set selectedFiles(value) { selectedFiles = value; },
+  get acceptedManualAccessions() { return acceptedManualAccessions; },
+  set acceptedManualAccessions(value) { acceptedManualAccessions = value; },
+  get accessionFileSources() { return accessionFileSources; },
+  set accessionFileSources(value) { accessionFileSources = value; },
+  get accessionFileSourceSerial() { return accessionFileSourceSerial; },
+  set accessionFileSourceSerial(value) { accessionFileSourceSerial = value; },
+  get genomeCheckCache() { return genomeCheckCache; },
+  set genomeCheckCache(value) { genomeCheckCache = value; },
+  get genbankTaxonomyAuthorityCache() { return genbankTaxonomyAuthorityCache; },
+  set genbankTaxonomyAuthorityCache(value) { genbankTaxonomyAuthorityCache = value; },
+  get brutalInputNotices() { return brutalInputNotices; },
+  set brutalInputNotices(value) { brutalInputNotices = value; },
+  get stagedAnalysisScope() { return stagedAnalysisScope; },
+  set stagedAnalysisScope(value) { stagedAnalysisScope = value; },
+  get stagedTaxonAssignments() { return stagedTaxonAssignments; },
+  set stagedTaxonAssignments(value) { stagedTaxonAssignments = value; },
+  get stagedTaxonAssignmentSources() { return stagedTaxonAssignmentSources; },
+  set stagedTaxonAssignmentSources(value) { stagedTaxonAssignmentSources = value; },
+  get taxonAssignmentSidecar() { return taxonAssignmentSidecar; },
+  set taxonAssignmentSidecar(value) { taxonAssignmentSidecar = value; },
+  get taxonAssignmentSidecarIssues() { return taxonAssignmentSidecarIssues; },
+  set taxonAssignmentSidecarIssues(value) { taxonAssignmentSidecarIssues = value; },
+  get validatedIntakeSignature() { return validatedIntakeSignature; },
+  set validatedIntakeSignature(value) { validatedIntakeSignature = value; },
+  get publicQuota() { return publicQuota; },
+  set publicQuota(value) { publicQuota = value; },
+  get runtimeStatusSnapshot() { return runtimeStatusSnapshot; },
+  get smtpEnabled() { return smtpEnabled; },
+  get publicResultRunIds() { return publicResultRunIds; },
+};
+const jobLifecycleControllerState = {
+  get activeJobId() { return activeJobId; },
+  set activeJobId(value) { activeJobId = value; },
+  get activeJobMeta() { return activeJobMeta; },
+  set activeJobMeta(value) { activeJobMeta = value; },
+  get activePublicRunId() { return activePublicRunId; },
+  set activePublicRunId(value) { activePublicRunId = value; },
+  get activeResultArtifactById() { return activeResultArtifactById; },
+  set activeResultArtifactById(value) { activeResultArtifactById = value; },
+  get activeResultArtifactByKey() { return activeResultArtifactByKey; },
+  set activeResultArtifactByKey(value) { activeResultArtifactByKey = value; },
+  get activeResultArtifacts() { return activeResultArtifacts; },
+  set activeResultArtifacts(value) { activeResultArtifacts = value; },
+  get activeResultCategory() { return activeResultCategory; },
+  set activeResultCategory(value) { activeResultCategory = value; },
+  get activeResultFiles() { return activeResultFiles; },
+  set activeResultFiles(value) { activeResultFiles = value; },
+  get activeResultPackageFileCount() { return activeResultPackageFileCount; },
+  set activeResultPackageFileCount(value) { activeResultPackageFileCount = value; },
+  get activeStageState() { return activeStageState; },
+  set activeStageState(value) { activeStageState = value; },
+  get bgcWorkflowDna() { return bgcWorkflowDna; },
+  set bgcWorkflowDna(value) { bgcWorkflowDna = value; },
+  get bgcWorkflowDnaLoading() { return bgcWorkflowDnaLoading; },
+  set bgcWorkflowDnaLoading(value) { bgcWorkflowDnaLoading = value; },
+  get bgcWorkflowPendingPayload() { return bgcWorkflowPendingPayload; },
+  set bgcWorkflowPendingPayload(value) { bgcWorkflowPendingPayload = value; },
+  get clusterweaveGameEpoch() { return clusterweaveGameEpoch; },
+  set clusterweaveGameEpoch(value) { clusterweaveGameEpoch = value; },
+  get gsapMotion() { return gsapMotion; },
+  set gsapMotion(value) { gsapMotion = value; },
+  get jobHistoryById() { return jobHistoryById; },
+  set jobHistoryById(value) { jobHistoryById = value; },
+  get jobHistoryInFlight() { return jobHistoryInFlight; },
+  set jobHistoryInFlight(value) { jobHistoryInFlight = value; },
+  get jobLoadSeq() { return jobLoadSeq; },
+  set jobLoadSeq(value) { jobLoadSeq = value; },
+  get lastJobHistoryRenderKey() { return lastJobHistoryRenderKey; },
+  set lastJobHistoryRenderKey(value) { lastJobHistoryRenderKey = value; },
+  get lastSubmittedRun() { return lastSubmittedRun; },
+  set lastSubmittedRun(value) { lastSubmittedRun = value; },
+  get logCursor() { return logCursor; },
+  set logCursor(value) { logCursor = value; },
+  get logGeneration() { return logGeneration; },
+  set logGeneration(value) { logGeneration = value; },
+  get logHydratedJobId() { return logHydratedJobId; },
+  set logHydratedJobId(value) { logHydratedJobId = value; },
+  get logHydrationInFlight() { return logHydrationInFlight; },
+  set logHydrationInFlight(value) { logHydrationInFlight = value; },
+  get logTotal() { return logTotal; },
+  set logTotal(value) { logTotal = value; },
+  get logWindowStart() { return logWindowStart; },
+  set logWindowStart(value) { logWindowStart = value; },
+  get pendingReadTokens() { return pendingReadTokens; },
+  set pendingReadTokens(value) { pendingReadTokens = value; },
+  get pollTimerId() { return pollTimerId; },
+  set pollTimerId(value) { pollTimerId = value; },
+  get publicResultRunIds() { return publicResultRunIds; },
+  set publicResultRunIds(value) { publicResultRunIds = value; },
+  get rerunScopeOpenJobId() { return rerunScopeOpenJobId; },
+  set rerunScopeOpenJobId(value) { rerunScopeOpenJobId = value; },
+  get resultDashboardOpen() { return resultDashboardOpen; },
+  set resultDashboardOpen(value) { resultDashboardOpen = value; },
+  get runStackDismissalWired() { return runStackDismissalWired; },
+  set runStackDismissalWired(value) { runStackDismissalWired = value; },
+  get runStackOpen() { return runStackOpen; },
+  set runStackOpen(value) { runStackOpen = value; },
+  get stageTickerId() { return stageTickerId; },
+  set stageTickerId(value) { stageTickerId = value; },
+  get weaveActivity() { return weaveActivity; },
+  set weaveActivity(value) { weaveActivity = value; },
+};
+const diagnosticsControllerState = {
+  get runtimeStatusSnapshot() { return runtimeStatusSnapshot; },
+  set runtimeStatusSnapshot(value) { runtimeStatusSnapshot = value; },
+  get runtimeCapabilities() { return runtimeCapabilities; },
+  set runtimeCapabilities(value) { runtimeCapabilities = value; },
+  get lastWorkerTelemetry() { return lastWorkerTelemetry; },
+  set lastWorkerTelemetry(value) { lastWorkerTelemetry = value; },
+  get workerStatus() { return workerStatus; },
+  set workerStatus(value) { workerStatus = value; },
+  get activeJobMeta() { return activeJobMeta; },
+  set activeJobMeta(value) { activeJobMeta = value; },
+  get activeResultFiles() { return activeResultFiles; },
+  set activeResultFiles(value) { activeResultFiles = value; },
+  get activeJobId() { return activeJobId; },
+  set activeJobId(value) { activeJobId = value; },
+  get rerunScopeOpenJobId() { return rerunScopeOpenJobId; },
+  set rerunScopeOpenJobId(value) { rerunScopeOpenJobId = value; },
+  get jobHistoryById() { return jobHistoryById; },
+  set jobHistoryById(value) { jobHistoryById = value; },
+  get logCursor() { return logCursor; },
+  set logCursor(value) { logCursor = value; },
+  get activeStageState() { return activeStageState; },
+  set activeStageState(value) { activeStageState = value; },
+  get lastJobHistoryRenderKey() { return lastJobHistoryRenderKey; },
+  set lastJobHistoryRenderKey(value) { lastJobHistoryRenderKey = value; },
+  get systemPollTimer() { return systemPollTimer; },
+  set systemPollTimer(value) { systemPollTimer = value; },
+};
+const motionBoundaryState = {
+  get activeJobMeta() { return activeJobMeta; },
+  get resultFocusMode() { return resultFocusMode; },
+};
+const jobLifecycleBoundaryInstalled = new Promise((resolve, reject) => {
+  window.__clusterweaveInstallJobLifecycleBoundary = (createJobLifecycleBoundary, createJobLifecycleControllerBoundary) => {
+    jobLifecycleBoundary = createJobLifecycleBoundary({
+      escapeHtml,
+      getActiveJobId: () => activeJobId,
+      getCurrentJobSequence: () => jobLoadSeq,
+      documentImpl: document,
+      stages: STAGES,
+      transientJobPoll: TRANSIENT_JOB_POLL,
+      pollBaseDelayMs: JOB_POLL_BASE_DELAY_MS,
+      pollRetryDelayMs: JOB_POLL_RETRY_DELAY_MS,
+      pollLongLogDelayMs: JOB_POLL_LONG_LOG_DELAY_MS,
+      pollLongLogThreshold: JOB_POLL_LONG_LOG_THRESHOLD,
+    });
+    jobLifecycleControllerBoundary = createJobLifecycleControllerBoundary({
+      state: jobLifecycleControllerState,
+      lifecyclePolicy: jobLifecycleBoundary,
+      capabilities: {
+        activeAnalysisCapabilities,
+        adoptPublicRunIdentity,
+        animateLaunchTransition,
+        apiFetch,
+        canUseAdminSurfaces,
+        diagnosticRerunDisclosureId,
+        dismissSubmissionConfirmation,
+        envToBool,
+        escapeHtml,
+        escapeJsString,
+        loadOpenedRuns,
+        loadResults,
+        navigateToSection,
+        normalizedResultPath,
+        openOpsPanel,
+        pollSystemStatus,
+        publicRunIdForJob,
+        readTokenForJob,
+        rememberClusterweaveGameConnectionState,
+        rememberOpenedRun,
+        renderDiagnosticRerunRail,
+        renderOpenedRuns,
+        renderQaDrawer,
+        renderWeaveHelix,
+        rerunStageAllowed,
+        resetToIdleWorkbench,
+        scrollElementToBottom,
+        setActiveSavedAnalysisContext,
+        setBgcWorkflowAggregatePresentationSuspended,
+        setBgcWorkflowGenomeLayerSuspended,
+        setDrawerText,
+        setResultFocusMode,
+        setResultsPanelCollapsed,
+        setUIMode,
+        shouldPreserveResultsDashboardForJobLoad,
+        showEmptyResults,
+        showResultsShell,
+        syncBgcWorkflowDnaSuspension,
+        syncClusterweaveGameHost,
+        syncOpsTabs,
+        toggleJobRerunScope,
+        updateDiagnosticRerunSubmit,
+        activeOpsTab: () => diagnosticsAccessBoundary.activeOpsTab(),
+        currentUIMode: () => diagnosticsAccessBoundary.currentUIMode(),
+      },
+      qaLogPageSize: QA_LOG_PAGE_SIZE,
+      stages: STAGES,
+      stageRuntimeHints: STAGE_RUNTIME_HINTS,
+      workflowProgressWeights: WORKFLOW_PROGRESS_WEIGHTS,
+      stageDetails: STAGE_DETAILS,
+      pollBaseDelayMs: JOB_POLL_BASE_DELAY_MS,
+      pollTimeoutMs: JOB_POLL_TIMEOUT_MS,
+      initialLoadTimeoutMs: JOB_INITIAL_LOAD_TIMEOUT_MS,
+      transientJobPoll: TRANSIENT_JOB_POLL,
+      workflowDnaModulePath: WORKFLOW_DNA_MODULE_PATH,
+      progressTreeConsolePromise,
+    });
+    delete window.__clusterweaveInstallJobLifecycleBoundary;
+    resolve();
+  };
+  const script = document.createElement('script');
+  script.type = 'module';
+  script.src = JOB_LIFECYCLE_MODULE_PATH;
+  script.addEventListener('error', reject, { once: true });
+  document.head.appendChild(script);
+});
+const diagnosticsAccessBoundaryInstalled = new Promise((resolve, reject) => {
+  window.__clusterweaveInstallDiagnosticsAccessBoundary = (createBoundary, createControllerBoundary) => {
+    diagnosticsAccessBoundary = createBoundary({
+      documentImpl: document,
+      windowImpl: window,
+      canUseAdminSurfaces,
+      setCardCollapsed,
+      hydrateQaLogs,
+      shouldTailQaLogs: () => logHydratedJobId !== activeJobId,
+      refreshJobHistory,
+      pollSystemStatus,
+      renderRerunPanel,
+      activeJob: () => ({ jobId: activeJobId, job: activeJobMeta }),
+      cssAttributeValue,
+      animateOpsPanelToggle,
+    });
+    diagnosticsControllerBoundary = createControllerBoundary({
+      document,
+      window,
+      state: diagnosticsControllerState,
+      stages: STAGES,
+      capabilities: {
+        animateRerunPanelOpen,
+        animateRerunPanelReady,
+        animateRerunQueued,
+        apiFetch,
+        canUseAdminSurfaces,
+        escapeHtml,
+        escapeJsString,
+        fetchSystemStatus,
+        isFullSystemStatus,
+        jobCanRerun,
+        jobProjectName,
+        jobStageDisplay,
+        jobStageEnabled,
+        loadJob,
+        normalizedResultPath,
+        openOpsPanel,
+        refreshJobHistory,
+        renderJobHistory,
+        rerunPayloadFromStages,
+        rerunPayloadHasStages,
+        rerunStageAllowed,
+        rerunStageKeysForJob,
+        statusLabel,
+        switchOpsTab,
+        updateRuntimeStatusChip,
+      },
+    });
+    delete window.__clusterweaveInstallDiagnosticsAccessBoundary;
+    resolve();
+  };
+  const script = document.createElement('script');
+  script.type = 'module';
+  script.src = DIAGNOSTICS_ACCESS_MODULE_PATH;
+  script.addEventListener('error', reject, { once: true });
+  document.head.appendChild(script);
+});
+const motionBoundaryInstalled = new Promise((resolve, reject) => {
+  window.__clusterweaveInstallMotionBoundary = createBoundary => {
+    motionBoundary = createBoundary({
+      document,
+      window,
+      state: motionBoundaryState,
+      gsapMotion,
+      retiredMotionStorageKeys: RETIRED_MOTION_STORAGE_KEYS,
+      gsapBrowserPath: GSAP_BROWSER_PATH,
+      renderWeaveHelix,
+    });
+    delete window.__clusterweaveInstallMotionBoundary;
+    resolve();
+  };
+  const script = document.createElement('script');
+  script.type = 'module';
+  script.src = MOTION_MODULE_PATH;
+  script.addEventListener('error', reject, { once: true });
+  document.head.appendChild(script);
+});
 const JOB_POLL_BASE_DELAY_MS = 1500;
 const JOB_POLL_RETRY_DELAY_MS = 3000;
 const JOB_POLL_LONG_LOG_DELAY_MS = 3000;
@@ -193,19 +525,6 @@ const WORKFLOW_PROGRESS_WEIGHTS = {
   nplinker: 0.04,
 };
 
-const GENOME_PROGRESS_TERMINAL_STATES = new Set([
-  'complete', 'completed', 'done', 'success', 'succeeded',
-  'complete_with_warning',
-  'warning', 'dropped', 'failed', 'error', 'skipped',
-  'not_applicable', 'not_applicable_taxon', 'not-applicable', 'not applicable',
-]);
-const GENOME_PROGRESS_WARNING_STATES = new Set([
-  'complete_with_warning', 'warning', 'dropped', 'failed', 'error',
-]);
-const GENOME_PROGRESS_ACTIVE_STATES = new Set([
-  'running', 'active', 'processing',
-]);
-
 const STAGE_DETAILS = {
   prep: {
     name: 'Prep',
@@ -269,11 +588,6 @@ const NAV_TARGETS = {
 };
 
 
-/* Repo-layout string-contract compatibility for hidden/Alt06-adapted surfaces:
-   class="stage-card bgc-stage-card ${escapeHtml(step.status)}"
-   data-bgc-stage="${escapeHtml(step.id)}"
-   class="job-rerun${rerunOpen ? ' active' : ''}"
-*/
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 function setCardCollapsed(id, collapsed) {
@@ -283,140 +597,17 @@ function setCardCollapsed(id, collapsed) {
   if (hdr) hdr.classList.toggle('collapsed', collapsed);
 }
 
-const OPS_TABS = ['jobs', 'worker', 'qa'];
-const OPS_TAB_PANEL_IDS = { jobs: 'jobs-card', worker: 'console-card', qa: 'progress-card' };
-
-function setOpsPanelCollapsed(collapsed) {
-  const isCollapsed = !!collapsed;
-  document.body.dataset.opsPanel = isCollapsed ? 'collapsed' : 'open';
-  const panel = document.getElementById('ops-side-panel');
-  if (panel) panel.setAttribute('aria-hidden', isCollapsed ? 'true' : 'false');
-  const toggle = document.getElementById('ops-panel-toggle');
-  if (!toggle) return;
-  const label = isCollapsed ? 'Open diagnostics drawer' : 'Close diagnostics drawer';
-  toggle.setAttribute('aria-expanded', isCollapsed ? 'false' : 'true');
-  toggle.setAttribute('aria-label', label);
-  toggle.setAttribute('title', label);
-  const icon = toggle.querySelector('[data-ops-toggle-icon]');
-  if (icon) icon.textContent = '▲';
-  const srLabel = toggle.querySelector('[data-ops-toggle-label]');
-  if (srLabel) srLabel.textContent = label;
-}
-
-function ensureOpsPanelToggle() {
-  if (document.getElementById('ops-panel-toggle')) return;
-  const panel = document.getElementById('ops-side-panel');
-  if (!panel?.parentElement) return;
-  if (panel.parentElement !== document.body) document.body.appendChild(panel);
-  const toggle = document.createElement('button');
-  toggle.className = 'ops-panel-toggle admin-only';
-  toggle.id = 'ops-panel-toggle';
-  toggle.type = 'button';
-  toggle.setAttribute('aria-controls', 'ops-side-panel');
-  toggle.innerHTML = '<span class="ops-panel-toggle-icon" data-ops-toggle-icon>▲</span>';
-  toggle.addEventListener('click', toggleOpsPanel);
-  document.body.insertBefore(toggle, panel);
-  setOpsPanelCollapsed(document.body.dataset.opsPanel !== 'open');
-  syncOpsTabs();
-}
-
-function removeOpsPanelToggle() {
-  document.getElementById('ops-panel-toggle')?.remove();
-  setOpsPanelCollapsed(true);
-}
-
-function activeOpsPanelElement() {
-  return document.getElementById(OPS_TAB_PANEL_IDS[activeOpsTab] || OPS_TAB_PANEL_IDS.jobs);
-}
-
-function syncOpsTabs() {
-  const selectedTab = OPS_TABS.includes(activeOpsTab) ? activeOpsTab : 'jobs';
-  activeOpsTab = selectedTab;
-  document.body.dataset.opsTab = selectedTab;
-  document.querySelectorAll('.ops-nav-button[data-ops-tab]').forEach(button => {
-    const active = button.dataset.opsTab === selectedTab;
-    button.classList.toggle('active', active);
-    button.setAttribute('aria-selected', active ? 'true' : 'false');
-    button.setAttribute('aria-pressed', active ? 'true' : 'false');
-    button.tabIndex = active ? 0 : -1;
-  });
-  OPS_TABS.forEach(tab => {
-    const panel = document.getElementById(OPS_TAB_PANEL_IDS[tab]);
-    if (!panel) return;
-    const active = tab === selectedTab;
-    panel.hidden = !active;
-    panel.classList.toggle('ops-tab-active', active);
-    if (tab === 'qa') panel.classList.toggle('hidden', !active || !canUseAdminSurfaces());
-  });
-}
-
-function switchOpsTab(tab, options = {}) {
-  if (!canUseAdminSurfaces()) return;
-  const next = OPS_TABS.includes(tab) ? tab : 'jobs';
-  activeOpsTab = next;
-  syncOpsTabs();
-  if (next === 'qa') {
-    void hydrateQaLogs({ tail: logHydratedJobId !== activeJobId, autoScroll: true });
-  }
-  if (next === 'jobs') refreshJobHistory();
-  if (next === 'worker') pollSystemStatus();
-  if (next === 'rerun') renderRerunPanel(activeJobId, activeJobMeta);
-  if (options.focus !== false) {
-    const target = options.focusPanel ? activeOpsPanelElement() : document.querySelector(`.ops-nav-button[data-ops-tab="${cssAttributeValue(next)}"]`);
-    window.requestAnimationFrame(() => target?.focus?.({ preventScroll: true }));
-  }
-}
-
-function handleOpsTabKeydown(event) {
-  const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End'];
-  if (!keys.includes(event.key)) return;
-  event.preventDefault();
-  const current = OPS_TABS.indexOf(activeOpsTab);
-  let next = current >= 0 ? current : 0;
-  if (event.key === 'ArrowLeft') next = (next + OPS_TABS.length - 1) % OPS_TABS.length;
-  if (event.key === 'ArrowRight') next = (next + 1) % OPS_TABS.length;
-  if (event.key === 'Home') next = 0;
-  if (event.key === 'End') next = OPS_TABS.length - 1;
-  switchOpsTab(OPS_TABS[next]);
-}
-
-function openOpsPanel(options = {}) {
-  if (!canUseAdminSurfaces()) return;
-  lastOpsPanelFocus = options.returnFocus || document.activeElement || document.getElementById('ops-panel-toggle');
-  setOpsPanelCollapsed(false);
-  if (options.tab) activeOpsTab = OPS_TABS.includes(options.tab) ? options.tab : activeOpsTab;
-  syncOpsTabs();
-  animateOpsPanelToggle(true);
-  const focusTarget = options.focusPanel ? activeOpsPanelElement() : document.querySelector(`.ops-nav-button[data-ops-tab="${cssAttributeValue(activeOpsTab)}"]`);
-  window.requestAnimationFrame(() => focusTarget?.focus?.({ preventScroll: true }));
-}
-
-function closeOpsPanel(options = {}) {
-  setOpsPanelCollapsed(true);
-  animateOpsPanelToggle(false);
-  if (options.returnFocus !== false) {
-    const fallback = document.getElementById('ops-panel-toggle');
-    const target = lastOpsPanelFocus && lastOpsPanelFocus.isConnected ? lastOpsPanelFocus : fallback;
-    window.requestAnimationFrame(() => target?.focus?.({ preventScroll: true }));
-  }
-}
-
-function toggleOpsPanel() {
-  if (!canUseAdminSurfaces()) return;
-  if (document.body.dataset.opsPanel === 'collapsed') openOpsPanel({ returnFocus: document.getElementById('ops-panel-toggle') });
-  else closeOpsPanel({ returnFocus: true });
-}
-
-function wireOpsPanelKeyboard() {
-  if (opsPanelKeyboardWired) return;
-  opsPanelKeyboardWired = true;
-  document.addEventListener('keydown', event => {
-    if (event.key !== 'Escape') return;
-    if (!canUseAdminSurfaces() || document.body.dataset.opsPanel !== 'open') return;
-    event.preventDefault();
-    closeOpsPanel({ returnFocus: true });
-  });
-}
+function setOpsPanelCollapsed(collapsed) { return diagnosticsAccessBoundary.setOpsPanelCollapsed(collapsed); }
+function ensureOpsPanelToggle() { return diagnosticsAccessBoundary.ensureOpsPanelToggle(); }
+function removeOpsPanelToggle() { return diagnosticsAccessBoundary.removeOpsPanelToggle(); }
+function activeOpsPanelElement() { return diagnosticsAccessBoundary.activeOpsPanelElement(); }
+function syncOpsTabs() { return diagnosticsAccessBoundary.syncOpsTabs(); }
+function switchOpsTab(tab, options = {}) { return diagnosticsAccessBoundary.switchOpsTab(tab, options); }
+function handleOpsTabKeydown(event) { return diagnosticsAccessBoundary.handleOpsTabKeydown(event); }
+function openOpsPanel(options = {}) { return diagnosticsAccessBoundary.openOpsPanel(options); }
+function closeOpsPanel(options = {}) { return diagnosticsAccessBoundary.closeOpsPanel(options); }
+function toggleOpsPanel() { return diagnosticsAccessBoundary.toggleOpsPanel(); }
+function wireOpsPanelKeyboard() { return diagnosticsAccessBoundary.wireOpsPanelKeyboard(); }
 
 function panelResizeConfig(kind) {
   if (kind === 'result') {
@@ -561,38 +752,13 @@ function wirePanelResizers() {
 }
 
 function scheduleDnaOverlaySync() {
-  // Alt06 mounts workflow progress through BGC WORKFLOW STATION.
 }
 
-function setUIMode(mode, options = {}) {
-  if (accessMode === 'public' && mode !== 'guided') mode = 'guided';
-  const normalized = ['guided', 'lab', 'advanced'].includes(mode) ? mode : 'guided';
-  currentUIMode = normalized;
-  document.body.dataset.uiMode = normalized;
-  document.querySelectorAll('[data-mode-option]').forEach(btn => {
-    const active = btn.dataset.modeOption === normalized;
-    btn.classList.toggle('active', active);
-    btn.setAttribute('aria-pressed', active ? 'true' : 'false');
-  });
-
-  const workflowControls = document.getElementById('workflow-controls');
-  const advancedPanel = document.getElementById('advanced-panel');
-  if (normalized === 'advanced') {
-    if (workflowControls) workflowControls.open = true;
-    if (advancedPanel) advancedPanel.open = true;
-  } else if (normalized === 'lab') {
-    if (workflowControls) workflowControls.open = true;
-    if (advancedPanel && !options.keepAdvancedOpen) advancedPanel.open = false;
-    setCardCollapsed('console-card', false);
-  } else if (!options.preserveDisclosure) {
-    if (workflowControls) workflowControls.open = false;
-    if (advancedPanel) advancedPanel.open = false;
-  }
-}
+function setUIMode(mode, options = {}) { return diagnosticsAccessBoundary.setUIMode(mode, { ...options, accessMode }); }
 
 function setAccessMode(mode) {
   const hadAdminSurfaces = canUseAdminSurfaces();
-  accessMode = ['public', 'admin', 'local'].includes(mode) ? mode : 'public';
+  accessMode = diagnosticsAccessBoundary.normalizeAccessMode(mode);
   document.body.dataset.access = accessMode;
   if (canUseAdminSurfaces()) {
     ensureOpsPanelToggle();
@@ -656,7 +822,7 @@ function effectiveCheckboxValue(id, publicFallback = true) {
 }
 
 function effectiveCpuCount() {
-  if (publicWorkflowLocked()) return PUBLIC_CANONICAL_CPUS;
+  if (publicWorkflowLocked()) return publicQuotaLimits().max_cpus_per_job;
   return parseInt(document.getElementById('cpus')?.value || '4', 10) || 4;
 }
 
@@ -686,10 +852,11 @@ function applyPublicCanonicalDefaults() {
     }
   });
   if (!publicWorkflowLocked()) return;
+  const canonicalCpus = effectiveCpuCount();
   const cpus = document.getElementById('cpus');
-  if (cpus) cpus.value = String(PUBLIC_CANONICAL_CPUS);
+  if (cpus) cpus.value = String(canonicalCpus);
   const annoCpus = document.getElementById('anno-cpus');
-  if (annoCpus) annoCpus.value = String(PUBLIC_CANONICAL_CPUS);
+  if (annoCpus) annoCpus.value = String(canonicalCpus);
   const genefinding = document.getElementById('genefinding-mode');
   if (genefinding) genefinding.value = 'auto';
   const fallbackOrder = document.getElementById('annotation-fallback-order');
@@ -743,7 +910,6 @@ function shouldOpenResultDashboardDuringRefresh(files = activeResultFiles, job =
 }
 
 function closePrimaryNav() {
-  // Alt06 has no primary navigation drawer.
 }
 
 function togglePrimaryNav() {
@@ -795,6 +961,7 @@ function wireDocsDisclosure() {
     let lastFocus = null;
     const setOpen = (open, returnFocus = true) => {
       if (open) {
+        switchToolCreditTab('support');
         lastFocus = document.activeElement;
         overlay.hidden = false;
         document.body.dataset.docsDisclosure = 'open';
@@ -920,7 +1087,7 @@ function navigateToSection(event, target, focusId = null) {
     return;
   }
   if (canUseAdminSurfaces() && target === 'qa') {
-    if (currentUIMode === 'guided') setUIMode('lab', { preserveDisclosure: true });
+    if (diagnosticsAccessBoundary.currentUIMode() === 'guided') setUIMode('lab', { preserveDisclosure: true });
     openOpsPanel({ tab: 'qa', focusPanel: true });
     return;
   }
@@ -985,181 +1152,16 @@ function captureInitialResultHash() {
   return parsed;
 }
 
-function runtimeMetricText(value, fallback = 'Not available') {
-  if (value === null || value === undefined || value === '') return fallback;
-  if (typeof value === 'number' && Number.isFinite(value)) return value.toLocaleString();
-  const raw = String(value).trim();
-  if (/^\d+$/.test(raw)) return Number(raw).toLocaleString();
-  return raw || fallback;
-}
-
-function setRuntimePanelValue(id, value) {
-  const el = document.getElementById(id);
-  if (el) el.textContent = value;
-}
-
-function updateRuntimeStatusPanel(system = null, counts = {}) {
-  const hasSystem = system && typeof system === 'object';
-  const fullStatus = isFullSystemStatus(system);
-  const server = hasSystem
-    ? (system.service || system.state || (system.online === false ? 'offline' : 'online'))
-    : runtimeStatusSnapshot.server;
-  const submissions = hasSystem
-    ? (system.submissions || (system.submissions_open === true ? 'open' : system.submissions_open === false ? 'paused' : runtimeStatusSnapshot.submissions))
-    : runtimeStatusSnapshot.submissions;
-  const jobsProcessed = hasSystem && Object.prototype.hasOwnProperty.call(system, 'jobs_processed')
-    ? system.jobs_processed
-    : runtimeStatusSnapshot.jobsProcessed;
-  const runningJobs = Object.prototype.hasOwnProperty.call(counts, 'runningJobs')
-    ? counts.runningJobs
-    : (hasSystem && Object.prototype.hasOwnProperty.call(system, 'running_jobs') ? system.running_jobs : runtimeStatusSnapshot.runningJobs);
-  const queuedJobs = Object.prototype.hasOwnProperty.call(counts, 'queuedJobs')
-    ? counts.queuedJobs
-    : (hasSystem && Object.prototype.hasOwnProperty.call(system, 'queued_jobs') ? system.queued_jobs : runtimeStatusSnapshot.queuedJobs);
-  const diagnosticsVisible = canUseAdminSurfaces() && (fullStatus || Object.keys(counts).length > 0);
-
-  runtimeStatusSnapshot = {
-    server: runtimeMetricText(server, 'Checking'),
-    submissions: runtimeMetricText(submissions, 'Checking'),
-    runningJobs,
-    queuedJobs,
-    jobsProcessed,
-    scope: diagnosticsVisible ? 'diagnostics' : 'public',
-  };
-
-  setRuntimePanelValue('public-impact-server', runtimeStatusSnapshot.server);
-  setRuntimePanelValue('public-impact-running', runtimeMetricText(runningJobs, '0'));
-  setRuntimePanelValue('public-impact-queued', runtimeMetricText(queuedJobs, '0'));
-  setRuntimePanelValue('public-impact-completed', runtimeMetricText(jobsProcessed, '0'));
-  setRuntimePanelValue('runtime-server-status', runtimeStatusSnapshot.server);
-  setRuntimePanelValue('runtime-submissions-status', runtimeStatusSnapshot.submissions);
-  setRuntimePanelValue('runtime-jobs-processed', runtimeMetricText(jobsProcessed));
-  setRuntimePanelValue(
-    'runtime-running-jobs',
-    diagnosticsVisible ? runtimeMetricText(runningJobs, '0') : ''
-  );
-  setRuntimePanelValue(
-    'runtime-queued-jobs',
-    diagnosticsVisible ? runtimeMetricText(queuedJobs, '0') : ''
-  );
-  const note = document.getElementById('runtime-visibility-note');
-  if (note) {
-    note.textContent = diagnosticsVisible
-      ? 'Diagnostics view: queue depth is shown from worker telemetry.'
-      : '';
-  }
-}
-
-function setDrawerText(id, value) {
-  const el = document.getElementById(id);
-  if (el) el.textContent = value;
-}
-
-function pluralizeCount(count, noun) {
-  const n = Number(count || 0);
-  return `${n.toLocaleString()} ${noun}${n === 1 ? '' : 's'}`;
-}
-
-function capabilityEnabled(value) {
-  if (value === false || value === null || value === undefined) return false;
-  if (typeof value === 'object') {
-    if (value.enabled === false || value.available === false || value.disabled === true) return false;
-  }
-  return true;
-}
-
-function capabilityStageSummary(capabilities = runtimeCapabilities) {
-  const stages = capabilities && typeof capabilities === 'object' ? capabilities.stages : null;
-  if (!stages || typeof stages !== 'object') return 'Stage policy pending';
-  const entries = Object.entries(stages);
-  const enabled = entries.filter(([, value]) => capabilityEnabled(value));
-  return `${enabled.length}/${entries.length || enabled.length} stages available`;
-}
-
-function runtimePolicyLabel(system = null) {
-  const runtime = (system && system.runtime) || {};
-  const caps = (system && system.capabilities) || runtimeCapabilities || {};
-  const mode = runtime.mode || caps.mode || system?.mode || 'hosted';
-  const engine = runtime.engine || caps.engine || system?.engine || 'auto';
-  return `${mode} / ${engine}`;
-}
-
-function renderWorkerDrawer(system = null, jobs = null, meta = {}) {
-  const summary = document.getElementById('worker-drawer-summary');
-  if (!summary) return;
-  const list = Array.isArray(jobs) ? jobs : [];
-  const hasMeta = key => Object.prototype.hasOwnProperty.call(meta, key);
-  const listRunning = list.filter(job => ['running', 'processing'].includes(String(job.status || job.state || job.pipeline_state || '').toLowerCase())).length;
-  const listPending = list.filter(job => String(job.status || job.state || '').toLowerCase() === 'pending').length;
-  const runningCount = hasMeta('runningCount') ? Number(meta.runningCount || 0) : Math.max(listRunning, Number(system?.running_jobs || 0), Number(lastWorkerTelemetry.runningCount || 0));
-  const pendingCount = hasMeta('pendingCount') ? Number(meta.pendingCount || 0) : Math.max(listPending, Number(system?.queued_jobs || 0), Number(lastWorkerTelemetry.pendingCount || 0));
-  const worker = (system && system.worker) || {};
-  const status = String(meta.status || lastWorkerTelemetry.status || workerStatus || system?.state || 'unknown').toLowerCase();
-  const statusLabels = {
-    unknown: 'Monitoring',
-    idle: 'Idle',
-    ready: 'Ready',
-    processing: 'Processing',
-    error: 'Error',
-    starting: 'Starting',
-  };
-  const stateLabel = statusLabels[status] || statusLabel(status);
-  const concurrency = Number(meta.concurrency || worker.concurrency || system?.concurrency || lastWorkerTelemetry.concurrency || 0);
-  const activeCount = Number(meta.activeCount || worker.active_count || runningCount || lastWorkerTelemetry.activeCount || 0);
-  const submissions = runtimeStatusSnapshot.submissions || runtimeMetricText(system?.submissions || system?.submissions_open, 'Checking');
-  const stageSummary = capabilityStageSummary((system && system.capabilities) || runtimeCapabilities);
-  summary.textContent = `${stateLabel} · ${runningCount.toLocaleString()} running · ${pendingCount.toLocaleString()} queued`;
-  setDrawerText('worker-drawer-state', stateLabel);
-  setDrawerText('worker-drawer-detail', status === 'error'
-    ? String(system?.detail || 'Worker reported an error.')
-    : `Signal ${runtimeStatusSnapshot.server || 'checking'}; submissions ${submissions}.`);
-  setDrawerText('worker-drawer-queue', `${runningCount} running / ${pendingCount} queued`);
-  setDrawerText('worker-drawer-queue-detail', concurrency
-    ? `${activeCount} active worker slot${activeCount === 1 ? '' : 's'} of ${concurrency}.`
-    : 'Worker concurrency pending.');
-  setDrawerText('worker-drawer-policy', runtimePolicyLabel(system));
-  setDrawerText('worker-drawer-policy-detail', stageSummary);
-}
-
-function renderQaDrawer(job = activeJobMeta, files = activeResultFiles) {
-  const summary = document.getElementById('qa-drawer-summary');
-  if (!summary) return;
-  const selectedId = String((job && job.id) || activeJobId || '');
-  const fileList = Array.isArray(files) && files.length
-    ? files
-    : (Array.isArray(job?.result_files) ? job.result_files.map(normalizedResultPath).filter(Boolean) : []);
-  const statusText = job ? statusLabel(job.status) : (selectedId ? 'Loading' : 'Idle');
-  const stageText = job ? jobStageDisplay(job) : 'No active workflow stage';
-  const project = job ? jobProjectName(job) : 'Open a job from the Jobs tab.';
-  const updatedRaw = job && (job.updated_at || job.updatedAt || job.created_at || job.createdAt);
-  const updatedDate = updatedRaw ? new Date(updatedRaw) : null;
-  const updatedText = updatedDate && !Number.isNaN(updatedDate.getTime())
-    ? updatedDate.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
-    : 'No timestamp yet';
-  const rerunJobId = String(rerunScopeOpenJobId || '');
-  const rerunJob = rerunJobId && (jobHistoryById.get(rerunJobId) || (activeJobId === rerunJobId ? activeJobMeta : null));
-  let rerunDetail = 'Use a Jobs card rerun control after a job finishes or fails.';
-  if (rerunJobId && rerunJob) {
-    const rerunStatus = String(rerunJob.status || '').toLowerCase();
-    const availableStages = rerunStageKeysForJob(rerunJob).length;
-    rerunDetail = (rerunStatus === 'pending' || rerunStatus === 'running')
-      ? 'Rerun unlocks after the selected job finishes or fails.'
-      : `${availableStages} stage option${availableStages === 1 ? '' : 's'} available.`;
-  } else if (rerunJobId) {
-    rerunDetail = 'Waiting for selected job details.';
-  }
-  summary.textContent = selectedId ? `${selectedId} · ${statusText}` : 'No job selected';
-  setDrawerText('qa-job-id', selectedId || 'No job loaded');
-  setDrawerText('qa-job-project', project);
-  setDrawerText('qa-job-state', statusText);
-  setDrawerText('qa-job-stage', stageText);
-  setDrawerText('qa-log-count-card', `${Number(logCursor || 0).toLocaleString()} lines`);
-  setDrawerText('qa-log-detail', selectedId ? `Updated ${updatedText}.` : 'Logs attach after a job is opened.');
-  setDrawerText('qa-file-count', pluralizeCount(fileList.length, 'file'));
-  setDrawerText('qa-file-detail', fileList.length ? 'Manifest indexed for the selected run.' : 'Result files appear after indexing.');
-  setDrawerText('qa-rerun-scope', rerunJobId || 'No job selected');
-  setDrawerText('qa-rerun-detail', rerunDetail);
-}
+function runtimeMetricText(value, fallback = 'Not available') { return diagnosticsControllerBoundary.runtimeMetricText(...arguments); }
+function setRuntimePanelValue(id, value) { return diagnosticsControllerBoundary.setRuntimePanelValue(...arguments); }
+function updateRuntimeStatusPanel(system = null, counts = {}) { return diagnosticsControllerBoundary.updateRuntimeStatusPanel(...arguments); }
+function setDrawerText(id, value) { return diagnosticsControllerBoundary.setDrawerText(...arguments); }
+function pluralizeCount(count, noun) { return diagnosticsControllerBoundary.pluralizeCount(...arguments); }
+function capabilityEnabled(value) { return diagnosticsControllerBoundary.capabilityEnabled(...arguments); }
+function capabilityStageSummary(capabilities = runtimeCapabilities) { return diagnosticsControllerBoundary.capabilityStageSummary(...arguments); }
+function runtimePolicyLabel(system = null) { return diagnosticsControllerBoundary.runtimePolicyLabel(...arguments); }
+function renderWorkerDrawer(system = null, jobs = null, meta = {}) { return diagnosticsControllerBoundary.renderWorkerDrawer(...arguments); }
+function renderQaDrawer(job = activeJobMeta, files = activeResultFiles) { return diagnosticsControllerBoundary.renderQaDrawer(...arguments); }
 
 function resetToIdleWorkbench() {
   stopPolling();
@@ -1202,99 +1204,23 @@ function returnToIdleHome(event) {
 }
 
 
-function shortRunId(jobId) {
-  const id = String(jobId || '').trim();
-  if (!id) return 'pending';
-  return id.length > 8 ? id.slice(0, 8) : id;
-}
+function shortRunId(jobId) { return jobLifecycleControllerBoundary.shortRunId(...arguments); }
 
-function runStackProjectName(run) {
-  return String((run && (run.name || run.project_name || run.projectName)) || run?.id || 'ClusterWeave run');
-}
+function runStackProjectName(run) { return jobLifecycleControllerBoundary.runStackProjectName(...arguments); }
 
-function runStackStatus(run) {
-  const id = String((run && run.id) || '');
-  if (id && activeJobId === id && activeJobMeta?.status) return activeJobMeta.status;
-  return run?.status || '';
-}
+function runStackStatus(run) { return jobLifecycleControllerBoundary.runStackStatus(...arguments); }
 
-function setRunStackOpen(open) {
-  const shell = document.getElementById('run-stack-shell');
-  const menu = document.getElementById('run-stack-menu');
-  const toggle = document.getElementById('run-stack-toggle');
-  if (!shell || !menu || !toggle) return;
-  const hasRuns = loadOpenedRuns().length > 0;
-  runStackOpen = !!open && hasRuns;
-  shell.dataset.runStackOpen = runStackOpen ? 'true' : 'false';
-  menu.hidden = !runStackOpen;
-  toggle.setAttribute('aria-expanded', runStackOpen ? 'true' : 'false');
-  toggle.setAttribute('aria-label', runStackOpen ? 'Close run stack' : 'Open run stack');
-}
+function setRunStackOpen(open) { return jobLifecycleControllerBoundary.setRunStackOpen(...arguments); }
 
-function toggleRunStack() {
-  setRunStackOpen(!runStackOpen);
-}
+function toggleRunStack() { return jobLifecycleControllerBoundary.toggleRunStack(...arguments); }
 
-function renderRunStack(runs = loadOpenedRuns()) {
-  const shell = document.getElementById('run-stack-shell');
-  const list = document.getElementById('run-stack-list');
-  if (!shell || !list) return;
-  const hasRuns = Array.isArray(runs) && runs.length > 0;
-  shell.hidden = !hasRuns;
-  shell.classList.toggle('hidden', !hasRuns);
-  shell.toggleAttribute('inert', !hasRuns);
-  shell.setAttribute('aria-hidden', hasRuns ? 'false' : 'true');
-  if (!hasRuns) {
-    list.innerHTML = '';
-    setRunStackOpen(false);
-    return;
-  }
-  list.innerHTML = runs.map(run => {
-    const id = String(run.id || '');
-    const jsId = escapeJsString(id);
-    const active = id && id === activeJobId;
-    const label = runStackProjectName(run);
-    const status = statusLabel(runStackStatus(run));
-    return `
-      <button class="run-stack-run${active ? ' active' : ''}" type="button" role="menuitem" data-run-stack-job="${escapeHtml(id)}" onclick="loadRunStackJob('${escapeHtml(jsId)}')">
-        <b>${escapeHtml(label)}</b>
-        <span>${escapeHtml(shortRunId(id))} | ${escapeHtml(status)}</span>
-      </button>`;
-  }).join('');
-  if (runStackOpen) setRunStackOpen(true);
-}
+function renderRunStack(runs = loadOpenedRuns()) { return jobLifecycleControllerBoundary.renderRunStack(...arguments); }
 
-async function loadRunStackJob(jobId) {
-  const id = String(jobId || '');
-  if (!id) return;
-  setRunStackOpen(false);
-  const job = await loadJob(id, true, { readToken: readTokenForJob(id), source: 'run-stack', deferResultsShell: true });
-  document.body.dataset.existingRunLoaded = job ? 'true' : 'false';
-  renderRunStack();
-  if (job) navigateToSection(null, 'outputs');
-}
+async function loadRunStackJob(jobId) { return jobLifecycleControllerBoundary.loadRunStackJob(...arguments); }
 
-function addRunFromStack() {
-  setRunStackOpen(false);
-  resetToIdleWorkbench();
-}
+function addRunFromStack() { return jobLifecycleControllerBoundary.addRunFromStack(...arguments); }
 
-function wireRunStackDismissal() {
-  if (runStackDismissalWired) return;
-  runStackDismissalWired = true;
-  document.addEventListener('click', event => {
-    if (!runStackOpen) return;
-    const shell = document.getElementById('run-stack-shell');
-    if (shell?.contains(event.target)) return;
-    setRunStackOpen(false);
-  }, true);
-  document.addEventListener('keydown', event => {
-    if (event.key !== 'Escape' || !runStackOpen) return;
-    event.preventDefault();
-    setRunStackOpen(false);
-    document.getElementById('run-stack-toggle')?.focus?.({ preventScroll: true });
-  });
-}
+function wireRunStackDismissal() { return jobLifecycleControllerBoundary.wireRunStackDismissal(...arguments); }
 
 function updateRuntimeStatusChip(status, label) {
   const chip = document.getElementById('runtime-status-chip');
@@ -1320,9 +1246,10 @@ function toggleCard(id) {
 }
 
 function switchToolCreditTab(name) {
-  const selected = name === 'local' ? 'local' : 'web';
+  const names = ['support', 'web', 'local'];
+  const selected = names.includes(name) ? name : 'support';
   document.querySelectorAll('.tool-credit-tab').forEach(tab => {
-    const active = tab.id === `tool-credit-${selected}-tab`;
+    const active = tab.dataset.toolCreditTab === selected;
     tab.setAttribute('aria-selected', active ? 'true' : 'false');
     tab.tabIndex = active ? 0 : -1;
   });
@@ -1330,7 +1257,6 @@ function switchToolCreditTab(name) {
     panel.hidden = panel.id !== `tool-credit-${selected}-panel`;
   });
 }
-
 function handleToolCreditTabKeydown(event) {
   const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End'];
   if (!keys.includes(event.key)) return;
@@ -1342,7 +1268,7 @@ function handleToolCreditTabKeydown(event) {
   if (event.key === 'ArrowRight') next = (current + 1) % tabs.length;
   if (event.key === 'Home') next = 0;
   if (event.key === 'End') next = tabs.length - 1;
-  const selected = tabs[next]?.id.includes('-local-') ? 'local' : 'web';
+  const selected = tabs[next]?.dataset.toolCreditTab || 'support';
   switchToolCreditTab(selected);
   tabs[next]?.focus();
 }
@@ -1511,12 +1437,15 @@ function parseExistingRunInput() {
   const explicitToken = (document.getElementById('existing-run-token')?.value || document.getElementById('access-code-input')?.value || '').trim();
   if (!raw) return null;
 
-  let text = raw;
-  try {
-    const url = new URL(raw, window.location.href);
-    text = url.hash || url.pathname || raw;
-  } catch (e) {}
-  const fragmentMatch = text.match(/#\/?(job|results)\/([^/\s#?]+)\/([^/\s#?]+)/i);
+  let fragmentMatch = raw.match(/#\/?(job|results)\/([^/\s#?]+)\/([^/\s#?]+)/i);
+  if (!fragmentMatch) {
+    let text = raw;
+    try {
+      const url = new URL(raw, window.location.href);
+      text = url.hash || url.pathname || raw;
+    } catch (e) {}
+    fragmentMatch = text.match(/#\/?(job|results)\/([^/\s#?]+)\/([^/\s#?]+)/i);
+  }
   if (fragmentMatch) return {
     jobId: decodeURIComponent(fragmentMatch[2]),
     token: decodeURIComponent(fragmentMatch[3]),
@@ -1597,18 +1526,7 @@ function forgetOpenedRuns() {
   }
 }
 
-function defaultApiBaseUrl() {
-  const url = new URL(window.location.href);
-  url.search = '';
-  url.hash = '';
-  if (url.pathname.endsWith('/')) return url.toString();
-  if (/\.[^/]+$/.test(url.pathname)) {
-    url.pathname = url.pathname.replace(/[^/]+$/, '');
-  } else {
-    url.pathname = `${url.pathname}/`;
-  }
-  return url.toString();
-}
+function defaultApiBaseUrl() { return apiResultBoundary.defaultApiBaseUrl(); }
 
 function publicRunIdFromJob(job = activeJobMeta, fallback = activeJobId) {
   const candidate = String(
@@ -1625,108 +1543,31 @@ function publicRunIdForJob(jobId = activeJobId) {
   return publicRunIdFromJob(jobHistoryById.get(id), id);
 }
 
-function artifactCategoryFromDescriptor(descriptor) {
-  const raw = String(descriptor?.category || descriptor?.family || 'other').toLowerCase();
-  return resultCategoryKey(raw);
-}
+function artifactCategoryFromDescriptor(descriptor) { return resultReaderBoundary.artifactCategoryFromDescriptor(descriptor); }
 
-function safeArtifactFilename(value, fallback = 'artifact') {
-  const basename = String(value || fallback).replace(/\\/g, '/').split('/').pop() || fallback;
-  return basename.replace(/[^A-Za-z0-9._()+ -]/g, '_').slice(0, 240) || fallback;
-}
+function safeArtifactFilename(value, fallback = 'artifact') { return resultReaderBoundary.safeArtifactFilename(value, fallback); }
 
-function artifactPresentationKey(descriptor) {
-  const id = String(descriptor?.id || '').trim();
-  if (!/^[A-Za-z0-9_-]{16,}$/.test(id)) return '';
-  const category = artifactCategoryFromDescriptor(descriptor);
-  const filename = safeArtifactFilename(descriptor?.filename || descriptor?.name || descriptor?.label);
-  return `artifact/${category}/${id}/${filename}`;
-}
+function artifactPresentationKey(descriptor) { return resultReaderBoundary.artifactPresentationKey(descriptor); }
 
-function resultArtifactMaps(resultContext = null) {
-  if (
-    resultContext
-    && resultContext.byKey instanceof Map
-    && resultContext.byId instanceof Map
-  ) {
-    return { byKey: resultContext.byKey, byId: resultContext.byId };
-  }
-  return { byKey: activeResultArtifactByKey, byId: activeResultArtifactById };
-}
+function resultArtifactMaps(resultContext = null) { return resultReaderBoundary.resultArtifactMaps(resultContext); }
 
-function installResultArtifactDescriptor(rawDescriptor, resultContext = null) {
-  if (!rawDescriptor || typeof rawDescriptor !== 'object') return '';
-  const id = String(rawDescriptor.id || '').trim();
-  const key = artifactPresentationKey(rawDescriptor);
-  if (!id || !key) return '';
-  const descriptor = Object.freeze({
-    ...rawDescriptor,
-    id,
-    filename: safeArtifactFilename(rawDescriptor.filename || rawDescriptor.name || rawDescriptor.label),
-    category: artifactCategoryFromDescriptor(rawDescriptor),
-    mime: String(rawDescriptor.mime || rawDescriptor.media_type || 'application/octet-stream'),
-  });
-  const maps = resultArtifactMaps(resultContext);
-  maps.byKey.set(key, descriptor);
-  maps.byId.set(id, descriptor);
-  return key;
-}
+function installResultArtifactDescriptor(rawDescriptor, resultContext = null) { return resultReaderBoundary.installResultArtifactDescriptor(rawDescriptor, resultContext); }
 
-function installResultArtifactDescriptors(rawDescriptors, options = {}) {
-  if (options.replace !== false) {
-    activeResultArtifactByKey = new Map();
-    activeResultArtifactById = new Map();
-  }
-  return (Array.isArray(rawDescriptors) ? rawDescriptors : [])
-    .map(installResultArtifactDescriptor)
-    .filter(Boolean);
-}
+function installResultArtifactDescriptors(rawDescriptors, options = {}) { return resultReaderBoundary.installResultArtifactDescriptors(rawDescriptors, options); }
 
-function resultArtifactDescriptor(value, resultContext = null) {
-  const maps = resultArtifactMaps(resultContext);
-  const key = normalizedResultPath(value);
-  if (maps.byKey.has(key)) return maps.byKey.get(key);
-  const id = String(value || '').trim();
-  return maps.byId.get(id) || null;
-}
+function resultArtifactDescriptor(value, resultContext = null) { return resultReaderBoundary.resultArtifactDescriptor(value, resultContext); }
 
-function resultArtifactId(value, resultContext = null) {
-  return String(resultArtifactDescriptor(value, resultContext)?.id || '').trim();
-}
+function resultArtifactId(value, resultContext = null) { return resultReaderBoundary.resultArtifactId(value, resultContext); }
 
-function resultArtifactName(value, resultContext = null) {
-  return resultArtifactDescriptor(value, resultContext)?.filename || fileNameFromPath(value);
-}
+function resultArtifactName(value, resultContext = null) { return resultReaderBoundary.resultArtifactName(value, resultContext); }
 
-function createResultArtifactContext(jobId) {
-  const runId = String(publicRunIdForJob(jobId) || '').trim();
-  if (!runId) throw new Error('The result preview is missing its opaque run identifier.');
-  return Object.freeze({
-    runId,
-    byKey: new Map(activeResultArtifactByKey),
-    byId: new Map(activeResultArtifactById),
-  });
-}
+function createResultArtifactContext(jobId) { return resultReaderBoundary.createResultArtifactContext(jobId); }
 
-function apiUrl(path) {
-  const cleanPath = String(path || '').replace(/^\/+/, '');
-  const configuredBase = window.CLUSTERWEAVE_API_BASE || '';
-  const base = configuredBase ? new URL(configuredBase, window.location.href).toString() : defaultApiBaseUrl();
-  return new URL(cleanPath, base).toString();
-}
+function apiUrl(path) { return apiResultBoundary.apiUrl(path); }
 
-function resultHref(jobId, artifactKey, options = {}) {
-  const resultContext = options.resultContext || null;
-  const runId = resultContext?.runId || publicRunIdForJob(jobId);
-  const artifactId = resultArtifactId(artifactKey, resultContext);
-  const base = apiUrl(`api/results/${encodeURIComponent(runId)}/artifacts/${encodeURIComponent(artifactId || 'unavailable')}`);
-  return options.download ? `${base}/download` : base;
-}
+function resultHref(jobId, artifactKey, options = {}) { return apiResultBoundary.resultHref(jobId, artifactKey, options); }
 
-function privateResultLink(jobId, token, serverUrl = '') {
-  if (serverUrl && /#\/?results\//i.test(serverUrl)) return serverUrl;
-  return `${defaultApiBaseUrl()}#/results/${encodeURIComponent(jobId)}${token ? `/${encodeURIComponent(token)}` : ''}`;
-}
+function privateResultLink(jobId, token, serverUrl = '') { return apiResultBoundary.privateResultLink(jobId, token, serverUrl); }
 
 function sessionGet(key) {
   try { return sessionStorage.getItem(key) || ''; }
@@ -1768,13 +1609,20 @@ function readTokenForJob(jobId) {
 function rememberOpenedRun(jobId, token, meta = {}) {
   const id = String(jobId || '');
   if (!id || !token) return;
-  const runs = loadOpenedRuns().filter(r => String(r.id) !== id);
+  const openedRuns = loadOpenedRuns();
+  const existingRun = openedRuns.find(r => String(r.id) === id);
+  const incomingReceipt = meta.receipt || runSetupReceiptFromJob(meta);
+  const receipt = runSetupStoredReceiptSnapshot(
+    preferredRunSetupReceipt(incomingReceipt, existingRun?.receipt),
+  );
+  const runs = openedRuns.filter(r => String(r.id) !== id);
   runs.unshift({
     id,
     token,
     name: meta.name || meta.project_name || meta.projectName || jobId,
     status: meta.status || '',
     updatedAt: new Date().toISOString(),
+    ...(receipt ? { receipt } : {}),
   });
   saveOpenedRuns(runs);
   pendingReadTokens.delete(id);
@@ -1791,7 +1639,12 @@ function adoptPublicRunIdentity(requestedId, job) {
   const token = readTokenForJob(requested) || readTokenForJob(publicId);
   if (token) {
     pendingReadTokens.set(publicId, token);
-    const runs = loadOpenedRuns()
+    const openedRuns = loadOpenedRuns();
+    const rememberedRun = openedRuns.find(
+      run => [requested, publicId].includes(String(run.id || '')),
+    );
+    const receipt = runSetupStoredReceiptSnapshot(rememberedRun?.receipt);
+    const runs = openedRuns
       .filter(run => ![requested, publicId].includes(String(run.id || '')));
     runs.unshift({
       id: publicId,
@@ -1799,6 +1652,7 @@ function adoptPublicRunIdentity(requestedId, job) {
       name: job?.name || job?.project_name || job?.projectName || publicId,
       status: job?.status || '',
       updatedAt: new Date().toISOString(),
+      ...(receipt ? { receipt } : {}),
     });
     saveOpenedRuns(runs);
   }
@@ -1811,29 +1665,67 @@ function adoptPublicRunIdentity(requestedId, job) {
 }
 
 
+function legacyCopyTextToClipboard(text) {
+  if (typeof document.execCommand !== 'function') return false;
+  const helper = document.createElement('textarea');
+  const previousFocus = document.activeElement;
+  let copyEventHandled = false;
+  const writeClipboardData = event => {
+    if (!event.clipboardData) return;
+    event.clipboardData.setData('text/plain', text);
+    event.preventDefault();
+    copyEventHandled = true;
+  };
+  helper.value = text;
+  helper.readOnly = true;
+  helper.style.position = 'fixed';
+  helper.style.left = '0';
+  helper.style.top = '0';
+  helper.style.width = '2px';
+  helper.style.height = '2px';
+  helper.style.opacity = '0.01';
+  helper.style.pointerEvents = 'none';
+  document.addEventListener('copy', writeClipboardData);
+  document.body.appendChild(helper);
+  try {
+    helper.focus({ preventScroll: true });
+    helper.select();
+    helper.setSelectionRange(0, helper.value.length);
+    const commandAccepted = document.execCommand('copy') === true;
+    return commandAccepted || copyEventHandled;
+  } catch (error) {
+    return false;
+  } finally {
+    document.removeEventListener('copy', writeClipboardData);
+    helper.remove();
+    try { previousFocus?.focus?.({ preventScroll: true }); }
+    catch (error) {}
+  }
+}
+
 async function copyTextToClipboard(text, successMessage) {
   const status = document.getElementById('submission-confirmation-status');
   if (!text) {
     if (status) status.textContent = 'Nothing to copy yet.';
-    return;
+    return false;
   }
   try {
-    if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(text);
-    } else {
-      const helper = document.createElement('textarea');
-      helper.value = text;
-      helper.setAttribute('readonly', '');
-      helper.style.position = 'fixed';
-      helper.style.top = '-1000px';
-      document.body.appendChild(helper);
-      helper.select();
-      document.execCommand('copy');
-      helper.remove();
+    let copied = false;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        copied = true;
+      }
+    } catch (error) {
+      copied = false;
     }
+    if (!copied) copied = legacyCopyTextToClipboard(text);
+    if (!copied) throw new Error('Clipboard copy was rejected.');
     if (status) status.textContent = successMessage || 'Copied.';
+    return true;
   } catch (err) {
     if (status) status.textContent = 'Copy failed; select the field and copy manually.';
+    return false;
   }
 }
 
@@ -2309,27 +2201,123 @@ function runSetupReceiptInputCount(receipt) {
   return receiptAcceptedInputItems(receipt || {}).length;
 }
 
+function runSetupReceiptHasSpecificInputs(receipt) {
+  return receiptAcceptedInputItems(receipt || {}).some(item => !item.summary);
+}
+
+function runSetupStoredReceiptSnapshot(receipt) {
+  if (!receipt || typeof receipt !== 'object') return null;
+  const cleanText = (value, maxLength = 256) => String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxLength);
+  const acceptedInputs = receiptAcceptedInputItems(receipt)
+    .filter(item => !item.summary)
+    .slice(0, 100)
+    .map(item => ({
+      label: cleanText(item.label),
+      kind: cleanText(item.kind, 64),
+      source: cleanText(item.source),
+      isTarget: item.isTarget === true,
+      organismName: cleanText(item.organismName),
+      taxa: cleanText(item.taxa),
+      taxonGroup: normalizeTaxonGroup(item.taxonGroup),
+      taxId: cleanText(item.taxId, 32),
+      orderName: cleanText(item.orderName),
+      familyName: cleanText(item.familyName),
+      className: cleanText(item.className),
+      orderFamily: cleanText(item.orderFamily),
+    }))
+    .filter(item => item.label);
+  if (!acceptedInputs.length) return null;
+  return {
+    projectName: cleanText(receipt.projectName || receipt.project_name, 200),
+    acceptedInputs,
+    targetGenome: cleanText(receipt.targetGenome || receipt.target_genome),
+    analysisScope: normalizeAnalysisScope(receipt.analysisScope || receipt.analysis_scope),
+    taxonCounts: normalizeTaxonCounts(receipt.taxonCounts || receipt.taxon_counts || {}),
+  };
+}
+
+function rememberedRunSetupReceipt(jobId, publicRunId) {
+  const expected = new Set(
+    [jobId, publicRunId].map(value => String(value || '').trim()).filter(Boolean),
+  );
+  const run = loadOpenedRuns().find(item => expected.has(String(item.id || '').trim()));
+  return runSetupStoredReceiptSnapshot(run?.receipt);
+}
+
+function runSetupReceiptMatchesJob(record, jobId, publicRunId) {
+  if (!record) return false;
+  const expected = new Set(
+    [jobId, publicRunId].map(value => String(value || '').trim()).filter(Boolean),
+  );
+  return [record.jobId, record.publicRunId]
+    .map(value => String(value || '').trim())
+    .some(value => value && expected.has(value));
+}
+
+function preferredRunSetupReceipt(incomingReceipt, existingReceipt) {
+  if (!incomingReceipt) return existingReceipt;
+  if (
+    existingReceipt
+    && runSetupReceiptHasSpecificInputs(existingReceipt)
+    && !runSetupReceiptHasSpecificInputs(incomingReceipt)
+  ) {
+    return existingReceipt;
+  }
+  return incomingReceipt;
+}
+
 function runSetupJobHref(jobId) {
   const id = String(jobId || '').trim();
   return id ? `${defaultApiBaseUrl()}#/results/${encodeURIComponent(id)}` : '';
 }
 
-function configureRunSetupResultLink(link, jobId) {
+function configureRunSetupResultLink(link, jobId, readToken = '', resultUrl = '') {
   if (!link) return;
   const id = String(jobId || '').trim();
   if (!id) {
     link.textContent = 'Pending';
     link.removeAttribute('href');
     link.removeAttribute('data-job-id');
+    link.removeAttribute('data-private-link');
     link.removeAttribute('aria-label');
     return;
   }
   const runId = publicRunIdForJob(id);
-  const href = runSetupJobHref(runId);
+  const token = String(readToken || '').trim();
+  if (!token) {
+    link.textContent = 'Not saved in this tab';
+    link.removeAttribute('href');
+    link.dataset.jobId = runId;
+    link.dataset.privateLink = '';
+    link.setAttribute('aria-label', `Private result access is unavailable for run ${runId}`);
+    return;
+  }
+  const href = privateResultLink(runId, token, resultUrl);
   link.textContent = href;
   link.href = href;
   link.dataset.jobId = runId;
+  link.dataset.privateLink = href;
   link.setAttribute('aria-label', `Open results for run ${runId}`);
+}
+
+async function copyRunSetupCredentials() {
+  const link = document.getElementById('run-setup-result-link');
+  const accessCode = document.getElementById('run-setup-access-code')?.textContent?.trim() || '';
+  const runId = document.getElementById('run-setup-public-id')?.textContent?.trim() || '';
+  const privateLink = String(
+    link?.dataset.privateLink || link?.getAttribute('href') || '',
+  ).trim();
+  const button = document.getElementById('copy-run-setup-credentials');
+  if (!privateLink || !accessCode || !runId || button?.disabled) return;
+  const credentials = `PRIVATE LINK: ${privateLink}\nACCESS CODE: ${accessCode}\nRUN ID: ${runId}`;
+  const copied = await copyTextToClipboard(credentials, 'Job credentials copied.');
+  if (copied && button) {
+    button.textContent = 'COPIED';
+    button.classList.add('is-copied');
+  }
 }
 
 async function openRunSetupResultAccess(event) {
@@ -2357,12 +2345,18 @@ function renderRunSetupAccessPanel(payload = {}) {
   const panel = document.getElementById('run-setup-access-panel');
   const jobId = String(payload.jobId || payload.job_id || payload.id || '').trim();
   if (!panel || !jobId) return;
-  const existingReceipt = submittedRunReceipt && String(submittedRunReceipt.jobId || '') === jobId
+  const runId = String(
+    payload.publicRunId || payload.public_run_id || payload.runId || payload.run_id
+    || publicRunIdForJob(jobId) || jobId,
+  ).trim();
+  const existingReceipt = runSetupReceiptMatchesJob(submittedRunReceipt, jobId, runId)
     ? submittedRunReceipt.receipt
     : null;
-  const receipt = payload.receipt || existingReceipt || collectRunSetupAccessReceipt({ projectName: payload.projectName });
+  const receipt = preferredRunSetupReceipt(payload.receipt, existingReceipt)
+    || collectRunSetupAccessReceipt({ projectName: payload.projectName });
   submittedRunReceipt = {
     jobId,
+    publicRunId: runId,
     receipt,
     jobState: payload.jobState || payload.status || 'queued',
   };
@@ -2372,6 +2366,10 @@ function renderRunSetupAccessPanel(payload = {}) {
   const analysisScope = document.getElementById('run-setup-analysis-scope');
   const target = document.getElementById('run-setup-target');
   const link = document.getElementById('run-setup-result-link');
+  const accessCode = document.getElementById('run-setup-access-code');
+  const publicId = document.getElementById('run-setup-public-id');
+  const copyButton = document.getElementById('copy-run-setup-credentials');
+  const previousPrivateLink = String(link?.dataset.privateLink || '').trim();
   const job = document.getElementById('run-setup-job-id');
   const state = document.getElementById('run-setup-job-state');
   const expiration = document.getElementById('run-setup-expiration');
@@ -2389,7 +2387,24 @@ function renderRunSetupAccessPanel(payload = {}) {
     analysisScope.textContent = `${analysisScopeLabel(context.scope)}${countLabel}`;
   }
   if (target) target.textContent = receipt.targetGenome || 'Not selected';
-  configureRunSetupResultLink(link, jobId);
+  const readToken = String(
+    payload.readToken || payload.read_token || payload.token
+    || readTokenForJob(jobId) || readTokenForJob(runId) || '',
+  ).trim();
+  const resultUrl = payload.resultUrl || payload.result_url || '';
+  configureRunSetupResultLink(link, runId, readToken, resultUrl);
+  if (accessCode) accessCode.textContent = readToken || 'Not saved in this tab';
+  if (publicId) publicId.textContent = runId;
+  const keepCopied = Boolean(
+    copyButton?.classList.contains('is-copied')
+    && previousPrivateLink
+    && previousPrivateLink === String(link?.dataset.privateLink || '').trim()
+  );
+  if (copyButton) {
+    copyButton.disabled = !readToken;
+    if (!keepCopied) copyButton.textContent = 'COPY';
+    if (!keepCopied) copyButton.classList.remove('is-copied');
+  }
   if (job) job.textContent = jobId;
   if (state) state.textContent = submittedRunReceipt.jobState;
   const expiresAt = payload.expiresAt || payload.expires_at || '';
@@ -2402,7 +2417,8 @@ function renderRunSetupAccessPanel(payload = {}) {
 
 function updateRunSetupAccessFromJob(job) {
   const jobId = String((job && job.id) || '');
-  if (!submittedRunReceipt || !jobId || String(submittedRunReceipt.jobId || '') !== jobId) return false;
+  const publicRunId = publicRunIdForJob(jobId);
+  if (!jobId || !runSetupReceiptMatchesJob(submittedRunReceipt, jobId, publicRunId)) return false;
   submittedRunReceipt.jobState = job.status || submittedRunReceipt.jobState || 'queued';
   const state = document.getElementById('run-setup-job-state');
   if (state) state.textContent = submittedRunReceipt.jobState;
@@ -2425,12 +2441,15 @@ function renderActiveRunAccessPanel(job) {
     return;
   }
   const jobId = String(job.id);
-  const token = readTokenForJob(jobId);
-  const link = token ? privateResultLink(jobId, token, job.result_url || '') : '';
+  const publicRunId = publicRunIdForJob(jobId);
+  const token = readTokenForJob(publicRunId) || readTokenForJob(jobId);
+  const link = token ? privateResultLink(publicRunId, token, job.result_url || '') : '';
   const project = runSetupProjectNameFromJob(job);
-  const receipt = submittedRunReceipt && String(submittedRunReceipt.jobId || '') === jobId
+  const rememberedReceipt = rememberedRunSetupReceipt(jobId, publicRunId);
+  const incomingReceipt = runSetupReceiptFromJob(job);
+  const receipt = runSetupReceiptMatchesJob(submittedRunReceipt, jobId, publicRunId)
     ? submittedRunReceipt.receipt
-    : runSetupReceiptFromJob(job);
+    : preferredRunSetupReceipt(incomingReceipt, rememberedReceipt);
   const linkInput = document.getElementById('submitted-result-link');
   const jobInput = document.getElementById('submitted-job-id');
   const tokenInput = document.getElementById('submitted-result-token');
@@ -2441,6 +2460,7 @@ function renderActiveRunAccessPanel(job) {
   if (status) status.textContent = token ? 'Result access is saved for this browser tab.' : 'Diagnostics access is being used for this job.';
   renderRunSetupAccessPanel({
     jobId,
+    publicRunId,
     projectName: project,
     readToken: token,
     resultUrl: link,
@@ -2473,1567 +2493,87 @@ function openSubmittedRun() {
   loadJob(lastSubmittedRun.jobId, true, { readToken: lastSubmittedRun.readToken, source: 'submission-confirmation' });
 }
 
-function authHeadersFor(kind, jobId = null) {
-  const headers = {};
-  if (kind === 'admin') {
-    const admin = adminToken();
-    if (admin) headers.Authorization = `Bearer ${admin}`;
-    return headers;
-  }
-  if (kind === 'job' && jobId) {
-    const token = readTokenForJob(jobId);
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-      return headers;
-    }
-  }
-  if (kind === 'submit') {
-    const token = submitToken();
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-      return headers;
-    }
-  }
-  const admin = adminToken();
-  if (admin) {
-    headers.Authorization = `Bearer ${admin}`;
-  }
-  return headers;
-}
-
-function mergeAuthHeaders(options = {}, auth = {}) {
-  const headers = new Headers(options.headers || {});
-  const tokenHeaders = authHeadersFor(auth.kind || 'none', auth.jobId || null);
-  Object.entries(tokenHeaders).forEach(([key, value]) => {
-    if (value && !headers.has(key)) headers.set(key, value);
-  });
-  return { ...options, headers };
-}
-
-function apiFetch(path, options = {}, auth = {}) {
-  return fetch(apiUrl(path), mergeAuthHeaders(options, auth));
-}
-
-function resultNeedsAuth(jobId) {
-  return !!adminToken()
-    || (accessMode === 'public' && !!readTokenForJob(publicRunIdForJob(jobId)));
-}
-
-function canOpenRichHtmlArtifacts(jobId = activeJobId) {
-  return canUseAdminSurfaces() || !!readTokenForJob(publicRunIdForJob(jobId));
-}
-
-function inlineResultMime(relPath, fallback = '') {
-  const name = fileNameFromPath(relPath).toLowerCase();
-  const ext = name.includes('.') ? name.split('.').pop() : '';
-  const mimeMap = {
-    svg: 'image/svg+xml',
-    png: 'image/png',
-    jpg: 'image/jpeg',
-    jpeg: 'image/jpeg',
-    gif: 'image/gif',
-    webp: 'image/webp',
-    pdf: 'application/pdf',
-    html: 'text/html;charset=utf-8',
-    htm: 'text/html;charset=utf-8',
-    txt: 'text/plain;charset=utf-8',
-    log: 'text/plain;charset=utf-8',
-    md: 'text/markdown;charset=utf-8',
-    csv: 'text/csv;charset=utf-8',
-    tsv: 'text/tab-separated-values;charset=utf-8',
-    json: 'application/json',
-    db: 'application/vnd.sqlite3',
-    sqlite: 'application/vnd.sqlite3',
-    sqlite3: 'application/vnd.sqlite3',
-    yaml: 'text/yaml;charset=utf-8',
-    yml: 'text/yaml;charset=utf-8',
-    gbk: 'text/plain;charset=utf-8',
-    gb: 'text/plain;charset=utf-8',
-    gbff: 'text/plain;charset=utf-8',
-    gff: 'text/plain;charset=utf-8',
-    gff3: 'text/plain;charset=utf-8',
-    fasta: 'text/plain;charset=utf-8',
-    fa: 'text/plain;charset=utf-8',
-    fna: 'text/plain;charset=utf-8',
-  };
-  if (mimeMap[ext]) return mimeMap[ext];
-  if (fallback && fallback !== 'application/octet-stream') return fallback;
-  return 'text/plain;charset=utf-8';
-}
-
-const TOOL_RESULT_RUNTIME_MAX_ACTIVE = 4;
-const TOOL_RESULT_RUNTIME_MAX_QUEUE = 64;
-const TOOL_RESULT_RUNTIME_MAX_PER_DOCUMENT = 512;
-const TOOL_RESULT_RUNTIME_RESOLVE_TIMEOUT_MS = 15000;
-
-function toolResultPreviewChannel() {
-  if (typeof window.crypto?.getRandomValues !== 'function') {
-    throw new Error('A cryptographically secure result-preview channel is unavailable.');
-  }
-  const bytes = new Uint8Array(16);
-  window.crypto.getRandomValues(bytes);
-  return Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('');
-}
-
-const RESULT_PREVIEW_NAVIGATOR_SCRIPT = String.raw`
-(function () {
-  const scriptEl = document.currentScript || document.querySelector('script[data-clusterweave-result-preview]');
-  if (!scriptEl || scriptEl.dataset.ready === '1') return;
-  scriptEl.dataset.ready = '1';
-  const channel = scriptEl.dataset.channel || '';
-  const owner = scriptEl.dataset.owner || '';
-  const pending = new Map();
-  const prepared = new WeakMap();
-  const maxPending = 64;
-  const maxRequests = 512;
-  const resolveTimeoutMs = 15000;
-  let requestSequence = 0;
-
-  function relativeReference(element) {
-    const value = String(element && element.getAttribute('href') || '').trim();
-    if (!value || value.startsWith('#')) return null;
-    if (value.startsWith('/') || value.includes('\\')
-        || /^(?:[a-z][a-z0-9+.-]*:)?\/\//i.test(value)
-        || /^(?:data|blob|mailto|tel|javascript):/i.test(value)) {
-      return { value: value, supported: false };
-    }
-    const path = value.split(/[?#]/, 1)[0];
-    const match = path.match(/\.([a-z0-9]+)$/i);
-    const extension = match ? match[1].toLowerCase() : '';
-    return {
-      value: value,
-      supported: ['html', 'htm', 'png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(extension),
-    };
-  }
-
-  function disableLocalLink(element) {
-    prepared.delete(element);
-    element.removeAttribute('href');
-    element.removeAttribute('target');
-    element.removeAttribute('rel');
-    element.removeAttribute('aria-busy');
-    element.removeAttribute('data-clusterweave-result-pending');
-    element.removeAttribute('data-clusterweave-result-request');
-    element.setAttribute('aria-disabled', 'true');
-    element.setAttribute('title', 'This link is outside the generated result bundle.');
-  }
-
-  function prepareLocalLink(element) {
-    if (!element
-        || element.hasAttribute('data-clusterweave-result-artifact')
-        || element.hasAttribute('data-clusterweave-result-fragment')
-        || element.getAttribute('aria-disabled') === 'true') return;
-    const reference = relativeReference(element);
-    if (!reference) return;
-    if (!reference.supported || !channel || !owner) {
-      disableLocalLink(element);
-      return;
-    }
-    const addedRole = !element.hasAttribute('role');
-    const addedTabIndex = !element.hasAttribute('tabindex');
-    prepared.set(element, {
-      value: reference.value,
-      addedRole: addedRole,
-      addedTabIndex: addedTabIndex,
-    });
-    element.removeAttribute('href');
-    element.removeAttribute('target');
-    element.removeAttribute('rel');
-    element.setAttribute('data-clusterweave-result-pending', '');
-    if (addedRole) element.setAttribute('role', 'link');
-    if (addedTabIndex) element.setAttribute('tabindex', '0');
-  }
-
-  function finishPreparedLink(element) {
-    const state = prepared.get(element);
-    prepared.delete(element);
-    element.removeAttribute('data-clusterweave-result-pending');
-    if (state && state.addedRole) element.removeAttribute('role');
-    if (state && state.addedTabIndex) element.removeAttribute('tabindex');
-  }
-
-  function requestResolution(element, activate) {
-    const existing = element.getAttribute('data-clusterweave-result-request') || '';
-    if (existing && pending.has(existing)) {
-      if (activate) pending.get(existing).activate = true;
-      return;
-    }
-    const reference = prepared.get(element);
-    if (!reference || pending.size >= maxPending || requestSequence >= maxRequests) {
-      disableLocalLink(element);
-      return;
-    }
-    const request = 'r' + String(++requestSequence);
-    const timer = window.setTimeout(function () {
-      const entry = pending.get(request);
-      if (!entry) return;
-      pending.delete(request);
-      disableLocalLink(entry.element);
-    }, resolveTimeoutMs);
-    pending.set(request, { element: element, activate: !!activate, timer: timer });
-    element.setAttribute('data-clusterweave-result-request', request);
-    element.setAttribute('aria-busy', 'true');
-    window.parent.postMessage({
-      type: 'clusterweave:result-bundle-resolve',
-      channel: channel,
-      owner: owner,
-      request: request,
-      reference: reference.value,
-    }, '*');
-  }
-
-  function scan(root) {
-    const elements = [];
-    if (root && root.matches && root.matches('a[href],area[href]')) elements.push(root);
-    if (root && root.querySelectorAll) elements.push.apply(elements, root.querySelectorAll('a[href],area[href]'));
-    elements.forEach(prepareLocalLink);
-  }
-
-  function navigateArtifact(artifact, fragment) {
-    window.parent.postMessage({
-      type: 'clusterweave:result-bundle-navigate',
-      channel: channel,
-      owner: owner,
-      artifact: artifact,
-      fragment: fragment || '',
-    }, '*');
-  }
-
-  window.addEventListener('message', function (event) {
-    const payload = event && event.data;
-    if (event.source !== window.parent || !payload
-        || payload.type !== 'clusterweave:result-bundle-resolved'
-        || payload.channel !== channel || payload.owner !== owner) return;
-    const request = String(payload.request || '');
-    const entry = pending.get(request);
-    if (!entry) return;
-    pending.delete(request);
-    window.clearTimeout(entry.timer);
-    const element = entry.element;
-    element.removeAttribute('data-clusterweave-result-request');
-    element.removeAttribute('aria-busy');
-    const artifact = String(payload.artifact || '');
-    const href = String(payload.href || '');
-    const fragment = String(payload.fragment || '');
-    if (!/^[A-Za-z0-9_-]{16,}$/.test(artifact) || !href) {
-      disableLocalLink(element);
-      return;
-    }
-    finishPreparedLink(element);
-    element.setAttribute('href', href);
-    element.setAttribute('data-clusterweave-result-artifact', artifact);
-    element.setAttribute('data-clusterweave-result-fragment', fragment);
-    if (entry.activate) navigateArtifact(artifact, fragment);
-  });
-
-  function interactiveTarget(event) {
-    return event.target && event.target.closest
-      ? event.target.closest('a,area')
-      : null;
-  }
-
-  function activateTarget(event, target) {
-    const pendingRequest = target.getAttribute('data-clusterweave-result-request') || '';
-    if (pendingRequest && pending.has(pendingRequest)) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      pending.get(pendingRequest).activate = true;
-      return;
-    }
-    const artifact = target.getAttribute('data-clusterweave-result-artifact') || '';
-    const fragment = target.getAttribute('data-clusterweave-result-fragment') || '';
-    if (!artifact && !fragment) {
-      if (!prepared.has(target)) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      requestResolution(target, true);
-      return;
-    }
-    if (!artifact && fragment.startsWith('#')) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      const anchor = fragment.slice(1);
-      const previousHash = window.location.hash;
-      if (window.viewer && typeof window.viewer.switchToRegion === 'function') {
-        window.viewer.switchToRegion(anchor);
-      } else {
-        try {
-          window.location.hash = anchor;
-          const destination = document.getElementById(anchor) || document.querySelector('[name="' + CSS.escape(anchor) + '"]');
-          if (destination && typeof destination.scrollIntoView === 'function') destination.scrollIntoView({ block: 'start' });
-          if (previousHash === '#' + anchor) {
-            window.dispatchEvent(new HashChangeEvent('hashchange'));
-          }
-        } catch (error) {}
-      }
-      return;
-    }
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    navigateArtifact(artifact, fragment);
-  }
-
-  function warmLink(event) {
-    if (!event.isTrusted) return;
-    const target = interactiveTarget(event);
-    if (target && prepared.has(target)) requestResolution(target, false);
-  }
-
-  document.addEventListener('pointerover', warmLink, true);
-  document.addEventListener('focusin', warmLink, true);
-  document.addEventListener('click', function (event) {
-    if (!event.isTrusted || event.defaultPrevented) return;
-    const target = interactiveTarget(event);
-    if (target) activateTarget(event, target);
-  }, true);
-  document.addEventListener('keydown', function (event) {
-    if (!event.isTrusted || event.defaultPrevented || event.key !== 'Enter') return;
-    const target = interactiveTarget(event);
-    if (target && (prepared.has(target) || target.hasAttribute('data-clusterweave-result-artifact'))) {
-      activateTarget(event, target);
-    }
-  }, true);
-  const observer = new MutationObserver(function (mutations) {
-    mutations.forEach(function (mutation) {
-      if (mutation.type === 'attributes') scan(mutation.target);
-      else Array.prototype.forEach.call(mutation.addedNodes || [], scan);
-    });
-  });
-  observer.observe(document.documentElement, {
-    subtree: true,
-    childList: true,
-    attributes: true,
-    attributeFilter: ['href'],
-  });
-  scan(document);
-})();
-`;
-
-function resultUrlShouldStayExternal(rawUrl) {
-  const value = String(rawUrl || '').trim();
-  return !value ||
-    value.startsWith('#') ||
-    /^(?:[a-z][a-z0-9+.-]*:)?\/\//i.test(value) ||
-    /^(?:data|blob|mailto|tel|javascript):/i.test(value) ||
-    value.startsWith('/');
-}
-
-function resultRelativeAssetPath(ownerPath, rawUrl) {
-  const value = String(rawUrl || '').trim();
-  if (resultUrlShouldStayExternal(value)) return '';
-  try {
-    const ownerParts = normalizedResultPath(ownerPath).split('/').filter(Boolean);
-    ownerParts.pop();
-    const basePath = ownerParts.map(part => encodeURIComponent(part)).join('/');
-    const base = `https://clusterweave.invalid/${basePath}${basePath ? '/' : ''}`;
-    const parsed = new URL(value, base);
-    if (parsed.origin !== 'https://clusterweave.invalid') return '';
-    return decodeURIComponent(parsed.pathname.replace(/^\/+/, ''));
-  } catch (e) {
-    return '';
-  }
-}
-
-function resultArtifactFamilyRoot(path) {
-  const parts = normalizedResultPath(path).split('/');
-  if (
-    parts.length < 6
-    || parts[0] !== 'data'
-    || parts[1] !== 'results'
-    || !parts[2]
-    || !['antismash', 'funbgcex'].includes(String(parts[3]).toLowerCase())
-    || !parts[4]
-    || parts.slice(0, 5).some(part => !part || part === '.' || part === '..')
-  ) return '';
-  return parts.slice(0, 5).join('/');
-}
-
-function resultArtifactFamilyAssetPath(ownerPath, rawUrl) {
-  const familyRoot = resultArtifactFamilyRoot(ownerPath);
-  if (!familyRoot || resultUrlShouldStayExternal(rawUrl)) return '';
-  const resolved = normalizedResultPath(resultRelativeAssetPath(ownerPath, rawUrl));
-  const parts = resolved.split('/');
-  if (
-    !resolved.startsWith(`${familyRoot}/`)
-    || parts.some(part => !part || part === '.' || part === '..')
-  ) return '';
-  return resolved;
-}
-
-function isToolResultBundleHtml(path, resultContext = null) {
-  const descriptor = resultArtifactDescriptor(path, resultContext);
-  return ['antismash', 'funbgcex'].includes(String(descriptor?.category || ''))
-    && ['html', 'htm'].includes(resultPathExt(path));
-}
-
-function splitResultAssetUrl(rawUrl) {
-  const value = String(rawUrl || '').trim();
-  const match = value.match(/^([^?#]*)([?#].*)?$/);
-  return { path: match ? match[1] : value, suffix: match && match[2] ? match[2] : '' };
-}
-
-function resultAssetHashSuffix(rawUrl) {
-  const value = String(rawUrl || '').trim();
-  const hashIndex = value.indexOf('#');
-  return hashIndex >= 0 ? value.slice(hashIndex) : '';
-}
-
-const TOOL_RESULT_PREVIEW_ASSET_MAX_BYTES = 16 * 1024 * 1024;
-const TOOL_RESULT_PREVIEW_TOTAL_ASSET_MAX_BYTES = 64 * 1024 * 1024;
-const BIGSCAPE_PREVIEW_ASSET_MAX_BYTES = 16 * 1024 * 1024;
-const BIGSCAPE_PREVIEW_TOTAL_ASSET_MAX_BYTES = 64 * 1024 * 1024;
-const BIGSCAPE_PORTABLE_ASSET_EXTENSIONS = new Set([
-  'css',
-  'png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico',
-  'woff', 'woff2', 'ttf', 'otf', 'eot',
-]);
-
-function bigscapeHtmlContentRoot(ownerPath) {
-  const parts = normalizedResultPath(ownerPath).split('/');
-  if (
-    parts.length < 5
-    || parts.some(part => !part || part === '.' || part === '..')
-    || parts[0] !== 'data'
-    || parts[1] !== 'results'
-    || !parts[2]
-    || !['big_scape', 'bigscape', 'big-scape'].includes(String(parts[3]).toLowerCase())
-  ) return '';
-  const htmlContentIndex = parts.indexOf('html_content', 4);
-  const rootParts = htmlContentIndex >= 0
-    ? parts.slice(0, htmlContentIndex)
-    : parts.slice(0, -1);
-  return rootParts.length >= 4 ? `${rootParts.join('/')}/html_content` : '';
-}
-
-function bigscapeHtmlContentAssetPath(ownerPath, rawUrl) {
-  const contentRoot = bigscapeHtmlContentRoot(ownerPath);
-  if (!contentRoot || resultUrlShouldStayExternal(rawUrl)) return '';
-  const resolved = normalizedResultPath(resultRelativeAssetPath(ownerPath, rawUrl));
-  const parts = resolved.split('/');
-  if (
-    !resolved.startsWith(`${contentRoot}/`)
-    || parts.some(part => !part || part === '.' || part === '..')
-  ) return '';
-  return resolved;
-}
-
-function bigscapePortableAssetPathAllowed(path) {
-  return BIGSCAPE_PORTABLE_ASSET_EXTENSIONS.has(resultPathExt(path));
-}
-
-function assertBigscapeAssetDeclaredSize(response, budget = null) {
-  const raw = response?.headers?.get?.('Content-Length');
-  const declared = Number(raw);
-  if (
-    raw === null
-    || String(raw).trim() === ''
-    || !Number.isSafeInteger(declared)
-    || declared < 0
-    || declared > BIGSCAPE_PREVIEW_ASSET_MAX_BYTES
-  ) {
-    throw new Error('A BiG-SCAPE preview asset is missing a safe Content-Length or exceeds 16 MiB.');
-  }
-  if (budget) {
-    budget.declaredBytes += declared;
-    if (budget.declaredBytes > BIGSCAPE_PREVIEW_TOTAL_ASSET_MAX_BYTES) {
-      throw new Error('The BiG-SCAPE preview asset bundle exceeds the 64 MiB browser limit.');
-    }
-  }
-  return declared;
-}
-
-function assertBigscapeAssetActualSize(size, budget = null) {
-  if (!Number.isSafeInteger(size) || size < 0 || size > BIGSCAPE_PREVIEW_ASSET_MAX_BYTES) {
-    throw new Error('A BiG-SCAPE preview asset exceeds the 16 MiB browser limit.');
-  }
-  if (budget) {
-    budget.actualBytes += size;
-    if (budget.actualBytes > BIGSCAPE_PREVIEW_TOTAL_ASSET_MAX_BYTES) {
-      throw new Error('The BiG-SCAPE preview asset bundle exceeds the 64 MiB browser limit.');
-    }
-  }
-}
-
-function assertToolResultAssetSize(response, actualSize, budget) {
-  const raw = response?.headers?.get?.('Content-Length');
-  const declared = Number(raw);
-  if (
-    raw === null
-    || String(raw).trim() === ''
-    || !Number.isSafeInteger(declared)
-    || declared < 0
-    || declared > TOOL_RESULT_PREVIEW_ASSET_MAX_BYTES
-    || !Number.isSafeInteger(actualSize)
-    || actualSize < 0
-    || actualSize > TOOL_RESULT_PREVIEW_ASSET_MAX_BYTES
-  ) {
-    throw new Error('A result preview asset is missing a safe size or exceeds 16 MiB.');
-  }
-  budget.declaredBytes += declared;
-  budget.actualBytes += actualSize;
-  if (
-    budget.declaredBytes > TOOL_RESULT_PREVIEW_TOTAL_ASSET_MAX_BYTES
-    || budget.actualBytes > TOOL_RESULT_PREVIEW_TOTAL_ASSET_MAX_BYTES
-  ) {
-    throw new Error('The result preview asset bundle exceeds the 64 MiB browser limit.');
-  }
-}
-
-
-const STATIC_RESULT_PREVIEW_CSP = "default-src 'none'; img-src data: blob:; style-src 'unsafe-inline' data: blob:; font-src data: blob:; media-src data: blob:; connect-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; form-action 'none'; base-uri 'none'";
-const TOOL_RESULT_PREVIEW_CSP = "default-src 'none'; script-src 'unsafe-inline'; img-src data: blob:; style-src 'unsafe-inline' data: blob:; font-src data: blob:; media-src data: blob:; connect-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; form-action 'none'; base-uri 'none'";
-const TOOL_RESULT_PREVIEW_SANDBOX = 'allow-scripts';
-const CLINKER_RESULT_PREVIEW_CSP = "default-src 'none'; script-src 'unsafe-inline'; img-src data: blob:; style-src 'unsafe-inline' data: blob:; font-src data: blob:; media-src data: blob:; connect-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; form-action 'none'; base-uri 'none'";
-const CLINKER_PREVIEW_SANDBOX = 'allow-scripts';
-const BIGSCAPE_RESULT_PREVIEW_CSP = "default-src 'none'; script-src 'unsafe-inline'; img-src data: blob:; style-src 'unsafe-inline' data: blob:; font-src data: blob:; media-src data: blob:; connect-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; form-action 'none'; base-uri 'none'";
-const BIGSCAPE_PREVIEW_SANDBOX = 'allow-scripts';
-const BIGSCAPE_KINETIC_GLOBAL_EVAL_SHIM = '(1,eval)("this")';
-const BIGSCAPE_KINETIC_GLOBAL_EVAL_SHIM_COUNT = 2;
-
-function isExactPublicClinkerPanelHtml(path) {
-  const descriptor = resultArtifactDescriptor(path);
-  return descriptor?.category === 'synteny' && /^panel\.html$/i.test(resultArtifactName(path));
-}
-
-function injectResultPreviewNavigator(doc, jobId, htmlPath) {
-  // Result HTML is rendered as a static, network-isolated document.  Bearer
-  // credentials must never be copied into tool-generated DOM.
-  void doc;
-  void jobId;
-  void htmlPath;
-}
-
-function resultBlobDataUrl(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(reader.error || new Error('Could not read result asset.'));
-    reader.readAsDataURL(blob);
-  });
-}
-
-async function resultAssetObjectUrl(jobId, ownerPath, rawUrl, cache, options = {}) {
-  const parts = splitResultAssetUrl(rawUrl);
-  const bigscapeMode = options.bigscapeMode === true;
-  const toolBundleMode = options.toolBundleMode === true;
-  const resultContext = options.resultContext || null;
-  const cacheKey = `${resultArtifactId(ownerPath, resultContext)}:${parts.path}`;
-  if (cache.has(cacheKey)) return cache.get(cacheKey);
-  const promise = (async () => {
-    const resolved = await resolveResultArtifact(jobId, ownerPath, parts.path, {
-      optional: true,
-      resultContext,
-    });
-    if (!resolved) return '';
-    const assetKey = resolved.key;
-    if (bigscapeMode && !bigscapePortableAssetPathAllowed(resultArtifactName(assetKey, resultContext))) return '';
-    const resp = await resultFetch(jobId, assetKey, { resultContext });
-    if (!resp.ok) return '';
-    if (bigscapeMode) assertBigscapeAssetDeclaredSize(resp, options.bigscapeAssetBudget);
-    const contentType = resp.headers.get('Content-Type') || '';
-    let blob;
-    if (resultPathExt(assetKey) === 'css' || /^text\/css\b/i.test(contentType)) {
-      const cssText = await resp.text();
-      const cssSize = new Blob([cssText]).size;
-      if (bigscapeMode) assertBigscapeAssetActualSize(cssSize, options.bigscapeAssetBudget);
-      if (toolBundleMode) assertToolResultAssetSize(resp, cssSize, options.toolBundleAssetBudget);
-      const rewrittenCss = await rewriteCssResultUrls(cssText, jobId, assetKey, cache, options);
-      blob = new Blob([rewrittenCss], { type: inlineResultMime(assetKey, 'text/css;charset=utf-8') });
-    } else {
-      const sourceBlob = await resp.blob();
-      if (bigscapeMode) assertBigscapeAssetActualSize(sourceBlob.size, options.bigscapeAssetBudget);
-      if (toolBundleMode) assertToolResultAssetSize(resp, sourceBlob.size, options.toolBundleAssetBudget);
-      blob = new Blob([sourceBlob], { type: inlineResultMime(assetKey, sourceBlob.type || contentType) });
-    }
-    const url = options.portableDataUrls === true
-      ? await resultBlobDataUrl(blob)
-      : URL.createObjectURL(blob);
-    if (options.portableDataUrls !== true) resultHelperObjectUrls.push(url);
-    return url;
-  })();
-  cache.set(cacheKey, promise);
-  return promise;
-}
-
-function stripToolResultCssImports(cssText) {
-  const source = String(cssText || '');
-  let output = '';
-  let cursor = 0;
-  let index = 0;
-  let quote = '';
-  let inComment = false;
-  while (index < source.length) {
-    const current = source[index];
-    const next = source[index + 1] || '';
-    if (inComment) {
-      if (current === '*' && next === '/') {
-        inComment = false;
-        index += 2;
-      } else {
-        index += 1;
-      }
-      continue;
-    }
-    if (quote) {
-      if (current === '\\') {
-        index += 2;
-      } else {
-        if (current === quote) quote = '';
-        index += 1;
-      }
-      continue;
-    }
-    if (current === '/' && next === '*') {
-      inComment = true;
-      index += 2;
-      continue;
-    }
-    if (current === '"' || current === "'") {
-      quote = current;
-      index += 1;
-      continue;
-    }
-    if (
-      current === '@'
-      && source.slice(index, index + 7).toLowerCase() === '@import'
-      && !/[A-Za-z0-9_-]/.test(source[index + 7] || '')
-    ) {
-      output += source.slice(cursor, index);
-      let ruleIndex = index + 7;
-      let ruleQuote = '';
-      let ruleComment = false;
-      let parenDepth = 0;
-      while (ruleIndex < source.length) {
-        const ruleCurrent = source[ruleIndex];
-        const ruleNext = source[ruleIndex + 1] || '';
-        if (ruleComment) {
-          if (ruleCurrent === '*' && ruleNext === '/') {
-            ruleComment = false;
-            ruleIndex += 2;
-          } else {
-            ruleIndex += 1;
-          }
-          continue;
-        }
-        if (ruleQuote) {
-          if (ruleCurrent === '\\') {
-            ruleIndex += 2;
-          } else {
-            if (ruleCurrent === ruleQuote) ruleQuote = '';
-            ruleIndex += 1;
-          }
-          continue;
-        }
-        if (ruleCurrent === '/' && ruleNext === '*') {
-          ruleComment = true;
-          ruleIndex += 2;
-          continue;
-        }
-        if (ruleCurrent === '"' || ruleCurrent === "'") {
-          ruleQuote = ruleCurrent;
-          ruleIndex += 1;
-          continue;
-        }
-        if (ruleCurrent === '(') parenDepth += 1;
-        if (ruleCurrent === ')' && parenDepth > 0) parenDepth -= 1;
-        ruleIndex += 1;
-        if (ruleCurrent === ';' && parenDepth === 0) break;
-      }
-      output += '/* ClusterWeave removed a result-bundle import rule. */';
-      index = ruleIndex;
-      cursor = ruleIndex;
-      quote = '';
-      inComment = false;
-      continue;
-    }
-    index += 1;
-  }
-  return output + source.slice(cursor);
-}
-
-async function rewriteCssResultUrls(cssText, jobId, ownerPath, cache, options = {}) {
-  const originalSource = String(cssText || '');
-  if (options.bigscapeMode && /@import\b/i.test(originalSource)) {
-    throw new Error('BiG-SCAPE preview CSS @import rules are not supported.');
-  }
-  const source = options.toolBundleMode
-    ? stripToolResultCssImports(originalSource)
-    : originalSource;
-  const regex = /url\(\s*([\'\"]?)([^\'\")]+)\1\s*\)/gi;
-  let output = '';
-  let lastIndex = 0;
-  for (const match of source.matchAll(regex)) {
-    output += source.slice(lastIndex, match.index);
-    const quote = match[1] || '';
-    const rawUrl = match[2] || '';
-    let rewritten = '';
-    if (options.bigscapeMode || !resultUrlShouldStayExternal(rawUrl)) {
-      rewritten = await resultAssetObjectUrl(jobId, ownerPath, rawUrl, cache, options);
-    }
-    output += rewritten
-      ? `url(${quote}${rewritten}${resultAssetHashSuffix(rawUrl)}${quote})`
-      : options.bigscapeMode || options.toolBundleMode
-        ? 'none'
-        : match[0];
-    lastIndex = match.index + match[0].length;
-  }
-  return output + source.slice(lastIndex);
-}
-
-function isClassicResultScript(script) {
-  const type = String(script?.getAttribute?.('type') || '').trim().toLowerCase();
-  return !type || [
-    'text/javascript',
-    'application/javascript',
-    'text/ecmascript',
-    'application/ecmascript',
-  ].includes(type);
-}
-
-function rewriteToolResultScriptForSandbox(assetPath, sourceText, resultContext = null) {
-  const source = String(sourceText || '');
-  if (!/^antismash\.js$/i.test(resultArtifactName(assetPath, resultContext))) return source;
-  const getter = 'function T(){const t=window.location.hash.substring(1);return t||"overview"}';
-  const switcher = 'function k(){setTimeout((()=>{$(".page").hide()';
-  if (source.split(getter).length !== 2 || source.split(switcher).length !== 2) {
-    throw new Error('The antiSMASH region navigator does not match the sandbox compatibility profile.');
-  }
-  return source
-    .replace(
-      getter,
-      'let clusterweaveAnchor="";function T(){const t=clusterweaveAnchor||window.location.hash.substring(1);return t||"overview"}',
-    )
-    .replace(
-      switcher,
-      'function k(t){if(t)clusterweaveAnchor=t;setTimeout((()=>{$(".page").hide()',
-    );
-}
-
-function rewriteBigscapeScriptForSandbox(assetPath, sourceText) {
-  const source = String(sourceText || '');
-  if (!/^kinetic-v5\.1\.0\.min\.js$/i.test(resultArtifactName(assetPath))) {
-    return source;
-  }
-  const occurrences = source.split(BIGSCAPE_KINETIC_GLOBAL_EVAL_SHIM).length - 1;
-  if (occurrences !== BIGSCAPE_KINETIC_GLOBAL_EVAL_SHIM_COUNT) {
-    throw new Error('The bundled BiG-SCAPE Kinetic runtime does not match the CSP-safe compatibility profile.');
-  }
-  return source.replaceAll(BIGSCAPE_KINETIC_GLOBAL_EVAL_SHIM, 'globalThis');
-}
-
-async function inlineBigscapeResultScripts(doc, jobId, htmlPath, options = {}) {
-  const scripts = Array.from(doc.querySelectorAll('script[src]'));
-  await Promise.all(scripts.map(async script => {
-    const rawUrl = script.getAttribute('src') || '';
-    if (resultUrlShouldStayExternal(rawUrl)) {
-      script.remove();
-      return;
-    }
-    if (
-      !isClassicResultScript(script)
-      || script.hasAttribute?.('async')
-      || script.hasAttribute?.('defer')
-    ) {
-      script.remove();
-      throw new Error('BiG-SCAPE preview requires local synchronous classic JavaScript assets.');
-    }
-    const parts = splitResultAssetUrl(rawUrl);
-    const resolved = await resolveResultArtifact(jobId, htmlPath, parts.path, { optional: true });
-    const assetKey = resolved?.key || '';
-    if (!assetKey || resultArtifactDescriptor(assetKey)?.category !== 'bigscape'
-        || resultPathExt(assetKey) !== 'js') {
-      script.remove();
-      throw new Error('A local BiG-SCAPE script is outside its html_content JavaScript bundle.');
-    }
-    try {
-      const resp = await resultFetch(jobId, assetKey);
-      if (!resp.ok) {
-        script.remove();
-        throw new Error('A required local BiG-SCAPE script could not be loaded.');
-      }
-      assertBigscapeAssetDeclaredSize(resp, options.bigscapeAssetBudget);
-      const source = rewriteBigscapeScriptForSandbox(
-        assetKey,
-        String(await resp.text()),
-      ).replace(/<\/script/gi, '<\\/script');
-      assertBigscapeAssetActualSize(new Blob([source]).size, options.bigscapeAssetBudget);
-      script.textContent = source;
-      for (const attr of [
-        'src', 'integrity', 'crossorigin', 'referrerpolicy',
-        'nonce', 'async', 'defer',
-      ]) {
-        script.removeAttribute(attr);
-      }
-    } catch (error) {
-      script.remove();
-      throw error instanceof Error
-        ? error
-        : new Error('A required local BiG-SCAPE script could not be loaded.');
-    }
-  }));
-}
-
-async function inlineToolResultScripts(doc, jobId, htmlPath, options = {}) {
-  const scripts = Array.from(doc.querySelectorAll('script[src]'));
-  const deferredScripts = [];
-  const resultContext = options.resultContext || null;
-  for (const script of scripts) {
-    const wasDeferred = script.hasAttribute('defer');
-    const rawUrl = script.getAttribute('src') || '';
-    const resolved = await resolveResultArtifact(
-      jobId,
-      htmlPath,
-      splitResultAssetUrl(rawUrl).path,
-      { optional: true, resultContext },
-    );
-    const assetKey = resolved?.key || '';
-    const ownerDescriptor = resultArtifactDescriptor(htmlPath, resultContext);
-    const assetDescriptor = resultArtifactDescriptor(assetKey, resultContext);
-    if (!assetKey || !isClassicResultScript(script) || resultPathExt(assetKey) !== 'js'
-        || assetDescriptor?.category !== ownerDescriptor?.category
-        || assetDescriptor?.bundle_id !== ownerDescriptor?.bundle_id) {
-      script.remove();
-      continue;
-    }
-    const resp = await resultFetch(jobId, assetKey, { resultContext });
-    if (!resp.ok) {
-      script.remove();
-      throw new Error('A required result-bundle script could not be loaded.');
-    }
-    const source = rewriteToolResultScriptForSandbox(
-      assetKey,
-      String(await resp.text()),
-      resultContext,
-    ).replace(/<\/script/gi, '<\\/script');
-    assertToolResultAssetSize(resp, new Blob([source]).size, options.toolBundleAssetBudget);
-    script.textContent = source;
-    for (const attr of [
-      'src', 'integrity', 'crossorigin', 'referrerpolicy',
-      'nonce', 'async', 'defer',
-    ]) script.removeAttribute(attr);
-    if (wasDeferred) deferredScripts.push(script);
-  }
-  const deferredTarget = doc.body || doc.documentElement;
-  deferredScripts.forEach(script => deferredTarget.appendChild(script));
-}
-
-async function rewriteHtmlResultAssets(htmlText, jobId, htmlPath, options = {}) {
-  const source = String(htmlText || '');
-  const doc = new DOMParser().parseFromString(source, 'text/html');
-  const cache = new Map();
-  const resultContext = options.resultContext || null;
-  const allowClinkerInlineScripts = options.allowClinkerInlineScripts === true && isExactPublicClinkerPanelHtml(htmlPath);
-  const allowBigscapeScripts = options.allowBigscapeScripts === true && isBigscapeHtmlArtifact(htmlPath);
-  const allowToolBundleScripts = options.allowToolBundleScripts === true
-    && isToolResultBundleHtml(htmlPath, resultContext);
-  const bigscapeAssetBudget = allowBigscapeScripts
-    ? { declaredBytes: 0, actualBytes: 0 }
-    : null;
-  const toolBundleAssetBudget = allowToolBundleScripts
-    ? { declaredBytes: 0, actualBytes: 0 }
-    : null;
-  const assetOptions = {
-    portableDataUrls: allowBigscapeScripts || allowToolBundleScripts,
-    bigscapeMode: allowBigscapeScripts,
-    bigscapeAssetBudget,
-    toolBundleMode: allowToolBundleScripts,
-    toolBundleAssetBudget,
-    resultContext,
-  };
-  const blockedElements = allowBigscapeScripts
-    ? 'iframe,object,embed,base'
-    : allowToolBundleScripts
-      ? 'iframe,object,embed,base'
-      : allowClinkerInlineScripts
-        ? 'script[src],iframe,object,embed,base'
-        : 'script,iframe,object,embed,base';
-  Array.from(doc.querySelectorAll(blockedElements)).forEach(node => node.remove());
-  Array.from(doc.querySelectorAll('meta[http-equiv="Content-Security-Policy" i]')).forEach(node => node.remove());
-  Array.from(doc.querySelectorAll('meta[http-equiv="refresh" i]')).forEach(node => node.remove());
-  Array.from(doc.querySelectorAll('[srcset]')).forEach(node => node.removeAttribute('srcset'));
-  Array.from(doc.querySelectorAll('[autofocus]')).forEach(node => node.removeAttribute('autofocus'));
-  Array.from(doc.querySelectorAll('form[action], [formaction]')).forEach(node => {
-    node.removeAttribute('action');
-    node.removeAttribute('formaction');
-  });
-  const csp = doc.createElement('meta');
-  csp.setAttribute('http-equiv', 'Content-Security-Policy');
-  csp.setAttribute(
-    'content',
-    allowBigscapeScripts
-      ? BIGSCAPE_RESULT_PREVIEW_CSP
-      : allowToolBundleScripts
-        ? TOOL_RESULT_PREVIEW_CSP
-        : allowClinkerInlineScripts
-          ? CLINKER_RESULT_PREVIEW_CSP
-          : STATIC_RESULT_PREVIEW_CSP,
-  );
-  (doc.head || doc.documentElement).prepend(csp);
-  const assetAttrs = [
-    ['link[href]', 'href'],
-    ['img[src]', 'src'],
-    ['source[src]', 'src'],
-    ['video[poster]', 'poster'],
-    ['audio[src]', 'src'],
-    ['video[src]', 'src'],
-    ['input[src]', 'src'],
-    ['track[src]', 'src'],
-  ];
-  const scriptTask = allowBigscapeScripts
-    ? inlineBigscapeResultScripts(doc, jobId, htmlPath, assetOptions)
-    : allowToolBundleScripts
-      ? inlineToolResultScripts(doc, jobId, htmlPath, assetOptions)
-      : Promise.resolve();
-  const assetTasks = [];
-  for (const [selector, attr] of assetAttrs) {
-    for (const el of Array.from(doc.querySelectorAll(selector))) {
-      assetTasks.push((async () => {
-        const value = el.getAttribute(attr) || '';
-        if (/^javascript:/i.test(value)) {
-          el.removeAttribute(attr);
-          return;
-        }
-        if (resultUrlShouldStayExternal(value)) {
-          el.removeAttribute(attr);
-          return;
-        }
-        const rewritten = await resultAssetObjectUrl(jobId, htmlPath, value, cache, assetOptions);
-        if (rewritten) {
-          el.setAttribute(attr, rewritten + resultAssetHashSuffix(value));
-        } else {
-          el.removeAttribute(attr);
-        }
-      })());
-    }
-  }
-  await Promise.all([scriptTask, ...assetTasks]);
-  await Promise.all(Array.from(doc.querySelectorAll('style')).map(async styleEl => {
-    styleEl.textContent = await rewriteCssResultUrls(
-      styleEl.textContent || '', jobId, htmlPath, cache, assetOptions,
-    );
-  }));
-  await Promise.all(Array.from(doc.querySelectorAll('[style]')).map(async el => {
-    const value = el.getAttribute('style') || '';
-    const rewritten = await rewriteCssResultUrls(value, jobId, htmlPath, cache, assetOptions);
-    if (rewritten !== value) el.setAttribute('style', rewritten);
-  }));
-  for (const el of Array.from(doc.querySelectorAll('a[href],area[href]'))) {
-    const value = el.getAttribute('href') || '';
-    if (/^javascript:/i.test(value)) {
-      el.removeAttribute('href');
-    } else if (allowToolBundleScripts && value.startsWith('#')) {
-      el.setAttribute('href', `${resultHref(jobId, htmlPath, { resultContext })}${value}`);
-      el.setAttribute('data-clusterweave-result-fragment', value);
-    } else if (allowToolBundleScripts && resultUrlShouldStayExternal(value)) {
-      el.removeAttribute('href');
-      el.removeAttribute('target');
-      el.removeAttribute('rel');
-      el.setAttribute('aria-disabled', 'true');
-      el.setAttribute('title', 'This link is outside the generated result bundle.');
-    } else if (!resultUrlShouldStayExternal(value)) {
-      if (allowToolBundleScripts) {
-        const localReferencePath = splitResultAssetUrl(value).path;
-        if (!['html', 'htm'].includes(resultPathExt(localReferencePath))) {
-          el.removeAttribute('href');
-          el.setAttribute('aria-disabled', 'true');
-          el.setAttribute('title', 'This link is outside the generated result bundle.');
-          continue;
-        }
-        const resolved = await resolveResultArtifact(
-          jobId,
-          htmlPath,
-          value,
-          { optional: true, resultContext },
-        );
-        if (resolved && isToolResultBundleHtml(resolved.key, resultContext)) {
-          const fragment = resolved.fragment || resultAssetHashSuffix(value);
-          const cleanHref = `${resultHref(jobId, resolved.key, { resultContext })}${fragment}`;
-          el.setAttribute('href', cleanHref);
-          el.setAttribute('data-clusterweave-result-artifact', resolved.descriptor.id);
-          el.setAttribute('data-clusterweave-result-fragment', fragment);
-        } else {
-          el.removeAttribute('href');
-          el.setAttribute('aria-disabled', 'true');
-          el.setAttribute('title', 'This link is outside the generated result bundle.');
-        }
-      } else {
-        el.removeAttribute('href');
-        el.setAttribute('aria-disabled', 'true');
-        el.setAttribute('title', 'This link is outside the generated result bundle.');
-      }
-    } else if (/^(?:[a-z][a-z0-9+.-]*:)?\/\//i.test(value)) {
-      if (allowBigscapeScripts) {
-        el.removeAttribute('href');
-        el.setAttribute('aria-disabled', 'true');
-      } else {
-        el.setAttribute('rel', 'noopener noreferrer');
-        el.setAttribute('target', '_blank');
-      }
-    } else if (allowBigscapeScripts && !value.startsWith('#')) {
-      el.removeAttribute('href');
-      el.setAttribute('aria-disabled', 'true');
-    }
-  }
-  if (allowToolBundleScripts) {
-    const navigator = doc.createElement('script');
-    navigator.setAttribute('data-clusterweave-result-preview', '');
-    navigator.setAttribute('data-channel', String(options.toolPreviewChannel || ''));
-    navigator.setAttribute('data-owner', resultArtifactId(htmlPath, resultContext));
-    navigator.textContent = RESULT_PREVIEW_NAVIGATOR_SCRIPT;
-    (doc.body || doc.head || doc.documentElement).appendChild(navigator);
-  }
-  const doctype = source.match(/^\s*<!doctype[^>]*>/i);
-  return `${doctype ? doctype[0] : '<!doctype html>'}
-${doc.documentElement.outerHTML}`;
-}
-
-async function buildHtmlResultObjectUrl(jobId, htmlPath, htmlText, options = {}) {
-  const transform = options && typeof options.transform === 'function' ? options.transform : null;
-  const transformedHtml = transform ? transform(String(htmlText || '')) : String(htmlText || '');
-  const rewrittenHtml = await rewriteHtmlResultAssets(transformedHtml, jobId, htmlPath);
-  const url = URL.createObjectURL(new Blob([rewrittenHtml], { type: inlineResultMime(htmlPath, 'text/html;charset=utf-8') }));
-  resultHelperObjectUrls.push(url);
-  return url;
-}
-
-function renderSandboxedClinkerPreview(targetWindow, relPath, htmlText) {
-  const doc = targetWindow.document;
-  const title = fileNameFromPath(relPath) || 'Clinker panel';
-  doc.open();
-  doc.write(`<!doctype html>
-<html><head>
-<meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-src 'self'; child-src 'self'; connect-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'">
-<meta name="referrer" content="no-referrer">
-<title>${escapeHtml(title)}</title>
-<style>html,body{height:100%;margin:0;background:#fff}iframe{display:block;width:100%;height:100%;border:0}</style>
-</head><body></body></html>`);
-  doc.close();
-  const frame = doc.createElement('iframe');
-  frame.id = 'clusterweave-clinker-preview';
-  frame.setAttribute('sandbox', CLINKER_PREVIEW_SANDBOX);
-  frame.setAttribute('referrerpolicy', 'no-referrer');
-  frame.setAttribute('title', title);
-  frame.srcdoc = htmlText;
-  doc.body.appendChild(frame);
-  return frame;
-}
-
-function renderSandboxedBigscapePreview(targetWindow, relPath, htmlText, databaseBuffer, channel) {
-  const doc = targetWindow.document;
-  const title = fileNameFromPath(relPath) || 'BiG-SCAPE';
-  doc.open();
-  doc.write(`<!doctype html>
-<html><head>
-<meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; img-src data: blob:; style-src 'unsafe-inline' data: blob:; font-src data: blob:; media-src data: blob:; frame-src 'self'; child-src 'self'; connect-src 'none'; object-src 'none'; worker-src 'none'; form-action 'none'; base-uri 'none'">
-<meta name="referrer" content="no-referrer">
-<title>${escapeHtml(title)}</title>
-<style>html,body{height:100%;margin:0;background:#fff}iframe{display:block;width:100%;height:100%;border:0}</style>
-<script>(function(){
-  let transferBuffer = null;
-  let transferChannel = '';
-  let transferFrameId = '';
-  let transferTimeout = null;
-
-  function cleanupTransfer() {
-    window.removeEventListener('message', transferDatabase);
-    window.removeEventListener('pagehide', cleanupTransfer);
-    window.removeEventListener('beforeunload', cleanupTransfer);
-    if (transferTimeout) window.clearTimeout(transferTimeout);
-    transferTimeout = null;
-    transferBuffer = null;
-    transferChannel = '';
-    transferFrameId = '';
-    window.CLUSTERWEAVE_BIGSCAPE_INSTALL_TRANSFER = null;
-  }
-
-  function transferDatabase(event) {
-    const frame = document.getElementById(transferFrameId);
-    const payload = event && event.data;
-    if (!frame
-        || event.source !== frame.contentWindow
-        || !payload
-        || payload.type !== 'clusterweave:bigscape-database-ready'
-        || payload.channel !== transferChannel) return;
-    const buffer = transferBuffer;
-    const isArrayBuffer = Object.prototype.toString.call(buffer) === '[object ArrayBuffer]';
-    if (!isArrayBuffer || !Number.isFinite(buffer.byteLength) || buffer.byteLength <= 0) return;
-    const selectedChannel = transferChannel;
-    cleanupTransfer();
-    try {
-      frame.contentWindow.postMessage({
-        type: 'clusterweave:bigscape-database',
-        channel: selectedChannel,
-        buffer,
-      }, '*', [buffer]);
-    } catch (error) {
-      frame.contentWindow.postMessage({
-        type: 'clusterweave:bigscape-database-error',
-        channel: selectedChannel,
-      }, '*');
-    }
-  }
-
-  window.CLUSTERWEAVE_BIGSCAPE_INSTALL_TRANSFER = function(buffer, channel, frameId) {
-    const isArrayBuffer = Object.prototype.toString.call(buffer) === '[object ArrayBuffer]';
-    if (!isArrayBuffer || !Number.isFinite(buffer.byteLength) || buffer.byteLength <= 0) {
-      throw new Error('The compact BiG-SCAPE viewer transfer buffer is invalid.');
-    }
-    transferBuffer = buffer;
-    transferChannel = String(channel || '');
-    transferFrameId = String(frameId || '');
-    window.addEventListener('message', transferDatabase);
-    window.addEventListener('pagehide', cleanupTransfer, { once: true });
-    window.addEventListener('beforeunload', cleanupTransfer, { once: true });
-    transferTimeout = window.setTimeout(cleanupTransfer, 120000);
-  };
-})();<\/script>
-</head><body></body></html>`);
-  doc.close();
-  const frame = doc.createElement('iframe');
-  frame.id = 'clusterweave-bigscape-preview';
-  frame.setAttribute('sandbox', BIGSCAPE_PREVIEW_SANDBOX);
-  frame.setAttribute('referrerpolicy', 'no-referrer');
-  frame.setAttribute('title', title);
-  const installTransfer = targetWindow.CLUSTERWEAVE_BIGSCAPE_INSTALL_TRANSFER;
-  if (typeof installTransfer !== 'function') {
-    throw new Error('The compact BiG-SCAPE popup transfer relay could not be installed.');
-  }
-  // The relay is defined in the popup realm so the sandbox receives the
-  // database message from window.parent, never from the application opener.
-  installTransfer(databaseBuffer, channel, frame.id);
-  databaseBuffer = null;
-  frame.srcdoc = htmlText;
-  doc.body.appendChild(frame);
-  return frame;
-}
-
-function renderSandboxedToolResultPreview(
-  targetWindow,
-  jobId,
-  relPath,
-  htmlText,
-  channel,
-  resultContext,
-) {
-  if (!resultContext?.runId) {
-    throw new Error('The result-bundle popup is missing its immutable artifact context.');
-  }
-  const doc = targetWindow.document;
-  const title = resultArtifactName(relPath, resultContext) || 'Result bundle';
-  doc.open();
-  doc.write(`<!doctype html>
-<html><head>
-<meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; img-src data: blob:; style-src 'unsafe-inline' data: blob:; font-src data: blob:; media-src data: blob:; frame-src blob:; child-src blob:; connect-src 'none'; object-src 'none'; worker-src 'none'; form-action 'none'; base-uri 'none'">
-<meta name="referrer" content="no-referrer">
-<title>${escapeHtml(title)}</title>
-<style>html,body{height:100%;margin:0;background:#fff}iframe{display:block;width:100%;height:100%;border:0}</style>
-<script>(function(){
-  window.CLUSTERWEAVE_TOOL_RESULT_POST = function(frameId, payload) {
-    const selectedFrame = document.getElementById(String(frameId || ''));
-    if (!selectedFrame || !selectedFrame.contentWindow) return;
-    selectedFrame.contentWindow.postMessage(payload, '*');
-  };
-  window.addEventListener('pagehide', function() {
-    window.CLUSTERWEAVE_TOOL_RESULT_POST = null;
-  }, { once: true });
-})();<\/script>
-</head><body></body></html>`);
-  doc.close();
-  const frame = doc.createElement('iframe');
-  frame.id = 'clusterweave-tool-result-preview';
-  frame.setAttribute('sandbox', TOOL_RESULT_PREVIEW_SANDBOX);
-  frame.setAttribute('referrerpolicy', 'no-referrer');
-  frame.setAttribute('title', title);
-  const postToFrame = targetWindow.CLUSTERWEAVE_TOOL_RESULT_POST;
-  if (typeof postToFrame !== 'function') {
-    throw new Error('The result-bundle popup relay could not be installed.');
-  }
-  let currentPath = normalizedResultPath(relPath);
-  let currentChannel = String(channel || '');
-  let navigating = false;
-  let frameDocumentUrl = '';
-  let runtimeState = null;
-
-  function closeRuntimeState(state) {
-    if (!state || state.closed) return;
-    state.closed = true;
-    state.queue.length = 0;
-    state.pending.clear();
-    state.controllers.forEach(controller => controller.abort());
-    state.controllers.clear();
-  }
-
-  function rotateRuntimeState(nextChannel, nextOwner) {
-    closeRuntimeState(runtimeState);
-    currentChannel = String(nextChannel || '');
-    runtimeState = {
-      channel: currentChannel,
-      owner: String(nextOwner || ''),
-      queue: [],
-      pending: new Set(),
-      controllers: new Set(),
-      active: 0,
-      total: 0,
-      closed: false,
-    };
-    return runtimeState;
-  }
-
-  function setFrameHtml(value, fragment = '', nextPath = currentPath, nextChannel = currentChannel) {
-    currentPath = normalizedResultPath(nextPath);
-    rotateRuntimeState(nextChannel, resultArtifactId(currentPath, resultContext));
-    const previous = frameDocumentUrl;
-    frameDocumentUrl = targetWindow.URL.createObjectURL(new targetWindow.Blob(
-      [String(value || '')],
-      { type: 'text/html;charset=utf-8' },
-    ));
-    frame.addEventListener('load', () => {
-      if (previous) targetWindow.URL.revokeObjectURL(previous);
-    }, { once: true });
-    frame.src = `${frameDocumentUrl}${String(fragment || '')}`;
-  }
-
-  function sendResolved(source, state, request, payload = {}) {
-    if (
-      !frame.contentWindow
-      || source !== frame.contentWindow
-      || state !== runtimeState
-      || state.closed
-    ) return;
-    postToFrame(frame.id, {
-      type: 'clusterweave:result-bundle-resolved',
-      channel: state.channel,
-      owner: state.owner,
-      request: String(request || ''),
-      artifact: '',
-      href: '',
-      fragment: '',
-      ...payload,
-    }, '*');
-  }
-
-  async function processRuntimeReference(state, task) {
-    if (state.closed || state !== runtimeState) return;
-    state.active += 1;
-    const controller = new AbortController();
-    state.controllers.add(controller);
-    const timeout = targetWindow.setTimeout(
-      () => controller.abort(),
-      TOOL_RESULT_RUNTIME_RESOLVE_TIMEOUT_MS,
-    );
-    try {
-      const resolved = await resolveResultArtifact(
-        jobId,
-        currentPath,
-        task.reference,
-        { optional: true, resultContext, signal: controller.signal },
-      );
-      if (state.closed || state !== runtimeState) return;
-      const currentDescriptor = resultArtifactDescriptor(currentPath, resultContext);
-      const descriptor = resolved?.descriptor;
-      const allowedKind = descriptor?.kind === 'html' || descriptor?.kind === 'image';
-      if (
-        !resolved
-        || !allowedKind
-        || !currentDescriptor?.bundle_id
-        || descriptor?.bundle_id !== currentDescriptor.bundle_id
-        || descriptor?.category !== currentDescriptor.category
-      ) {
-        sendResolved(task.source, state, task.request);
-        return;
-      }
-      const fragment = resolved.fragment || resultAssetHashSuffix(task.reference);
-      sendResolved(task.source, state, task.request, {
-        artifact: descriptor.id,
-        href: `${resultHref(jobId, resolved.key, { resultContext })}${fragment}`,
-        fragment,
-      });
-    } catch (error) {
-      sendResolved(task.source, state, task.request);
-    } finally {
-      targetWindow.clearTimeout(timeout);
-      state.controllers.delete(controller);
-      state.pending.delete(task.request);
-      state.active = Math.max(0, state.active - 1);
-      pumpRuntimeReferences(state);
-    }
-  }
-
-  function pumpRuntimeReferences(state) {
-    if (state.closed || state !== runtimeState) return;
-    while (
-      state.active < TOOL_RESULT_RUNTIME_MAX_ACTIVE
-      && state.queue.length
-      && !state.closed
-    ) {
-      const task = state.queue.shift();
-      void processRuntimeReference(state, task);
-    }
-  }
-
-  function resolveRuntimeReference(event) {
-    const state = runtimeState;
-    if (
-      event.source !== frame.contentWindow
-      || !event.data
-      || event.data.type !== 'clusterweave:result-bundle-resolve'
-      || !state
-      || state.closed
-      || event.data.channel !== state.channel
-      || event.data.owner !== state.owner
-    ) return;
-    const reference = String(event.data.reference || '');
-    const request = String(event.data.request || '');
-    if (!/^r[1-9][0-9]{0,8}$/.test(request) || state.pending.has(request)) return;
-    state.total += 1;
-    if (
-      !reference
-      || reference.length > 2048
-      || state.total > TOOL_RESULT_RUNTIME_MAX_PER_DOCUMENT
-      || state.queue.length >= TOOL_RESULT_RUNTIME_MAX_QUEUE
-    ) {
-      sendResolved(event.source, state, request);
-      return;
-    }
-    state.pending.add(request);
-    state.queue.push({
-      source: event.source,
-      request,
-      reference,
-    });
-    pumpRuntimeReferences(state);
-  }
-
-  async function navigate(event) {
-    const state = runtimeState;
-    if (
-      event.source !== frame.contentWindow
-      || !event.data
-      || event.data.type !== 'clusterweave:result-bundle-navigate'
-      || !state
-      || state.closed
-      || event.data.channel !== state.channel
-      || event.data.owner !== state.owner
-      || navigating
-    ) return;
-    const targetDescriptor = resultArtifactDescriptor(event.data.artifact || '', resultContext);
-    const targetPath = artifactPresentationKey(targetDescriptor);
-    const currentDescriptor = resultArtifactDescriptor(currentPath, resultContext);
-    const targetIsHtml = isToolResultBundleHtml(targetPath, resultContext);
-    const targetIsImage = targetDescriptor?.kind === 'image'
-      && ['antismash', 'funbgcex'].includes(String(targetDescriptor?.category || ''));
-    if (!targetPath || (!targetIsHtml && !targetIsImage)) return;
-    if (
-      !currentDescriptor?.bundle_id
-      || !targetDescriptor?.bundle_id
-      || currentDescriptor.bundle_id !== targetDescriptor.bundle_id
-      || currentDescriptor.category !== targetDescriptor.category
-    ) return;
-    navigating = true;
-    try {
-      const response = await resultFetch(jobId, targetPath, { resultContext });
-      const contentType = response.headers.get('Content-Type') || '';
-      if (!response.ok) throw new Error('The linked result page is unavailable.');
-      if (targetIsImage) {
-        if (!/^image\//i.test(contentType)) {
-          throw new Error('The linked result image has an invalid media type.');
-        }
-        const blob = await response.blob();
-        assertToolResultAssetSize(
-          response,
-          blob.size,
-          { declaredBytes: 0, actualBytes: 0 },
-        );
-        const dataUrl = await resultBlobDataUrl(blob);
-        const imageName = resultArtifactName(targetPath, resultContext) || 'Result image';
-        const imageHtml = `<!doctype html>
-<html><head>
-<meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
-<meta name="referrer" content="no-referrer">
-<title>${escapeHtml(imageName)}</title>
-<style>html,body{min-height:100%;margin:0;background:#fff}body{display:grid;place-items:center}img{display:block;max-width:100%;height:auto}</style>
-</head><body><img src="${escapeHtml(dataUrl)}" alt="${escapeHtml(imageName)}"></body></html>`;
-        setFrameHtml(imageHtml, '', targetPath, '');
-        targetWindow.document.title = imageName;
-        return;
-      }
-      if (!/^text\/html\b/i.test(contentType)) {
-        throw new Error('The linked result page has an invalid media type.');
-      }
-      const nextChannel = toolResultPreviewChannel();
-      const nestedHtml = await rewriteHtmlResultAssets(await response.text(), jobId, targetPath, {
-        allowToolBundleScripts: true,
-        toolPreviewChannel: nextChannel,
-        resultContext,
-      });
-      if (state.closed || state !== runtimeState) return;
-      setFrameHtml(nestedHtml, event.data.fragment || '', targetPath, nextChannel);
-      targetWindow.document.title = resultArtifactName(targetPath, resultContext) || title;
-    } catch (error) {
-      console.error('ClusterWeave result-bundle navigation failed', error);
-    } finally {
-      navigating = false;
-    }
-  }
-
-  targetWindow.addEventListener('message', resolveRuntimeReference);
-  targetWindow.addEventListener('message', navigate);
-  targetWindow.addEventListener('pagehide', () => {
-    targetWindow.removeEventListener('message', resolveRuntimeReference);
-    targetWindow.removeEventListener('message', navigate);
-    closeRuntimeState(runtimeState);
-    if (frameDocumentUrl) targetWindow.URL.revokeObjectURL(frameDocumentUrl);
-  }, { once: true });
-  doc.body.appendChild(frame);
-  setFrameHtml(htmlText, '', relPath, channel);
-  return frame;
-}
-
-async function openHtmlResultWithAssets(event, jobId, relPath, previewWindow = null) {
-  event?.preventDefault?.();
-  const ownsWindow = !previewWindow;
-  const targetWindow = previewWindow || window.open('', '_blank');
-  if (!targetWindow) return false;
-  targetWindow.opener = null;
-  targetWindow.document.title = fileNameFromPath(relPath);
-  targetWindow.document.body.textContent = 'Loading preview...';
-  try {
-    const resultContext = createResultArtifactContext(jobId);
-    const resp = await resultFetch(jobId, relPath, { resultContext });
-    if (!resp.ok) throw new Error('Result HTML could not be opened with the saved result access code.');
-    const htmlText = await resp.text();
-    if (isExactPublicClinkerPanelHtml(relPath)) {
-      const rewrittenHtml = await rewriteHtmlResultAssets(htmlText, jobId, relPath, { allowClinkerInlineScripts: true });
-      renderSandboxedClinkerPreview(targetWindow, relPath, rewrittenHtml);
-      return false;
-    }
-    if (isToolResultBundleHtml(relPath, resultContext)) {
-      const channel = toolResultPreviewChannel();
-      const rewrittenHtml = await rewriteHtmlResultAssets(htmlText, jobId, relPath, {
-        allowToolBundleScripts: true,
-        toolPreviewChannel: channel,
-        resultContext,
-      });
-      renderSandboxedToolResultPreview(
-        targetWindow,
-        jobId,
-        relPath,
-        rewrittenHtml,
-        channel,
-        resultContext,
-      );
-      return false;
-    }
-    const url = await buildHtmlResultObjectUrl(jobId, relPath, htmlText);
-    targetWindow.location.href = url;
-  } catch (err) {
-    if (ownsWindow) targetWindow.close();
-    alert(err.message || String(err));
-  }
-  return false;
-}
-
-function resultFetch(jobId, artifactKey, options = {}) {
-  const { download = false, resultContext = null, ...fetchOptions } = options;
-  const runId = resultContext?.runId || publicRunIdForJob(jobId);
-  const artifactId = resultArtifactId(artifactKey, resultContext);
-  const suffix = download ? '/download' : '';
-  const path = `api/results/${encodeURIComponent(runId)}/artifacts/${encodeURIComponent(artifactId || 'unavailable')}${suffix}`;
-  return apiFetch(path, fetchOptions, { kind: 'job', jobId: runId });
-}
-
-async function resolveResultArtifact(jobId, ownerKey, reference, options = {}) {
-  const resultContext = options.resultContext || null;
-  const runId = resultContext?.runId || publicRunIdForJob(jobId);
-  const ownerId = resultArtifactId(ownerKey, resultContext);
-  const rawReference = String(reference || '').trim();
-  if (!runId || !ownerId || !rawReference || resultUrlShouldStayExternal(rawReference)) return null;
-  const resp = await apiFetch(
-    `api/results/${encodeURIComponent(runId)}/artifacts/${encodeURIComponent(ownerId)}/resolve`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal: options.signal,
-      body: JSON.stringify({
-        reference: rawReference,
-        optional: options.optional === true,
-      }),
-    },
-    { kind: 'job', jobId: runId },
-  );
-  if (!resp.ok) return null;
-  const payload = await resp.json();
-  if (Object.prototype.hasOwnProperty.call(payload || {}, 'artifact') && !payload.artifact) {
-    return null;
-  }
-  const descriptor = payload?.artifact || payload;
-  const key = installResultArtifactDescriptor(descriptor, resultContext);
-  if (!key) return null;
-  return {
-    key,
-    descriptor: resultArtifactDescriptor(key, resultContext),
-    fragment: String(payload?.fragment || resultAssetHashSuffix(rawReference) || ''),
-  };
-}
-
-function bigscapeViewerFetch(jobId, options = {}) {
-  const runId = publicRunIdForJob(jobId);
-  return apiFetch(
-    `api/results/${encodeURIComponent(runId)}/bigscape-viewer-database`,
-    options,
-    { kind: 'job', jobId: runId },
-  );
-}
-
-async function handleResultLinkClick(event, jobId, relPath, download = false) {
-  if (!download && isHtmlAsset(relPath)) {
-    if (canOpenRichHtmlArtifacts(jobId)) return openHtmlResultWithAssets(event, jobId, relPath);
-    return handleResultLinkClick(event, jobId, relPath, true);
-  }
-  const shouldDownloadViaClient = download && resultNeedsAuth(jobId);
-  const shouldOpenInline = !download;
-  if (!shouldDownloadViaClient && !shouldOpenInline) return true;
-  event.preventDefault();
-  let previewWindow = null;
-  if (shouldOpenInline) {
-    previewWindow = window.open('', '_blank');
-    if (previewWindow) {
-      previewWindow.opener = null;
-      previewWindow.document.title = fileNameFromPath(relPath);
-      previewWindow.document.body.textContent = 'Loading preview...';
-    }
-  }
-  try {
-    const resp = await resultFetch(jobId, relPath, { download: shouldDownloadViaClient });
-    if (!resp.ok) throw new Error('Result file could not be opened with the saved result access code.');
-    const sourceBlob = await resp.blob();
-    const blob = shouldOpenInline
-      ? new Blob([sourceBlob], { type: inlineResultMime(relPath, sourceBlob.type) })
-      : sourceBlob;
-    const url = URL.createObjectURL(blob);
-    resultObjectUrls.push(url);
-    if (shouldDownloadViaClient) {
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = fileNameFromPath(relPath);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    } else if (previewWindow) {
-      previewWindow.location.href = url;
-    } else {
-      window.open(url, '_blank', 'noopener');
-    }
-  } catch (err) {
-    if (previewWindow) previewWindow.close();
-    alert(err.message || String(err));
-  }
-  return false;
-}
+function authHeadersFor(kind, jobId = null) { return apiResultBoundary.authHeadersFor(kind, jobId); }
+
+function mergeAuthHeaders(options = {}, auth = {}) { return apiResultBoundary.mergeAuthHeaders(options, auth); }
+
+function apiFetch(path, options = {}, auth = {}) { return apiResultBoundary.apiFetch(path, options, auth); }
+
+function resultNeedsAuth(jobId) { return apiResultBoundary.resultNeedsAuth(jobId); }
+
+function canOpenRichHtmlArtifacts(jobId = activeJobId) { return apiResultBoundary.canOpenRichHtmlArtifacts(jobId); }
+
+function inlineResultMime(relPath, fallback = '') { return resultReaderBoundary.inlineResultMime(relPath, fallback); }
+
+function toolResultPreviewChannel() { return resultReaderBoundary.toolResultPreviewChannel(); }
+
+function resultUrlShouldStayExternal(rawUrl) { return resultReaderBoundary.resultUrlShouldStayExternal(rawUrl); }
+
+function resultRelativeAssetPath(ownerPath, rawUrl) { return resultReaderBoundary.resultRelativeAssetPath(ownerPath, rawUrl); }
+
+function resultArtifactFamilyRoot(path) { return resultReaderBoundary.resultArtifactFamilyRoot(path); }
+
+function resultArtifactFamilyAssetPath(ownerPath, rawUrl) { return resultReaderBoundary.resultArtifactFamilyAssetPath(ownerPath, rawUrl); }
+
+function isToolResultBundleHtml(path, resultContext = null) { return resultReaderBoundary.isToolResultBundleHtml(path, resultContext); }
+
+function splitResultAssetUrl(rawUrl) { return resultReaderBoundary.splitResultAssetUrl(rawUrl); }
+
+function resultAssetHashSuffix(rawUrl) { return resultReaderBoundary.resultAssetHashSuffix(rawUrl); }
+
+function bigscapeHtmlContentRoot(ownerPath) { return resultReaderBoundary.bigscapeHtmlContentRoot(ownerPath); }
+
+function bigscapeHtmlContentAssetPath(ownerPath, rawUrl) { return resultReaderBoundary.bigscapeHtmlContentAssetPath(ownerPath, rawUrl); }
+
+function bigscapePortableAssetPathAllowed(path) { return resultReaderBoundary.bigscapePortableAssetPathAllowed(path); }
+
+function assertBigscapeAssetDeclaredSize(response, budget = null) { return resultReaderBoundary.assertBigscapeAssetDeclaredSize(response, budget); }
+
+function assertBigscapeAssetActualSize(size, budget = null) { return resultReaderBoundary.assertBigscapeAssetActualSize(size, budget); }
+
+function assertToolResultAssetSize(response, actualSize, budget) { return resultReaderBoundary.assertToolResultAssetSize(response, actualSize, budget); }
+
+function isExactPublicClinkerPanelHtml(path) { return resultReaderBoundary.isExactPublicClinkerPanelHtml(path); }
+
+function injectResultPreviewNavigator(doc, jobId, htmlPath) { return resultReaderBoundary.injectResultPreviewNavigator(doc, jobId, htmlPath); }
+
+function resultBlobDataUrl(blob) { return resultReaderBoundary.resultBlobDataUrl(blob); }
+
+async function resultAssetObjectUrl(jobId, ownerPath, rawUrl, cache, options = {}) { return resultReaderBoundary.resultAssetObjectUrl(jobId, ownerPath, rawUrl, cache, options); }
+
+function stripToolResultCssImports(cssText) { return resultReaderBoundary.stripToolResultCssImports(cssText); }
+
+async function rewriteCssResultUrls(cssText, jobId, ownerPath, cache, options = {}) { return resultReaderBoundary.rewriteCssResultUrls(cssText, jobId, ownerPath, cache, options); }
+
+function isClassicResultScript(script) { return resultReaderBoundary.isClassicResultScript(script); }
+
+function rewriteToolResultScriptForSandbox(assetPath, sourceText, resultContext = null) { return resultReaderBoundary.rewriteToolResultScriptForSandbox(assetPath, sourceText, resultContext); }
+
+function rewriteBigscapeScriptForSandbox(assetPath, sourceText) { return resultReaderBoundary.rewriteBigscapeScriptForSandbox(assetPath, sourceText); }
+
+async function inlineBigscapeResultScripts(doc, jobId, htmlPath, options = {}) { return resultReaderBoundary.inlineBigscapeResultScripts(doc, jobId, htmlPath, options); }
+
+async function inlineToolResultScripts(doc, jobId, htmlPath, options = {}) { return resultReaderBoundary.inlineToolResultScripts(doc, jobId, htmlPath, options); }
+
+async function rewriteHtmlResultAssets(htmlText, jobId, htmlPath, options = {}) { return resultReaderBoundary.rewriteHtmlResultAssets(htmlText, jobId, htmlPath, options); }
+
+async function buildHtmlResultObjectUrl(jobId, htmlPath, htmlText, options = {}) { return resultReaderBoundary.buildHtmlResultObjectUrl(jobId, htmlPath, htmlText, options); }
+
+function renderSandboxedClinkerPreview(targetWindow, relPath, htmlText) { return resultReaderBoundary.renderSandboxedClinkerPreview(targetWindow, relPath, htmlText); }
+
+function renderSandboxedBigscapePreview(targetWindow, relPath, htmlText, databaseBuffer, channel) { return resultReaderBoundary.renderSandboxedBigscapePreview(targetWindow, relPath, htmlText, databaseBuffer, channel); }
+
+function renderSandboxedToolResultPreview(targetWindow, jobId, relPath, htmlText, channel, resultContext) { return resultReaderBoundary.renderSandboxedToolResultPreview(targetWindow, jobId, relPath, htmlText, channel, resultContext); }
+
+async function openHtmlResultWithAssets(event, jobId, relPath, previewWindow = null) { return resultReaderBoundary.openHtmlResultWithAssets(event, jobId, relPath, previewWindow); }
+
+function resultFetch(jobId, artifactKey, options = {}) { return apiResultBoundary.resultFetch(jobId, artifactKey, options); }
+
+function resolveResultArtifact(jobId, ownerKey, reference, options = {}) { return apiResultBoundary.resolveResultArtifact(jobId, ownerKey, reference, options); }
+
+function bigscapeViewerFetch(jobId, options = {}) { return apiResultBoundary.bigscapeViewerFetch(jobId, options); }
+
+async function handleResultLinkClick(event, jobId, relPath, download = false) { return resultReaderBoundary.handleResultLinkClick(event, jobId, relPath, download); }
 
 function envToBool(value, defaultValue = false) {
   if (value === undefined || value === null || value === '') return defaultValue;
@@ -4470,33 +3010,8 @@ function applyPreset(name) {
   syncControlState();
 }
 
-// ── File selection ─────────────────────────────────────────────────────────
-const dropZone  = document.getElementById('drop-zone');
-const fileInput = document.getElementById('file-input');
-const manualAccessionsInput = document.getElementById('manual-accessions');
-const MANUAL_ACCESSIONS_FILENAME = 'manual_accessions.txt';
-const NCBI_ASSEMBLY_ACCESSION_RE = /^(?:GCA|GCF)_\d{9}\.\d+$/i;
-const NCBI_ASSEMBLY_ACCESSION_HELP = 'Use current fungal NCBI assembly accessions like GCA_000011425.1 or GCA_030770425.1.';
-const PUBLIC_FILE_EXTENSIONS = new Set(['gbk','gb','gbff','fasta','fa','fna','fsa','txt']);
-const ADMIN_FILE_EXTENSIONS = new Set(['gbk','gb','gbff','fasta','fa','fna','fsa','txt','tsv','csv','json','gff','gff3','faa','mgf','zip']);
-const PUBLIC_FASTA_EXTENSIONS = new Set(['fasta','fa','fna','fsa']);
-const PUBLIC_GENBANK_EXTENSIONS = new Set(['gb','gbk','gbff']);
-const PUBLIC_GENOME_STEM_RE = /^[A-Za-z0-9._-]{1,120}$/;
-const PUBLIC_NUCLEOTIDE_CHARS = new Set('ACGTRYSWKMBDHVNU-.'.split(''));
-const CLIENT_GENOME_PRECHECK_BYTES = 4 * 1024 * 1024;
-const CLIENT_GENOME_PRECHECK_TAIL_BYTES = 512 * 1024;
 const ANALYSIS_SCOPES = new Set(['fungi', 'both', 'bacteria']);
 const TAXON_GROUPS = new Set(['fungi', 'bacteria']);
-const TAXON_ASSIGNMENTS_FILENAME = 'taxon_assignments.tsv';
-const MAX_TAXON_ASSIGNMENT_SIDECAR_BYTES = 256 * 1024;
-const MAX_TAXON_ASSIGNMENTS = 500;
-
-function ncbiAssemblyAccessionHelp() {
-  const scope = normalizeAnalysisScope(stagedAnalysisScope);
-  if (scope === 'bacteria') return 'Use current bacterial NCBI assembly accessions like GCA_000005845.2.';
-  if (scope === 'both') return 'Use current fungal or bacterial NCBI assembly accessions; the server resolves authoritative NCBI taxonomy.';
-  return NCBI_ASSEMBLY_ACCESSION_HELP;
-}
 
 function normalizeAnalysisScope(value, fallback = 'fungi') {
   const scope = String(value || '').trim().toLowerCase();
@@ -4665,2914 +3180,201 @@ function figureApplicableToAnalysis(path, capabilities = activeAnalysisCapabilit
   return true;
 }
 
-function analysisScopeRadioValue() {
-  const selected = document.querySelector('input[name="analysis-scope"]:checked');
-  return normalizeAnalysisScope(selected?.value, stagedAnalysisScope);
-}
-
-function syncAnalysisScopeControls() {
-  const scope = normalizeAnalysisScope(stagedAnalysisScope);
-  document.querySelectorAll('input[name="analysis-scope"]').forEach((input) => {
-    input.checked = input.value === scope;
-  });
-}
-
-function updateAnalysisScopeCopy() {
-  const scope = normalizeAnalysisScope(stagedAnalysisScope);
-  const hero = document.querySelector('#overview h1');
-  const project = document.getElementById('project-name');
-  if (hero) {
-    if (scope === 'bacteria') {
-      hero.setAttribute('aria-label', 'Discover the hidden potential of bacteria');
-      hero.innerHTML = '<span>Discover</span><span>the</span><span>hidden</span><span>potential</span><span>of</span><span>bacteria</span>';
-    } else if (scope === 'both') {
-      hero.setAttribute('aria-label', 'Discover the hidden potential of microbes');
-      hero.innerHTML = '<span>Discover</span><span>the</span><span>hidden</span><span>potential</span><span>of</span><span>microbes</span>';
-    } else {
-      hero.setAttribute('aria-label', 'Discover the hidden potential of fungi');
-      hero.innerHTML = '<span>Discover</span><span>the</span><span>hidden</span><span>potential</span><span>of</span><span>fungi</span>';
-    }
-  }
-  if (project) {
-    project.placeholder = scope === 'bacteria' ? 'bacterial_survey' : scope === 'both' ? 'microbial_survey' : 'fungal_survey';
-  }
-}
-
-function isTaxonAssignmentsSidecarName(name) {
-  return String(name || '').trim().toLowerCase() === TAXON_ASSIGNMENTS_FILENAME;
-}
-
-function isGenomeUploadFile(file) {
-  const fileExt = ext(file?.name || '');
-  return PUBLIC_FASTA_EXTENSIONS.has(fileExt) || PUBLIC_GENBANK_EXTENSIONS.has(fileExt);
-}
-
-function canonicalGenomeInputKey(value) {
-  return publicGenomeStem(value).toLowerCase();
-}
-
-function logicalGenomeInputs(files = selectedFiles) {
-  const logical = new Map();
-  (files || []).forEach((file) => {
-    if (!isGenomeUploadFile(file)) return;
-    const inputKey = publicGenomeStem(file.name);
-    const canonicalKey = canonicalGenomeInputKey(inputKey);
-    if (!canonicalKey) return;
-    if (!logical.has(canonicalKey)) {
-      logical.set(canonicalKey, {
-        canonicalKey,
-        inputKey,
-        files: [],
-        kinds: new Set(),
-      });
-    }
-    const row = logical.get(canonicalKey);
-    row.files.push(file);
-    row.kinds.add(publicGenomeUploadKind(ext(file.name)));
-  });
-  return Array.from(logical.values());
-}
-
-function pruneManualTaxonAssignments() {
-  const currentKeys = new Set(logicalGenomeInputs().map(item => item.canonicalKey));
-  Array.from(stagedTaxonAssignments.keys()).forEach((key) => {
-    if (currentKeys.has(key) || stagedTaxonAssignmentSources.get(key) === 'sidecar') return;
-    stagedTaxonAssignments.delete(key);
-    stagedTaxonAssignmentSources.delete(key);
-  });
-}
-
-function stagedTaxonGroupForFileName(name) {
-  const scope = normalizeAnalysisScope(stagedAnalysisScope);
-  if (scope !== 'both') return scope;
-  const canonicalKey = canonicalGenomeInputKey(name);
-  const logicalInput = logicalGenomeInputs().find(item => item.canonicalKey === canonicalKey);
-  const authority = logicalInput ? logicalGenomeAuthority(logicalInput) : null;
-  if (authority?.status === 'resolved') return authority.taxonGroup;
-  return normalizeTaxonGroup(stagedTaxonAssignments.get(canonicalKey));
-}
-
-function logicalGenomeAuthority(item) {
-  const authorities = (item?.files || [])
-    .filter(file => PUBLIC_GENBANK_EXTENSIONS.has(ext(file?.name || '')))
-    .map(file => clientGenbankAuthorityForFile(file));
-  return mergeClientGenbankAuthorities(authorities);
-}
-
-function logicalGenomeTaxonAssignmentDecision(item) {
-  const assigned = normalizeTaxonGroup(stagedTaxonAssignments.get(item.canonicalKey));
-  return clientTaxonAssignmentDecision(logicalGenomeAuthority(item), assigned, item.inputKey);
-}
-
-function taxonAssignmentsPayload() {
-  if (normalizeAnalysisScope(stagedAnalysisScope) !== 'both') return {};
-  const payload = {};
-  logicalGenomeInputs().forEach((item) => {
-    const decision = logicalGenomeTaxonAssignmentDecision(item);
-    if (decision.requiresAssignment && decision.assigned) {
-      payload[item.inputKey] = decision.assigned;
-    }
-  });
-  return payload;
-}
-
-function taxonAssignmentValidation() {
-  const logical = logicalGenomeInputs();
-  const decisions = logical.map(item => ({ item, ...logicalGenomeTaxonAssignmentDecision(item) }));
-  const assignable = decisions.filter(decision => decision.requiresAssignment);
-  const currentKeys = new Set(logical.map(item => item.canonicalKey));
-  const unresolved = normalizeAnalysisScope(stagedAnalysisScope) === 'both'
-    ? assignable.filter(decision => !decision.assigned).map(decision => decision.item)
-    : [];
-  const unknownSidecarKeys = [];
-  stagedTaxonAssignmentSources.forEach((source, key) => {
-    if (source === 'sidecar' && !currentKeys.has(key)) unknownSidecarKeys.push(key);
-  });
-  const authorityIssues = decisions
-    .filter(decision => decision.issue)
-    .map(decision => ({ inputKey: decision.item.inputKey, issue: decision.issue }));
-  const sidecarIssues = taxonAssignmentSidecarIssues.slice();
-  unknownSidecarKeys.forEach(key => sidecarIssues.push(`Unknown taxon assignment key: ${key}.`));
-  const generalIssues = [];
-  if (logical.length > MAX_TAXON_ASSIGNMENTS) {
-    generalIssues.push(`Taxon assignments are limited to ${MAX_TAXON_ASSIGNMENTS} logical genomes.`);
-  }
-  const issues = [
-    ...authorityIssues.map(item => item.issue),
-    ...sidecarIssues,
-    ...generalIssues,
-  ];
-  return {
-    logical,
-    decisions,
-    assignable,
-    unresolved,
-    unknownSidecarKeys,
-    authorityIssues,
-    sidecarIssues,
-    generalIssues,
-    issues,
-  };
-}
-
-function renderTaxonAssignmentPanel() {
-  pruneManualTaxonAssignments();
-  const panel = document.getElementById('taxon-assignment-panel');
-  const list = document.getElementById('taxon-assignment-list');
-  const status = document.getElementById('taxon-assignment-status');
-  if (!panel || !list || !status) return;
-  const validation = taxonAssignmentValidation();
-  const visible = normalizeAnalysisScope(stagedAnalysisScope) === 'both' && validation.assignable.length > 0;
-  panel.hidden = !visible;
-  panel.classList.toggle('hidden', !visible);
-  if (!visible) {
-    list.innerHTML = '';
-    status.textContent = '0 unresolved';
-    return;
-  }
-  list.innerHTML = validation.assignable.map((decision, index) => {
-    const item = decision.item;
-    const assigned = normalizeTaxonGroup(stagedTaxonAssignments.get(item.canonicalKey));
-    const fileSummary = item.files.map(file => file.name).join(' + ');
-    const jsKey = escapeJsString(item.canonicalKey);
-    const groupName = `taxon-assignment-${index}`;
-    return `
-      <div class="taxon-assignment-row${assigned ? '' : ' is-unresolved'}" data-input-key="${escapeHtml(item.inputKey)}" role="row">
-        <span class="taxon-assignment-genome" role="cell">
-          <b title="${escapeHtml(fileSummary)}">${escapeHtml(item.inputKey)}</b>
-        </span>
-        <label class="taxon-assignment-cell" role="cell"><input type="radio" name="${escapeHtml(groupName)}" value="fungi" aria-label="Assign ${escapeHtml(item.inputKey)} to fungi" ${assigned === 'fungi' ? 'checked' : ''} onchange="setLogicalGenomeTaxonAssignment('${escapeHtml(jsKey)}','fungi')" /><span class="sr-only">Fungi</span></label>
-        <label class="taxon-assignment-cell" role="cell"><input type="radio" name="${escapeHtml(groupName)}" value="bacteria" aria-label="Assign ${escapeHtml(item.inputKey)} to bacteria" ${assigned === 'bacteria' ? 'checked' : ''} onchange="setLogicalGenomeTaxonAssignment('${escapeHtml(jsKey)}','bacteria')" /><span class="sr-only">Bacteria</span></label>
-      </div>`;
-  }).join('');
-  const issueCount = validation.issues.length;
-  const unresolvedCount = validation.unresolved.length;
-  status.textContent = issueCount
-    ? `${issueCount} routing issue${issueCount === 1 ? '' : 's'}`
-    : `${unresolvedCount} unresolved`;
-}
-
-async function refreshSelectedGenomeChecks() {
-  const genomeFiles = selectedFiles.filter(isGenomeUploadFile);
-  await Promise.all(
-    genomeFiles
-      .filter(file => PUBLIC_GENBANK_EXTENSIONS.has(ext(file.name)))
-      .map(file => cacheGenomeFileCheck(file)),
-  );
-  await Promise.all(genomeFiles.map(file => cacheGenomeFileCheck(file)));
-}
-
-async function setLogicalGenomeTaxonAssignment(canonicalKey, taxonGroup) {
-  const key = String(canonicalKey || '').trim().toLowerCase();
-  const group = normalizeTaxonGroup(taxonGroup);
-  const item = logicalGenomeInputs().find(candidate => candidate.canonicalKey === key);
-  if (!group || !item || !logicalGenomeTaxonAssignmentDecision(item).requiresAssignment) return;
-  stagedTaxonAssignments.set(key, group);
-  stagedTaxonAssignmentSources.set(key, 'user');
-  await refreshSelectedGenomeChecks();
-  renderFileList();
-}
-
-async function markAllTaxonAssignments(taxonGroup) {
-  const group = normalizeTaxonGroup(taxonGroup);
-  if (!group) return;
-  logicalGenomeInputs().forEach((item) => {
-    if (!logicalGenomeTaxonAssignmentDecision(item).requiresAssignment) return;
-    stagedTaxonAssignments.set(item.canonicalKey, group);
-    stagedTaxonAssignmentSources.set(item.canonicalKey, 'user');
-  });
-  await refreshSelectedGenomeChecks();
-  renderFileList();
-}
-
-function parseTaxonAssignmentSidecarText(text) {
-  const issues = [];
-  const assignments = new Map();
-  const displayKeys = new Map();
-  const lines = String(text || '').replace(/^\uFEFF/, '').split(/\r?\n/);
-  const headerLine = lines.shift() || '';
-  const header = headerLine.split('\t').map(value => value.trim().toLowerCase());
-  const inputIndex = header.indexOf('input_key');
-  const taxonIndex = header.indexOf('taxon_group');
-  if (inputIndex < 0 || taxonIndex < 0) {
-    return { assignments, displayKeys, issues: ['taxon_assignments.tsv requires input_key and taxon_group columns.'] };
-  }
-  let parsedRows = 0;
-  lines.forEach((line, offset) => {
-    if (!line.trim()) return;
-    parsedRows += 1;
-    if (parsedRows > MAX_TAXON_ASSIGNMENTS) return;
-    const columns = line.split('\t');
-    const rawKey = String(columns[inputIndex] || '').trim();
-    const inputKey = publicGenomeStem(rawKey);
-    const canonicalKey = canonicalGenomeInputKey(rawKey);
-    const taxonGroup = normalizeTaxonGroup(columns[taxonIndex]);
-    const lineNumber = offset + 2;
-    if (!inputKey || !PUBLIC_GENOME_STEM_RE.test(inputKey)) {
-      issues.push(`Invalid input_key on line ${lineNumber}.`);
-      return;
-    }
-    if (!taxonGroup) {
-      issues.push(`Unsupported taxon_group on line ${lineNumber}; use fungi or bacteria.`);
-      return;
-    }
-    const previous = assignments.get(canonicalKey);
-    if (previous && previous !== taxonGroup) {
-      issues.push(`Contradictory duplicate assignment for ${inputKey} on line ${lineNumber}.`);
-      return;
-    }
-    assignments.set(canonicalKey, taxonGroup);
-    displayKeys.set(canonicalKey, inputKey);
-  });
-  if (parsedRows > MAX_TAXON_ASSIGNMENTS) {
-    issues.push(`taxon_assignments.tsv exceeds ${MAX_TAXON_ASSIGNMENTS} assignment rows.`);
-  }
-  return { assignments, displayKeys, issues };
-}
-
-async function loadTaxonAssignmentSidecar(file) {
-  Array.from(stagedTaxonAssignmentSources.entries()).forEach(([key, source]) => {
-    if (source !== 'sidecar') return;
-    stagedTaxonAssignments.delete(key);
-    stagedTaxonAssignmentSources.delete(key);
-  });
-  taxonAssignmentSidecar = {
-    name: TAXON_ASSIGNMENTS_FILENAME,
-    size: Number(file?.size || 0),
-    lastModified: Number(file?.lastModified || 0),
-  };
-  taxonAssignmentSidecarIssues = [];
-  if (taxonAssignmentSidecar.size > MAX_TAXON_ASSIGNMENT_SIDECAR_BYTES) {
-    taxonAssignmentSidecarIssues.push('taxon_assignments.tsv exceeds the 256 KB browser limit.');
-    return;
-  }
-  let text = '';
-  try {
-    text = await file.text();
-  } catch (error) {
-    taxonAssignmentSidecarIssues.push('taxon_assignments.tsv could not be read in this browser.');
-    return;
-  }
-  const parsed = parseTaxonAssignmentSidecarText(text);
-  taxonAssignmentSidecarIssues = parsed.issues;
-  parsed.assignments.forEach((group, key) => {
-    stagedTaxonAssignments.set(key, group);
-    stagedTaxonAssignmentSources.set(key, 'sidecar');
-  });
-}
-
-function removeTaxonAssignmentSidecar() {
-  taxonAssignmentSidecar = null;
-  taxonAssignmentSidecarIssues = [];
-  Array.from(stagedTaxonAssignmentSources.entries()).forEach(([key, source]) => {
-    if (source !== 'sidecar') return;
-    stagedTaxonAssignments.delete(key);
-    stagedTaxonAssignmentSources.delete(key);
-  });
-  renderFileList();
-}
-
-async function handleAnalysisScopeChange() {
-  stagedAnalysisScope = analysisScopeRadioValue();
-  syncAnalysisScopeControls();
-  updateAnalysisScopeCopy();
-  await refreshSelectedGenomeChecks();
-  applyAnalysisCapabilityVisibility();
-  renderFileList();
-}
-
-function resetStagedAnalysisState(scope = 'fungi') {
-  stagedAnalysisScope = normalizeAnalysisScope(scope);
-  stagedTaxonAssignments = new Map();
-  stagedTaxonAssignmentSources = new Map();
-  taxonAssignmentSidecar = null;
-  taxonAssignmentSidecarIssues = [];
-  syncAnalysisScopeControls();
-  updateAnalysisScopeCopy();
-  renderTaxonAssignmentPanel();
-  applyAnalysisCapabilityVisibility();
-}
-
-const ECOLOGY_LABELS = [
-  'soil',
-  'plant_associated',
-  'endophyte',
-  'mycorrhiza',
-  'plant_pathogen',
-  'saprotroph',
-  'marine',
-  'freshwater',
-  'lichen_associated',
-  'insect_associated',
-  'animal_associated',
-  'human_associated',
-  'food_fermentation',
-  'unknown',
-  'other',
-];
-
-const BRUTAL_ACCESSION_PLACEHOLDERS = ['GCA_000011425.1', 'GCA_030770425.1'];
-const BRUTAL_ACCESSION_PREVIEW_ROWS = 6;
-let brutalAccessionDrafts = Array.from({ length: 50 }, () => '');
-let brutalAccessionCommitted = new Set();
-let brutalSyncingAccepted = false;
-let brutalEcoSelections = new Map();
-let brutalEcoContext = null;
-let brutalRowsInitialized = false;
-
-function accessionLimit() {
-  return Math.max(1, Math.min(50, publicQuotaLimits().max_accessions || 50));
-}
-
-function normalizeAccessionDraft(value) {
-  return String(value || '').replace(/\s+/g, '').toUpperCase();
-}
-
-function normalizeShortToken(value, maxLength = 20) {
-  return String(value || '')
-    .trim()
-    .replace(/\s+/g, '_')
-    .replace(/[^A-Za-z0-9._-]+/g, '')
-    .slice(0, maxLength);
-}
-
-function normalizeProjectNameInput() {
-  const input = document.getElementById('project-name');
-  if (!input) return;
-  const normalized = String(input.value || '')
-    .replace(/\s+/g, '_')
-    .replace(/[^A-Za-z0-9._-]+/g, '')
-    .slice(0, 80);
-  if (input.value !== normalized) input.value = normalized;
-}
-
-function projectNameValue() {
-  return document.getElementById('project-name')?.value.trim() || '';
-}
-
-function setProjectNameRequiredState(missing) {
-  const input = document.getElementById('project-name');
-  const card = document.getElementById('project-name-card') || input?.closest?.('.project-name-card');
-  const shell = document.getElementById('submit-button-shell');
-  const error = document.getElementById('project-name-error');
-  if (card) card.classList.toggle('is-project-blank', !!missing);
-  if (shell) shell.classList.toggle('is-project-locked', !!missing);
-  if (input) input.setAttribute('aria-invalid', 'false');
-  if (error) error.textContent = '';
-}
-
-function requireProjectNameForSubmit() {
-  normalizeProjectNameInput();
-  const input = document.getElementById('project-name');
-  const name = projectNameValue();
-  if (name) {
-    setProjectNameRequiredState(false);
-    return name;
-  }
-  setProjectNameRequiredState(true);
-  input?.focus();
-  return '';
-}
-
-function validBrutalAccession(value) {
-  return NCBI_ASSEMBLY_ACCESSION_RE.test(String(value || '').trim());
-}
-
-function brutalDraftDuplicate(index, value) {
-  if (!value) return false;
-  return brutalAccessionDrafts.some((draft, draftIndex) => draftIndex !== index && normalizeAccessionDraft(draft) === value);
-}
-
-function brutalRowVisible(index) {
-  if (index === 0) return true;
-  for (let prior = 0; prior < index; prior += 1) {
-    const priorAccession = normalizeAccessionDraft(brutalAccessionDrafts[prior]);
-    if (!rowIsAccepted(priorAccession, prior)) return false;
-  }
-  return true;
-}
-
-function updateBrutalTargetButton() {
-  const targetInput = document.getElementById('target-genome');
-  const button = document.getElementById('target-genome-toggle');
-  const value = targetInput ? targetInput.value.trim() : '';
-  if (button) {
-    button.classList.toggle('has-target', !!value);
-    button.setAttribute('aria-pressed', value ? 'true' : 'false');
-    button.textContent = 'TARGET GENOME';
-  }
-  document.querySelectorAll('.brutal-accession-line').forEach((row) => {
-    const input = row.querySelector('.brutal-accession-input');
-    row.classList.toggle('is-target', !!value && input?.value.trim().toUpperCase() === value.toUpperCase());
-  });
-  document.querySelectorAll('.file-item[data-target-genome]').forEach((row) => {
-    const selected = !!value && String(row.dataset.targetGenome || '').toLowerCase() === value.toLowerCase();
-    row.classList.toggle('is-target', selected);
-  });
-}
-
-function setBrutalTarget(value) {
-  const targetInput = document.getElementById('target-genome');
-  if (!targetInput) return;
-  const normalized = normalizeAccessionDraft(value);
-  targetInput.value = targetInput.value.trim().toUpperCase() === normalized ? '' : normalized;
-  targetInput.dispatchEvent(new Event('input', { bubbles: true }));
-  updateBrutalTargetButton();
-  updateRunSummary();
-}
-
-function setUploadedGenomeTarget(value) {
-  const targetInput = document.getElementById('target-genome');
-  const normalized = String(value || '').trim();
-  if (!targetInput || !normalized) return;
-  targetInput.value = targetInput.value.trim().toLowerCase() === normalized.toLowerCase() ? '' : normalized;
-  targetInput.dispatchEvent(new Event('input', { bubbles: true }));
-  updateBrutalTargetButton();
-  updateRunSummary();
-}
-
-function targetGenomeCandidates() {
-  const values = new Set(acceptedDraftAccessions().map(value => value.toLowerCase()));
-  selectedFiles.forEach((file) => {
-    if (isGenomeUploadName(file.name)) values.add(genomeStemFromName(file.name).toLowerCase());
-  });
-  return values;
-}
-
-function clearStaleTargetGenome() {
-  const targetInput = document.getElementById('target-genome');
-  const value = targetInput?.value.trim() || '';
-  if (!value || targetGenomeCandidates().has(value.toLowerCase())) return;
-  targetInput.value = '';
-  targetInput.dispatchEvent(new Event('input', { bubbles: true }));
-  updateBrutalTargetButton();
-  updateRunSummary();
-}
-
-function handleUploadedGenomeTargetClick(event) {
-  if (event.target.closest?.('.file-remove')) return;
-  const ecoButton = event.target.closest?.('.file-eco-button');
-  if (ecoButton) {
-    openUploadedGenomeEcoPicker(ecoButton);
-    return;
-  }
-  const row = event.target.closest?.('.file-item[data-target-genome]');
-  if (!row) return;
-  setUploadedGenomeTarget(row.dataset.targetGenome || '');
-}
-
-function ecologySelectionFor(key) {
-  const normalized = String(key || '').trim().toUpperCase();
-  if (!brutalEcoSelections.has(normalized)) brutalEcoSelections.set(normalized, { primary: '', secondary: '' });
-  return brutalEcoSelections.get(normalized);
-}
-
-function inputEcologyEnabled() {
-  return !!document.getElementById('run-ecology')?.checked;
-}
-
-function updateBrutalEcologyToggle() {
-  const button = document.getElementById('brutal-ecology-toggle');
-  const card = document.getElementById('brutal-accession-card');
-  const uploadCard = document.getElementById('genome-upload-card');
-  const enabled = inputEcologyEnabled();
-  if (button) {
-    button.classList.toggle('is-on', enabled);
-    button.setAttribute('aria-pressed', enabled ? 'true' : 'false');
-    button.textContent = 'ADD ECOLOGY';
-  }
-  if (card) card.classList.toggle('show-ecology', enabled);
-  if (uploadCard) uploadCard.classList.toggle('show-ecology', enabled);
-  document.querySelectorAll('.brutal-eco-button').forEach((buttonEl) => {
-    buttonEl.disabled = !enabled || !buttonEl.closest('.brutal-accession-line')?.classList.contains('has-valid-accession');
-  });
-  updateUploadedGenomeEcoButtons();
-}
-
-function updateUploadedGenomeEcoButtons() {
-  const enabled = inputEcologyEnabled();
-  document.querySelectorAll('.file-eco-button').forEach((button) => {
-    const row = button.closest('.file-item[data-target-genome]');
-    const key = row?.dataset.targetGenome || '';
-    const field = button.dataset.ecoField || 'primary';
-    const saved = brutalEcoSelections.get(String(key).trim().toUpperCase())?.[field] || '';
-    button.disabled = !enabled || !key;
-    button.classList.toggle('is-saved', !!saved);
-    button.setAttribute('aria-label', `${field === 'primary' ? 'Primary' : 'Secondary'} ecology for ${key}${saved ? `: ${saved}` : ''}`);
-  });
-}
-
-function setBrutalEcologyEnabled(enabled) {
-  const checkbox = document.getElementById('run-ecology');
-  if (!checkbox) return;
-  checkbox.checked = !!enabled;
-  checkbox.dispatchEvent(new Event('change', { bubbles: true }));
-  updateBrutalEcologyToggle();
-  syncEcologyMetadataPanel();
-  renderBrutalAccessionRows();
-  updateRunSummary();
-}
-
-function savedEcoValue(accession, field) {
-  const selection = ecologySelectionFor(accession);
-  return selection[field] || '';
-}
-
-function rowIsAccepted(accession, index) {
-  return validBrutalAccession(accession) && !brutalDraftDuplicate(index, accession);
-}
-
-function accessionDraftCommitted(index) {
-  return brutalAccessionCommitted.has(Number(index));
-}
-
-function brutalAccessionDraftIssues({ committedOnly = true } = {}) {
-  const issues = [];
-  brutalAccessionDrafts.forEach((draft, index) => {
-    const accession = normalizeAccessionDraft(draft);
-    if (!accession) return;
-    if (committedOnly && !accessionDraftCommitted(index)) return;
-    if (!validBrutalAccession(accession)) {
-      issues.push({
-        index,
-        accession,
-        message: `Row ${index + 1}: ${accession} is not a current NCBI assembly accession.`,
-      });
-    } else if (brutalDraftDuplicate(index, accession)) {
-      issues.push({
-        index,
-        accession,
-        message: `Row ${index + 1}: ${accession} is duplicated.`,
-      });
-    }
-  });
-  return issues;
-}
-
-function setBrutalInputNotice(key, message) {
-  const normalizedKey = String(key || '').trim();
-  if (!normalizedKey) return;
-  if (message) brutalInputNotices.set(normalizedKey, String(message));
-  else brutalInputNotices.delete(normalizedKey);
-  renderBrutalInputLog();
-}
-
-function updateBrutalRowState(row, index) {
-  const input = row.querySelector('.brutal-accession-input');
-  const status = row.querySelector('.status-icon');
-  const remove = row.querySelector('.accession-remove');
-  const accession = normalizeAccessionDraft(input?.value || '');
-  const hasInput = !!accession;
-  const valid = rowIsAccepted(accession, index);
-  const committed = accessionDraftCommitted(index);
-  const showInvalid = hasInput && !valid && committed;
-  row.classList.toggle('has-input', hasInput);
-  row.classList.toggle('has-valid-accession', valid);
-  row.classList.toggle('has-invalid-accession', showInvalid);
-  if (input) input.setAttribute('aria-invalid', showInvalid ? 'true' : 'false');
-  if (status) {
-    status.classList.toggle('waiting', !hasInput || (hasInput && !valid && !committed));
-    status.classList.toggle('ok', valid);
-    status.classList.toggle('bad', showInvalid);
-    status.setAttribute('aria-label', valid ? 'Accepted accession' : showInvalid ? 'Invalid accession' : hasInput ? 'Editing accession' : 'Waiting for accession');
-  }
-  if (remove) remove.hidden = !hasInput;
-  row.querySelectorAll('.brutal-eco-button').forEach((button) => {
-    const field = button.dataset.ecoField || 'primary';
-    const saved = valid ? savedEcoValue(accession, field) : '';
-    button.classList.toggle('is-saved', !!saved);
-    button.disabled = !inputEcologyEnabled() || !valid;
-  });
-}
-
-function updateBrutalRowVisibility() {
-  document.querySelectorAll('.brutal-accession-line').forEach((row) => {
-    const index = Number(row.dataset.accessionIndex || '0');
-    const enabled = index < accessionLimit() && brutalRowVisible(index);
-    const presented = index < Math.min(accessionLimit(), BRUTAL_ACCESSION_PREVIEW_ROWS) || enabled;
-    row.classList.toggle('is-locked', !enabled);
-    row.classList.toggle('is-concealed', !presented);
-    row.setAttribute('aria-hidden', presented ? 'false' : 'true');
-    row.setAttribute('aria-disabled', enabled ? 'false' : 'true');
-    const input = row.querySelector('.brutal-accession-input');
-    if (input) input.disabled = !enabled;
-  });
-}
-
-function acceptedDraftAccessions() {
-  const seen = new Set();
-  const accessions = [];
-  brutalAccessionDrafts.forEach((draft, index) => {
-    const accession = normalizeAccessionDraft(draft);
-    if (!rowIsAccepted(accession, index) || seen.has(accession)) return;
-    seen.add(accession);
-    accessions.push(accession);
-  });
-  return accessions;
-}
-
-function syncBrutalAcceptedFromDrafts() {
-  const fileOwned = accessionFileOwnedAccessions();
-  acceptedManualAccessions = acceptedDraftAccessions().filter(accession => !fileOwned.has(accession));
-  clearStaleTargetGenome();
-  if (manualAccessionsInput) manualAccessionsInput.value = '';
-  brutalSyncingAccepted = true;
-  renderAcceptedAccessions();
-  brutalSyncingAccepted = false;
-  renderFileList();
-  syncEcologyMetadataPanel();
-  applyBrutalEcologyToMetadataTable();
-  updateBrutalTargetButton();
-}
-
-function resetBrutalAccessionDrafts() {
-  brutalAccessionDrafts = Array.from({ length: 50 }, () => '');
-  brutalAccessionCommitted = new Set();
-  brutalEcoSelections = new Map();
-  renderBrutalAccessionRows();
-  updateBrutalTargetButton();
-}
-
-function syncBrutalRowsFromAccepted() {
-  const rows = document.getElementById('brutal-accession-rows');
-  if (!rows || rows.contains(document.activeElement)) return;
-  const accepted = manualAccessionLines();
-  const nextDrafts = Array.from({ length: 50 }, (_, index) => accepted[index] || '');
-  const same = nextDrafts.every((value, index) => value === brutalAccessionDrafts[index]);
-  if (!same || !brutalRowsInitialized) {
-    brutalAccessionDrafts = nextDrafts;
-    brutalAccessionCommitted = new Set(nextDrafts.map((value, index) => normalizeAccessionDraft(value) ? index : -1).filter(index => index >= 0));
-    renderBrutalAccessionRows();
-  }
-}
-
-function renderBrutalAccessionRows() {
-  const rows = document.getElementById('brutal-accession-rows');
-  if (!rows) return;
-  const limit = accessionLimit();
-  rows.innerHTML = Array.from({ length: limit }, (_, index) => {
-    const value = normalizeAccessionDraft(brutalAccessionDrafts[index] || '');
-    const placeholder = BRUTAL_ACCESSION_PLACEHOLDERS[index] || '';
-    return `
-      <div class="accession-line brutal-accession-line" data-accession-index="${index}">
-        <textarea class="accession-target brutal-accession-input" rows="1" inputmode="text" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="${escapeHtml(placeholder)}" aria-label="Accession ${index + 1}">${escapeHtml(value)}</textarea>
-        <span class="status-icon waiting" aria-label="Waiting for accession"></span>
-        <button class="accession-remove" type="button" data-accession-remove aria-label="Remove accession ${index + 1}" hidden>x</button>
-        <span class="eco-cell"><button class="eco-button brutal-eco-button" type="button" data-eco-field="primary" disabled>ECO 1</button></span>
-        <span class="eco-cell"><button class="eco-button brutal-eco-button secondary" type="button" data-eco-field="secondary" disabled>ECO 2</button></span>
-      </div>`;
-  }).join('');
-  brutalRowsInitialized = true;
-  rows.querySelectorAll('.brutal-accession-line').forEach((row) => {
-    const index = Number(row.dataset.accessionIndex || '0');
-    updateBrutalRowState(row, index);
-  });
-  updateBrutalRowVisibility();
-  updateBrutalEcologyToggle();
-  updateBrutalTargetButton();
-}
-
-function handleBrutalAccessionInput(event) {
-  const input = event.target.closest?.('.brutal-accession-input');
-  if (!input) return;
-  const row = input.closest('.brutal-accession-line');
-  const index = Number(row?.dataset.accessionIndex || '0');
-  const normalized = normalizeAccessionDraft(input.value);
-  const prior = normalizeAccessionDraft(brutalAccessionDrafts[index] || '');
-  if (input.value !== normalized) input.value = normalized;
-  if (prior && prior !== normalized) detachAccessionFromFileSources(prior);
-  brutalAccessionDrafts[index] = normalized;
-  brutalAccessionCommitted.delete(index);
-  updateBrutalRowState(row, index);
-  updateBrutalRowVisibility();
-  syncBrutalAcceptedFromDrafts();
-}
-
-function commitBrutalAccessionRow(row) {
-  if (!row) return;
-  const index = Number(row.dataset.accessionIndex || '0');
-  const accession = normalizeAccessionDraft(row.querySelector('.brutal-accession-input')?.value || '');
-  if (accession) brutalAccessionCommitted.add(index);
-  else brutalAccessionCommitted.delete(index);
-  updateBrutalRowState(row, index);
-  renderFileList();
-}
-
-function commitAllBrutalAccessionDrafts({ render = true } = {}) {
-  brutalAccessionDrafts.forEach((draft, index) => {
-    if (normalizeAccessionDraft(draft)) brutalAccessionCommitted.add(index);
-    else brutalAccessionCommitted.delete(index);
-  });
-  document.querySelectorAll('.brutal-accession-line').forEach((row) => updateBrutalRowState(row, Number(row.dataset.accessionIndex || '0')));
-  if (render) renderFileList();
-}
-
-function removeBrutalAccession(index) {
-  const removedAccession = normalizeAccessionDraft(brutalAccessionDrafts[index] || '');
-  if (removedAccession) detachAccessionFromFileSources(removedAccession);
-  brutalAccessionDrafts.splice(index, 1);
-  brutalAccessionDrafts.push('');
-  const nextCommitted = new Set();
-  brutalAccessionCommitted.forEach((committedIndex) => {
-    if (committedIndex < index) nextCommitted.add(committedIndex);
-    else if (committedIndex > index) nextCommitted.add(committedIndex - 1);
-  });
-  brutalAccessionCommitted = nextCommitted;
-  clearStaleTargetGenome();
-  syncBrutalAcceptedFromDrafts();
-  renderBrutalAccessionRows();
-}
-
-function handleBrutalAccessionClick(event) {
-  const remove = event.target.closest?.('[data-accession-remove]');
-  if (remove) {
-    const row = remove.closest('.brutal-accession-line');
-    removeBrutalAccession(Number(row?.dataset.accessionIndex || '0'));
-    return;
-  }
-  const ecoButton = event.target.closest?.('.brutal-eco-button');
-  if (ecoButton) {
-    openBrutalEcoPicker(ecoButton);
-    return;
-  }
-  const row = event.target.closest?.('.brutal-accession-line');
-  if (!row || event.target.closest?.('.brutal-accession-input') !== event.target) return;
-  const index = Number(row.dataset.accessionIndex || '0');
-  const accession = normalizeAccessionDraft(row.querySelector('.brutal-accession-input')?.value || '');
-  if (rowIsAccepted(accession, index)) setBrutalTarget(accession);
-}
-
-function handleBrutalAccessionKeydown(event) {
-  const input = event.target.closest?.('.brutal-accession-input');
-  if (!input || event.key !== 'Enter') return;
-  event.preventDefault();
-  const row = input.closest('.brutal-accession-line');
-  commitBrutalAccessionRow(row);
-  const index = Number(row?.dataset.accessionIndex || '0');
-  const next = document.querySelector(`.brutal-accession-line[data-accession-index="${index + 1}"]:not(.is-locked) .brutal-accession-input`);
-  next?.focus();
-}
-
-function handleBrutalAccessionFocusout(event) {
-  const input = event.target.closest?.('.brutal-accession-input');
-  if (!input) return;
-  commitBrutalAccessionRow(input.closest('.brutal-accession-line'));
-}
-
-function openBrutalEcoPicker(button) {
-  if (!button || button.disabled) return;
-  const row = button.closest('.brutal-accession-line');
-  const index = Number(row?.dataset.accessionIndex || '0');
-  const accession = normalizeAccessionDraft(row?.querySelector('.brutal-accession-input')?.value || '');
-  if (!rowIsAccepted(accession, index)) return;
-  openEcoPickerForInput(button, accession, button.dataset.ecoField || 'primary');
-}
-
-function openUploadedGenomeEcoPicker(button) {
-  if (!button || button.disabled) return;
-  const row = button.closest('.file-item[data-target-genome]');
-  const accession = String(row?.dataset.targetGenome || '').trim();
-  if (!accession) return;
-  openEcoPickerForInput(button, accession, button.dataset.ecoField || 'primary');
-}
-
-function openEcoPickerForInput(button, accession, field) {
-  brutalEcoContext = { accession, field, button };
-  const picker = document.getElementById('brutal-eco-picker');
-  const title = document.getElementById('brutal-eco-picker-title');
-  const options = document.getElementById('brutal-eco-picker-options');
-  const otherRow = document.getElementById('brutal-eco-other-row');
-  const otherInput = document.getElementById('brutal-eco-other');
-  if (!picker || !options) return;
-  const current = savedEcoValue(accession, field);
-  if (title) title.textContent = `${field === 'primary' ? 'ECO 1' : 'ECO 2'} for ${accession}`;
-  options.innerHTML = ECOLOGY_LABELS.map(label => `<button class="eco-option" type="button" data-eco-option="${escapeHtml(label)}" aria-pressed="${current === label ? 'true' : 'false'}">${escapeHtml(label)}</button>`).join('');
-  const rect = button.getBoundingClientRect();
-  picker.hidden = false;
-  picker.style.left = `${Math.min(window.innerWidth - picker.offsetWidth - 8, Math.max(8, rect.right + 18))}px`;
-  picker.style.top = `${Math.min(window.innerHeight - picker.offsetHeight - 8, Math.max(8, rect.top - 8))}px`;
-  picker.style.setProperty('--connector-y', `${Math.max(18, Math.min(picker.offsetHeight - 18, rect.top + rect.height / 2 - picker.getBoundingClientRect().top))}px`);
-  if (otherRow) otherRow.hidden = current !== 'other' && !current.startsWith('other:');
-  if (otherInput) {
-    otherInput.value = current.startsWith('other:') ? current.slice(6) : '';
-    if (!otherRow?.hidden) otherInput.focus();
-    else picker.querySelector('.eco-option')?.focus();
-  }
-}
-
-function closeBrutalEcoPicker(returnFocus = false) {
-  const picker = document.getElementById('brutal-eco-picker');
-  if (picker) picker.hidden = true;
-  if (returnFocus) brutalEcoContext?.button?.focus();
-  brutalEcoContext = null;
-}
-
-function saveBrutalEcoSelection(rawValue) {
-  if (!brutalEcoContext) return;
-  let value = String(rawValue || '').trim();
-  if (value === 'other') {
-    const otherValue = normalizeShortToken(document.getElementById('brutal-eco-other')?.value || '', 20);
-    if (!otherValue) return;
-    value = `other:${otherValue}`;
-  }
-  const selection = ecologySelectionFor(brutalEcoContext.accession);
-  selection[brutalEcoContext.field] = value;
-  syncEcologyMetadataPanel();
-  applyBrutalEcologyToMetadataTable();
-  renderBrutalAccessionRows();
-  closeBrutalEcoPicker(true);
-  updateRunSummary();
-}
-
-function applyBrutalEcologyToMetadataTable() {
-  document.querySelectorAll('#metadata-table-body tr[data-ecology-key]').forEach((row) => {
-    const key = String(row.dataset.ecologyKey || '').trim().toUpperCase();
-    const saved = brutalEcoSelections.get(key);
-    if (!saved) return;
-    [['primary', saved.primary], ['secondary', saved.secondary]].forEach(([field, raw]) => {
-      const select = row.querySelector(field === 'primary' ? '.metadata-primary' : '.metadata-secondary');
-      const other = row.querySelector(field === 'primary' ? '.metadata-primary-other' : '.metadata-secondary-other');
-      if (!select || !raw) return;
-      if (raw.startsWith('other:')) {
-        select.value = 'other';
-        if (other) {
-          other.classList.remove('hidden');
-          other.value = normalizeShortToken(raw.slice(6), 20);
-        }
-      } else {
-        select.value = raw;
-        if (other) {
-          other.classList.add('hidden');
-          other.value = '';
-        }
-      }
-    });
-  });
-  updateEcologyLabelStatus();
-}
-
-function conciseInputNotice(message) {
-  return String(message || '')
-    .replace(/\s+/g, ' ')
-    .replace(/Use current fungal NCBI assembly accessions like/g, 'Use accessions like')
-    .trim();
-}
-
-function renderBrutalInputLog() {
-  const drawer = document.getElementById('input-log-drawer');
-  const list = document.getElementById('input-log-list');
-  if (!drawer || !list) return;
-  const messages = [];
-  const seen = new Set();
-  const addMessage = (message) => {
-    const concise = conciseInputNotice(message);
-    if (!concise || seen.has(concise)) return;
-    seen.add(concise);
-    messages.push(concise);
-  };
-  const draftMessages = new Set(brutalAccessionDraftIssues().map(issue => conciseInputNotice(issue.message)));
-  draftMessages.forEach(addMessage);
-  brutalInputNotices.forEach(addMessage);
-  document.querySelectorAll('#input-checker-list .input-check-row.blocked').forEach((row) => {
-    const label = row.querySelector('.input-check-label')?.textContent?.trim() || 'Input';
-    const reason = row.querySelector('.input-check-reason')?.textContent?.trim() || 'Blocked before run.';
-    const message = conciseInputNotice(`${label}: ${reason}`);
-    if (!draftMessages.has(message) && !label.startsWith('Row ')) addMessage(message);
-  });
-  drawer.hidden = messages.length === 0;
-  list.innerHTML = messages.map(message => `<div class="input-log-note">${escapeHtml(message)}</div>`).join('');
-}
-
-function initializeBrutalInputStation() {
-  const rows = document.getElementById('brutal-accession-rows');
-  const fileList = document.getElementById('file-list');
-  if (!rows || rows.dataset.wired === '1') return;
-  rows.dataset.wired = '1';
-  renderBrutalAccessionRows();
-  rows.addEventListener('input', handleBrutalAccessionInput);
-  rows.addEventListener('click', handleBrutalAccessionClick);
-  rows.addEventListener('keydown', handleBrutalAccessionKeydown);
-  rows.addEventListener('focusout', handleBrutalAccessionFocusout);
-  if (fileList) {
-    fileList.addEventListener('click', handleUploadedGenomeTargetClick);
-  }
-  document.getElementById('target-genome-toggle')?.addEventListener('click', () => {
-    const targetInput = document.getElementById('target-genome');
-    if (targetInput?.value) {
-      targetInput.value = '';
-      targetInput.dispatchEvent(new Event('input', { bubbles: true }));
-      updateBrutalTargetButton();
-      updateRunSummary();
-    }
-  });
-  document.getElementById('brutal-ecology-toggle')?.addEventListener('click', () => setBrutalEcologyEnabled(!inputEcologyEnabled()));
-  document.getElementById('brutal-eco-picker-options')?.addEventListener('click', (event) => {
-    const option = event.target.closest?.('[data-eco-option]');
-    if (!option) return;
-    const value = option.dataset.ecoOption || '';
-    const otherRow = document.getElementById('brutal-eco-other-row');
-    const otherInput = document.getElementById('brutal-eco-other');
-    if (value === 'other') {
-      if (otherRow) otherRow.hidden = false;
-      if (otherInput) otherInput.focus();
-      return;
-    }
-    saveBrutalEcoSelection(value);
-  });
-  document.getElementById('brutal-eco-save')?.addEventListener('click', () => saveBrutalEcoSelection('other'));
-  document.getElementById('brutal-eco-other')?.addEventListener('input', (event) => {
-    const normalized = normalizeShortToken(event.target.value, 20);
-    if (event.target.value !== normalized) event.target.value = normalized;
-  });
-  document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && !document.getElementById('brutal-eco-picker')?.hidden) {
-      event.preventDefault();
-      closeBrutalEcoPicker(true);
-    }
-  });
-  document.addEventListener('pointerdown', (event) => {
-    const picker = document.getElementById('brutal-eco-picker');
-    if (!picker || picker.hidden) return;
-    if (picker.contains(event.target) || event.target.closest?.('.brutal-eco-button')) return;
-    closeBrutalEcoPicker();
-  }, true);
-  document.getElementById('input-log-close')?.addEventListener('click', () => {
-    const drawer = document.getElementById('input-log-drawer');
-    if (drawer) drawer.hidden = true;
-  });
-  document.getElementById('project-name')?.addEventListener('input', () => {
-    normalizeProjectNameInput();
-    renderFileList();
-  });
-  document.getElementById('target-genome')?.addEventListener('input', updateBrutalTargetButton);
-  document.getElementById('run-ecology')?.addEventListener('change', () => {
-    updateBrutalEcologyToggle();
-    renderBrutalAccessionRows();
-  });
-  updateBrutalTargetButton();
-  updateBrutalEcologyToggle();
-  updateInputLimitGuidance();
-}
-
-fileInput.addEventListener('change', async () => {
-  await addFiles([...fileInput.files]);
-  fileInput.value = '';
-});
-manualAccessionsInput.addEventListener('input', () => {
-  updateManualAccessionsStatus();
-  renderFileList();
-});
-dropZone.addEventListener('click', () => fileInput.click());
-dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
-dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
-dropZone.addEventListener('keydown', e => {
-  if (!['Enter', ' '].includes(e.key)) return;
-  e.preventDefault();
-  fileInput.click();
-});
-dropZone.addEventListener('drop', async e => {
-  e.preventDefault();
-  dropZone.classList.remove('drag-over');
-  await addFiles([...e.dataTransfer.files]);
-});
-
-function parseAccessionText(raw) {
-  const seen = new Set();
-  const accessions = [];
-  const invalid = [];
-  let duplicateCount = 0;
-  raw.split(/\r?\n/).forEach((line, lineIndex) => {
-    const cleanLine = line.trim();
-    if (!cleanLine) return;
-    if (/^accession$/i.test(cleanLine)) {
-      invalid.push({ token: cleanLine, line: lineIndex + 1, kind: 'header' });
-      return;
-    }
-    if (/[\s,;]+/.test(cleanLine)) {
-      invalid.push({ token: cleanLine, line: lineIndex + 1, kind: 'multiple' });
-      return;
-    }
-    const accession = cleanLine.toUpperCase();
-    if (!NCBI_ASSEMBLY_ACCESSION_RE.test(accession)) {
-      invalid.push({ token: cleanLine, line: lineIndex + 1, kind: 'invalid' });
-      return;
-    }
-    if (seen.has(accession)) {
-      duplicateCount += 1;
-      return;
-    }
-    seen.add(accession);
-    accessions.push(accession);
-  });
-  return { accessions, invalid, duplicateCount };
-}
-
-function parseManualAccessions() {
-  return parseAccessionText(manualAccessionsInput ? manualAccessionsInput.value : '');
-}
-
-function mergedAcceptedAccessions() {
-  const seen = new Set();
-  const merged = [];
-  const add = (accession) => {
-    const normalized = String(accession || '').trim().toUpperCase();
-    if (!normalized || seen.has(normalized)) return;
-    seen.add(normalized);
-    merged.push(normalized);
-  };
-  acceptedManualAccessions.forEach(add);
-  accessionFileSources.forEach(source => source.accessions.forEach(add));
-  return merged;
-}
-
-function accessionFileOwnedAccessions() {
-  const owned = new Set();
-  accessionFileSources.forEach((source) => {
-    (Array.isArray(source.accessions) ? source.accessions : []).forEach((accession) => {
-      const normalized = normalizeAccessionDraft(accession);
-      if (normalized) owned.add(normalized);
-    });
-  });
-  return owned;
-}
-
-function detachAccessionFromFileSources(accession) {
-  const normalized = normalizeAccessionDraft(accession);
-  if (!normalized) return;
-  accessionFileSources.forEach((source) => {
-    source.accessions = (Array.isArray(source.accessions) ? source.accessions : [])
-      .filter(value => normalizeAccessionDraft(value) !== normalized);
-  });
-  accessionFileSources = accessionFileSources.filter(source => source.accessions.length > 0);
-}
-
-function manualAccessionLines() {
-  return mergedAcceptedAccessions();
-}
-
-function manualAccessionErrorMessage(parsed) {
-  if (!parsed.invalid.length) return '';
-  const first = parsed.invalid[0];
-  const more = parsed.invalid.length > 1 ? ` and ${parsed.invalid.length - 1} more` : '';
-  if (first.kind === 'multiple') {
-    return `Line ${first.line} has multiple values${more}. Enter one NCBI assembly accession per line.`;
-  }
-  if (first.kind === 'header') {
-    return `Header row "accession" on line ${first.line} is not allowed. Enter one NCBI assembly accession per line.`;
-  }
-  return `Invalid accession "${first.token}" on line ${first.line}${more}. ${ncbiAssemblyAccessionHelp()}`;
-}
-
-function publicQuotaLimits() {
-  return {
-    max_accessions: Number(publicQuota.max_accessions) || 50,
-    max_genome_files: Number(publicQuota.max_genome_files) || 50,
-    max_upload_file_mb: Number(publicQuota.max_upload_file_mb) || 500,
-    max_upload_total_mb: Number(publicQuota.max_upload_total_mb) || 1024,
-  };
-}
-
-function formatQuotaMb(value) {
-  const mb = Number(value) || 0;
-  if (mb >= 1024 && mb % 1024 === 0) return `${mb / 1024} GB`;
-  return `${mb} MB`;
-}
-
-const PUBLIC_WEB_FAQ_URL = 'https://github.com/n2mology/clusterweave#web-portal-faq';
-
-function publicQuotaSummary(quota = publicQuotaLimits()) {
-  return `${formatQuotaMb(quota.max_upload_file_mb)} per file, ${formatQuotaMb(quota.max_upload_total_mb)} total per run, ${quota.max_genome_files} genome files, or ${quota.max_accessions} NCBI accessions`;
-}
-
-function localWorkflowPrompt() {
-  return 'Larger, private, or custom analyses should use the local GitHub workflow.';
-}
-
-function publicFileLimitMessage(quota = publicQuotaLimits()) {
-  return `File exceeds the ${formatQuotaMb(quota.max_upload_file_mb)} public upload limit. ${localWorkflowPrompt()}`;
-}
-
-function publicTotalLimitMessage(quota = publicQuotaLimits()) {
-  return `Total upload size exceeds the ${formatQuotaMb(quota.max_upload_total_mb)} public job limit. ${localWorkflowPrompt()}`;
-}
-
-function updateInputLimitGuidance() {
-  const quota = publicQuotaLimits();
-  const summary = publicQuotaSummary(quota);
-  const note = document.getElementById('upload-limit-note');
-  if (note) {
-    note.innerHTML = `Limits: ${escapeHtml(summary)}. <a href="${PUBLIC_WEB_FAQ_URL}" target="_blank" rel="noopener">FAQ / local workflow</a>`;
-  }
-}
-
-function genomeFileCheckKey(file) {
-  const route = stagedTaxonGroupForFileName(file.name) || `unresolved-${normalizeAnalysisScope(stagedAnalysisScope)}`;
-  return `${file.name}|${file.size}|${file.lastModified || 0}|${route}`;
-}
-
-function publicGenomeStem(name) {
-  return String(name || '').replace(/\.(gbk|gb|gbff|fasta|fa|fna|fsa)$/i, '').trim();
-}
-
-// BEGIN CLIENT_GENBANK_TAXONOMY_PURE
-function clientLineageHas(lineage, name) {
-  const escaped = String(name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return !!escaped && new RegExp(`(^|[^A-Za-z])${escaped}($|[^A-Za-z])`, 'i').test(String(lineage || ''));
-}
-
-function parseClientGenbankTaxonomy(text) {
-  const organisms = [];
-  const taxids = [];
-  const lineageParts = [];
-  let inHeaderLineage = false;
-
-  String(text || '').split(/\r?\n/).forEach((line) => {
-    const organismMatch = line.match(/^\s{0,4}ORGANISM\s+(.+?)\s*$/);
-    if (organismMatch) {
-      organisms.push(organismMatch[1].trim());
-      inHeaderLineage = true;
-      return;
-    }
-
-    if (inHeaderLineage) {
-      const stripped = line.trim();
-      if (line.startsWith('            ') && stripped && !stripped.startsWith('/')) {
-        lineageParts.push(stripped);
-        return;
-      }
-      inHeaderLineage = false;
-    }
-
-    const qualifierOrganism = line.match(/\/organism\s*=\s*"([^"]+)"/i);
-    if (qualifierOrganism) organisms.push(qualifierOrganism[1].trim());
-    const taxidPattern = /\/db_xref\s*=\s*"taxon:(\d+)"/ig;
-    let taxidMatch = null;
-    while ((taxidMatch = taxidPattern.exec(line)) !== null) taxids.push(Number(taxidMatch[1]));
-    const qualifierLineage = line.match(/\/lineage\s*=\s*"([^"]+)"/i);
-    if (qualifierLineage) lineageParts.push(qualifierLineage[1].trim());
-  });
-
-  const lineage = lineageParts.join(' ');
-  const hasFungi = taxids.includes(4751) || clientLineageHas(lineage, 'Fungi');
-  const hasBacteria = taxids.includes(2) || clientLineageHas(lineage, 'Bacteria');
-  const hasArchaea = clientLineageHas(lineage, 'Archaea');
-  const hasVirus = clientLineageHas(lineage, 'Viruses') || clientLineageHas(lineage, 'Viroids');
-  const hasEukaryota = clientLineageHas(lineage, 'Eukaryota');
-  const hasNonfungalEukaryote = ['Metazoa', 'Viridiplantae'].some(name => clientLineageHas(lineage, name));
-  const conflicting = (
-    (hasFungi && hasBacteria)
-    || (hasFungi && (hasArchaea || hasVirus || hasNonfungalEukaryote))
-    || (hasBacteria && (hasArchaea || hasVirus || hasEukaryota))
-  );
-  if (conflicting) {
-    return {
-      status: 'conflicting',
-      taxonGroup: '',
-      reason: 'GenBank source taxonomy contains conflicting supported/unsupported lineages',
-    };
-  }
-
-  let taxonGroup = '';
-  if (hasFungi) taxonGroup = 'fungi';
-  else if (hasBacteria) taxonGroup = 'bacteria';
-  else if (hasArchaea || hasVirus || hasEukaryota || hasNonfungalEukaryote) {
-    return {
-      status: 'unsupported',
-      taxonGroup: 'unsupported',
-      reason: 'GenBank source taxonomy is outside the supported Fungi/Bacteria scope',
-    };
-  }
-  if (!taxonGroup) {
-    return {
-      status: 'ambiguous',
-      taxonGroup: '',
-      reason: 'GenBank source taxonomy does not resolve to Fungi or Bacteria',
-    };
-  }
-  return {
-    status: 'resolved',
-    taxonGroup,
-    taxonSource: 'genbank_source',
-    taxid: taxids.length ? taxids[0] : null,
-    organismName: organisms[0] || '',
-    lineage,
-    reason: `Authoritative GenBank source taxonomy resolved ${taxonGroup}`,
-  };
-}
-
-function mergeClientGenbankAuthorities(authorities) {
-  const values = (authorities || []).filter(authority => authority && authority.status !== 'ambiguous');
-  const conflict = values.find(authority => authority.status === 'conflicting');
-  if (conflict) return conflict;
-  const resolved = values.filter(authority => authority.status === 'resolved');
-  const unsupported = values.find(authority => authority.status === 'unsupported');
-  const groups = new Set(resolved.map(authority => authority.taxonGroup));
-  if (groups.size > 1 || (resolved.length && unsupported)) {
-    return {
-      status: 'conflicting',
-      taxonGroup: '',
-      reason: 'Same-stem GenBank inputs contain conflicting authoritative taxonomy',
-    };
-  }
-  if (unsupported) return unsupported;
-  if (resolved.length) return resolved[0];
-  return {
-    status: 'ambiguous',
-    taxonGroup: '',
-    reason: 'No authoritative GenBank taxonomy is available for this logical genome',
-  };
-}
-
-function clientTaxonAssignmentDecision(authority, assignedGroup = '', inputKey = 'genome') {
-  const assigned = ['fungi', 'bacteria'].includes(String(assignedGroup || '').trim().toLowerCase())
-    ? String(assignedGroup).trim().toLowerCase()
-    : '';
-  const resolvedAuthority = authority && typeof authority === 'object'
-    ? authority
-    : { status: 'ambiguous', taxonGroup: '' };
-  if (resolvedAuthority.status === 'resolved') {
-    const conflict = !!assigned && assigned !== resolvedAuthority.taxonGroup;
-    return {
-      assigned,
-      authority: resolvedAuthority,
-      issue: conflict
-        ? `Taxon assignment for '${inputKey}' conflicts with authoritative GenBank taxonomy`
-        : '',
-      requiresAssignment: false,
-      taxonGroup: resolvedAuthority.taxonGroup,
-    };
-  }
-  if (resolvedAuthority.status === 'unsupported' || resolvedAuthority.status === 'conflicting') {
-    return {
-      assigned,
-      authority: resolvedAuthority,
-      issue: `GenBank input '${inputKey}': ${resolvedAuthority.reason}`,
-      requiresAssignment: false,
-      taxonGroup: '',
-    };
-  }
-  return {
-    assigned,
-    authority: resolvedAuthority,
-    issue: '',
-    requiresAssignment: true,
-    taxonGroup: assigned,
-  };
-}
-// END CLIENT_GENBANK_TAXONOMY_PURE
-
-function genomeFileIdentityKey(file) {
-  return `${String(file?.name || '')}|${Number(file?.size || 0)}|${Number(file?.lastModified || 0)}`;
-}
-
-function clientGenbankAuthorityForFile(file) {
-  return genbankTaxonomyAuthorityCache.get(genomeFileIdentityKey(file)) || {
-    status: 'ambiguous',
-    taxonGroup: '',
-    reason: 'GenBank taxonomy has not been inspected in this browser',
-  };
-}
-
-function rememberClientGenbankAuthority(file, result) {
-  if (!PUBLIC_GENBANK_EXTENSIONS.has(ext(file?.name || ''))) return;
-  const authority = result?.genbankAuthority || {
-    status: 'ambiguous',
-    taxonGroup: '',
-    reason: 'GenBank taxonomy could not be inspected in this browser',
-  };
-  genbankTaxonomyAuthorityCache.set(genomeFileIdentityKey(file), authority);
-}
-
-function clientGenbankAuthorityProblem(authority, declaredGroup) {
-  if (authority.status === 'conflicting' || authority.status === 'unsupported') return authority.reason;
-  if (authority.status === 'resolved' && declaredGroup && authority.taxonGroup !== declaredGroup) {
-    return `Selected ${analysisScopeLabel(declaredGroup)} scope conflicts with authoritative GenBank ${analysisScopeLabel(authority.taxonGroup)} taxonomy`;
-  }
-  return '';
-}
-
-function classifyClientFastaText(name, text, taxonGroup = stagedTaxonGroupForFileName(name)) {
-  const lines = String(text || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
-  if (!lines.length) return { readiness: 'invalid', reason: `FASTA genome ${name} is empty.` };
-  if (!lines[0].startsWith('>')) {
-    return { readiness: 'invalid', reason: `FASTA genome ${name} must start with a FASTA header beginning with >.` };
-  }
-  let sequenceChars = 0;
-  let nucleotideCount = 0;
-  let sequenceLines = 0;
-  lines.forEach((line) => {
-    if (line.startsWith('>')) return;
-    const clean = line.replace(/\s+/g, '').toUpperCase();
-    if (!clean) return;
-    sequenceLines += 1;
-    sequenceChars += clean.length;
-    for (const char of clean) {
-      if (PUBLIC_NUCLEOTIDE_CHARS.has(char)) nucleotideCount += 1;
-    }
-  });
-  if (!sequenceLines || !sequenceChars) {
-    return { readiness: 'invalid', reason: `FASTA genome ${name} needs at least one nucleotide sequence line.` };
-  }
-  if (nucleotideCount / sequenceChars < 0.85) {
-    const domain = taxonGroup === 'bacteria' ? 'bacterial' : taxonGroup === 'fungi' ? 'fungal' : 'genome';
-    return { readiness: 'invalid', reason: `Looks like protein FASTA or arbitrary text; upload a nucleotide ${domain} assembly FASTA.` };
-  }
-  if (taxonGroup === 'bacteria') {
-    return {
-      readiness: 'raw_fasta_requires_prodigal',
-      reason: 'Nucleotide bacterial FASTA accepted; antiSMASH will use Prodigal for predictable bacterial gene finding.',
-    };
-  }
-  if (!taxonGroup) {
-    return {
-      readiness: 'taxon_assignment_required',
-      reason: 'Nucleotide FASTA structure passed. Choose Fungi or Bacteria for this logical genome before submission.',
-    };
-  }
-  return {
-    readiness: 'raw_fasta_requires_annotation',
-    reason: 'Nucleotide FASTA accepted; funannotate must predict CDS/protein translations before downstream BGC tools can run, and may fail if the assembly is not annotatable.',
-  };
-}
-
-function classifyClientGenbankText(name, text, taxonGroup = stagedTaxonGroupForFileName(name)) {
-  const raw = String(text || '');
-  const genbankAuthority = parseClientGenbankTaxonomy(raw);
-  if (!raw.trim()) return { readiness: 'invalid', reason: `GenBank genome ${name} is empty.`, genbankAuthority };
-  const markers = [
-    ['LOCUS', /^LOCUS\s+/m],
-    ['FEATURES', /^FEATURES\b/m],
-    ['ORIGIN', /^ORIGIN\b/m],
-    ['//', /^\/\/\s*$/m],
-  ];
-  const missing = markers.filter(([, pattern]) => !pattern.test(raw)).map(([label]) => label);
-  if (missing.length) {
-    return { readiness: 'invalid', reason: `GenBank genome ${name} is missing ${missing.join(', ')}.`, genbankAuthority };
-  }
-  const authorityProblem = clientGenbankAuthorityProblem(genbankAuthority, taxonGroup);
-  if (authorityProblem) return { readiness: 'invalid', reason: authorityProblem, genbankAuthority };
-  const effectiveTaxonGroup = genbankAuthority.status === 'resolved' ? genbankAuthority.taxonGroup : taxonGroup;
-  const hasCds = /^\s+CDS\b/m.test(raw);
-  const hasTranslation = /\/translation\s*=/.test(raw);
-  if (effectiveTaxonGroup === 'bacteria') {
-    return {
-      readiness: 'bacterial_genbank_prodigal_ready',
-      reason: genbankAuthority.status === 'resolved'
-        ? 'Authoritative bacterial GenBank taxonomy accepted; supplied features will be removed from the antiSMASH work input and Prodigal will predict genes consistently.'
-        : hasCds || hasTranslation
-          ? 'Bacterial GenBank accepted; supplied features will be removed from the antiSMASH work input and Prodigal will predict genes consistently.'
-          : 'Feature-free bacterial GenBank accepted; antiSMASH will use Prodigal for gene finding.',
-      genbankAuthority,
-    };
-  }
-  if (!effectiveTaxonGroup) {
-    return {
-      readiness: 'taxon_assignment_required',
-      reason: 'GenBank structure passed. Choose Fungi or Bacteria for this logical genome before submission.',
-      genbankAuthority,
-    };
-  }
-  if (hasCds && hasTranslation) {
-    return {
-      readiness: 'annotated_genbank_ready',
-      reason: genbankAuthority.status === 'resolved'
-        ? 'Authoritative fungal GenBank taxonomy accepted; CDS translations are ready for antiSMASH and FunBGCeX.'
-        : 'Annotated GenBank with CDS translations is ready for antiSMASH and FunBGCeX.',
-      genbankAuthority,
-    };
-  }
-  return {
-    readiness: 'genbank_requires_fallback_or_translations',
-    reason: 'GenBank structure is present, but CDS translations were not detected; submit a same-stem nucleotide FASTA or translated GenBank so funannotate can produce proteins before downstream BGC tools run.',
-    genbankAuthority,
-  };
-}
-
-function publicGenomeUploadKind(fileExt) {
-  return PUBLIC_FASTA_EXTENSIONS.has(fileExt) ? 'fasta' : 'genbank';
-}
-
-function classifyClientGenomeText(file, text) {
-  const fileExt = ext(file.name);
-  const taxonGroup = stagedTaxonGroupForFileName(file.name);
-  if (PUBLIC_FASTA_EXTENSIONS.has(fileExt)) return classifyClientFastaText(file.name, text, taxonGroup);
-  if (PUBLIC_GENBANK_EXTENSIONS.has(fileExt)) return classifyClientGenbankText(file.name, text, taxonGroup);
-  return { readiness: 'invalid', reason: `Unsupported public genome extension .${fileExt}.` };
-}
-
-function classifyClientGenomePreview(file, text) {
-  const fileExt = ext(file.name);
-  const taxonGroup = stagedTaxonGroupForFileName(file.name);
-  if (PUBLIC_FASTA_EXTENSIONS.has(fileExt)) {
-    const fasta = classifyClientFastaText(file.name, text, taxonGroup);
-    if (fasta.readiness === 'invalid') return fasta;
-    return {
-      readiness: 'client_preflight_unconfirmed',
-      reason: taxonGroup === 'bacteria'
-        ? 'Large bacterial FASTA preview passed; full server validation will confirm sequence structure before the Prodigal route.'
-        : !taxonGroup
-          ? 'Large FASTA preview passed; choose Fungi or Bacteria, then full server validation runs on submission.'
-          : 'Large fungal FASTA preview passed in the browser; full server validation runs when you submit.',
-    };
-  }
-  if (PUBLIC_GENBANK_EXTENSIONS.has(fileExt)) {
-    const raw = String(text || '');
-    const genbankAuthority = parseClientGenbankTaxonomy(raw);
-    if (!raw.trim()) return { readiness: 'invalid', reason: `GenBank genome ${file.name} is empty.`, genbankAuthority };
-    const missing = [
-      ['LOCUS', /^LOCUS\s+/m],
-      ['FEATURES', /^FEATURES\b/m],
-    ].filter(([, pattern]) => !pattern.test(raw)).map(([label]) => label);
-    if (missing.length) return { readiness: 'invalid', reason: `GenBank genome ${file.name} is missing ${missing.join(', ')}.`, genbankAuthority };
-    const authorityProblem = clientGenbankAuthorityProblem(genbankAuthority, taxonGroup);
-    if (authorityProblem) return { readiness: 'invalid', reason: authorityProblem, genbankAuthority };
-    const effectiveTaxonGroup = genbankAuthority.status === 'resolved' ? genbankAuthority.taxonGroup : taxonGroup;
-    return {
-      readiness: 'client_preflight_unconfirmed',
-      reason: effectiveTaxonGroup === 'bacteria'
-        ? genbankAuthority.status === 'resolved'
-          ? 'Large GenBank preview contains authoritative bacterial taxonomy; the server will verify every record before feature stripping and Prodigal.'
-          : 'Large bacterial GenBank preview passed; full server validation will confirm sequence structure before feature stripping and Prodigal.'
-        : !effectiveTaxonGroup
-          ? 'Large GenBank preview passed; choose Fungi or Bacteria, then full server validation runs on submission.'
-          : genbankAuthority.status === 'resolved'
-            ? 'Large GenBank preview contains authoritative fungal taxonomy; the server will verify every record, ORIGIN, and CDS readiness.'
-            : 'Large fungal GenBank preview passed; full server validation will confirm ORIGIN, CDS translations, and same-stem FASTA pairing.',
-      genbankAuthority,
-    };
-  }
-  return { readiness: 'invalid', reason: `Unsupported public genome extension .${fileExt}.` };
-}
-
-async function readClientGenomePreview(file) {
-  if (file.size <= CLIENT_GENOME_PRECHECK_BYTES) return { text: await file.text(), partial: false };
-  const head = await file.slice(0, CLIENT_GENOME_PRECHECK_BYTES).text();
-  const tailStart = Math.max(CLIENT_GENOME_PRECHECK_BYTES, file.size - CLIENT_GENOME_PRECHECK_TAIL_BYTES);
-  const tail = tailStart < file.size ? await file.slice(tailStart, file.size).text() : '';
-  return { text: `${head}\n${tail}`, partial: true };
-}
-
-function browserGenomePrecheckUnavailableReason(file) {
-  const name = file?.name ? ` ${file.name}` : ' this genome file';
-  return `Browser preview could not inspect${name}. The file may be locked, still syncing, moved after selection, too large for local preview, or not plain-text FASTA/GenBank. Submit will run full server validation and report the exact format problem.`;
-}
-
-async function cacheGenomeFileCheck(file) {
-  const key = genomeFileCheckKey(file);
-  if (genomeCheckCache.has(key)) {
-    const cached = genomeCheckCache.get(key);
-    rememberClientGenbankAuthority(file, cached);
-    return cached;
-  }
-  const quota = publicQuotaLimits();
-  if (file.size > quota.max_upload_file_mb * 1048576) {
-    const result = { readiness: 'invalid', reason: publicFileLimitMessage(quota) };
-    genomeCheckCache.set(key, result);
-    rememberClientGenbankAuthority(file, result);
-    return result;
-  }
-  try {
-    const preview = await readClientGenomePreview(file);
-    const result = preview.partial ? classifyClientGenomePreview(file, preview.text) : classifyClientGenomeText(file, preview.text);
-    genomeCheckCache.set(key, result);
-    rememberClientGenbankAuthority(file, result);
-    return result;
-  } catch (err) {
-    const result = { readiness: 'client_preflight_unconfirmed', reason: browserGenomePrecheckUnavailableReason(file) };
-    genomeCheckCache.set(key, result);
-    rememberClientGenbankAuthority(file, result);
-    return result;
-  }
-}
-
-function updateManualAccessionsStatus() {
-  const status = document.getElementById('manual-accessions-status');
-  if (!status) return;
-  const draft = manualAccessionsInput ? manualAccessionsInput.value.trim() : '';
-  if (draft) {
-    status.textContent = 'Draft ready to screen. Press Add accessions.';
-    return;
-  }
-  const count = manualAccessionLines().length;
-  status.innerHTML = count ? `<span class="accession-check">&#10003;</span> ${count} accepted accession${count === 1 ? '' : 's'}` : '';
-}
-
-function renderAcceptedAccessions() {
-  const accessions = manualAccessionLines();
-  if (!brutalSyncingAccepted) syncBrutalRowsFromAccepted();
-  const list = document.getElementById('accepted-accessions-list');
-  if (!list) return;
-  if (!accessions.length) {
-    list.innerHTML = '<div class="accession-accepted-empty">No accepted accessions yet.</div>';
-    return;
-  }
-  list.innerHTML = accessions.map(accession => `
-    <div class="accession-accepted-row">
-      <span class="accession-check">&#10003;</span>
-      <span>${escapeHtml(accession)}</span>
-    </div>
-  `).join('');
-}
-
-function normalizeManualAccessions() {
-  const parsed = parseManualAccessions();
-  if (parsed.invalid.length) {
-    const status = document.getElementById('manual-accessions-status');
-    if (status) status.textContent = manualAccessionErrorMessage(parsed);
-    return;
-  }
-  if (!parsed.accessions.length) {
-    const status = document.getElementById('manual-accessions-status');
-    if (status) status.textContent = 'Enter one NCBI assembly accession per line.';
-    return;
-  }
-  const existing = new Set(manualAccessionLines());
-  const newAccessions = parsed.accessions.filter(accession => !existing.has(accession));
-  acceptedManualAccessions.push(...newAccessions);
-  if (manualAccessionsInput) manualAccessionsInput.value = '';
-  resetBrutalAccessionDrafts();
-  renderAcceptedAccessions();
-  renderFileList();
-  const status = document.getElementById('manual-accessions-status');
-  if (status) {
-    const duplicateText = parsed.duplicateCount ? ` ${parsed.duplicateCount} duplicate${parsed.duplicateCount === 1 ? '' : 's'} skipped.` : '';
-    status.innerHTML = newAccessions.length
-      ? `<span class="accession-check">&#10003;</span> ${newAccessions.length} accession${newAccessions.length === 1 ? '' : 's'} accepted.${duplicateText}`
-      : 'No new accessions added; duplicates already accepted.';
-  }
-}
-
-function clearManualAccessions() {
-  if (manualAccessionsInput) manualAccessionsInput.value = '';
-  updateManualAccessionsStatus();
-  renderFileList();
-}
-
-function clearAcceptedAccessions() {
-  acceptedManualAccessions = [];
-  accessionFileSources = [];
-  resetBrutalAccessionDrafts();
-  clearStaleTargetGenome();
-  renderAcceptedAccessions();
-  updateManualAccessionsStatus();
-  renderFileList();
-}
-
-function clearAcceptedManualAccessions() {
-  acceptedManualAccessions = [];
-  resetBrutalAccessionDrafts();
-  clearStaleTargetGenome();
-  renderAcceptedAccessions();
-  updateManualAccessionsStatus();
-  renderFileList();
-}
-
-function loadDemoAccessions(event) {
-  if (event) event.preventDefault();
-  const demoAccessions = ['GCA_000011425.1', 'GCA_030770425.1'];
-  acceptedManualAccessions = demoAccessions.slice();
-  if (manualAccessionsInput) manualAccessionsInput.value = '';
-  const projectName = document.getElementById('project-name');
-  if (projectName && (!projectName.value.trim() || projectName.value.trim() === 'my_project')) {
-    projectName.value = 'clusterweave_demo';
-  }
-  renderAcceptedAccessions();
-  renderFileList();
-  const status = document.getElementById('upload-status');
-  if (status) status.textContent = 'Demo accessions accepted; review settings before starting.';
-  navigateToSection(event, 'intake', 'manual-accessions');
-}
-
-function importAccessionsToLoader(accessions) {
-  const limit = accessionLimit();
-  const existing = new Set(manualAccessionLines());
-  const nextDrafts = Array.from({ length: 50 }, (_, index) => brutalAccessionDrafts[index] || '');
-  const added = [];
-  accessions.forEach((raw) => {
-    const accession = normalizeAccessionDraft(raw);
-    if (!validBrutalAccession(accession) || existing.has(accession)) return;
-    const slot = nextDrafts.findIndex((value, index) => index < limit && !normalizeAccessionDraft(value));
-    if (slot < 0) return;
-    nextDrafts[slot] = accession;
-    existing.add(accession);
-    added.push(accession);
-  });
-  if (!added.length) return added;
-  brutalAccessionDrafts = nextDrafts;
-  acceptedManualAccessions = acceptedDraftAccessions();
-  if (manualAccessionsInput) manualAccessionsInput.value = '';
-  renderBrutalAccessionRows();
-  syncEcologyMetadataPanel();
-  applyBrutalEcologyToMetadataTable();
-  updateBrutalTargetButton();
-  updateRunSummary();
-  return added;
-}
-
-async function addAccessionFileSource(file) {
-  const noticeKey = `accession-file:${file.name}`;
-  let text = '';
-  try {
-    text = await file.text();
-  } catch (err) {
-    setBrutalInputNotice(noticeKey, `Could not read accession list: ${file.name}`);
-    return false;
-  }
-  const parsed = parseAccessionText(text);
-  if (parsed.invalid.length) {
-    setBrutalInputNotice(noticeKey, `Accession list ${file.name}: ${manualAccessionErrorMessage(parsed)}`);
-    return false;
-  }
-  if (!parsed.accessions.length) {
-    setBrutalInputNotice(noticeKey, `Accession list ${file.name} does not contain any accessions.`);
-    return false;
-  }
-  const existing = new Set(manualAccessionLines());
-  const newAccessions = parsed.accessions.filter(accession => !existing.has(accession));
-  if (!newAccessions.length) {
-    setBrutalInputNotice(noticeKey, `Accession list ${file.name} contains only duplicate accessions already accepted.`);
-    return false;
-  }
-  const imported = importAccessionsToLoader(newAccessions);
-  if (!imported.length) {
-    setBrutalInputNotice(noticeKey, `Accession list ${file.name} could not fit in the accession loader.`);
-    return false;
-  }
-  accessionFileSources.push({ name: String(file.name || 'accessions.txt'), accessions: imported.slice() });
-  const fileOwned = accessionFileOwnedAccessions();
-  acceptedManualAccessions = acceptedManualAccessions.filter(accession => !fileOwned.has(normalizeAccessionDraft(accession)));
-  setBrutalInputNotice(noticeKey, '');
-  const skipped = parsed.accessions.length - imported.length + parsed.duplicateCount;
-  const status = document.getElementById('upload-status');
-  if (status) {
-    status.textContent = skipped
-      ? `${imported.length} accession${imported.length === 1 ? '' : 's'} imported to the accession loader from ${file.name}; ${skipped} skipped.`
-      : `${imported.length} accession${imported.length === 1 ? '' : 's'} imported to the accession loader from ${file.name}.`;
-  }
-  return true;
-}
-
-function inputCheckLevel(readiness) {
-  if (readiness === 'invalid') return 'blocked';
-  if (readiness === 'annotated_genbank_ready' || readiness === 'bacterial_genbank_prodigal_ready') return 'ready';
-  return 'warning';
-}
-
-function inputCheckBadge(level) {
-  if (level === 'ready') return 'Ready';
-  if (level === 'warning') return 'Warning';
-  return 'Blocked';
-}
-
-function addInputCheckRow(rows, level, type, label, reason) {
-  rows.push({ level, type, label, reason });
-}
-
-function renderInputCheckerRow(row) {
-  return `
-    <div class="input-check-row ${escapeHtml(row.level)}">
-      <div class="input-check-badge">${escapeHtml(inputCheckBadge(row.level))}</div>
-      <div class="input-check-source">
-        <div class="input-check-type">${escapeHtml(row.type)}</div>
-        <div class="input-check-label">${escapeHtml(row.label)}</div>
-      </div>
-      <div class="input-check-reason">${escapeHtml(row.reason)}</div>
-    </div>`;
-}
-
-function updateInputCheckerLimits(quota) {
-  updateInputLimitGuidance();
-  const limits = document.getElementById('input-checker-limits');
-  if (!limits) return;
-  limits.textContent = `Limits: ${quota.max_accessions} accessions, ${quota.max_genome_files} genome files, ${formatQuotaMb(quota.max_upload_file_mb)} per file, ${formatQuotaMb(quota.max_upload_total_mb)} total`;
-}
-
-function accessionPreflightPendingReason(sourceName = '') {
-  const source = sourceName ? ` from ${sourceName}` : '';
-  const scope = normalizeAnalysisScope(stagedAnalysisScope);
-  if (scope === 'bacteria') {
-    return `FORMAT OK${source} - NCBI CHECK PENDING. Authoritative taxonomy is verified before job creation, then bacterial sequence routes to antiSMASH with Prodigal.`;
-  }
-  if (scope === 'both') {
-    return `FORMAT OK${source} - NCBI CHECK PENDING. Authoritative NCBI taxonomy will route each accepted accession to Fungi or Bacteria.`;
-  }
-  if (!sourceName) {
-    return 'FORMAT OK - NCBI CHECK PENDING. Genome FASTA is verified before job creation and can route through funannotate if translations are missing.';
-  }
-  return `FORMAT OK from ${sourceName} - NCBI CHECK PENDING. Genome FASTA is verified before job creation and can route through funannotate if translations are missing.`;
-}
-
-function renderInputChecker() {
-  const list = document.getElementById('input-checker-list');
-  const quota = publicQuotaLimits();
-  updateInputCheckerLimits(quota);
-  const rows = [];
-  const draft = manualAccessionsInput ? manualAccessionsInput.value.trim() : '';
-  const acceptedAccessions = manualAccessionLines();
-  const maxFileBytes = quota.max_upload_file_mb * 1048576;
-  const maxTotalBytes = quota.max_upload_total_mb * 1048576;
-  const publicGenomeFiles = selectedFiles.filter(file => {
-    const fileExt = ext(file.name);
-    return PUBLIC_FASTA_EXTENSIONS.has(fileExt) || PUBLIC_GENBANK_EXTENSIONS.has(fileExt);
-  });
-  const totalUploadBytes = selectedFiles.reduce((sum, file) => sum + (Number(file.size) || 0), 0);
-
-  if (draft) {
-    const parsed = parseManualAccessions();
-    const label = parsed.accessions.length
-      ? `${parsed.accessions.length} draft accession${parsed.accessions.length === 1 ? '' : 's'}`
-      : 'Manual accession draft';
-    const reason = parsed.invalid.length
-      ? manualAccessionErrorMessage(parsed)
-      : 'Draft accessions must be accepted before this run can start.';
-    addInputCheckRow(rows, 'blocked', 'NCBI accession', label, reason);
-  }
-
-  brutalAccessionDraftIssues().forEach((issue) => {
-    addInputCheckRow(rows, 'blocked', 'NCBI accession', `Row ${issue.index + 1}: ${issue.accession}`, issue.message);
-  });
-
-  acceptedManualAccessions.forEach((accession) => {
-    addInputCheckRow(rows, 'ready', 'NCBI accession', accession, accessionPreflightPendingReason());
-  });
-  accessionFileSources.forEach((source) => {
-    source.accessions.forEach((accession) => {
-      addInputCheckRow(rows, 'ready', 'NCBI accession', accession, accessionPreflightPendingReason(source.name));
-    });
-  });
-
-  const genomeStemKinds = new Map();
-  selectedFiles.forEach((file) => {
-    const fileExt = ext(file.name);
-    const isPublicGenome = PUBLIC_FASTA_EXTENSIONS.has(fileExt) || PUBLIC_GENBANK_EXTENSIONS.has(fileExt);
-    const stem = publicGenomeStem(file.name);
-    if (!isPublicGenome || !stem || !PUBLIC_GENOME_STEM_RE.test(stem)) return;
-    const stemKey = stem.toLowerCase();
-    const kinds = genomeStemKinds.get(stemKey) || new Set();
-    kinds.add(publicGenomeUploadKind(fileExt));
-    genomeStemKinds.set(stemKey, kinds);
-  });
-
-  const seenStemKinds = new Map();
-  selectedFiles.forEach((file) => {
-    const fileExt = ext(file.name);
-    const isPublicGenome = PUBLIC_FASTA_EXTENSIONS.has(fileExt) || PUBLIC_GENBANK_EXTENSIONS.has(fileExt);
-    if (!isPublicGenome) {
-      const level = canUseAdminSurfaces() ? 'ready' : 'blocked';
-      const reason = canUseAdminSurfaces()
-        ? 'Admin/local auxiliary input; not part of public genome intake.'
-        : 'This file type is not supported by the public genome intake.';
-      addInputCheckRow(rows, level, 'Auxiliary file', file.name, reason);
-      return;
-    }
-
-    const stem = publicGenomeStem(file.name);
-    const uploadKind = publicGenomeUploadKind(fileExt);
-    const check = genomeCheckCache.get(genomeFileCheckKey(file)) || {
-      readiness: 'invalid',
-      reason: 'Genome content check has not completed yet.',
-    };
-    let level = inputCheckLevel(check.readiness);
-    let reason = check.reason;
-
-    if (file.size > maxFileBytes) {
-      level = 'blocked';
-      reason = publicFileLimitMessage(quota);
-    } else if (!stem || !PUBLIC_GENOME_STEM_RE.test(stem)) {
-      level = 'blocked';
-      reason = 'Filename stem must use 1-120 letters, numbers, dots, underscores, or hyphens; avoid spaces, parentheses, slashes, and shell-like characters.';
-    } else {
-      const stemKey = stem.toLowerCase();
-      const seenKinds = seenStemKinds.get(stemKey) || new Set();
-      if (seenKinds.has(uploadKind)) {
-        level = 'blocked';
-        reason = `Duplicate ${uploadKind.toUpperCase()} file for this genome stem; submit at most one FASTA and one GenBank file per assembly.`;
-      } else {
-        seenKinds.add(uploadKind);
-        seenStemKinds.set(stemKey, seenKinds);
-      }
-      if (check.readiness === 'genbank_requires_fallback_or_translations') {
-        const pairedKinds = genomeStemKinds.get(stemKey) || new Set();
-        if (pairedKinds.has('fasta')) {
-          level = 'warning';
-          reason = 'GenBank lacks CDS translations; same-stem FASTA is present, so funannotate can create proteins before downstream BGC tools run.';
-        } else {
-          level = 'blocked';
-          reason = `GenBank lacks CDS translations and no same-stem FASTA was submitted. Upload translated GenBank or pair this file with ${stem}.fna for funannotate.`;
-        }
-      }
-    }
-
-    const type = PUBLIC_GENBANK_EXTENSIONS.has(fileExt) ? 'GenBank genome' : 'FASTA genome';
-    addInputCheckRow(rows, level, type, stem || file.name, reason);
-  });
-
-  const assignmentValidation = taxonAssignmentValidation();
-  assignmentValidation.unresolved.forEach((item) => {
-    addInputCheckRow(
-      rows,
-      'blocked',
-      'Taxon assignment',
-      item.inputKey,
-      'Both mode requires a Fungi or Bacteria declaration for this logical genome before submission.',
-    );
-  });
-  assignmentValidation.authorityIssues.forEach(({ inputKey, issue }) => {
-    addInputCheckRow(rows, 'blocked', 'GenBank taxonomy', inputKey, issue);
-  });
-  assignmentValidation.sidecarIssues.forEach((issue) => {
-    addInputCheckRow(rows, 'blocked', 'Taxon assignment sidecar', TAXON_ASSIGNMENTS_FILENAME, issue);
-  });
-  assignmentValidation.generalIssues.forEach((issue) => {
-    addInputCheckRow(rows, 'blocked', 'Taxon assignment', 'Both mode', issue);
-  });
-  if (taxonAssignmentSidecar && !assignmentValidation.issues.length) {
-    addInputCheckRow(
-      rows,
-      'ready',
-      'Taxon assignment sidecar',
-      TAXON_ASSIGNMENTS_FILENAME,
-      `${Object.keys(taxonAssignmentsPayload()).length} assignment row(s) loaded.`,
-    );
-  }
-
-  if (acceptedAccessions.length > quota.max_accessions) {
-    addInputCheckRow(rows, 'blocked', 'Quota', `${acceptedAccessions.length} accessions`, `Public runs accept at most ${quota.max_accessions} NCBI assembly accessions. ${localWorkflowPrompt()}`);
-  }
-  if (publicGenomeFiles.length > quota.max_genome_files) {
-    addInputCheckRow(rows, 'blocked', 'Quota', `${publicGenomeFiles.length} genome files`, `Public runs accept at most ${quota.max_genome_files} genome files. ${localWorkflowPrompt()}`);
-  }
-  if (totalUploadBytes > maxTotalBytes) {
-    addInputCheckRow(rows, 'blocked', 'Quota', fmt_size(totalUploadBytes), publicTotalLimitMessage(quota));
-  }
-
-  if (list) {
-    list.innerHTML = rows.length
-      ? rows.map(renderInputCheckerRow).join('')
-      : '<div class="input-check-empty">No accepted intake sources yet.</div>';
-  }
-
-  return {
-    blocked: rows.filter(row => row.level === 'blocked').length,
-    warning: rows.filter(row => row.level === 'warning').length,
-    ready: rows.filter(row => row.level === 'ready').length,
-  };
-}
-
-async function addFiles(files) {
-  const allowed = canUseAdminSurfaces() ? ADMIN_FILE_EXTENSIONS : PUBLIC_FILE_EXTENSIONS;
-  const allowedCopy = canUseAdminSurfaces()
-    ? '.gbk, .gb, .gbff, .fasta, .fa, .fna, .fsa, .txt, .tsv, .csv, .json, .gff, .gff3, .faa, .mgf, .zip'
-    : '.gbk, .gb, .gbff, .fasta, .fa, .fna, .fsa, .txt';
-  for (const f of files) {
-    const fileExt = ext(f.name);
-    if (isTaxonAssignmentsSidecarName(f.name)) {
-      await loadTaxonAssignmentSidecar(f);
-      setBrutalInputNotice(`file:${f.name}`, '');
-      continue;
-    }
-    if (!allowed.has(fileExt)) {
-      setBrutalInputNotice(`file:${f.name}`, `Unsupported file type: ${f.name}. Allowed: ${allowedCopy}. ${canUseAdminSurfaces() ? '' : localWorkflowPrompt()}`.trim());
-      continue;
-    }
-    setBrutalInputNotice(`file:${f.name}`, '');
-    if (fileExt === 'txt') {
-      await addAccessionFileSource(f);
-      continue;
-    }
-    if (!selectedFiles.find(x => x.name === f.name)) {
-      if (PUBLIC_FASTA_EXTENSIONS.has(fileExt) || PUBLIC_GENBANK_EXTENSIONS.has(fileExt)) await cacheGenomeFileCheck(f);
-      selectedFiles.push(f);
-    }
-  }
-  await refreshSelectedGenomeChecks();
-  renderAcceptedAccessions();
-  renderFileList();
-}
-
-async function removeFile(index) {
-  const [removed] = selectedFiles.splice(index, 1);
-  if (removed) genbankTaxonomyAuthorityCache.delete(genomeFileIdentityKey(removed));
-  const targetInput = document.getElementById('target-genome');
-  const removedTarget = removed && isGenomeUploadName(removed.name)
-    ? genomeStemFromName(removed.name)
-    : '';
-  const sameTargetRemains = removedTarget && selectedFiles.some((file) => (
-    isGenomeUploadName(file.name)
-    && genomeStemFromName(file.name).toLowerCase() === removedTarget.toLowerCase()
-  ));
-  if (targetInput && removedTarget && !sameTargetRemains
-      && targetInput.value.trim().toLowerCase() === removedTarget.toLowerCase()) {
-    targetInput.value = '';
-    targetInput.dispatchEvent(new Event('input', { bubbles: true }));
-    updateBrutalTargetButton();
-  }
-  clearStaleTargetGenome();
-  await refreshSelectedGenomeChecks();
-  renderFileList();
-}
-
-function removeAccessionFileSource(index) {
-  const [removed] = accessionFileSources.splice(index, 1);
-  if (!removed) return;
-  const removedSet = new Set((removed.accessions || []).map(normalizeAccessionDraft));
-  const retained = acceptedDraftAccessions().filter(accession => !removedSet.has(accession));
-  brutalAccessionDrafts = Array.from({ length: 50 }, (_, draftIndex) => retained[draftIndex] || '');
-  brutalAccessionCommitted = new Set(
-    retained.map((value, draftIndex) => normalizeAccessionDraft(value) ? draftIndex : -1).filter(draftIndex => draftIndex >= 0),
-  );
-  removedSet.forEach(accession => brutalEcoSelections.delete(accession));
-  acceptedManualAccessions = acceptedManualAccessions.filter(accession => !removedSet.has(normalizeAccessionDraft(accession)));
-  renderBrutalAccessionRows();
-  syncBrutalAcceptedFromDrafts();
-}
-
-function submissionsPausedForPublic() {
-  const state = String(runtimeStatusSnapshot.submissions || '').trim().toLowerCase();
-  return !canUseAdminSurfaces() && ['paused', 'closed', 'disabled', 'false', '0'].includes(state);
-}
-
-function uploadedInputRequiresAcknowledgment() {
-  return !canUseAdminSurfaces() && (
-    selectedFiles.length > 0
-    || accessionFileSources.length > 0
-    || !!taxonAssignmentSidecar
-  );
-}
-
-function syncDataUseAcknowledgment() {
-  const panel = document.getElementById('data-use-ack-panel');
-  const checkbox = document.getElementById('data-use-ack');
-  const required = uploadedInputRequiresAcknowledgment();
-  if (panel) {
-    panel.hidden = !required;
-    panel.toggleAttribute('inert', !required);
-    panel.setAttribute('aria-hidden', required ? 'false' : 'true');
-  }
-  if (!required && checkbox) checkbox.checked = false;
-  return required && !checkbox?.checked;
-}
-
-function submissionValidationSignature() {
-  const files = selectedFiles
-    .map(file => [String(file.name || ''), Number(file.size || 0), Number(file.lastModified || 0)])
-    .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
-  const accessionSources = accessionFileSources
-    .map(source => [String(source.name || ''), [...(source.accessions || [])].map(normalizeAccessionDraft).sort()])
-    .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
-  const taxonAssignments = Object.entries(taxonAssignmentsPayload())
-    .sort(([left], [right]) => left.localeCompare(right));
-  const ecologyRows = inputEcologyEnabled()
-    ? currentEcologyMetadataRows().map(row => ({
-      input: String(row.input || ''),
-      accession: String(row.accession || ''),
-      primary: String(row.primary || ''),
-      secondary: String(row.secondary || ''),
-    })).sort((a, b) => a.input.localeCompare(b.input))
-    : [];
-  return JSON.stringify({
-    projectName: projectNameValue(),
-    analysisScope: normalizeAnalysisScope(stagedAnalysisScope),
-    manualAccessions: manualAccessionLines().map(normalizeAccessionDraft).sort(),
-    files,
-    accessionSources,
-    taxonAssignments,
-    ecologyEnabled: inputEcologyEnabled(),
-    ecologyRows,
-  });
-}
-
-function syncRunButtonPresentation(button = document.getElementById('run-btn')) {
-  if (!button) return;
-  const submitReady = !!validatedIntakeSignature
-    && validatedIntakeSignature === submissionValidationSignature();
-  button.classList.toggle('is-validation-pending', !submitReady);
-  button.classList.toggle('is-submit-ready', submitReady);
-  button.textContent = submitReady ? 'Submit run' : 'Validate';
-}
-
-function renderFileList() {
-  const list = document.getElementById('file-list');
-  const btn  = document.getElementById('run-btn');
-  const stat = document.getElementById('upload-status');
-  const submitShell = document.getElementById('submit-button-shell');
-  const accessionLines = manualAccessionLines();
-  const accessionFileItems = accessionFileSources.map((source, idx) => `
-    <div class="file-item">
-      <span class="file-icon" aria-hidden="true"></span>
-      <span class="file-name">${escapeHtml(source.name)}</span>
-      <span class="file-size">${source.accessions.length} accession${source.accessions.length === 1 ? '' : 's'}</span>
-      <button class="file-remove" onclick="removeAccessionFileSource(${idx})" title="Remove">✕</button>
-    </div>`).join('');
-  const sidecarItem = taxonAssignmentSidecar ? `
-    <div class="file-item">
-      <span class="file-icon" aria-hidden="true"></span>
-      <span class="file-name">${TAXON_ASSIGNMENTS_FILENAME}</span>
-      <span class="file-size">${taxonAssignmentSidecarIssues.length ? 'Needs review' : `${Object.keys(taxonAssignmentsPayload()).length} assignments`}</span>
-      <button class="file-remove" type="button" onclick="removeTaxonAssignmentSidecar()" title="Remove" aria-label="Remove taxon assignments sidecar">✕</button>
-    </div>` : '';
-  list.innerHTML = selectedFiles.map((f, idx) => {
-    const target = isGenomeUploadName(f.name) ? genomeStemFromName(f.name) : '';
-    const targetAttrs = target
-      ? ` data-target-genome="${escapeHtml(target)}"`
-      : '';
-    const ecologyControls = target
-      ? `<span class="file-eco-cell"><button class="eco-button file-eco-button" type="button" data-eco-field="primary">ECO 1</button></span>
-        <span class="file-eco-cell"><button class="eco-button file-eco-button secondary" type="button" data-eco-field="secondary">ECO 2</button></span>`
-      : '';
-    return `
-      <div class="file-item"${targetAttrs}>
-        <span class="file-icon" aria-hidden="true"></span>
-        <span class="file-name">${escapeHtml(f.name)}</span>
-        <span class="file-size">${fmt_size(f.size)}</span>
-        ${ecologyControls}
-        <button class="file-remove" onclick="removeFile(${idx})" title="Remove" aria-label="Remove ${escapeHtml(f.name)}">✕</button>
-      </div>`;
-  }).join('') + accessionFileItems + sidecarItem;
-  renderTaxonAssignmentPanel();
-  const draftPending = !!(manualAccessionsInput && manualAccessionsInput.value.trim());
-  const inputSourceCount = selectedFiles.length + (accessionLines.length ? 1 : 0);
-  const ackMissing = syncDataUseAcknowledgment();
-  const projectMissing = !projectNameValue();
-  const queuePaused = inputSourceCount > 0 && submissionsPausedForPublic();
-  setBrutalInputNotice('queue-gate', queuePaused ? 'Queue gate: paused before upload.' : '');
-  setBrutalInputNotice('data-use', '');
-  setBrutalInputNotice('project-name', '');
-  setProjectNameRequiredState(projectMissing);
-  if (submitShell) submitShell.classList.toggle('is-project-locked', projectMissing);
-  const assignmentValidation = taxonAssignmentValidation();
-  const assignmentBlocked = normalizeAnalysisScope(stagedAnalysisScope) === 'both'
-    && (assignmentValidation.unresolved.length > 0 || assignmentValidation.issues.length > 0);
-  const assignmentMessage = assignmentValidation.issues[0]
-    || (assignmentValidation.unresolved.length
-      ? `${assignmentValidation.unresolved.length} logical genome assignment${assignmentValidation.unresolved.length === 1 ? '' : 's'} required in Both mode.`
-      : '');
-  setBrutalInputNotice('taxon-assignment', '');
-  const checkerState = renderInputChecker();
-  const checkerBlocked = !canUseAdminSurfaces() && checkerState.blocked > 0;
-  btn.disabled = inputSourceCount === 0 || draftPending || ackMissing || projectMissing || queuePaused || checkerBlocked || assignmentBlocked;
-  const currentValidationSignature = submissionValidationSignature();
-  if (validatedIntakeSignature && validatedIntakeSignature !== currentValidationSignature) {
-    validatedIntakeSignature = '';
-  }
-  syncRunButtonPresentation(btn);
-  if (queuePaused) {
-    stat.textContent = 'SUBMISSIONS PAUSED - QUEUE LOCKED BY OPERATOR';
-  } else if (draftPending) {
-    stat.textContent = 'Press Add accessions to accept the draft before starting.';
-  } else if (inputSourceCount && assignmentBlocked) {
-    stat.textContent = '';
-  } else if (inputSourceCount && checkerBlocked) {
-    stat.textContent = `${checkerState.blocked} blocked input source${checkerState.blocked === 1 ? '' : 's'} must be fixed before starting.`;
-  } else if (inputSourceCount && checkerState.warning) {
-    stat.textContent = `${inputSourceCount} input source(s) ready for workflow with ${checkerState.warning} warning${checkerState.warning === 1 ? '' : 's'}`;
-  } else {
-    stat.textContent = inputSourceCount ? `${inputSourceCount} input source(s) ready for workflow` : '';
-  }
-  updateManualAccessionsStatus();
-  syncEcologyMetadataPanel();
-  applyBrutalEcologyToMetadataTable();
-  updateBrutalEcologyToggle();
-  updateBrutalTargetButton();
-  renderBrutalInputLog();
-  applyAnalysisCapabilityVisibility();
-  updateRunSummary();
-}
-
-function genomeStemFromName(name) {
-  return name.replace(/\.(gbk|gb|gbff|fasta|fa|fna|fsa)$/i, '');
-}
-
-function isGenomeUploadName(name) {
-  return /\.(gbk|gb|gbff|fasta|fa|fna|fsa)$/i.test(name);
-}
-
-function ecologyInputRows() {
-  const seen = new Set();
-  const rows = [];
-  const addRow = (input, kind, accession = '') => {
-    const key = String(input || '').trim();
-    if (!key || seen.has(key)) return;
-    seen.add(key);
-    rows.push({ key, kind, accession });
-  };
-  manualAccessionLines().forEach(accession => addRow(accession, 'NCBI accession', accession));
-  selectedFiles.forEach((file) => {
-    if (!isGenomeUploadName(file.name)) return;
-    addRow(genomeStemFromName(file.name), 'Genome file', '');
-  });
-  return rows;
-}
-
-function collectEcologyRowValues() {
-  const values = new Map();
-  document.querySelectorAll('#metadata-table-body tr[data-ecology-key]').forEach((row) => {
-    const key = row.dataset.ecologyKey || '';
-    if (!key) return;
-    values.set(key, {
-      primary: row.querySelector('.metadata-primary')?.value || '',
-      primaryOther: row.querySelector('.metadata-primary-other')?.value.trim() || '',
-      secondary: row.querySelector('.metadata-secondary')?.value || '',
-      secondaryOther: row.querySelector('.metadata-secondary-other')?.value.trim() || '',
-    });
-  });
-  return values;
-}
-
-function ecologySelectOptions(selected) {
-  const all = [''].concat(ECOLOGY_LABELS);
-  return all.map((value) => {
-    const label = value || 'blank';
-    return `<option value="${escapeHtml(value)}" ${value === selected ? 'selected' : ''}>${escapeHtml(label)}</option>`;
-  }).join('');
-}
-
-function ecologyLabelCellHtml(key, field, saved = {}) {
-  const selected = saved[field] || '';
-  const otherValue = saved[`${field}Other`] || '';
-  const selectClass = field === 'primary' ? 'metadata-primary' : 'metadata-secondary';
-  const otherClass = field === 'primary' ? 'metadata-primary-other' : 'metadata-secondary-other';
-  const otherHidden = selected === 'other' ? '' : ' hidden';
-  return `
-    <div class="ecology-label-cell">
-      <select class="${selectClass}" data-field="${field}" onchange="handleEcologyLabelChange(this)">
-        ${ecologySelectOptions(selected)}
-      </select>
-      <input type="text" class="ecology-other-input ${otherClass}${otherHidden}" maxlength="40" value="${escapeHtml(otherValue)}" placeholder="Custom label" oninput="updateEcologyLabelStatus(); updateRunSummary()" />
-    </div>`;
-}
-
-function renderEcologyMetadataRows(inputRows, savedValues) {
-  const body = document.getElementById('metadata-table-body');
-  if (!body) return;
-  if (!inputRows.length) {
-    body.innerHTML = '<tr><td colspan="3" class="text-muted">Add NCBI accessions or genome files to label ecology.</td></tr>';
-    return;
-  }
-  body.innerHTML = inputRows.map((row) => {
-    const saved = savedValues.get(row.key) || {};
-    return `
-      <tr data-ecology-key="${escapeHtml(row.key)}" data-accession="${escapeHtml(row.accession)}">
-        <td>
-          <span class="ecology-input-key">${escapeHtml(row.key)}</span>
-          <span class="ecology-input-kind">${escapeHtml(row.kind)}</span>
-        </td>
-        <td>${ecologyLabelCellHtml(row.key, 'primary', saved)}</td>
-        <td>${ecologyLabelCellHtml(row.key, 'secondary', saved)}</td>
-      </tr>`;
-  }).join('');
-}
-
-function handleEcologyLabelChange(el) {
-  const row = el.closest('tr');
-  if (!row) return;
-  const field = el.dataset.field || '';
-  const other = row.querySelector(field === 'primary' ? '.metadata-primary-other' : '.metadata-secondary-other');
-  if (other) other.classList.toggle('hidden', el.value !== 'other');
-  updateEcologyLabelStatus();
-  updateRunSummary();
-}
-
-function ecologyLabelValue(row, field) {
-  const select = row.querySelector(field === 'primary' ? '.metadata-primary' : '.metadata-secondary');
-  const selected = select ? select.value : '';
-  if (selected !== 'other') return selected;
-  const other = row.querySelector(field === 'primary' ? '.metadata-primary-other' : '.metadata-secondary-other');
-  return (other && other.value.trim()) || 'other';
-}
-
-function currentEcologyMetadataRows() {
-  return [...document.querySelectorAll('#metadata-table-body tr[data-ecology-key]')].map((row) => ({
-    input: row.dataset.ecologyKey || '',
-    accession: row.dataset.accession || '',
-    primary: ecologyLabelValue(row, 'primary'),
-    secondary: ecologyLabelValue(row, 'secondary'),
-  })).filter(row => row.input);
-}
-
-function updateEcologyLabelStatus() {
-  const status = document.getElementById('ecology-label-status');
-  if (!status) return;
-  const enabled = !!document.getElementById('run-ecology')?.checked;
-  if (!enabled) {
-    status.textContent = 'Optional';
-    return;
-  }
-  const rows = currentEcologyMetadataRows();
-  if (!rows.length) {
-    status.textContent = 'Add accessions or genome files to create label rows.';
-    return;
-  }
-  const unlabeled = rows.filter(row => !row.primary && !row.secondary).length;
-  if (unlabeled) {
-    status.textContent = `${unlabeled} unlabeled input${unlabeled === 1 ? '' : 's'}; unlabeled inputs may reduce ranking usefulness.`;
-    return;
-  }
-  status.textContent = `${rows.length} ecology label row${rows.length === 1 ? '' : 's'} ready.`;
-}
-
-function syncEcologyMetadataPanel() {
-  const enabled = !!document.getElementById('run-ecology')?.checked;
-  const panel = document.getElementById('ecology-label-panel');
-  const body = document.getElementById('ecology-label-body');
-  if (panel) panel.classList.toggle('hidden', !enabled);
-  if (body) body.classList.toggle('hidden', !enabled);
-  const savedValues = collectEcologyRowValues();
-  renderEcologyMetadataRows(ecologyInputRows(), savedValues);
-  applyBrutalEcologyToMetadataTable();
-  updateEcologyLabelStatus();
-}
-
-function metadataProfileText() {
-  if (!document.getElementById('run-ecology')?.checked) return '';
-  const rows = currentEcologyMetadataRows();
-  if (!rows.length) return '';
-  const tsvCell = value => String(value || '').replace(/[\t\r\n]+/g, ' ').trim();
-  const lines = ['accession\tgenome_id_current\ttaxonomy_id\tgenome_size_mb\tgenome_id_original_if_different\tecofun_primary\tecofun_secondary'];
-  for (const row of rows) {
-    lines.push([
-      tsvCell(row.accession),
-      tsvCell(row.input),
-      '',
-      '',
-      '',
-      tsvCell(row.primary),
-      tsvCell(row.secondary),
-    ].join('\t'));
-  }
-  return lines.join('\n') + '\n';
-}
-
-// ── Start Analysis ─────────────────────────────────────────────────────────
-async function startAnalysis() {
-  const manualLines = manualAccessionLines();
-  const name = requireProjectNameForSubmit();
-  if (!name) return;
-  commitAllBrutalAccessionDrafts({ render: false });
-  if (manualAccessionsInput && manualAccessionsInput.value.trim()) {
-    document.getElementById('upload-status').textContent = 'Press Add accessions to accept the draft before starting.';
-    renderFileList();
-    return;
-  }
-  const dataUseAck = document.getElementById('data-use-ack');
-  if (uploadedInputRequiresAcknowledgment() && !dataUseAck?.checked) {
-    dataUseAck?.focus();
-    renderFileList();
-    return;
-  }
-  if (selectedFiles.length === 0 && manualLines.length === 0) return;
-  const assignmentValidation = taxonAssignmentValidation();
-  if (normalizeAnalysisScope(stagedAnalysisScope) === 'both'
-      && (assignmentValidation.unresolved.length || assignmentValidation.issues.length)) {
-    const message = assignmentValidation.issues[0]
-      || `${assignmentValidation.unresolved.length} logical genome assignment${assignmentValidation.unresolved.length === 1 ? '' : 's'} required in Both mode.`;
-    document.getElementById('upload-status').textContent = message;
-    renderFileList();
-    return;
-  }
-  const checkerState = renderInputChecker();
-  if (!canUseAdminSurfaces() && checkerState.blocked > 0) {
-    document.getElementById('upload-status').textContent = `${checkerState.blocked} blocked input source${checkerState.blocked === 1 ? '' : 's'} must be fixed before starting.`;
-    renderFileList();
-    return;
-  }
-
-  const requestedValidationSignature = submissionValidationSignature();
-  if (validatedIntakeSignature !== requestedValidationSignature) {
-    const runButton = document.getElementById('run-btn');
-    const uploadStatus = document.getElementById('upload-status');
-    runButton.disabled = true;
-    uploadStatus.textContent = 'Validating inputs…';
-    await refreshSelectedGenomeChecks();
-    renderFileList();
-    const refreshedAssignment = taxonAssignmentValidation();
-    const refreshedChecker = renderInputChecker();
-    const refreshedAssignmentBlocked = normalizeAnalysisScope(stagedAnalysisScope) === 'both'
-      && (refreshedAssignment.unresolved.length || refreshedAssignment.issues.length);
-    if ((!canUseAdminSurfaces() && refreshedChecker.blocked > 0) || refreshedAssignmentBlocked) {
-      renderFileList();
-      return;
-    }
-    validatedIntakeSignature = submissionValidationSignature();
-    syncRunButtonPresentation(runButton);
-    runButton.disabled = false;
-    uploadStatus.textContent = 'Validation passed. Review the inputs, then select Submit run.';
-    return;
-  }
-
-  const publicFixed = publicWorkflowLocked();
-  const cpus = effectiveCpuCount();
-  const annotationStrategy = effectiveAnnotationStrategy();
-  const fallbackOrder = publicFixed
-    ? 'funannotate'
-    : annotationStrategy === 'auto'
-    ? document.getElementById('annotation-fallback-order').value.trim()
-    : annotationStrategy;
-
-  const fd = new FormData();
-  for (const f of selectedFiles) fd.append('files', f);
-  if (manualLines.length) {
-    const manualAccessionText = manualLines.join('\n') + '\n';
-    fd.append('files', new File([manualAccessionText], MANUAL_ACCESSIONS_FILENAME, { type: 'text/plain' }));
-  }
-  syncEcologyMetadataPanel();
-  const metadataText = metadataProfileText();
-  const runSetupReceipt = collectRunSetupAccessReceipt({ projectName: name });
-  if (metadataText) {
-    fd.append('files', new File([metadataText], 'ecofun_metadata_normalized.tsv', { type: 'text/tab-separated-values' }));
-  }
-  fd.append('project_name', name);
-  fd.append('analysis_scope', normalizeAnalysisScope(stagedAnalysisScope));
-  const taxonAssignments = taxonAssignmentsPayload();
-  if (Object.keys(taxonAssignments).length) {
-    fd.append('taxon_assignments', JSON.stringify(taxonAssignments));
-  }
-  fd.append('data_use_ack', boolToFlag(!!dataUseAck?.checked));
-  fd.append('cpus', cpus);
-  fd.append('target_genome', document.getElementById('target-genome').value.trim());
-  fd.append('run_ncbi_install', boolToFlag(effectiveCheckboxValue('run-ncbi-install', false)));
-  fd.append('run_genome_prep', boolToFlag(effectiveCheckboxValue('run-genome-prep', true)));
-  fd.append('run_annotation', boolToFlag(effectiveCheckboxValue('run-annotation', true)));
-  fd.append('run_bigscape', boolToFlag(effectiveCheckboxValue('run-bigscape', true)));
-  fd.append('run_summary', boolToFlag(effectiveCheckboxValue('run-summary', true)));
-  fd.append('run_crosswalk', boolToFlag(effectiveCheckboxValue('run-summary', true)));
-  fd.append('run_clinker', boolToFlag(effectiveCheckboxValue('run-clinker', true)));
-  fd.append('execute_clinker', boolToFlag(effectiveCheckboxValue('execute-clinker', true)));
-  fd.append('run_figures', boolToFlag(effectiveCheckboxValue('run-figures', true)));
-  fd.append('figures_required', boolToFlag(effectiveCheckboxValue('figures-required', false)));
-  fd.append('run_nplinker', boolToFlag(effectiveCheckboxValue('run-nplinker', false)));
-  fd.append('run_ecology_analysis', boolToFlag(document.getElementById('run-ecology').checked));
-  fd.append('ecology_field', document.getElementById('ecology-field').value.trim());
-  fd.append('focus_ecology_label', document.getElementById('focus-ecology-label').value.trim());
-  fd.append('genefinding_mode', annotationStrategy);
-  fd.append('bigscape_mix_mode', document.getElementById('bigscape-mix-mode').value);
-  fd.append('force', boolToFlag(effectiveCheckboxValue('force-rerun', false)));
-  fd.append('workers', document.getElementById('workers').value || '2');
-  fd.append('genome_parallelism', document.getElementById('genome-parallelism').value || '1');
-  fd.append('antismash_record_parallelism', document.getElementById('antismash-record-parallelism').value || '1');
-  fd.append('antismash_shard_cpus', document.getElementById('antismash-shard-cpus').value || '0');
-  fd.append('threads', String(cpus));
-  fd.append('anno_cpus', publicFixed ? String(cpus) : (document.getElementById('anno-cpus').value || String(cpus)));
-  fd.append('annotation_fallback_order', fallbackOrder);
-  fd.append('funannotate_busco_db', document.getElementById('funannotate-busco-db').value.trim());
-  fd.append('funannotate_organism_name', document.getElementById('funannotate-organism-name').value.trim());
-  fd.append('clinker_mode', document.getElementById('clinker-mode').value);
-  fd.append('panel_target_set', document.getElementById('panel-target-set').value);
-  fd.append('clinker_use_docker_image', boolToFlag(document.getElementById('clinker-use-docker-image').checked));
-  fd.append('clinker_docker_image', document.getElementById('clinker-docker-image').value.trim());
-  fd.append('clinker_docker_data_volume', document.getElementById('clinker-docker-data-volume').value.trim());
-  fd.append('clinker_max_regions', document.getElementById('clinker-max-regions').value || '20');
-  fd.append('atlas_stage_limit', document.getElementById('clinker-max-regions').value || '20');
-  fd.append('atlas_min_records', document.getElementById('atlas-min-records').value || '2');
-  fd.append('shortlist_limit', document.getElementById('shortlist-limit').value || '12');
-  fd.append('shared_family_stage_limit', document.getElementById('shared-family-stage-limit').value || '12');
-  fd.append('shared_family_min_records', document.getElementById('shared-family-min-records').value || '4');
-  fd.append('max_comparators', document.getElementById('max-comparators').value || '50');
-  fd.append('max_same_ecology', document.getElementById('max-same-ecology').value || '20');
-  fd.append('max_other_ecology', document.getElementById('max-other-ecology').value || '20');
-  fd.append('capture_external_artifacts', boolToFlag(document.getElementById('capture-external-artifacts').checked));
-  fd.append('auto_normalize_metadata', boolToFlag(document.getElementById('auto-normalize-metadata').checked));
-  fd.append('metadata_tsv', document.getElementById('metadata-tsv').value.trim());
-  fd.append('auto_pull_images', document.getElementById('auto-pull-images').value);
-  fd.append('auto_build_funbgcex_sif', boolToFlag(document.getElementById('auto-build-funbgcex-sif').checked));
-  fd.append('auto_pull_bigscape_sif', boolToFlag(document.getElementById('auto-pull-bigscape-sif').checked));
-  fd.append('auto_download_pfam', boolToFlag(document.getElementById('auto-download-pfam').checked));
-  fd.append('auto_download_fasttree', boolToFlag(document.getElementById('auto-download-fasttree').checked));
-  fd.append('mibig_auto_download', boolToFlag(document.getElementById('mibig-auto-download').checked));
-  fd.append('nplinker_run_mode', document.getElementById('nplinker-run-mode').value);
-  fd.append('target_strain', document.getElementById('target-strain').value.trim());
-  fd.append('nplinker_podp_id', document.getElementById('nplinker-podp-id').value.trim());
-  fd.append('massive_dataset_id', document.getElementById('massive-dataset-id').value.trim());
-  fd.append('gnps_version', document.getElementById('gnps-version').value);
-  fd.append('auto_pull_nplinker_sif', boolToFlag(document.getElementById('auto-pull-nplinker-sif').checked));
-  fd.append('nplinker_bootstrap_env', boolToFlag(document.getElementById('nplinker-bootstrap-env').checked));
-  fd.append('env_overrides', document.getElementById('env-overrides').value);
-  const notifyEmail = smtpEnabled ? (document.getElementById('notify-email')?.value.trim() || '') : '';
-  if (smtpEnabled) {
-    if (notifyEmail) fd.append('notify_email', notifyEmail);
-  }
-
-  document.getElementById('run-btn').disabled = true;
-  document.getElementById('upload-status').textContent = 'Uploading…';
-  setBrutalInputNotice('submission', '');
-
-  try {
-    const resp = await apiFetch('api/jobs', { method: 'POST', body: fd }, { kind: 'submit' });
-    if (!resp.ok) {
-      const err = await resp.json();
-      throw new Error(err.detail || 'Upload failed');
-    }
-    const { job_id, public_run_id, read_token, expires_at, result_url, input_summary } = await resp.json();
-    const submittedRunId = String(public_run_id || job_id || '').trim();
-    if (submittedRunId) publicResultRunIds.add(submittedRunId);
-    if (input_summary) {
-      runSetupReceipt.inputSummary = input_summary;
-      runSetupReceipt.accessionMetadata = Array.isArray(input_summary.accession_metadata) ? input_summary.accession_metadata : [];
-      runSetupReceipt.taxonCounts = normalizeTaxonCounts(input_summary.taxon_counts || input_summary.taxonCounts || input_summary);
-    }
-    if (read_token) rememberOpenedRun(submittedRunId, read_token, { name, status: 'pending' });
-    validatedIntakeSignature = '';
-    selectedFiles = [];
-    acceptedManualAccessions = [];
-    accessionFileSources = [];
-    genomeCheckCache = new Map();
-    genbankTaxonomyAuthorityCache = new Map();
-    stagedTaxonAssignments = new Map();
-    stagedTaxonAssignmentSources = new Map();
-    taxonAssignmentSidecar = null;
-    taxonAssignmentSidecarIssues = [];
-    brutalInputNotices.clear();
-    if (manualAccessionsInput) manualAccessionsInput.value = '';
-    resetBrutalAccessionDrafts();
-    renderAcceptedAccessions();
-    renderFileList();
-    document.getElementById('upload-status').textContent = expires_at ? `Run submitted. Results expire ${new Date(expires_at).toLocaleDateString()}.` : 'Run submitted.';
-    renderSubmissionConfirmation({
-      projectName: name,
-      jobId: submittedRunId,
-      readToken: read_token || '',
-      resultUrl: result_url || '',
-      expiresAt: expires_at || '',
-      notifyEmail,
-      receipt: runSetupReceipt,
-      status: 'queued',
-    });
-    lockSubmittedIntake();
-    await loadJob(submittedRunId, true, {
-      publicResult: true,
-      readToken: read_token || '',
-      source: 'submit',
-      analysisScope: runSetupReceipt.analysisScope,
-      taxonCounts: input_summary?.taxon_counts || {},
-    });
-    if (canUseAdminSurfaces()) refreshJobHistory();
-  } catch (err) {
-    const message = err?.message || 'Upload failed';
-    document.getElementById('upload-status').textContent = 'Upload failed: ' + message;
-    setBrutalInputNotice('submission', message);
-    document.getElementById('run-btn').disabled = false;
-  }
-}
+// ── Intake controller compatibility ───────────────────────────────────────
+function ncbiAssemblyAccessionHelp() { return intakeControllerBoundary.ncbiAssemblyAccessionHelp(...arguments); }
+function analysisScopeRadioValue() { return intakeControllerBoundary.analysisScopeRadioValue(...arguments); }
+function syncAnalysisScopeControls() { return intakeControllerBoundary.syncAnalysisScopeControls(...arguments); }
+function updateAnalysisScopeCopy() { return intakeControllerBoundary.updateAnalysisScopeCopy(...arguments); }
+function isTaxonAssignmentsSidecarName(name) { return intakeControllerBoundary.isTaxonAssignmentsSidecarName(...arguments); }
+function isGenomeUploadFile(file) { return intakeControllerBoundary.isGenomeUploadFile(...arguments); }
+function canonicalGenomeInputKey(value) { return intakeControllerBoundary.canonicalGenomeInputKey(...arguments); }
+function logicalGenomeInputs(files = selectedFiles) { return intakeControllerBoundary.logicalGenomeInputs(...arguments); }
+function pruneManualTaxonAssignments() { return intakeControllerBoundary.pruneManualTaxonAssignments(...arguments); }
+function stagedTaxonGroupForFileName(name) { return intakeControllerBoundary.stagedTaxonGroupForFileName(...arguments); }
+function logicalGenomeAuthority(item) { return intakeControllerBoundary.logicalGenomeAuthority(...arguments); }
+function logicalGenomeTaxonAssignmentDecision(item) { return intakeControllerBoundary.logicalGenomeTaxonAssignmentDecision(...arguments); }
+function taxonAssignmentsPayload() { return intakeControllerBoundary.taxonAssignmentsPayload(...arguments); }
+function taxonAssignmentValidation() { return intakeControllerBoundary.taxonAssignmentValidation(...arguments); }
+function renderTaxonAssignmentPanel() { return intakeControllerBoundary.renderTaxonAssignmentPanel(...arguments); }
+async function refreshSelectedGenomeChecks() { return intakeControllerBoundary.refreshSelectedGenomeChecks(...arguments); }
+async function setLogicalGenomeTaxonAssignment(canonicalKey, taxonGroup) { return intakeControllerBoundary.setLogicalGenomeTaxonAssignment(...arguments); }
+async function markAllTaxonAssignments(taxonGroup) { return intakeControllerBoundary.markAllTaxonAssignments(...arguments); }
+function parseTaxonAssignmentSidecarText(text) { return intakeTaxonBoundary.parseTaxonAssignmentSidecarText(...arguments); }
+async function loadTaxonAssignmentSidecar(file) { return intakeControllerBoundary.loadTaxonAssignmentSidecar(...arguments); }
+function removeTaxonAssignmentSidecar() { return intakeControllerBoundary.removeTaxonAssignmentSidecar(...arguments); }
+async function handleAnalysisScopeChange() { return intakeControllerBoundary.handleAnalysisScopeChange(...arguments); }
+function resetStagedAnalysisState(scope = 'fungi') { return intakeControllerBoundary.resetStagedAnalysisState(...arguments); }
+function accessionLimit() { return intakeControllerBoundary.accessionLimit(...arguments); }
+function normalizeAccessionDraft(value) { return intakeControllerBoundary.normalizeAccessionDraft(...arguments); }
+function normalizeShortToken(value, maxLength = 20) { return intakeControllerBoundary.normalizeShortToken(...arguments); }
+function normalizeProjectNameInput() { return intakeControllerBoundary.normalizeProjectNameInput(...arguments); }
+function projectNameValue() { return intakeControllerBoundary.projectNameValue(...arguments); }
+function setProjectNameRequiredState(missing) { return intakeControllerBoundary.setProjectNameRequiredState(...arguments); }
+function requireProjectNameForSubmit() { return intakeControllerBoundary.requireProjectNameForSubmit(...arguments); }
+function validBrutalAccession(value) { return intakeControllerBoundary.validBrutalAccession(...arguments); }
+function brutalDraftDuplicate(index, value) { return intakeControllerBoundary.brutalDraftDuplicate(...arguments); }
+function brutalRowVisible(index) { return intakeControllerBoundary.brutalRowVisible(...arguments); }
+function updateBrutalTargetButton() { return intakeControllerBoundary.updateBrutalTargetButton(...arguments); }
+function setBrutalTarget(value) { return intakeControllerBoundary.setBrutalTarget(...arguments); }
+function setUploadedGenomeTarget(value) { return intakeControllerBoundary.setUploadedGenomeTarget(...arguments); }
+function targetGenomeCandidates() { return intakeControllerBoundary.targetGenomeCandidates(...arguments); }
+function clearStaleTargetGenome() { return intakeControllerBoundary.clearStaleTargetGenome(...arguments); }
+function handleUploadedGenomeTargetClick(event) { return intakeControllerBoundary.handleUploadedGenomeTargetClick(...arguments); }
+function ecologySelectionFor(key) { return intakeControllerBoundary.ecologySelectionFor(...arguments); }
+function inputEcologyEnabled() { return intakeControllerBoundary.inputEcologyEnabled(...arguments); }
+function updateBrutalEcologyToggle() { return intakeControllerBoundary.updateBrutalEcologyToggle(...arguments); }
+function updateUploadedGenomeEcoButtons() { return intakeControllerBoundary.updateUploadedGenomeEcoButtons(...arguments); }
+function setBrutalEcologyEnabled(enabled) { return intakeControllerBoundary.setBrutalEcologyEnabled(...arguments); }
+function savedEcoValue(accession, field) { return intakeControllerBoundary.savedEcoValue(...arguments); }
+function rowIsAccepted(accession, index) { return intakeControllerBoundary.rowIsAccepted(...arguments); }
+function accessionDraftCommitted(index) { return intakeControllerBoundary.accessionDraftCommitted(...arguments); }
+function brutalAccessionDraftIssues({ committedOnly = true } = {}) { return intakeControllerBoundary.brutalAccessionDraftIssues(...arguments); }
+function setBrutalInputNotice(key, message) { return intakeControllerBoundary.setBrutalInputNotice(...arguments); }
+function updateBrutalRowState(row, index) { return intakeControllerBoundary.updateBrutalRowState(...arguments); }
+function updateBrutalRowVisibility() { return intakeControllerBoundary.updateBrutalRowVisibility(...arguments); }
+function acceptedDraftAccessions() { return intakeControllerBoundary.acceptedDraftAccessions(...arguments); }
+function syncBrutalAcceptedFromDrafts() { return intakeControllerBoundary.syncBrutalAcceptedFromDrafts(...arguments); }
+function resetBrutalAccessionDrafts() { return intakeControllerBoundary.resetBrutalAccessionDrafts(...arguments); }
+function syncBrutalRowsFromAccepted() { return intakeControllerBoundary.syncBrutalRowsFromAccepted(...arguments); }
+function renderBrutalAccessionRows() { return intakeControllerBoundary.renderBrutalAccessionRows(...arguments); }
+function handleBrutalAccessionInput(event) { return intakeControllerBoundary.handleBrutalAccessionInput(...arguments); }
+function commitBrutalAccessionRow(row) { return intakeControllerBoundary.commitBrutalAccessionRow(...arguments); }
+function commitAllBrutalAccessionDrafts({ render = true } = {}) { return intakeControllerBoundary.commitAllBrutalAccessionDrafts(...arguments); }
+function removeBrutalAccession(index) { return intakeControllerBoundary.removeBrutalAccession(...arguments); }
+function handleBrutalAccessionClick(event) { return intakeControllerBoundary.handleBrutalAccessionClick(...arguments); }
+function handleBrutalAccessionKeydown(event) { return intakeControllerBoundary.handleBrutalAccessionKeydown(...arguments); }
+function handleBrutalAccessionFocusout(event) { return intakeControllerBoundary.handleBrutalAccessionFocusout(...arguments); }
+function openBrutalEcoPicker(button) { return intakeControllerBoundary.openBrutalEcoPicker(...arguments); }
+function openUploadedGenomeEcoPicker(button) { return intakeControllerBoundary.openUploadedGenomeEcoPicker(...arguments); }
+function openEcoPickerForInput(button, accession, field) { return intakeControllerBoundary.openEcoPickerForInput(...arguments); }
+function closeBrutalEcoPicker(returnFocus = false) { return intakeControllerBoundary.closeBrutalEcoPicker(...arguments); }
+function saveBrutalEcoSelection(rawValue) { return intakeControllerBoundary.saveBrutalEcoSelection(...arguments); }
+function applyBrutalEcologyToMetadataTable() { return intakeControllerBoundary.applyBrutalEcologyToMetadataTable(...arguments); }
+function conciseInputNotice(message) { return intakeControllerBoundary.conciseInputNotice(...arguments); }
+function renderBrutalInputLog() { return intakeControllerBoundary.renderBrutalInputLog(...arguments); }
+function initializeBrutalInputStation() { return intakeControllerBoundary.initializeBrutalInputStation(...arguments); }
+function parseAccessionText(raw) { return intakeControllerBoundary.parseAccessionText(...arguments); }
+function parseManualAccessions() { return intakeControllerBoundary.parseManualAccessions(...arguments); }
+function mergedAcceptedAccessions() { return intakeControllerBoundary.mergedAcceptedAccessions(...arguments); }
+function accessionFileOwnedAccessions() { return intakeControllerBoundary.accessionFileOwnedAccessions(...arguments); }
+function detachAccessionFromFileSources(accession) { return intakeControllerBoundary.detachAccessionFromFileSources(...arguments); }
+function manualAccessionLines() { return intakeControllerBoundary.manualAccessionLines(...arguments); }
+function manualAccessionErrorMessage(parsed) { return intakeControllerBoundary.manualAccessionErrorMessage(...arguments); }
+function publicQuotaLimits() { return intakeControllerBoundary.publicQuotaLimits(...arguments); }
+function formatQuotaMb(value) { return intakeControllerBoundary.formatQuotaMb(...arguments); }
+function publicQuotaSummary(quota = publicQuotaLimits()) { return intakeControllerBoundary.publicQuotaSummary(...arguments); }
+function localWorkflowPrompt() { return intakeControllerBoundary.localWorkflowPrompt(...arguments); }
+function publicFileLimitMessage(quota = publicQuotaLimits()) { return intakeControllerBoundary.publicFileLimitMessage(...arguments); }
+function publicTotalLimitMessage(quota = publicQuotaLimits()) { return intakeControllerBoundary.publicTotalLimitMessage(...arguments); }
+function updateInputLimitGuidance() { return intakeControllerBoundary.updateInputLimitGuidance(...arguments); }
+function genomeFileCheckKey(file) { return intakeControllerBoundary.genomeFileCheckKey(...arguments); }
+function publicGenomeStem(name) { return intakeControllerBoundary.publicGenomeStem(...arguments); }
+function clientLineageHas(lineage, name) { return intakeTaxonBoundary.clientLineageHas(...arguments); }
+function parseClientGenbankTaxonomy(text) { return intakeTaxonBoundary.parseClientGenbankTaxonomy(...arguments); }
+function mergeClientGenbankAuthorities(authorities) { return intakeTaxonBoundary.mergeClientGenbankAuthorities(...arguments); }
+function clientTaxonAssignmentDecision(authority, assignedGroup = '', inputKey = 'genome') { return intakeTaxonBoundary.clientTaxonAssignmentDecision(...arguments); }
+function genomeFileIdentityKey(file) { return intakeControllerBoundary.genomeFileIdentityKey(...arguments); }
+function clientGenbankAuthorityForFile(file) { return intakeControllerBoundary.clientGenbankAuthorityForFile(...arguments); }
+function rememberClientGenbankAuthority(file, result) { return intakeControllerBoundary.rememberClientGenbankAuthority(...arguments); }
+function clientGenbankAuthorityProblem(authority, declaredGroup) { return intakeControllerBoundary.clientGenbankAuthorityProblem(...arguments); }
+function classifyClientFastaText(name, text, taxonGroup = stagedTaxonGroupForFileName(name)) { return intakeControllerBoundary.classifyClientFastaText(...arguments); }
+function classifyClientGenbankText(name, text, taxonGroup = stagedTaxonGroupForFileName(name)) { return intakeControllerBoundary.classifyClientGenbankText(...arguments); }
+function publicGenomeUploadKind(fileExt) { return intakeControllerBoundary.publicGenomeUploadKind(...arguments); }
+function classifyClientGenomeText(file, text) { return intakeControllerBoundary.classifyClientGenomeText(...arguments); }
+function classifyClientGenomePreview(file, text) { return intakeControllerBoundary.classifyClientGenomePreview(...arguments); }
+async function readClientGenomePreview(file) { return intakeControllerBoundary.readClientGenomePreview(...arguments); }
+function browserGenomePrecheckUnavailableReason(file) { return intakeControllerBoundary.browserGenomePrecheckUnavailableReason(...arguments); }
+async function cacheGenomeFileCheck(file) { return intakeControllerBoundary.cacheGenomeFileCheck(...arguments); }
+function updateManualAccessionsStatus() { return intakeControllerBoundary.updateManualAccessionsStatus(...arguments); }
+function renderAcceptedAccessions() { return intakeControllerBoundary.renderAcceptedAccessions(...arguments); }
+function normalizeManualAccessions() { return intakeControllerBoundary.normalizeManualAccessions(...arguments); }
+function clearManualAccessions() { return intakeControllerBoundary.clearManualAccessions(...arguments); }
+function clearAcceptedAccessions() { return intakeControllerBoundary.clearAcceptedAccessions(...arguments); }
+function clearAcceptedManualAccessions() { return intakeControllerBoundary.clearAcceptedManualAccessions(...arguments); }
+function loadDemoAccessions(event) { return intakeControllerBoundary.loadDemoAccessions(...arguments); }
+function importAccessionsToLoader(accessions) { return intakeControllerBoundary.importAccessionsToLoader(...arguments); }
+async function addAccessionFileSource(file) { return intakeControllerBoundary.addAccessionFileSource(...arguments); }
+function inputCheckLevel(readiness) { return intakeControllerBoundary.inputCheckLevel(...arguments); }
+function inputCheckBadge(level) { return intakeControllerBoundary.inputCheckBadge(...arguments); }
+function addInputCheckRow(rows, level, type, label, reason) { return intakeControllerBoundary.addInputCheckRow(...arguments); }
+function renderInputCheckerRow(row) { return intakeControllerBoundary.renderInputCheckerRow(...arguments); }
+function updateInputCheckerLimits(quota) { return intakeControllerBoundary.updateInputCheckerLimits(...arguments); }
+function accessionPreflightPendingReason(sourceName = '') { return intakeControllerBoundary.accessionPreflightPendingReason(...arguments); }
+function renderInputChecker() { return intakeControllerBoundary.renderInputChecker(...arguments); }
+async function addFiles(files) { return intakeControllerBoundary.addFiles(...arguments); }
+async function removeFile(index) { return intakeControllerBoundary.removeFile(...arguments); }
+function removeAccessionFileSource(index) { return intakeControllerBoundary.removeAccessionFileSource(...arguments); }
+function submissionsPausedForPublic() { return intakeControllerBoundary.submissionsPausedForPublic(...arguments); }
+function uploadedInputRequiresAcknowledgment() { return intakeControllerBoundary.uploadedInputRequiresAcknowledgment(...arguments); }
+function syncDataUseAcknowledgment() { return intakeControllerBoundary.syncDataUseAcknowledgment(...arguments); }
+function submissionValidationSignature() { return intakeControllerBoundary.submissionValidationSignature(...arguments); }
+function syncRunButtonPresentation(button = document.getElementById('run-btn')) { return intakeControllerBoundary.syncRunButtonPresentation(...arguments); }
+function renderFileList() { return intakeControllerBoundary.renderFileList(...arguments); }
+function genomeStemFromName(name) { return intakeControllerBoundary.genomeStemFromName(...arguments); }
+function isGenomeUploadName(name) { return intakeControllerBoundary.isGenomeUploadName(...arguments); }
+function ecologyInputRows() { return intakeControllerBoundary.ecologyInputRows(...arguments); }
+function collectEcologyRowValues() { return intakeControllerBoundary.collectEcologyRowValues(...arguments); }
+function ecologySelectOptions(selected) { return intakeControllerBoundary.ecologySelectOptions(...arguments); }
+function ecologyLabelCellHtml(key, field, saved = {}) { return intakeControllerBoundary.ecologyLabelCellHtml(...arguments); }
+function renderEcologyMetadataRows(inputRows, savedValues) { return intakeControllerBoundary.renderEcologyMetadataRows(...arguments); }
+function handleEcologyLabelChange(el) { return intakeControllerBoundary.handleEcologyLabelChange(...arguments); }
+function ecologyLabelValue(row, field) { return intakeControllerBoundary.ecologyLabelValue(...arguments); }
+function currentEcologyMetadataRows() { return intakeControllerBoundary.currentEcologyMetadataRows(...arguments); }
+function updateEcologyLabelStatus() { return intakeControllerBoundary.updateEcologyLabelStatus(...arguments); }
+function syncEcologyMetadataPanel() { return intakeControllerBoundary.syncEcologyMetadataPanel(...arguments); }
+function metadataProfileText() { return intakeControllerBoundary.metadataProfileText(...arguments); }
+async function startAnalysis() { return intakeControllerBoundary.startAnalysis(...arguments); }
 
 // ── Job history ────────────────────────────────────────────────────────────
-async function refreshJobHistory() {
-  if (!canUseAdminSurfaces()) {
-    renderOpenedRuns();
-    return;
-  }
-  if (jobHistoryInFlight) return;
-  jobHistoryInFlight = true;
-  try {
-    const resp = await apiFetch('api/jobs', {}, { kind: 'admin' });
-    if (!resp.ok) return;
-    const jobs = await resp.json();
-    renderJobHistory(jobs);
-  } catch (err) {
-    console.warn('Job history refresh failed', err);
-  } finally {
-    jobHistoryInFlight = false;
-  }
-}
+async function refreshJobHistory() { return jobLifecycleControllerBoundary.refreshJobHistory(...arguments); }
 
-function jobHistoryRenderKey(jobs) {
-  return JSON.stringify(jobs.map(j => [
-    j.id,
-    j.name,
-    j.project_name,
-    j.status,
-    j.stage,
-    jobStageSignature(j),
-    j.rerun_count || 0,
-    Array.isArray(j.result_files) ? j.result_files.length : Number(j.result_file_count || 0),
-    j.id === activeJobId,
-    j.id === rerunScopeOpenJobId,
-  ]));
-}
+function jobHistoryRenderKey(jobs) { return jobLifecycleControllerBoundary.jobHistoryRenderKey(...arguments); }
 
-function jobStageSignature(job) {
-  return STAGES.map(stage => jobStageEnabled(job, stage.key) ? '1' : '0').join('');
-}
+function jobStageSignature(job) { return jobLifecycleControllerBoundary.jobStageSignature(...arguments); }
 
-function jobProjectName(job) {
-  return String((job && (job.project_name || job.name)) || 'Untitled run');
-}
+function jobProjectName(job) { return jobLifecycleControllerBoundary.jobProjectName(...arguments); }
 
-function jobStageDisplay(job) {
-  const raw = String((job && job.stage) || 'queued').trim();
-  if (!raw) return 'Queued';
-  const labels = {
-    queued: 'Queued',
-    complete: 'Complete',
-    'Preparing ClusterWeave project layout': 'Project layout',
-    'Installing NCBI CLI': 'NCBI CLI install',
-    'Preparing genomes from accessions': 'Genome prep',
-    'Running canonical ClusterWeave workflow': 'Canonical workflow',
-    'Running annotation / BGC detection': 'Annotation / BGC detection',
-    'Running BiG-SCAPE family graph': 'BiG-SCAPE family graph',
-    'Building summary tables': 'Summary tables',
-    'Staging synteny panels': 'Synteny panels',
-    'Rendering summary figures': 'Summary figures',
-    'Running optional NPLinker follow-up': 'NPLinker follow-up',
-  };
-  return labels[raw] || raw;
-}
+function jobStageDisplay(job) { return jobLifecycleControllerBoundary.jobStageDisplay(...arguments); }
 
-function jobCurrentStageKey(job) {
-  const status = String((job && job.status) || '').toLowerCase();
-  const stage = String((job && job.stage) || '').toLowerCase();
-  if (!stage || stage === 'queued' || stage === 'complete' || status === 'success') return null;
-  if (/nplinker/.test(stage)) return 'nplinker';
-  if (/figure|rendering summary/.test(stage)) return 'figures';
-  if (/clinker|synteny/.test(stage)) return 'clinker';
-  if (/summary|crosswalk|shortlist|atlas|summarize/.test(stage)) return 'summary';
-  if (/big[-\s]?scape|family graph/.test(stage)) return 'bigscape';
-  if (/annotation|antismash|funbgcex|canonical clusterweave workflow/.test(stage)) return 'annotation';
-  if (/prep|accession|layout|ncbi|installing/.test(stage)) return 'prep';
-  return null;
-}
+function jobCurrentStageKey(job) { return jobLifecycleControllerBoundary.jobCurrentStageKey(...arguments); }
 
-function jobStagePipState(job, key) {
-  if (!jobStageEnabled(job, key)) return 'disabled';
-  const status = String((job && job.status) || 'pending').toLowerCase();
-  const current = jobCurrentStageKey(job);
-  const currentIdx = current ? stageIndex(current) : -1;
-  const pipIdx = stageIndex(key);
-  if (status === 'success') return 'done';
-  if (status === 'failed') {
-    if (current && key === current) return 'failed';
-    if (currentIdx >= 0 && pipIdx >= 0 && pipIdx < currentIdx) return 'done';
-    return 'upcoming';
-  }
-  if (status === 'running') {
-    if (current && key === current) return 'current';
-    if (currentIdx >= 0 && pipIdx >= 0 && pipIdx < currentIdx) return 'done';
-  }
-  return 'upcoming';
-}
+function jobStagePipState(job, key) { return jobLifecycleControllerBoundary.jobStagePipState(...arguments); }
 
-function renderJobStagePips(job) {
-  const stateLabels = {
-    done: 'complete',
-    current: 'current',
-    failed: 'failed',
-    disabled: 'skipped',
-    upcoming: 'queued',
-  };
-  const pips = STAGES.map(stage => {
-    const state = jobStagePipState(job, stage.key);
-    const label = `${stage.label}: ${stateLabels[state] || state}`;
-    return `<span class="job-stage-pip ${state}" role="listitem" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}"></span>`;
-  }).join('');
-  return `<div class="job-stage-pips" role="list" aria-label="Run stage status">${pips}</div>`;
-}
+function renderJobStagePips(job) { return jobLifecycleControllerBoundary.renderJobStagePips(...arguments); }
 
-function statusLabel(status) {
-  const labels = {
-    pending: 'Pending',
-    running: 'Running',
-    success: 'Complete',
-    failed: 'Failed',
-  };
-  return labels[String(status || '').toLowerCase()] || String(status || 'Pending');
-}
+function statusLabel(status) { return jobLifecycleControllerBoundary.statusLabel(...arguments); }
 
-function jobCanRerun(job) {
-  if (!canUseAdminSurfaces() || !job) return false;
-  const status = String(job.status || '').toLowerCase();
-  return status === 'success' || status === 'failed';
-}
+function jobCanRerun(job) { return jobLifecycleControllerBoundary.jobCanRerun(...arguments); }
 
-function rerunStageKeysForJob(job) {
-  const status = String((job && job.status) || '').toLowerCase();
-  return STAGES.filter(stage => {
-    if (!jobStageEnabled(job, stage.key) || !rerunStageAllowed(stage.key)) return false;
-    if (status === 'success') return true;
-    const pipState = jobStagePipState(job, stage.key);
-    return pipState !== 'done' && pipState !== 'disabled';
-  }).map(stage => stage.key);
-}
+function rerunStageKeysForJob(job) { return jobLifecycleControllerBoundary.rerunStageKeysForJob(...arguments); }
 
-function rerunPayloadFromStages(stageKeys, force = false) {
-  const selected = new Set(stageKeys || []);
-  return {
-    run_genome_prep: selected.has('prep'),
-    run_annotation: selected.has('annotation'),
-    run_bigscape: selected.has('bigscape'),
-    run_summary: selected.has('summary'),
-    run_crosswalk: selected.has('summary'),
-    run_clinker: selected.has('clinker'),
-    execute_clinker: selected.has('clinker'),
-    run_figures: selected.has('figures'),
-    run_nplinker: selected.has('nplinker'),
-    force,
-  };
-}
+function rerunPayloadFromStages(stageKeys, force = false) { return diagnosticsAccessBoundary.rerunPayloadFromStages(stageKeys, force); }
+function rerunPayloadHasStages(payload) { return diagnosticsAccessBoundary.rerunPayloadHasStages(payload); }
 
-function rerunPayloadHasStages(payload) {
-  return ['run_genome_prep', 'run_annotation', 'run_bigscape', 'run_summary', 'run_clinker', 'run_figures', 'run_nplinker']
-    .some(key => !!(payload && payload[key]));
-}
+async function queueJobRerun(jobId, payload) { return diagnosticsControllerBoundary.queueJobRerun(...arguments); }
+function diagnosticRerunDisclosureId(jobId) { return diagnosticsControllerBoundary.diagnosticRerunDisclosureId(...arguments); }
+function diagnosticRerunDetails(jobId) { return diagnosticsControllerBoundary.diagnosticRerunDetails(...arguments); }
+function syncDiagnosticRerunDisclosure(event, jobId) { return diagnosticsControllerBoundary.syncDiagnosticRerunDisclosure(...arguments); }
+async function toggleJobRerunScope(event, jobId) { return diagnosticsControllerBoundary.toggleJobRerunScope(...arguments); }
+async function rerunJobFromHistory(event, jobId) { return diagnosticsControllerBoundary.rerunJobFromHistory(...arguments); }
 
-async function queueJobRerun(jobId, payload) {
-  const resp = await apiFetch(`api/jobs/${encodeURIComponent(jobId)}/rerun`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  }, { kind: 'admin' });
-  if (!resp.ok) {
-    const err = await resp.json();
-    throw new Error(err.detail || 'Rerun failed');
-  }
-  return resp.json();
-}
+function diagnosticJobDisplayState(job, index) { return jobLifecycleControllerBoundary.diagnosticJobDisplayState(...arguments); }
 
-function diagnosticRerunDisclosureId(jobId) {
-  const safe = String(jobId || '').replace(/[^A-Za-z0-9_-]+/g, '-');
-  return `diagnostic-rerun-${safe || 'job'}`;
-}
+function diagnosticRouteCardLabel(index) { return jobLifecycleControllerBoundary.diagnosticRouteCardLabel(...arguments); }
 
-function diagnosticRerunDetails(jobId) {
-  return document.getElementById(diagnosticRerunDisclosureId(jobId));
-}
+function renderDiagnosticRerunRail(jobId, job, displayLabel) { return diagnosticsControllerBoundary.renderDiagnosticRerunRail(...arguments); }
+function updateDiagnosticRerunSubmit(event = null) { return diagnosticsControllerBoundary.updateDiagnosticRerunSubmit(...arguments); }
+async function queueDiagnosticRerun(event, jobId) { return diagnosticsControllerBoundary.queueDiagnosticRerun(...arguments); }
 
-function syncDiagnosticRerunDisclosure(event, jobId) {
-  const details = event?.currentTarget;
-  if (!details) return;
-  const item = details.closest('[data-diagnostic-job-item]');
-  const button = item?.querySelector('[data-rerun-open]');
-  if (details.open) {
-    if (button) button.setAttribute('aria-expanded', 'true');
-    item?.classList.add('has-open-rerun');
-    animateRerunPanelOpen(details);
-    return;
-  }
-  if (rerunScopeOpenJobId === String(jobId || '')) rerunScopeOpenJobId = '';
-  if (button) button.setAttribute('aria-expanded', 'false');
-  item?.classList.remove('has-open-rerun');
-}
+function renderJobHistory(jobs) { return jobLifecycleControllerBoundary.renderJobHistory(...arguments); }
 
-async function toggleJobRerunScope(event, jobId) {
-  event?.preventDefault?.();
-  event?.stopPropagation?.();
-  if (!canUseAdminSurfaces()) return;
-  const safeJobId = String(jobId || '');
-  if (!safeJobId) return;
+function statusBadge(status) { return jobLifecycleControllerBoundary.statusBadge(...arguments); }
 
-  if (rerunScopeOpenJobId === safeJobId) {
-    rerunScopeOpenJobId = '';
-    const openDetails = diagnosticRerunDetails(safeJobId);
-    if (openDetails) openDetails.open = false;
-    event?.currentTarget?.setAttribute?.('aria-expanded', 'false');
-    return;
-  }
+function handleJobCardKeydown(event, jobId) { return jobLifecycleControllerBoundary.handleJobCardKeydown(...arguments); }
 
-  const previousDetails = diagnosticRerunDetails(rerunScopeOpenJobId);
-  if (previousDetails) previousDetails.open = false;
-  rerunScopeOpenJobId = safeJobId;
-  openOpsPanel({ tab: 'jobs', focusPanel: false, returnFocus: event?.currentTarget || document.activeElement });
-  lastJobHistoryRenderKey = '';
-  renderJobHistory([...jobHistoryById.values()]);
-  switchOpsTab('jobs', { focus: false });
-  const details = diagnosticRerunDetails(safeJobId);
-  window.requestAnimationFrame(() => {
-    details?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    details?.querySelector('summary')?.focus({ preventScroll: true });
-  });
-}
+async function openJobLogs(event, jobId) { return jobLifecycleControllerBoundary.openJobLogs(...arguments); }
 
-async function rerunJobFromHistory(event, jobId) {
-  return toggleJobRerunScope(event, jobId);
-}
-
-function diagnosticJobDisplayState(job, index) {
-  if (!job) return index === 1 ? 'complete' : index === 2 ? 'failed' : 'running';
-  const status = String(job.status || '').toLowerCase();
-  if (status === 'success') return 'complete';
-  if (status === 'failed') return 'failed';
-  if (status === 'running') return 'running';
-  return status || 'route payload';
-}
-
-function diagnosticRouteCardLabel(index) {
-  return index === null ? 'jobs[n]' : `jobs[${index}]`;
-}
-
-function renderDiagnosticRerunRail(jobId, job, displayLabel) {
-  const status = String((job && job.status) || '').toLowerCase();
-  const unavailable = status === 'pending' || status === 'running' || !jobCanRerun(job);
-  const labels = {
-    prep: 'Genome prep',
-    annotation: 'Annotation & BGC',
-    bigscape: 'BiG-SCAPE',
-    summary: 'Summary',
-    clinker: 'Clinker',
-    figures: 'Figures',
-    nplinker: 'NPLinker',
-  };
-  const checks = STAGES.map(stage => {
-    const enabled = !unavailable && jobStageEnabled(job, stage.key) && rerunStageAllowed(stage.key);
-    const checked = enabled && rerunDefaultChecked(job, stage.key);
-    return `<label class="rerun-check${enabled ? '' : ' is-unavailable'}"><input type="checkbox" data-diagnostic-rerun-stage="${escapeHtml(stage.key)}" ${checked ? 'checked' : ''} ${enabled ? '' : 'disabled'} onchange="updateDiagnosticRerunSubmit(event)" /> <span>${escapeHtml(labels[stage.key] || stage.label)}</span></label>`;
-  }).join('') + `<label class="rerun-check rerun-force"><input type="checkbox" data-diagnostic-rerun-force ${unavailable ? 'disabled' : ''} onchange="updateDiagnosticRerunSubmit(event)" /> <span>Force overwrite</span></label>`;
-  const statusText = unavailable ? 'Rerun unavailable for this state.' : 'Choose one or more stages.';
-  const safeJobId = escapeHtml(escapeJsString(jobId));
-  return `
-    <details class="rerun-rail rerun-disclosure" id="${escapeHtml(diagnosticRerunDisclosureId(jobId))}" data-rerun-rail data-rerun-job-id="${escapeHtml(jobId)}" open ontoggle="syncDiagnosticRerunDisclosure(event,'${safeJobId}')">
-      <summary class="rerun-disclosure-summary">
-        <span><b>Rerun stages</b><small>${escapeHtml(displayLabel)}</small></span>
-        <code>${escapeHtml(jobId)}</code>
-      </summary>
-      <div class="rerun-panel-body rerun-disclosure-body">
-        <div class="rerun-check-grid">${checks}</div>
-        <div class="rerun-actions">
-          <button class="rerun-submit" type="button" data-queue-rerun onclick="queueDiagnosticRerun(event,'${safeJobId}')" ${unavailable ? 'disabled' : ''}>Queue selected stages</button>
-          <span class="rerun-status" id="diagnostic-rerun-status" data-rerun-status aria-live="polite">${escapeHtml(statusText)}</span>
-        </div>
-      </div>
-    </details>`;
-}
-
-function updateDiagnosticRerunSubmit(event = null) {
-  const rail = event?.currentTarget?.closest?.('[data-rerun-rail]')
-    || diagnosticRerunDetails(rerunScopeOpenJobId)
-    || document.querySelector('[data-rerun-rail][open]');
-  if (!rail) return;
-  const hasSelection = !!rail.querySelector('[data-diagnostic-rerun-stage]:checked:not(:disabled)');
-  const submit = rail.querySelector('[data-queue-rerun]');
-  if (submit) submit.disabled = !hasSelection;
-  const status = rail.querySelector('[data-rerun-status]');
-  if (status && hasSelection) status.textContent = '';
-}
-
-async function queueDiagnosticRerun(event, jobId) {
-  event?.preventDefault?.();
-  event?.stopPropagation?.();
-  if (!canUseAdminSurfaces()) return;
-  const targetJobId = String(jobId || rerunScopeOpenJobId || '');
-  const rail = event?.currentTarget?.closest?.('[data-rerun-rail]')
-    || diagnosticRerunDetails(targetJobId);
-  const statusEl = rail?.querySelector('[data-rerun-status]');
-  const selected = new Set([...(rail?.querySelectorAll('[data-diagnostic-rerun-stage]:checked:not(:disabled)') || [])].map(el => el.dataset.diagnosticRerunStage));
-  if (!targetJobId || !selected.size) {
-    if (statusEl) statusEl.textContent = 'Choose at least one stage.';
-    return;
-  }
-  const payload = rerunPayloadFromStages(selected, !!rail?.querySelector('[data-diagnostic-rerun-force]')?.checked);
-  if (!rerunPayloadHasStages(payload)) {
-    if (statusEl) statusEl.textContent = 'Choose at least one stage.';
-    return;
-  }
-  if (statusEl) statusEl.textContent = 'Queueing rerun...';
-  try {
-    await queueJobRerun(targetJobId, payload);
-    if (statusEl) statusEl.textContent = 'Rerun queued.';
-    rerunScopeOpenJobId = '';
-    await loadJob(targetJobId, true, { source: 'rerun' });
-    refreshJobHistory();
-  } catch (err) {
-    if (statusEl) statusEl.textContent = err.message || String(err);
-  }
-}
-
-function renderJobHistory(jobs) {
-  const el = document.getElementById('job-history');
-  if (!el) return;
-  const list = (Array.isArray(jobs) ? jobs : []).filter(job => job && job.id);
-  jobHistoryById = new Map(list.map(job => [String(job.id || ''), job]).filter(([id]) => id));
-  const renderKey = jobHistoryRenderKey(list);
-  if (renderKey === lastJobHistoryRenderKey) return;
-  lastJobHistoryRenderKey = renderKey;
-  const summary = document.getElementById('job-history-summary');
-  if (summary) summary.textContent = list.length ? `${list.length} submitted job${list.length === 1 ? '' : 's'}` : 'No submitted jobs';
-  if (!list.length) {
-    el.innerHTML = '<div class="empty-state">No submitted jobs yet.</div>';
-    updateDiagnosticRerunSubmit();
-    return;
-  }
-  el.innerHTML = list.map((job) => {
-    const jobId = String(job.id || '');
-    const jsJobId = escapeJsString(jobId);
-    const displayLabel = jobProjectName(job);
-    const displayState = diagnosticJobDisplayState(job, 0);
-    const selected = jobId && jobId === activeJobId;
-    const rerunOpen = jobId && rerunScopeOpenJobId === jobId;
-    const statusText = statusLabel(job.status);
-    const stageText = jobStageDisplay(job);
-    const updatedRaw = job.updated_at || job.updatedAt || job.created_at || job.createdAt || '';
-    const updatedDate = updatedRaw ? new Date(updatedRaw) : null;
-    const updatedText = updatedDate && !Number.isNaN(updatedDate.getTime())
-      ? updatedDate.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
-      : 'unknown';
-    const rerunCount = Number(job.rerun_count || 0);
-    const fileCount = Array.isArray(job.result_files) ? job.result_files.length : Number(job.result_file_count || 0);
-    const fileText = `${Number.isFinite(fileCount) ? fileCount : 0} file${fileCount === 1 ? '' : 's'}`;
-    const disclosureId = diagnosticRerunDisclosureId(jobId);
-    const rerunAttrs = `data-rerun-job-id="${escapeHtml(jobId)}" onclick="toggleJobRerunScope(event,'${escapeHtml(jsJobId)}')" aria-controls="${escapeHtml(disclosureId)}" aria-expanded="${rerunOpen ? 'true' : 'false'}"`;
-    return `
-      <div class="diagnostic-job-item${rerunOpen ? ' has-open-rerun' : ''}" data-diagnostic-job-item data-job-id="${escapeHtml(jobId)}">
-      <article class="diagnostic-job-card${selected ? ' is-selected' : ''}" tabindex="0" data-diagnostic-job data-job-id="${escapeHtml(jobId)}" data-job-label="${escapeHtml(displayLabel)}" data-open-state="${escapeHtml(displayState)}" data-job-hash="#/job/${escapeHtml(encodeURIComponent(jobId))}" onclick="loadJob('${escapeHtml(jsJobId)}', true, { source: 'job-card' })" onkeydown="handleJobCardKeydown(event,'${escapeHtml(jsJobId)}')">
-        <div class="diagnostic-job-main">
-          <div class="diagnostic-job-top"><strong>${escapeHtml(displayLabel)}</strong><span class="job-status-pill">${escapeHtml(statusText)}</span></div>
-          <code class="diagnostic-job-id">${escapeHtml(jobId)}</code>
-          <div class="diagnostic-job-line">
-            <span>stage <b>${escapeHtml(stageText)}</b></span>
-            <span>updated <b>${escapeHtml(updatedText)}</b></span>
-            <span>${escapeHtml(fileText)}</span>
-            <span>${escapeHtml(String(rerunCount))} rerun${rerunCount === 1 ? '' : 's'}</span>
-          </div>
-        </div>
-        <div class="job-card-actions" aria-label="Job actions">
-          <button type="button" data-log-open onclick="openJobLogs(event,'${escapeHtml(jsJobId)}')">Logs</button>
-          <button type="button" data-rerun-open ${rerunAttrs}>Rerun</button>
-          <button class="job-delete" type="button" aria-label="Delete job ${escapeHtml(jobId)}" onclick="deleteJob(event,'${escapeHtml(jsJobId)}')">X</button>
-        </div>
-      </article>
-      ${rerunOpen ? renderDiagnosticRerunRail(jobId, job || jobHistoryById.get(jobId), displayLabel) : ''}
-      </div>`;
-  }).join('');
-  updateDiagnosticRerunSubmit();
-}
-
-function statusBadge(status) {
-  const map = {
-    pending: 'pending',
-    running: 'running',
-    success: 'success',
-    failed:  'failed',
-  };
-  const cls = map[String(status || '').toLowerCase()] || 'pending';
-  return `<span class="badge badge-${cls}"><span class="badge-dot"></span>${escapeHtml(statusLabel(status))}</span>`;
-}
-
-function handleJobCardKeydown(event, jobId) {
-  if (event.target.closest('button')) return;
-  if (event.key === 'Enter' || event.key === ' ') {
-    event.preventDefault();
-    loadJob(jobId, true, { source: 'job-card-keyboard' });
-  }
-}
-
-async function openJobLogs(event, jobId) {
-  if (event) {
-    event.preventDefault();
-    event.stopPropagation();
-  }
-  if (!canUseAdminSurfaces()) return;
-  const id = String(jobId || '');
-  if (!id) return;
-  openOpsPanel({ tab: 'qa', focusPanel: true, returnFocus: event?.currentTarget || document.activeElement });
-  renderQaDrawer(jobHistoryById.get(id) || { id, status: 'pending', stage: 'loading', name: id }, activeResultFiles);
-  await loadJob(id, true, { source: 'job-logs', deferResultsShell: true });
-  openOpsPanel({ tab: 'qa', focusPanel: false, returnFocus: event?.currentTarget || document.activeElement });
-}
-
-function markActiveJobCard(jobId) {
-  document.querySelectorAll('.job-card, .diagnostic-job-card[data-job-id]').forEach(card => {
-    const active = card.dataset.jobId === jobId;
-    card.classList.toggle('active-job', active);
-    card.classList.toggle('is-selected', active);
-  });
-}
+function markActiveJobCard(jobId) { return jobLifecycleControllerBoundary.markActiveJobCard(...arguments); }
 
 function moveWorkflowProgressIntoResults(loaded = true) {
   const live = document.querySelector('.weavemap-live');
@@ -7675,887 +3477,131 @@ function lockSubmittedIntake() {
   setRunSetupAccessCollapsed(false);
 }
 
-function publicStageTimingEvent(event) {
-  const marker = normalizePublicWeaveEvent(event);
-  if (!marker) return null;
-  const markerMeta = /^canonical workflow stage$/i.test(marker.meta || '');
-  const markerTitle = /^(preparing input workspace|running annotation and bgc detection|running big[-\s]?scape family graph|building summary tables|staging synteny panels|rendering summary figures|running optional nplinker follow-up)$/i.test(marker.title || '');
-  if (!markerMeta && !markerTitle) return null;
-  return marker;
-}
+function publicStageTimingEvent(event) { return jobLifecycleControllerBoundary.publicStageTimingEvent(...arguments); }
 
-function applyStageTimingFromPublicEvents(job) {
-  if (!activeStageState || !Array.isArray(job?.public_events)) return;
-  if (Number(job?.rerun_count || 0) > 0) return;
-  job.public_events.forEach((event) => {
-    const marker = publicStageTimingEvent(event);
-    if (!marker) return;
-    const eventId = `public:${marker.stage}:${marker.time || marker.meta}:${marker.title}`;
-    const eventTimeMs = stageTimestampFromClock(marker.time || marker.meta, job, activeStageState.lastEventMs);
-    advanceToStage(marker.stage, { eventTimeMs, source: 'event', eventId });
-  });
-}
+function applyStageTimingFromPublicEvents(job) { return jobLifecycleControllerBoundary.applyStageTimingFromPublicEvents(...arguments); }
 
-function stageSnapshotTimeMs(job) {
-  return parseTimestampMs(job?.stage_updated_at || job?.started_at || job?.created_at || job?.updated_at) || Date.now();
-}
+function stageSnapshotTimeMs(job) { return jobLifecycleControllerBoundary.stageSnapshotTimeMs(...arguments); }
 
-function shouldApplyJobStageSnapshot(key) {
-  if (!activeStageState || !key) return false;
-  const current = activeStageState.failed || activeStageState.current || '';
-  if (!current || current === key) return true;
-  const currentIdx = stageIndex(current);
-  const snapshotIdx = stageIndex(key);
-  return currentIdx < 0 || snapshotIdx < 0 || snapshotIdx >= currentIdx;
-}
+function shouldApplyJobStageSnapshot(key) { return jobLifecycleControllerBoundary.shouldApplyJobStageSnapshot(...arguments); }
 
-function applyJobStageSnapshot(job) {
-  if (!activeStageState) initializeStageState(job);
-  applyStageTimingFromPublicEvents(job);
-  const key = jobCurrentStageKey(job);
-  const status = String((job && job.status) || '').toLowerCase();
-  if (key && shouldApplyJobStageSnapshot(key)) {
-    const snapshotMs = stageSnapshotTimeMs(job);
-    const eventId = `snapshot:${job?.id || ''}:${job?.rerun_count || 0}:${status}:${key}:${snapshotMs}`;
-    advanceToStage(key, { eventTimeMs: snapshotMs, source: 'snapshot', eventId });
-  }
-  if (status === 'success' || status === 'failed') finalizeStageState(status);
-}
+function applyJobStageSnapshot(job) { return jobLifecycleControllerBoundary.applyJobStageSnapshot(...arguments); }
 
-async function deleteJob(event, jobId) {
-  if (event) {
-    event.preventDefault();
-    event.stopPropagation();
-  }
-  if (!canUseAdminSurfaces()) return;
-  const id = String(jobId || '');
-  if (!id) return;
-  if (!confirm(`Delete job ${id} and all its data?`)) return;
-  const resp = await apiFetch(`api/jobs/${encodeURIComponent(id)}`, { method: 'DELETE' }, { kind: 'admin' });
-  if (!resp.ok) {
-    alert(`Could not delete job ${id}.`);
-    return;
-  }
-  pendingReadTokens.delete(id);
-  jobHistoryById.delete(id);
-  lastJobHistoryRenderKey = '';
-  if (activeJobId === id) {
-    activeJobId = null;
-    stopPolling();
-    activeStageState = null;
-    showEmptyResults();
-    renderQaDrawer(null, []);
-    syncOpsTabs();
-  }
-  refreshJobHistory();
-  pollSystemStatus();
-}
+async function deleteJob(event, jobId) { return jobLifecycleControllerBoundary.deleteJob(...arguments); }
 
 // ── Load / watch a job ─────────────────────────────────────────────────────
-async function loadJob(jobId, autoScroll = false, options = {}) {
-  if (options.readToken) pendingReadTokens.set(String(jobId), options.readToken);
-  const publicResult = options.publicResult === true
-    || publicResultRunIds.has(String(jobId))
-    || !/^[0-9a-f]{8}$/i.test(String(jobId || ''));
-  if (publicResult) publicResultRunIds.add(String(jobId));
-  activePublicRunId = publicResult ? String(jobId) : '';
-  const deferResultsShell = !!options.deferResultsShell;
-  const seq = ++jobLoadSeq;
-  hydratePublicResultActivity.lastSignature = '';
-  hydratePublicResultActivity.inFlightSignature = '';
-  clusterweaveGameEpoch += 1;
-  syncClusterweaveGameHost({ lifecycle: 'loading', job: null });
-  activeJobId = jobId;
-  resetGenomeProgressSnapshot(jobId);
-  const loadingContext = options.analysisScope
-    ? { scope: options.analysisScope, taxonCounts: options.taxonCounts || {} }
-    : jobHistoryById.get(String(jobId || ''));
-  setActiveSavedAnalysisContext(loadingContext || { scope: 'fungi', taxonCounts: {} });
-  renderRunStack();
-  if (rerunScopeOpenJobId && rerunScopeOpenJobId !== String(jobId) && options.source !== 'job-rerun') rerunScopeOpenJobId = '';
-  logCursor   = 0;
-  logWindowStart = 0;
-  logTotal = 0;
-  logGeneration = '';
-  logHydratedJobId = '';
-  stopPolling();
-  markActiveJobCard(jobId);
-  if (lastSubmittedRun && lastSubmittedRun.jobId !== jobId) dismissSubmissionConfirmation();
+function currentJobSelection(jobId, seq) { return jobLifecycleBoundary.isCurrentJobSelection(jobId, seq); }
 
-  const preferResultsDashboard = shouldPreserveResultsDashboardForJobLoad(jobId, options);
-  gsapMotion.lastJobLoadSource = String(options.source || '');
-  syncOpsTabs();
-  activeJobMeta = null;
-  activeStageState = null;
-  resultDashboardOpen = preferResultsDashboard;
-  activeResultCategory = 'figures';
-  activeResultFiles = [];
-  activeResultPackageFileCount = 0;
-  activeResultArtifacts = null;
-  activeResultArtifactByKey = new Map();
-  activeResultArtifactById = new Map();
-  setResultFocusMode('overview');
-  document.body.dataset.resultsDashboard = preferResultsDashboard ? 'open' : 'closed';
-  if (preferResultsDashboard) {
-    document.body.dataset.managementView = 'closed';
-    setResultsPanelCollapsed(true);
-  }
-  if (!deferResultsShell) {
-    showResultsShell();
-    if (options.source === 'submit') animateLaunchTransition();
-  }
-  document.getElementById('rerun-panel').innerHTML = '';
-  document.getElementById('log-terminal').innerHTML = '';
-  setDrawerText('log-count', '0 lines');
-  renderQaDrawer({ id: jobId, status: 'pending', stage: 'queued', name: jobId }, []);
-  resetWeaveActivity();
-  resetStages();
-  if (canUseAdminSurfaces() && currentUIMode === 'guided') setUIMode('lab', { preserveDisclosure: true });
+async function loadJob(jobId, autoScroll = false, options = {}) { return jobLifecycleControllerBoundary.loadJob(...arguments); }
 
-  const job = await pollJobFinal(jobId, autoScroll, seq, JOB_INITIAL_LOAD_TIMEOUT_MS);
-  if (!job || seq !== jobLoadSeq || jobId !== activeJobId) {
-    if (seq === jobLoadSeq) {
-      activeJobId = null;
-      activeJobMeta = null;
-      activeStageState = null;
-      pendingReadTokens.delete(String(jobId));
-      showEmptyResults();
-      renderQaDrawer(null, []);
-    }
-    return null;
-  }
-  if (job.status === 'running' || job.status === 'pending') {
-    scheduleJobPoll(jobId, autoScroll, seq, jobPollDelay(job));
-  }
-  return job;
-}
+async function pollJobFinal( jobId, autoScroll = false, seq = jobLoadSeq, timeoutMs = JOB_POLL_TIMEOUT_MS, ) { return jobLifecycleControllerBoundary.pollJobFinal(...arguments); }
 
-async function pollJobFinal(
-  jobId,
-  autoScroll = false,
-  seq = jobLoadSeq,
-  timeoutMs = JOB_POLL_TIMEOUT_MS,
-) {
-  const abortController = typeof AbortController === 'function' ? new AbortController() : null;
-  const timeoutId = abortController ? setTimeout(() => abortController.abort(), timeoutMs) : null;
-  let resp;
-  try {
-    resp = await apiFetch(
-      publicResultRunIds.has(String(jobId))
-        ? `api/results/${encodeURIComponent(jobId)}`
-        : `api/jobs/${encodeURIComponent(jobId)}?compact=1`,
-      abortController ? { signal: abortController.signal } : {},
-      { kind: 'job', jobId },
-    );
-  } catch (error) {
-    if (seq === jobLoadSeq && jobId === activeJobId) {
-      window.ClusterWeaveGame?.setConnectionState?.('reconnecting');
-      syncClusterweaveGameHost({ lifecycle: 'pending', job: null });
-    }
-    return TRANSIENT_JOB_POLL;
-  } finally {
-    if (timeoutId) clearTimeout(timeoutId);
-  }
-  if ((resp.status === 429 || resp.status >= 500) && seq === jobLoadSeq && jobId === activeJobId) {
-    window.ClusterWeaveGame?.setConnectionState?.('reconnecting');
-    syncClusterweaveGameHost({ lifecycle: 'pending', job: null });
-    return TRANSIENT_JOB_POLL;
-  }
-  if (!resp.ok || seq !== jobLoadSeq || jobId !== activeJobId) return null;
-  window.ClusterWeaveGame?.setConnectionState?.('connected');
-  const job = await resp.json();
-  if (seq !== jobLoadSeq || jobId !== activeJobId) return null;
-  const previousJob = activeJobMeta;
-  if (!Array.isArray(job.public_events) && Array.isArray(previousJob?.public_events)) {
-    job.public_events = previousJob.public_events;
-  }
-  if (!Array.isArray(job.genome_progress) && Array.isArray(previousJob?.genome_progress)) {
-    job.genome_progress = previousJob.genome_progress;
-  }
-  activeJobMeta = job;
-  const publicRunId = adoptPublicRunIdentity(jobId, job);
-  setActiveSavedAnalysisContext(job);
-  renderRunStack();
-  renderQaDrawer(job, activeResultFiles);
-  if (!canUseAdminSurfaces()) renderPublicQaLog(job);
-  setWorkflowExperienceState(job);
-  rememberOpenedRun(publicRunId, readTokenForJob(publicRunId) || readTokenForJob(jobId), job);
-  recordWeaveActivity(job);
-  if (!activeStageState || activeStageState.jobId !== jobId) initializeStageState(job);
-  applyJobStageSnapshot(job);
-  const operationalStatus = String(job.status || '').trim().toLowerCase();
-  if (!canUseAdminSurfaces() || operationalStatus === 'running' || operationalStatus === 'pending') {
-    void hydratePublicResultActivity(jobId, seq);
-  }
-  if (canUseAdminSurfaces()) {
-    await syncActiveAdminLogs(autoScroll);
-    if (seq !== jobLoadSeq || jobId !== activeJobId) return null;
-  }
-  updateProgressBadge(job.status);
-  if (job.status !== 'running' && job.status !== 'pending') stopPolling();
-  if (!previousJob || previousJob.status !== job.status || previousJob.stage !== job.stage) {
-    await loadResults(jobId, job.status, seq, job);
-  }
-  if (previousJob && (previousJob.status !== job.status || previousJob.stage !== job.stage)) {
-    if (canUseAdminSurfaces()) refreshJobHistory();
-  }
-  return job;
-}
+function jobPollDelay(job) { return jobLifecycleBoundary.jobPollDelay(job); }
 
-function jobPollDelay(job) {
-  if (job === TRANSIENT_JOB_POLL) return JOB_POLL_RETRY_DELAY_MS;
-  const logCount = Math.max(0, Number(job?.log_count) || 0);
-  return logCount >= JOB_POLL_LONG_LOG_THRESHOLD ? JOB_POLL_LONG_LOG_DELAY_MS : JOB_POLL_BASE_DELAY_MS;
-}
+function scheduleJobPoll(jobId, autoScroll = false, seq = jobLoadSeq, delay = JOB_POLL_BASE_DELAY_MS) { return jobLifecycleControllerBoundary.scheduleJobPoll(...arguments); }
 
-function scheduleJobPoll(jobId, autoScroll = false, seq = jobLoadSeq, delay = JOB_POLL_BASE_DELAY_MS) {
-  stopPolling();
-  pollTimerId = setTimeout(async () => {
-    pollTimerId = null;
-    if (seq !== jobLoadSeq || jobId !== activeJobId) return;
-    let job;
-    try {
-      job = await pollJobFinal(jobId, autoScroll, seq);
-    } catch (error) {
-      job = TRANSIENT_JOB_POLL;
-      window.ClusterWeaveGame?.setConnectionState?.('reconnecting');
-    }
-    if (seq !== jobLoadSeq || jobId !== activeJobId || !job) return;
-    if (job === TRANSIENT_JOB_POLL || job.status === 'running' || job.status === 'pending') {
-      scheduleJobPoll(
-        jobId,
-        autoScroll,
-        seq,
-        jobPollDelay(job),
-      );
-    }
-  }, Math.max(250, Number(delay) || JOB_POLL_BASE_DELAY_MS));
-}
-
-function stopPolling() {
-  if (pollTimerId) {
-    clearTimeout(pollTimerId);
-    pollTimerId = null;
-  }
-}
+function stopPolling() { return jobLifecycleControllerBoundary.stopPolling(...arguments); }
 
 // ── Log rendering ──────────────────────────────────────────────────────────
-function publicQaEventLine(event) {
-  const marker = normalizePublicWeaveEvent(event);
-  if (!marker) return '';
-  const stage = String(marker.stage || 'prep').replace(/_/g, ' ').toUpperCase();
-  const title = compactActivityChipText(marker.title || marker.status || 'Run update', 72);
-  const meta = compactActivityChipText(marker.meta || marker.time || '', 48);
-  return `[${stage}] ${title}${meta ? ` - ${meta}` : ''}`;
-}
+function publicQaEventLine(event) { return jobLifecycleBoundary.publicQaEventLine(event); }
 
-function renderPublicQaLog(job) {
-  const term = document.getElementById('log-terminal');
-  if (!term || canUseAdminSurfaces()) return;
-  const lines = Array.isArray(job?.public_events)
-    ? job.public_events.map(publicQaEventLine).filter(Boolean)
-    : [];
-  if (!lines.length && job) {
-    const fallback = job.error_summary || job.error || queueStatusLabel(job) || jobStageDisplay(job);
-    if (fallback) lines.push(`[${statusLabel(job.status).toUpperCase()}] ${fallback}`);
-  }
-  term.innerHTML = lines.map(line => `<div class="log-line public-event${/failed|error|stopped/i.test(line) ? ' err' : ''}">${escapeHtml(line)}</div>`).join('');
-  const count = lines.length;
-  setDrawerText('log-count', `${count.toLocaleString()} public ${count === 1 ? 'event' : 'events'}`);
-}
-async function hydratePublicResultActivity(jobId, seq = jobLoadSeq) {
-  const runId = publicRunIdForJob(jobId);
-  const signature = `${runId}:${Number(activeJobMeta?.log_count || 0)}:${String(activeJobMeta?.status || '')}:${String(activeJobMeta?.stage || '')}`;
-  const requestSignature = `${seq}:${signature}`;
-  if (!runId
-      || hydratePublicResultActivity.lastSignature === signature
-      || hydratePublicResultActivity.inFlightSignature === requestSignature) return;
-  hydratePublicResultActivity.inFlightSignature = requestSignature;
-  try {
-    const resp = await apiFetch(
-      `api/results/${encodeURIComponent(runId)}/activity`,
-      { cache: 'no-store' },
-      { kind: 'job', jobId: runId },
-    );
-    if (!resp.ok) return;
-    const payload = await resp.json();
-    if (seq !== jobLoadSeq || jobId !== activeJobId || runId !== publicRunIdForJob(jobId)) return;
-    hydratePublicResultActivity.lastSignature = signature;
-    const publicEvents = Array.isArray(payload.public_events) ? payload.public_events : [];
-    const genomeProgress = Array.isArray(payload.genome_progress) ? payload.genome_progress : [];
-    activeJobMeta = {
-      ...(activeJobMeta || {}),
-      public_events: publicEvents,
-      genome_progress: genomeProgress,
-    };
-    renderPublicQaLog(activeJobMeta);
-    renderQaDrawer(activeJobMeta, activeResultFiles);
-    recordWeaveActivity(activeJobMeta);
-    if (!activeStageState || activeStageState.jobId !== jobId) initializeStageState(activeJobMeta);
-    applyJobStageSnapshot(activeJobMeta);
-  } catch (error) {
-  } finally {
-    if (hydratePublicResultActivity.inFlightSignature === requestSignature) {
-      hydratePublicResultActivity.inFlightSignature = '';
-    }
-  }
-}
+function renderPublicQaLog(job) { return jobLifecycleControllerBoundary.renderPublicQaLog(...arguments); }
+async function hydratePublicResultActivity(jobId, seq = jobLoadSeq) { return jobLifecycleControllerBoundary.hydratePublicResultActivity(...arguments); }
 
-function createLogLineElement(text) {
-  const div = document.createElement('div');
-  div.className = 'log-line';
-  if (/error|fatal|failed/i.test(text)) div.classList.add('err');
-  else if (/warn/i.test(text)) div.classList.add('warn');
-  else if (/=== stage:/i.test(text)) div.classList.add('stage');
-  else if (/success|complete|finished/i.test(text)) div.classList.add('ok');
-  div.textContent = text;
-  return div;
-}
+function createLogLineElement(text) { return jobLifecycleBoundary.createLogLineElement(text); }
 
-function appendLogLine(text) {
-  const term = document.getElementById('log-terminal');
-  if (term) term.appendChild(createLogLineElement(text));
-}
+function appendLogLine(text) { return jobLifecycleControllerBoundary.appendLogLine(...arguments); }
 
-function updateAdminLogControls() {
-  const button = document.getElementById('load-earlier-logs');
-  const hydrated = canUseAdminSurfaces() && logHydratedJobId === activeJobId;
-  if (button) {
-    button.hidden = !hydrated || logWindowStart <= 0;
-    button.disabled = !!logHydrationInFlight;
-  }
-  if (!hydrated) return;
-  const visible = Math.max(0, logCursor - logWindowStart);
-  setDrawerText('log-count', `${Number(logTotal).toLocaleString()} total lines`);
-  setDrawerText(
-    'qa-log-count-card',
-    `Showing ${Number(visible).toLocaleString()} of ${Number(logTotal).toLocaleString()} lines`,
-  );
-}
+function updateAdminLogControls() { return jobLifecycleControllerBoundary.updateAdminLogControls(...arguments); }
 
-async function hydrateQaLogs({ tail = true, before = null, autoScroll = false } = {}) {
-  if (!canUseAdminSurfaces() || !activeJobId || activeOpsTab !== 'qa') return;
-  if (logHydrationInFlight) return logHydrationInFlight;
-  const jobId = String(activeJobId);
-  const seq = jobLoadSeq;
-  const previousGeneration = logGeneration;
-  const query = before === null
-    ? `tail=${QA_LOG_PAGE_SIZE}`
-    : `before=${Math.max(0, Number(before) || 0)}&limit=${QA_LOG_PAGE_SIZE}`;
-  const request = (async () => {
-    const resp = await apiFetch(
-      `api/jobs/${encodeURIComponent(jobId)}/logs?${query}`,
-      {},
-      { kind: 'admin' },
-    );
-    if (!resp.ok || seq !== jobLoadSeq || jobId !== activeJobId) return;
-    const page = await resp.json();
-    if (seq !== jobLoadSeq || jobId !== activeJobId) return;
-    const generation = String(page.generation || '');
-    const prepend = before !== null && previousGeneration && generation === previousGeneration;
-    const term = document.getElementById('log-terminal');
-    if (!term) return;
-    const previousHeight = term.scrollHeight;
-    const fragment = document.createDocumentFragment();
-    (page.lines || []).forEach(line => {
-      fragment.appendChild(createLogLineElement(line));
-      if (!prepend) updateStageBar(line);
-    });
-    if (prepend) term.prepend(fragment);
-    else {
-      term.innerHTML = '';
-      term.appendChild(fragment);
-    }
-    logWindowStart = Math.max(0, Number(page.start) || 0);
-    const pageEnd = Math.max(0, Number(page.end) || 0);
-    logCursor = prepend ? Math.max(logCursor, pageEnd) : pageEnd;
-    logTotal = Math.max(logCursor, Number(page.total) || 0);
-    logGeneration = generation;
-    logHydratedJobId = jobId;
-    if (prepend) term.scrollTop += term.scrollHeight - previousHeight;
-    else if (autoScroll) scrollToBottom();
-    renderQaDrawer(activeJobMeta, activeResultFiles);
-    updateAdminLogControls();
-  })();
-  logHydrationInFlight = request;
-  updateAdminLogControls();
-  try {
-    await request;
-  } finally {
-    if (logHydrationInFlight === request) logHydrationInFlight = null;
-    updateAdminLogControls();
-  }
-}
+async function hydrateQaLogs({ tail = true, before = null, autoScroll = false } = {}) { return jobLifecycleControllerBoundary.hydrateQaLogs(...arguments); }
 
-async function loadEarlierLogs() {
-  if (logWindowStart <= 0) return;
-  await hydrateQaLogs({ tail: false, before: logWindowStart, autoScroll: false });
-}
+async function loadEarlierLogs() { return jobLifecycleControllerBoundary.loadEarlierLogs(...arguments); }
 
-async function syncActiveAdminLogs(autoScroll = false) {
-  if (!canUseAdminSurfaces() || activeOpsTab !== 'qa' || !activeJobId) return;
-  if (logHydratedJobId !== activeJobId) {
-    await hydrateQaLogs({ tail: true, autoScroll: true });
-    return;
-  }
-  const jobId = String(activeJobId);
-  const resp = await apiFetch(
-    `api/jobs/${encodeURIComponent(jobId)}/logs?since=${encodeURIComponent(logCursor)}`,
-    {},
-    { kind: 'admin' },
-  );
-  if (!resp.ok || jobId !== activeJobId) return;
-  const page = await resp.json();
-  if (logGeneration && page.generation && page.generation !== logGeneration) {
-    logHydratedJobId = '';
-    logGeneration = '';
-    await hydrateQaLogs({ tail: true, autoScroll: true });
-    return;
-  }
-  for (const line of (page.lines || [])) {
-    appendLogLine(line);
-    updateStageBar(line);
-  }
-  logCursor = Math.max(0, Number(page.total) || logCursor);
-  logTotal = logCursor;
-  if (page.generation) logGeneration = page.generation;
-  if (autoScroll && (page.lines || []).length) scrollToBottom();
-  renderQaDrawer(activeJobMeta, activeResultFiles);
-  updateAdminLogControls();
-}
+async function syncActiveAdminLogs(autoScroll = false) { return jobLifecycleControllerBoundary.syncActiveAdminLogs(...arguments); }
 
-function clearLog() {
-  const term = document.getElementById('log-terminal');
-  if (term) term.innerHTML = '';
-  logCursor = 0;
-  logWindowStart = 0;
-  logTotal = 0;
-  logGeneration = '';
-  logHydratedJobId = '';
-  setDrawerText('log-count', '0 lines');
-  updateAdminLogControls();
-  renderQaDrawer(activeJobMeta, activeResultFiles);
-}
+function clearLog() { return jobLifecycleControllerBoundary.clearLog(...arguments); }
 
-function scrollElementToBottom(el) {
-  if (!el) return;
-  el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
-}
-function scrollToBottom() {
-  const term = document.getElementById('log-terminal');
-  if (!term) return;
-  const lastLine = term.lastElementChild;
-  scrollElementToBottom(term);
-  if (lastLine) lastLine.scrollIntoView({ block: 'end', inline: 'nearest' });
-  requestAnimationFrame(() => {
-    scrollElementToBottom(term);
-    const body = term.closest('.lab-console-body');
-    scrollElementToBottom(body);
-  });
-}
+function setQaLogView(value) { return jobLifecycleControllerBoundary.setQaLogView(value); }
+function handleQaLogViewKeydown(event) { return jobLifecycleControllerBoundary.handleQaLogViewKeydown(event); }
+
+function scrollElementToBottom(el) { return diagnosticsAccessBoundary.scrollElementToBottom(el); }
+function scrollToBottom() { return jobLifecycleControllerBoundary.scrollToBottom(...arguments); }
 
 // ── Stage bar ──────────────────────────────────────────────────────────────
-function jobHasExplicitStageSettings(job) {
-  const settings = jobStageSettings(job);
-  return [
-    'run_annotation', 'run_bigscape', 'run_summary', 'run_crosswalk',
-    'run_clinker', 'run_figures', 'run_nplinker',
-  ].some(key => settings[key] !== undefined && settings[key] !== null && settings[key] !== '');
-}
+function jobHasExplicitStageSettings(job) { return jobLifecycleControllerBoundary.jobHasExplicitStageSettings(...arguments); }
 
-function jobStageSettings(job) {
-  if (job?.rerun_stage_settings && typeof job.rerun_stage_settings === 'object') {
-    return job.rerun_stage_settings;
-  }
-  if (job?.submission_settings && typeof job.submission_settings === 'object') {
-    return job.submission_settings;
-  }
-  return (job && job.settings) || {};
-}
+function jobStageSettings(job) { return jobLifecycleControllerBoundary.jobStageSettings(...arguments); }
 
-function resultOrEventIndicatesStage(job, key, files = activeResultFiles) {
-  if (key === 'prep') return true;
-  const eventStages = new Set((Array.isArray(job?.public_events) ? job.public_events : [])
-    .map(normalizePublicWeaveEvent)
-    .filter(Boolean)
-    .map(event => event.stage)
-    .filter(Boolean));
-  if (eventStages.has(key)) return true;
-  const normalizedFiles = (files || []).map(path => normalizedResultPath(path)).filter(Boolean);
-  const hasFile = (pattern) => normalizedFiles.some(path => pattern.test(path));
-  if (key === 'annotation') return hasFile(/(^|\/)(antismash|funbgcex)(\/|$)/i);
-  if (key === 'bigscape') return hasFile(/(^|\/)(bigscape|big-scape)(\/|$)/i);
-  if (key === 'summary') return hasFile(/(^|\/)(summary_tables|summaries|atlas|shared_family|crosswalk)(\/|$)/i);
-  if (key === 'clinker') return hasFile(/(^|\/)(clinker|synteny)(\/|$)/i);
-  if (key === 'figures') return hasFile(/(^|\/)(figures|visuals)(\/|$)/i) || normalizedFiles.some(path => /\.(svg|png|jpe?g|webp)$/i.test(path) && /(^|\/)(figures|plots|summary)(\/|$)/i.test(path));
-  if (key === 'nplinker') return hasFile(/(^|\/)nplinker(\/|$)/i);
-  return false;
-}
+function resultOrEventIndicatesStage(job, key, files = activeResultFiles) { return jobLifecycleControllerBoundary.resultOrEventIndicatesStage(...arguments); }
 
-function inferredSuccessfulStageSet(job, files = activeResultFiles) {
-  const enabled = new Set(['prep']);
-  STAGES.forEach((stage) => {
-    if (stage.key !== 'prep' && resultOrEventIndicatesStage(job, stage.key, files)) enabled.add(stage.key);
-  });
-  if (enabled.has('summary')) enabled.add('bigscape');
-  if (enabled.has('figures')) enabled.add('summary');
-  return enabled;
-}
+function inferredSuccessfulStageSet(job, files = activeResultFiles) { return jobLifecycleControllerBoundary.inferredSuccessfulStageSet(...arguments); }
 
-function syncInferredStageState(job = activeJobMeta) {
-  if (!activeStageState || !job || activeStageState.jobId !== job.id) return;
-  if (jobHasExplicitStageSettings(job)) return;
-  if (String(job.status || '').toLowerCase() !== 'success') return;
-  const next = inferredSuccessfulStageSet(job, activeResultFiles);
-  const same = next.size === activeStageState.enabled.size && Array.from(next).every(key => activeStageState.enabled.has(key));
-  if (same) return;
-  activeStageState.enabled = next;
-  activeStageState.completed = new Set(Array.from(activeStageState.completed).filter(key => next.has(key)));
-  next.forEach(key => activeStageState.completed.add(key));
-  activeStageState.current = null;
-  activeStageState.failed = null;
-}
+function syncInferredStageState(job = activeJobMeta) { return jobLifecycleControllerBoundary.syncInferredStageState(...arguments); }
 
-function jobStageEnabled(job, key) {
-  const settings = jobStageSettings(job);
-  const setting = (name, defaultValue) => {
-    if (settings[name] === undefined || settings[name] === null || settings[name] === '') return defaultValue;
-    if (typeof settings[name] === 'boolean') return settings[name];
-    return envToBool(settings[name], defaultValue);
-  };
-  if (key === 'prep') return true;
-  if (key === 'annotation') return setting('run_annotation', true);
-  if (key === 'bigscape') return setting('run_bigscape', true);
-  if (key === 'summary') return setting('run_summary', setting('run_crosswalk', true));
-  if (key === 'clinker') return setting('run_clinker', true);
-  if (key === 'figures') return setting('run_figures', true);
-  if (key === 'nplinker') return setting('run_nplinker', false);
-  return true;
-}
+function jobStageEnabled(job, key) { return jobLifecycleControllerBoundary.jobStageEnabled(...arguments); }
 
-function stageCapabilityKey(key) {
-  const map = {
-    prep: 'prepare',
-    annotation: 'annotation',
-    bigscape: 'bigscape',
-    summary: 'summary',
-    clinker: 'clinker',
-    figures: 'figures',
-    nplinker: 'nplinker',
-  };
-  return map[key] || key;
-}
+function rerunStageAllowed(key) { return diagnosticsAccessBoundary.rerunStageAllowed(key, runtimeCapabilities); }
 
-function rerunStageAllowed(key) {
-  const stageCaps = runtimeCapabilities && runtimeCapabilities.stages;
-  if (!stageCaps) return true;
-  const cap = stageCaps[stageCapabilityKey(key)];
-  return !cap || cap.available !== false;
-}
+function initializeStageState(job) { return jobLifecycleControllerBoundary.initializeStageState(...arguments); }
 
-function initializeStageState(job) {
-  const enabled = new Set(STAGES.filter(s => jobStageEnabled(job, s.key)).map(s => s.key));
-  activeStageState = {
-    jobId: job ? job.id : null,
-    enabled,
-    completed: new Set(),
-    current: null,
-    failed: null,
-    startedAt: {},
-    endedAt: {},
-    startedAtSource: {},
-    endedAtSource: {},
-    appliedEvents: new Set(),
-    lastEventMs: null,
-  };
-  renderStageState();
-}
+function resetStages(job = null) { return jobLifecycleControllerBoundary.resetStages(...arguments); }
 
-function resetStages(job = null) {
-  initializeStageState(job || activeJobMeta || {});
-}
+function stageIndex(key) { return jobLifecycleControllerBoundary.stageIndex(...arguments); }
 
-function stageIndex(key) {
-  return STAGES.findIndex(s => s.key === key);
-}
+function resetWeaveActivity(job = null) { return jobLifecycleControllerBoundary.resetWeaveActivity(...arguments); }
 
-function resetWeaveActivity(job = null) {
-  weaveActivity = {
-    jobId: job && job.id ? job.id : null,
-    lastLogCount: job ? Number(job.log_count || 0) : null,
-    lastStatus: job ? String(job.status || '') : null,
-    events: [],
-  };
-  const helix = document.getElementById('weavemap-helix');
-  if (helix) delete helix.dataset.rendered;
-}
+function workflowStageList(job = activeJobMeta) { return jobLifecycleControllerBoundary.workflowStageList(...arguments); }
 
-function workflowStageList(job = activeJobMeta) {
-  return STAGES.filter(stage => {
-    if (stage.key === 'nplinker' && !canUseAdminSurfaces() && !jobStageEnabled(job || {}, stage.key)) return false;
-    return true;
-  });
-}
+function finalEnabledStageKey(job = activeJobMeta) { return jobLifecycleControllerBoundary.finalEnabledStageKey(...arguments); }
 
-function finalEnabledStageKey(job = activeJobMeta) {
-  const stages = workflowStageList(job).filter(stage => activeStageState
-    ? activeStageState.enabled.has(stage.key)
-    : jobStageEnabled(job || {}, stage.key));
-  return stages.length ? stages[stages.length - 1].key : null;
-}
+function stageVisualState(key) { return jobLifecycleControllerBoundary.stageVisualState(...arguments); }
 
-function stageVisualState(key) {
-  if (!activeStageState || !activeStageState.enabled.has(key)) return { cls: 'disabled', label: 'Skipped' };
-  if (activeStageState.failed === key) return { cls: 'failed', label: 'Failed' };
-  if (activeStageState.completed.has(key)) {
-    const status = String((activeJobMeta && activeJobMeta.status) || '').toLowerCase();
-    return status === 'success' && finalEnabledStageKey(activeJobMeta) === key
-      ? { cls: 'complete', label: 'Complete' }
-      : { cls: 'done', label: 'Past' };
-  }
-  if (activeStageState.current === key) return { cls: 'active', label: 'Current' };
-  return { cls: 'upcoming', label: 'Future' };
-}
+function formatWorkflowTime(value) { return jobLifecycleControllerBoundary.formatWorkflowTime(...arguments); }
 
-function formatWorkflowTime(value) {
-  if (!value) return 'time pending';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return 'time pending';
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-}
+function formatDuration(ms) { return jobLifecycleControllerBoundary.formatDuration(...arguments); }
 
-function formatDuration(ms) {
-  const total = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
-  const hours = Math.floor(total / 3600);
-  const minutes = Math.floor((total % 3600) / 60);
-  const seconds = total % 60;
-  if (hours) return `${hours}h ${String(minutes).padStart(2, '0')}m`;
-  return `${minutes}m ${String(seconds).padStart(2, '0')}s`;
-}
+function parseTimestampMs(value) { return jobLifecycleBoundary.parseTimestampMs(...arguments); }
 
-function parseTimestampMs(value) {
-  if (!value) return null;
-  const raw = typeof value === 'string' ? value.trim() : value;
-  const normalized = typeof raw === 'string'
-    && /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(raw)
-    ? `${raw.replace(' ', 'T')}Z`
-    : raw;
-  const ms = new Date(normalized).getTime();
-  return Number.isNaN(ms) ? null : ms;
-}
+function stageClockSeconds(value) { return jobLifecycleControllerBoundary.stageClockSeconds(...arguments); }
 
-function stageClockSeconds(value) {
-  const match = String(value || '').match(/^(\d{2}):(\d{2}):(\d{2})$/);
-  if (!match) return null;
-  const hours = Number(match[1]);
-  const minutes = Number(match[2]);
-  const seconds = Number(match[3]);
-  if (hours > 23 || minutes > 59 || seconds > 59) return null;
-  return (hours * 3600) + (minutes * 60) + seconds;
-}
+function stageTimingBaseMs(job = activeJobMeta) { return jobLifecycleControllerBoundary.stageTimingBaseMs(...arguments); }
 
-function stageTimingBaseMs(job = activeJobMeta) {
-  return parseTimestampMs(job?.started_at || job?.created_at || job?.updated_at);
-}
+function stageTimestampFromClock(value, job = activeJobMeta, minMs = null) { return jobLifecycleControllerBoundary.stageTimestampFromClock(...arguments); }
 
-function stageTimestampFromClock(value, job = activeJobMeta, minMs = null) {
-  const clockSeconds = stageClockSeconds(value);
-  if (clockSeconds === null) return null;
-  const baseMs = stageTimingBaseMs(job);
-  if (!baseMs) return null;
-  const dayStart = new Date(baseMs);
-  dayStart.setHours(0, 0, 0, 0);
-  let eventMs = dayStart.getTime() + (clockSeconds * 1000);
-  const createdMs = parseTimestampMs(job?.created_at || job?.started_at);
-  const lowerBound = Number.isFinite(minMs) ? minMs : createdMs;
-  while (createdMs && eventMs < createdMs - 60000) eventMs += 86400000;
-  while (Number.isFinite(lowerBound) && eventMs < lowerBound) eventMs += 86400000;
-  return eventMs;
-}
+function stageTimestampFromLogLine(line, job = activeJobMeta) { return jobLifecycleControllerBoundary.stageTimestampFromLogLine(...arguments); }
 
-function stageTimestampFromLogLine(line, job = activeJobMeta) {
-  const match = String(line || '').match(/^\[(\d{2}:\d{2}:\d{2})\]/);
-  return match ? stageTimestampFromClock(match[1], job, activeStageState?.lastEventMs) : null;
-}
+function stageTimingSourceRank(source) { return jobLifecycleControllerBoundary.stageTimingSourceRank(...arguments); }
 
-function stageTimingSourceRank(source) {
-  const ranks = {
-    snapshot: 1,
-    terminal: 2,
-    event: 3,
-    log: 3,
-  };
-  return ranks[source] || 0;
-}
+function setStageStartTime(key, ms, source = 'snapshot', options = {}) { return jobLifecycleControllerBoundary.setStageStartTime(...arguments); }
 
-function setStageStartTime(key, ms, source = 'snapshot', options = {}) {
-  if (!activeStageState || !Number.isFinite(ms)) return false;
-  const current = activeStageState.startedAt[key];
-  const currentSource = activeStageState.startedAtSource[key] || '';
-  const force = !!options.force;
-  const sourceRank = stageTimingSourceRank(source);
-  const currentRank = stageTimingSourceRank(currentSource);
-  const betterSource = sourceRank > currentRank;
-  const sameSourceEarlier = sourceRank === currentRank && ms < current;
-  if (force || !Number.isFinite(current) || betterSource || sameSourceEarlier) {
-    activeStageState.startedAt[key] = ms;
-    activeStageState.startedAtSource[key] = source;
-    return true;
-  }
-  return false;
-}
+function setStageEndTime(key, ms, source = 'snapshot', options = {}) { return jobLifecycleControllerBoundary.setStageEndTime(...arguments); }
 
-function setStageEndTime(key, ms, source = 'snapshot', options = {}) {
-  if (!activeStageState || !Number.isFinite(ms)) return false;
-  const start = activeStageState.startedAt[key];
-  const normalized = Number.isFinite(start) ? Math.max(ms, start) : ms;
-  const current = activeStageState.endedAt[key];
-  const currentSource = activeStageState.endedAtSource[key] || '';
-  const force = !!options.force;
-  const betterSource = stageTimingSourceRank(source) > stageTimingSourceRank(currentSource);
-  if (force || !Number.isFinite(current) || (betterSource && normalized !== current)) {
-    activeStageState.endedAt[key] = normalized;
-    activeStageState.endedAtSource[key] = source;
-    return true;
-  }
-  return false;
-}
+function clearStageTimingFrom(key) { return jobLifecycleControllerBoundary.clearStageTimingFrom(...arguments); }
 
-function clearStageTimingFrom(key) {
-  if (!activeStageState) return;
-  const startIdx = stageIndex(key);
-  if (startIdx < 0) return;
-  for (let i = startIdx; i < STAGES.length; i++) {
-    const stageKey = STAGES[i].key;
-    activeStageState.completed.delete(stageKey);
-    delete activeStageState.startedAt[stageKey];
-    delete activeStageState.endedAt[stageKey];
-    delete activeStageState.startedAtSource[stageKey];
-    delete activeStageState.endedAtSource[stageKey];
-  }
-}
+function stageTransitionTimeMs(options = {}) { return jobLifecycleControllerBoundary.stageTransitionTimeMs(...arguments); }
 
-function stageTransitionTimeMs(options = {}) {
-  if (Number.isFinite(options.eventTimeMs)) return options.eventTimeMs;
-  if (Number.isFinite(options.timeMs)) return options.timeMs;
-  if (options.line) {
-    const lineMs = stageTimestampFromLogLine(options.line, activeJobMeta);
-    if (Number.isFinite(lineMs)) return lineMs;
-  }
-  return Date.now();
-}
+function jobElapsedText(job = activeJobMeta) { return jobLifecycleControllerBoundary.jobElapsedText(...arguments); }
 
-function jobElapsedText(job = activeJobMeta) {
-  if (!job) return 'Not started';
-  const start = parseTimestampMs(job.started_at || job.created_at);
-  if (!start) return 'Not started';
-  const status = String(job.status || '').toLowerCase();
-  const end = (status === 'running' || status === 'pending')
-    ? Date.now()
-    : (parseTimestampMs(job.completed_at || job.finished_at || job.failed_at || job.updated_at) || Date.now());
-  return formatDuration(end - start);
-}
+function jobRuntimeBounds(job = activeJobMeta) { return jobLifecycleBoundary.jobRuntimeBounds(job); }
 
-function jobRuntimeBounds(job = activeJobMeta) {
-  const start = parseTimestampMs(job?.started_at || job?.created_at);
-  if (start === null) return null;
-  const status = String(job?.status || '').trim().toLowerCase();
-  const active = status === 'running' || status === 'pending';
-  const terminal = parseTimestampMs(
-    job?.completed_at || job?.failed_at || job?.finished_at || job?.updated_at,
-  );
-  const end = active ? Date.now() : (terminal ?? Date.now());
-  return { start, end: Math.max(start, end), active };
-}
+function formatJobRuntimeClock(milliseconds) { return jobLifecycleBoundary.formatJobRuntimeClock(milliseconds); }
 
-function formatJobRuntimeClock(milliseconds) {
-  const total = Math.max(0, Math.floor((Number(milliseconds) || 0) / 1000));
-  const days = Math.floor(total / 86400);
-  const hours = Math.floor((total % 86400) / 3600);
-  const minutes = Math.floor((total % 3600) / 60);
-  const seconds = total % 60;
-  return `(${String(days).padStart(2, '0')}:${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')})`;
-}
+function renderJobRuntime(job = activeJobMeta) { return jobLifecycleControllerBoundary.renderJobRuntime(...arguments); }
 
-function renderJobRuntime(job = activeJobMeta) {
-  const timer = document.getElementById('results-job-runtime');
-  if (!timer) return;
-  const bounds = jobRuntimeBounds(job);
-  if (!bounds) {
-    timer.hidden = true;
-    timer.textContent = '';
-    timer.removeAttribute('datetime');
-    return;
-  }
-  const elapsedMs = bounds.end - bounds.start;
-  const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
-  const days = Math.floor(totalSeconds / 86400);
-  const hours = Math.floor((totalSeconds % 86400) / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  timer.hidden = false;
-  timer.textContent = formatJobRuntimeClock(elapsedMs);
-  timer.dateTime = `PT${totalSeconds}S`;
-  timer.setAttribute(
-    'aria-label',
-    `Total job runtime: ${days} days, ${hours} hours, ${minutes} minutes, ${seconds} seconds`,
-  );
-  timer.title = bounds.active ? 'Total job runtime' : 'Final total job runtime';
-}
+function stageRuntimeHint(key) { return jobLifecycleControllerBoundary.stageRuntimeHint(...arguments); }
 
-function stageRuntimeHint(key) {
-  return STAGE_RUNTIME_HINTS[key] || 'Run dependent';
-}
+function stageEstimateText(key) { return jobLifecycleControllerBoundary.stageEstimateText(...arguments); }
 
-function stageEstimateText(key) {
-  return `Estimated range ${stageRuntimeHint(key)}`;
-}
+function compactRuntimeHint(key) { return jobLifecycleControllerBoundary.compactRuntimeHint(...arguments); }
 
-function compactRuntimeHint(key) {
-  const hint = stageRuntimeHint(key);
-  return hint.length > 18 ? 'varies' : hint;
-}
+function dnaStageMetaText(key, visual) { return jobLifecycleControllerBoundary.dnaStageMetaText(...arguments); }
 
-function dnaStageMetaText(key, visual) {
-  if (visual.cls === 'disabled') return 'Skipped';
-  return `${visual.label} / est. ${compactRuntimeHint(key)}`;
-}
+function stageElapsedText(key, visualCls) { return jobLifecycleControllerBoundary.stageElapsedText(...arguments); }
 
-function stageElapsedText(key, visualCls) {
-  if (!activeStageState || !activeStageState.enabled.has(key)) return 'Skipped';
-  const start = activeStageState.startedAt && activeStageState.startedAt[key];
-  const end = activeStageState.endedAt && activeStageState.endedAt[key];
-  const hasStart = Number.isFinite(start);
-  const hasEnd = Number.isFinite(end);
-  if (visualCls === 'active') return hasStart ? formatDuration(Date.now() - start) : 'Starting';
-  if ((visualCls === 'done' || visualCls === 'complete' || visualCls === 'failed') && hasStart && hasEnd) return formatDuration(end - start);
-  if (visualCls === 'failed' && hasStart) return formatDuration((hasEnd ? end : Date.now()) - start);
-  if (visualCls === 'done' || visualCls === 'complete') return 'Finished';
-  if (visualCls === 'failed') return 'Stopped';
-  if (hasStart) return 'Waiting';
-  return 'Not started';
-}
+function currentWorkflowStage() { return jobLifecycleControllerBoundary.currentWorkflowStage(...arguments); }
 
-function currentWorkflowStage() {
-  if (!activeStageState) return null;
-  if (activeStageState.failed) return activeStageState.failed;
-  if (activeStageState.current) return activeStageState.current;
-  if (activeJobMeta && String(activeJobMeta.status || '').toLowerCase() === 'success') return finalEnabledStageKey(activeJobMeta) || 'figures';
-  return null;
-}
-
-function setWorkflowExperienceState(job = activeJobMeta) {
-  renderJobRuntime(job);
-  const status = String((job && job.status) || '').toLowerCase();
-  let state = 'idle';
-  if (status === 'success') state = 'complete';
-  else if (status === 'failed') state = 'failed';
-  else if (status === 'running') state = 'running';
-  else if (status === 'pending' || activeJobId) state = 'launched';
-  document.body.dataset.workflowState = state;
-  document.body.dataset.jobState = state === 'launched' ? 'running' : state;
-  syncClusterweaveGameHost({ lifecycle: status === 'pending' ? 'pending' : state, job });
-}
+function setWorkflowExperienceState(job = activeJobMeta) { return jobLifecycleControllerBoundary.setWorkflowExperienceState(...arguments); }
 
 const CLUSTERWEAVE_GAME_PHASE_BY_STAGE = Object.freeze({
   prep: 'excavate',
@@ -8572,9 +3618,123 @@ function clusterweaveGamePhase(job = activeJobMeta) {
   return CLUSTERWEAVE_GAME_PHASE_BY_STAGE[stage] || 'excavate';
 }
 
+function clusterweaveGameAssetManifest() {
+  const nodes = Array.from(document.querySelectorAll(CLUSTERWEAVE_GAME_ASSET_SELECTOR));
+  const entries = nodes.map(node => {
+    const kind = String(node.dataset.kind || '');
+    const url = new URL(String(node.content || ''), window.location.href);
+    if (url.origin !== window.location.origin) throw new Error('Pixel Runner assets must be same-origin');
+    if (!url.searchParams.get('v')) throw new Error('Pixel Runner assets must be cache-busted');
+    return { kind, url: url.toString() };
+  });
+  const styles = entries.filter(entry => entry.kind === 'style');
+  const scripts = entries.filter(entry => entry.kind === 'script');
+  if (entries.length !== 4 || styles.length !== 1 || scripts.length !== 3) {
+    throw new Error('Pixel Runner asset manifest must declare one style and three ordered scripts');
+  }
+  return { style: styles[0].url, scripts: scripts.map(entry => entry.url) };
+}
+
+function loadClusterweaveGameStyle(url) {
+  return new Promise((resolve, reject) => {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = url;
+    link.dataset.clusterweaveGameAsset = 'style';
+    link.addEventListener('load', resolve, { once: true });
+    link.addEventListener('error', () => reject(new Error('Pixel Runner stylesheet failed to load')), { once: true });
+    document.head.appendChild(link);
+  });
+}
+
+function loadClusterweaveGameScript(url) {
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = url;
+    script.async = false;
+    script.dataset.clusterweaveGameAsset = 'script';
+    script.addEventListener('load', resolve, { once: true });
+    script.addEventListener('error', () => reject(new Error('Pixel Runner script failed to load')), { once: true });
+    document.head.appendChild(script);
+  });
+}
+
+function showClusterweaveGameLoadFailure() {
+  const launcher = document.getElementById('clusterweave-game-launcher');
+  if (!launcher) return;
+  launcher.removeAttribute('hidden');
+  launcher.classList.remove('hidden');
+  launcher.removeAttribute('inert');
+  launcher.setAttribute('aria-hidden', 'false');
+  const title = launcher.querySelector('strong');
+  const copy = launcher.querySelector('p');
+  if (title) title.textContent = 'Game unavailable';
+  if (copy) copy.textContent = 'The workflow is unaffected. Reload after the optional game assets are available.';
+  launcher.querySelector('.clusterweave-game-launcher-actions')?.setAttribute('hidden', '');
+}
+
+async function loadClusterweaveGameAssets() {
+  if (window.ClusterWeaveGame?.setHostState) return window.ClusterWeaveGame;
+  if (clusterweaveGameAssetsPromise) return clusterweaveGameAssetsPromise;
+  clusterweaveGameAssetsPromise = (async () => {
+    const manifest = clusterweaveGameAssetManifest();
+    await loadClusterweaveGameStyle(manifest.style);
+    for (const script of manifest.scripts) await loadClusterweaveGameScript(script);
+    const controller = window.ClusterWeaveGame;
+    if (!controller?.setHostState) throw new Error('Pixel Runner controller did not initialize');
+    controller.setConnectionState?.(clusterweaveGameConnectionState);
+    syncClusterweaveGameHost(clusterweaveGamePendingHost || {});
+    return controller;
+  })().catch(error => {
+    showClusterweaveGameLoadFailure();
+    throw error;
+  });
+  return clusterweaveGameAssetsPromise;
+}
+
+function requestClusterweaveGameAssets() {
+  void loadClusterweaveGameAssets().catch(error => {
+    console.error('Pixel Runner assets failed to load:', error);
+  });
+}
+
+function clusterweaveGameEligible(lifecycle = '') {
+  return lifecycle === 'pending'
+    || lifecycle === 'running'
+    || clusterweaveGameConnectionState !== 'connected'
+    || document.body.dataset.clusterweaveGameBootstrapEligible === 'true';
+}
+
+function rememberClusterweaveGameConnectionState(connection) {
+  if (!['connected', 'reconnecting', 'browser-offline'].includes(connection)) return;
+  clusterweaveGameConnectionState = connection;
+  if (connection !== 'connected') requestClusterweaveGameAssets();
+}
+
+function setClusterweaveGameBootstrapEligible(eligible) {
+  const isEligible = eligible === true;
+  document.body.dataset.clusterweaveGameBootstrapEligible = isEligible ? 'true' : 'false';
+  if (isEligible) requestClusterweaveGameAssets();
+}
+
+function wireClusterweaveGameDemand() {
+  if (clusterweaveGameDemandWired) return;
+  clusterweaveGameDemandWired = true;
+  ['clusterweave-game-start', 'clusterweave-game-bootstrap-open'].forEach(id => {
+    const button = document.getElementById(id);
+    button?.addEventListener('click', event => {
+      if (window.ClusterWeaveGame?.open) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      void loadClusterweaveGameAssets().then(controller => controller.open({
+        returnFocus: button,
+        fromBootstrap: id === 'clusterweave-game-bootstrap-open',
+      })).catch(error => console.error('Pixel Runner could not start:', error));
+    }, true);
+  });
+}
+
 function syncClusterweaveGameHost(options = {}) {
-  const controller = window.ClusterWeaveGame;
-  if (!controller?.setHostState) return;
   const hasJob = Object.prototype.hasOwnProperty.call(options, 'job');
   const job = hasJob ? options.job : activeJobMeta;
   let lifecycle = String(options.lifecycle || '').toLowerCase();
@@ -8585,6 +3745,12 @@ function syncClusterweaveGameHost(options = {}) {
   }
   if (lifecycle === 'complete') lifecycle = 'success';
   if (lifecycle === 'launched') lifecycle = 'pending';
+  clusterweaveGamePendingHost = { lifecycle, job };
+  const controller = window.ClusterWeaveGame;
+  if (!controller?.setHostState) {
+    if (clusterweaveGameEligible(lifecycle)) requestClusterweaveGameAssets();
+    return;
+  }
   controller.setHostState({
     epoch: clusterweaveGameEpoch,
     lifecycle,
@@ -8632,6 +3798,7 @@ function setBgcWorkflowAggregatePresentationSuspended(suspended) {
 function wireClusterweaveGameAdapter() {
   if (clusterweaveGameAdapterWired) return;
   clusterweaveGameAdapterWired = true;
+  wireClusterweaveGameDemand();
   window.addEventListener('clusterweave:game-animation', (event) => {
     setClusterweaveGameDnaSuspended(Boolean(event?.detail?.active));
   });
@@ -8654,1070 +3821,113 @@ function wireClusterweaveGameAdapter() {
   syncClusterweaveGameHost();
 }
 
-function bgcWorkflowStages(job = activeJobMeta) {
-  return workflowStageList(job).filter(stage => stage.key !== 'nplinker' || jobStageEnabled(job || {}, stage.key) || canUseAdminSurfaces());
-}
+function bgcWorkflowStages(job = activeJobMeta) { return jobLifecycleControllerBoundary.bgcWorkflowStages(...arguments); }
 
-function bgcStageStatus(stage, currentKey, jobStatus) {
-  const key = stage.key;
-  if (activeStageState && !activeStageState.enabled.has(key)) return 'skipped';
-  if (jobStatus === 'success') return 'complete';
-  if (activeStageState?.failed === key || (jobStatus === 'failed' && currentKey === key)) return 'error';
-  if (activeStageState?.completed.has(key)) return 'complete';
-  if (currentKey === key) return 'running';
-  return 'pending';
-}
+function bgcStageStatus(stage, currentKey, jobStatus) { return jobLifecycleControllerBoundary.bgcStageStatus(...arguments); }
 
-function compactActivityChipText(value, maxLength = 96) {
-  const text = String(value || '').replace(/\s+/g, ' ').trim();
-  if (!text) return '';
-  return text.length > maxLength ? `${text.slice(0, Math.max(0, maxLength - 3)).trim()}...` : text;
-}
+function compactActivityChipText(value, maxLength = 96) { return jobLifecycleBoundary.compactActivityChipText(...arguments); }
 
-function jobPublicWorkflowEvents(job, currentKey) {
-  const jobEvents = Array.isArray(job?.public_events)
-    ? job.public_events.map(normalizePublicWeaveEvent).filter(Boolean)
-    : [];
-  const events = jobEvents.length ? jobEvents : (Array.isArray(weaveActivity.events) ? weaveActivity.events : []);
-  if (!currentKey) return events;
-  const stageEvents = events.filter(event => event?.stage === currentKey);
-  return stageEvents.length ? stageEvents : events;
-}
+function jobPublicWorkflowEvents(job, currentKey) { return jobLifecycleControllerBoundary.jobPublicWorkflowEvents(...arguments); }
 
-function latestJobPublicWorkflowEvent(job, currentKey) {
-  const events = jobPublicWorkflowEvents(job, currentKey);
-  return events.length ? events[events.length - 1] : null;
-}
+function latestJobPublicWorkflowEvent(job, currentKey) { return jobLifecycleControllerBoundary.latestJobPublicWorkflowEvent(...arguments); }
 
-function activityOrganismFromMeta(meta) {
-  const parts = String(meta || '').split('/').map(part => part.trim()).filter(Boolean);
-  return parts.find(part => !/^Genome\s+\d+\s+of\s+\d+$/i.test(part) && !/\bactive$/i.test(part) && !/^\d{1,2}:\d{2}/.test(part)) || '';
-}
+function activityOrganismFromMeta(meta) { return jobLifecycleControllerBoundary.activityOrganismFromMeta(...arguments); }
 
-function activityElapsedFromMeta(meta) {
-  const match = String(meta || '').match(/(under 1 min|\d+ min|\d+h(?: \d{2}m)?) active/i);
-  return match ? match[1] : '';
-}
+function activityElapsedFromMeta(meta) { return jobLifecycleControllerBoundary.activityElapsedFromMeta(...arguments); }
 
-function activityPartsFromEvent(event) {
-  if (!event?.title) return null;
-  const heartbeatMatch = event.title.match(/^(.+?)\s+still\s+running$/i);
-  if (heartbeatMatch) {
-    return {
-      kind: 'heartbeat',
-      tool: heartbeatMatch[1].trim(),
-      organism: activityOrganismFromMeta(event.meta),
-      elapsed: activityElapsedFromMeta(event.meta),
-      event,
-    };
-  }
-  const progressMatch = event.title.match(/^([^:]+):\s*(.+)$/);
-  if (progressMatch) {
-    return {
-      kind: 'progress',
-      tool: progressMatch[1].trim(),
-      organism: activityOrganismFromMeta(event.meta),
-      message: progressMatch[2].trim(),
-      event,
-    };
-  }
-  return null;
-}
+function activityPartsFromEvent(event) { return jobLifecycleControllerBoundary.activityPartsFromEvent(...arguments); }
 
-function activityPartsMatch(a, b) {
-  if (!a || !b) return false;
-  const toolMatch = !a.tool || !b.tool || a.tool.toLowerCase() === b.tool.toLowerCase();
-  const organismMatch = !a.organism || !b.organism || a.organism === b.organism;
-  return toolMatch && organismMatch;
-}
+function activityPartsMatch(a, b) { return jobLifecycleControllerBoundary.activityPartsMatch(...arguments); }
 
-function latestToolActivityParts(job, currentKey) {
-  const parts = jobPublicWorkflowEvents(job, currentKey).map(activityPartsFromEvent).filter(Boolean);
-  if (!parts.length) return null;
-  let heartbeat = null;
-  for (let index = parts.length - 1; index >= 0; index -= 1) {
-    if (parts[index].kind === 'heartbeat') {
-      heartbeat = parts[index];
-      break;
-    }
-  }
-  let progress = null;
-  for (let index = parts.length - 1; index >= 0; index -= 1) {
-    if (parts[index].kind === 'progress' && (!heartbeat || activityPartsMatch(parts[index], heartbeat))) {
-      progress = parts[index];
-      break;
-    }
-  }
-  return progress || heartbeat ? { progress, heartbeat } : null;
-}
+function latestToolActivityParts(job, currentKey) { return jobLifecycleControllerBoundary.latestToolActivityParts(...arguments); }
 
-function workflowPayloadHasSkippedStages(payload = null) {
-  const steps = payload && Array.isArray(payload.steps) ? payload.steps : null;
-  if (steps) return steps.some(step => step.status === 'skipped');
-  return !!(activeStageState && workflowStageList(activeJobMeta).some(stage => !activeStageState.enabled.has(stage.key)));
-}
+function workflowPayloadHasSkippedStages(payload = null) { return jobLifecycleControllerBoundary.workflowPayloadHasSkippedStages(...arguments); }
 
-function bgcActivityChipPayload(job, state, currentKey, fallbackTool) {
-  if (state === 'idle') return { text: 'WAITING', title: 'Waiting for submitted inputs' };
-  if (state === 'complete') return workflowPayloadHasSkippedStages()
-    ? { text: 'SELECTED COMPLETE', title: 'Selected workflow tools complete; downstream stages skipped' }
-    : { text: 'COMPLETE', title: 'All workflow tools complete' };
-  if (state === 'failed') return { text: 'NEEDS REVIEW', title: job?.error_summary || job?.error || 'Workflow needs attention' };
-  const activity = latestToolActivityParts(job, currentKey);
-  if (activity) {
-    const { progress, heartbeat } = activity;
-    const tool = progress?.tool || heartbeat?.tool || fallbackTool || 'Workflow';
-    const organism = progress?.organism || heartbeat?.organism || '';
-    const message = progress?.message || 'Running';
-    const elapsed = heartbeat?.elapsed || '';
-    const pieces = [tool, organism, message, elapsed].filter(Boolean);
-    const fullText = pieces.join(' | ');
-    return {
-      text: compactActivityChipText(fullText),
-      title: fullText,
-    };
-  }
-  const event = latestJobPublicWorkflowEvent(job, currentKey);
-  if (event?.title) {
-    return {
-      text: compactActivityChipText(event.title),
-      title: [event.title, event.meta].filter(Boolean).join(' - '),
-    };
-  }
-  return {
-    text: compactActivityChipText(`${fallbackTool || 'Workflow'} | running`),
-    title: fallbackTool || 'Workflow running',
-  };
-}
+function bgcActivityChipPayload(job, state, currentKey, fallbackTool) { return jobLifecycleControllerBoundary.bgcActivityChipPayload(...arguments); }
 
-function clampUnit(value) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return 0;
-  return Math.max(0, Math.min(1, number));
-}
+function clampUnit(value) { return jobLifecycleControllerBoundary.clampUnit(...arguments); }
 
-// BEGIN GENOME_PROGRESS_PURE
-function safeGenomeProgressText(value, fallback = 'Working', maxLength = 120) {
-  let text = String(value ?? '')
-    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (!text) return fallback;
-  const unsafe = [
-    /\b(?:authorization|proxy-authorization|cookie|set-cookie)\s*:/i,
-    /\b(?:basic|bearer)\s+\S+/i,
-    /(?:[?&]|\b)(?:access[_-]?token|api[_-]?key|auth[_-]?token|token|secret|password|passwd|credential|signature)\s*=\s*[^\s&]+/i,
-    /\b[A-Za-z][A-Za-z0-9_-]*(?:TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|PRIVATE_KEY|CREDENTIAL)[A-Za-z0-9_-]*\s*[:=]\s*\S+/,
-    /\bfile:\/\//i,
-    /(?:^|[\s=:(])[A-Za-z]:[\\/](?:[^\s]+)/,
-    /(?:^|[\s=:(])\/(?:[^/\s]+\/)+[^\s)]*/,
-  ];
-  if (unsafe.some(pattern => pattern.test(text))) return fallback;
-  if (/^https?:\/\//i.test(text)) return fallback;
-  text = text.replace(/[^A-Za-z0-9 ._:+/%()|'’-]+/g, ' ').replace(/\s+/g, ' ').trim();
-  if (!text) return fallback;
-  return text.length > maxLength ? `${text.slice(0, Math.max(1, maxLength - 3)).trim()}...` : text;
-}
 
-function safeGenomeProgressLabel(item, index) {
-  const raw = item?.display_label
-    ?? item?.displayLabel
-    ?? item?.organism_name
-    ?? item?.organism
-    ?? item?.label
-    ?? item?.genome_id
-    ?? item?.genome
-    ?? `Genome ${index + 1}`;
-  const basename = String(raw ?? '').replace(/\\/g, '/').split('/').pop();
-  const display = basename.replace(/_/g, ' ').trim();
-  return safeGenomeProgressText(display || basename, `Genome ${index + 1}`, 72);
-}
 
-function genomeProgressPercent(item) {
-  const explicitPercent = item?.percent ?? item?.progress_percent ?? item?.progressPercent;
-  const raw = explicitPercent ?? item?.progress ?? 0;
-  let number = Number(raw);
-  if (!Number.isFinite(number)) number = 0;
-  if (explicitPercent === undefined && number > 0 && number <= 1) number *= 100;
-  return Math.max(0, Math.min(100, Math.round(number)));
-}
+function safeGenomeProgressText(value, fallback = 'Working', maxLength = 120) { return jobLifecycleBoundary.safeGenomeProgressText(value, fallback, maxLength); }
+function safeGenomeProgressLabel(item, index) { return jobLifecycleBoundary.safeGenomeProgressLabel(item, index); }
+function genomeProgressPercent(item) { return jobLifecycleBoundary.genomeProgressPercent(item); }
+function genomeProgressTaxon(value) { return jobLifecycleBoundary.genomeProgressTaxon(value); }
+function normalizeGenomeRegionProgress(item) { return jobLifecycleBoundary.normalizeGenomeRegionProgress(item); }
+function normalizeGenomeProgressItem(item, index) { return jobLifecycleBoundary.normalizeGenomeProgressItem(item, index); }
+function resetGenomeProgressSnapshot(jobId = '', rerunCount = 0) { return jobLifecycleBoundary.resetGenomeProgressSnapshot(jobId, rerunCount); }
+function genomeProgressAttemptKey(job) { return jobLifecycleBoundary.genomeProgressAttemptKey(job); }
+function genomeProgressExplicitRestart(previous, next) { return jobLifecycleBoundary.genomeProgressExplicitRestart(previous, next); }
+function genomeProgressSnapshotPrefersPrevious(previous, next) { return jobLifecycleBoundary.genomeProgressSnapshotPrefersPrevious(previous, next); }
+function normalizeGenomeProgressItems(job) { return jobLifecycleBoundary.normalizeGenomeProgressItems(job); }
+function genomeProgressStages(item) { return jobLifecycleBoundary.genomeProgressStages(item); }
+function genomeProgressCurrentStageIndex(item, stages) { return jobLifecycleBoundary.genomeProgressCurrentStageIndex(item, stages); }
+function genomeProgressStageKey(label) { return jobLifecycleBoundary.genomeProgressStageKey(label); }
+function genomeProgressStageFraction(item, key, status) { return jobLifecycleBoundary.genomeProgressStageFraction(item, key, status); }
+function genomeProgressStageModel(item) { return jobLifecycleBoundary.genomeProgressStageModel(item); }
+function renderGenomeProgressStages(item, model = genomeProgressStageModel(item)) { return jobLifecycleBoundary.renderGenomeProgressStages(item, model); }
+function genomeProgressMeterModel(item, stages = genomeProgressStageModel(item)) { return jobLifecycleBoundary.genomeProgressMeterModel(item, stages); }
+function genomeProgressRibbonText(item, statusMessage, stages) { return jobLifecycleBoundary.genomeProgressRibbonText(item, statusMessage, stages); }
+function renderGenomeProgressMeter(item, statusMessage, stages) { return jobLifecycleBoundary.renderGenomeProgressMeter(item, statusMessage, stages); }
+function renderGenomeProgressCard(item) { return jobLifecycleBoundary.renderGenomeProgressCard(item); }
+function genomeProgressSummaryText(items) { return jobLifecycleBoundary.genomeProgressSummaryText(items); }
+function bgcWorkflowTitle(payload, genomeLayerActive) { return jobLifecycleBoundary.bgcWorkflowTitle(payload, genomeLayerActive); }
 
-function genomeProgressTaxon(value) {
-  const taxon = String(value || '').trim().toLowerCase();
-  if (taxon === 'fungi' || taxon === 'fungus' || taxon === 'fungal') return 'Fungi';
-  if (taxon === 'bacteria' || taxon === 'bacterium' || taxon === 'bacterial') return 'Bacteria';
-  return 'Genome';
-}
+function renderGenomeProgressLayer(payload) { return jobLifecycleControllerBoundary.renderGenomeProgressLayer(...arguments); }
 
-function normalizeGenomeRegionProgress(item) {
-  const source = item?.region_progress ?? item?.regionProgress;
-  if (!source || typeof source !== 'object' || Array.isArray(source)) return null;
-  const total = Math.max(0, Math.round(Number(source.total) || 0));
-  if (!total) return null;
-  const bounded = value => Math.max(0, Math.min(total, Math.round(Number(value) || 0)));
-  const processed = bounded(source.processed ?? source.finished ?? source.complete);
-  const failed = Math.min(processed, bounded(source.failed));
-  const active = Math.min(total - processed, bounded(source.active));
-  return { processed, total, active, failed };
-}
+function workflowStageWeight(stage) { return jobLifecycleControllerBoundary.workflowStageWeight(...arguments); }
 
-function normalizeGenomeProgressItem(item, index) {
-  if (!item || typeof item !== 'object') return null;
-  const percent = genomeProgressPercent(item);
-  const rawStatus = String(item.status ?? item.state ?? item.outcome ?? '').trim().toLowerCase().replace(/\s+/g, '_');
-  const message = safeGenomeProgressText(
-    item.message ?? item.detail ?? item.status_text ?? item.statusText ?? item.log,
-    percent >= 100 ? 'Genome milestone finished' : 'Waiting for the next genome milestone',
-  );
-  const messageState = /\b(?:dropped|failed|error|unable|insufficient|needs review)\b/i.test(message)
-    ? 'warning'
-    : /\b(?:complete|completed|finished|not applicable|skipped)\b/i.test(message)
-      ? 'complete'
-      : '';
-  const status = rawStatus || messageState || (percent >= 100 ? 'complete' : percent > 0 ? 'running' : 'waiting');
-  const completedWithWarning = status === 'complete_with_warning';
-  const warning = !completedWithWarning && (
-    GENOME_PROGRESS_WARNING_STATES.has(status) || messageState === 'warning'
-  );
-  const terminal = item.terminal === true
-    || GENOME_PROGRESS_TERMINAL_STATES.has(status)
-    || (percent >= 100 && status !== 'running');
-  const stage = safeGenomeProgressText(
-    item.milestone ?? item.tool ?? item.stage ?? item.phase,
-    terminal ? (warning ? 'Needs review' : 'Complete') : 'Queued',
-    42,
-  );
-  const tool = safeGenomeProgressText(item.tool ?? item.milestone ?? item.stage, '', 42);
-  const rawAnnotationMethod = String(
-    item.annotation_method ?? item.annotationMethod ?? item.effective_prediction_method ?? '',
-  ).trim().toLowerCase().replace(/-/g, '_');
-  const annotationMethod = ['existing_cds', 'funannotate', 'braker3', 'prodigal'].includes(rawAnnotationMethod)
-    ? rawAnnotationMethod
-    : '';
-  const warningTool = safeGenomeProgressText(item.warning_tool ?? item.warningTool, '', 42);
-  const warningMessage = safeGenomeProgressText(
-    item.warning_message ?? item.warningMessage,
-    '',
-    180,
-  );
-  const activityMessage = safeGenomeProgressText(
-    item.activity_message ?? item.activityMessage ?? message,
-    message,
-    180,
-  );
-  const regionProgress = normalizeGenomeRegionProgress(item);
-  const rawStageStates = item.stage_states ?? item.stageStates;
-  const stageStates = {};
-  if (rawStageStates && typeof rawStageStates === 'object' && !Array.isArray(rawStageStates)) {
-    Object.entries(rawStageStates).forEach(([key, value]) => {
-      if (!value || typeof value !== 'object') return;
-      const normalizedKey = String(key || '').trim().toLowerCase().replace(/-/g, '_');
-      if (!['genome_acquired', 'funannotate', 'antismash', 'funbgcex', 'complete'].includes(normalizedKey)) return;
-      const normalizedStatus = String(value.status || 'queued').trim().toLowerCase();
-      stageStates[normalizedKey] = {
-        status: ['complete', 'running', 'failed', 'queued', 'waiting'].includes(normalizedStatus)
-          ? normalizedStatus : 'queued',
-        message: safeGenomeProgressText(value.message, '', 180),
-      };
-    });
-  }
-  const id = safeGenomeProgressText(item.genome_id ?? item.genome ?? item.id, `genome-${index + 1}`, 96);
-  return {
-    id,
-    label: safeGenomeProgressLabel(item, index),
-    taxon: genomeProgressTaxon(item.taxon ?? item.taxon_group ?? item.domain),
-    percent,
-    status,
-    stage,
-    tool,
-    annotationMethod,
-    message,
-    activityMessage,
-    warningTool,
-    warningMessage,
-    regionProgress,
-    stageStates,
-    updatedAt: String(item.updated_at ?? item.updatedAt ?? '').trim(),
-    terminal,
-    warning,
-    completedWithWarning,
-    hasWarning: warning || completedWithWarning || !!warningMessage,
-  };
-}
+function parseWorkflowGenomePosition(value) { return jobLifecycleControllerBoundary.parseWorkflowGenomePosition(...arguments); }
 
-function resetGenomeProgressSnapshot(jobId = '', rerunCount = 0) {
-  genomeProgressSnapshotKey = `${String(jobId || '')}\u001f${Math.max(0, Number(rerunCount) || 0)}`;
-  genomeProgressSnapshot = new Map();
-}
+function workflowGenomePhaseFromTitle(title) { return jobLifecycleControllerBoundary.workflowGenomePhaseFromTitle(...arguments); }
 
-function genomeProgressAttemptKey(job) {
-  const jobId = String(job?.id ?? job?.job_id ?? activeJobId ?? '');
-  const rerunCount = Math.max(0, Number(job?.rerun_count ?? job?.rerunCount) || 0);
-  return `${jobId}\u001f${rerunCount}`;
-}
+function annotationGenomeProgress(job) { return jobLifecycleControllerBoundary.annotationGenomeProgress(...arguments); }
 
-function genomeProgressExplicitRestart(previous, next) {
-  if (!previous?.terminal || next?.percent !== 0) return false;
-  const nextTime = parseTimestampMs(next.updatedAt);
-  const previousTime = parseTimestampMs(previous.updatedAt);
-  if (nextTime !== null && previousTime !== null && nextTime <= previousTime) return false;
-  return /\b(?:starting|restarting|rerun)\b/i.test(next.message || '');
-}
+function workflowCurrentStageFraction(job, currentKey, status) { return jobLifecycleControllerBoundary.workflowCurrentStageFraction(...arguments); }
 
-function genomeProgressSnapshotPrefersPrevious(previous, next) {
-  if (!previous || genomeProgressExplicitRestart(previous, next)) return false;
-  const previousTime = parseTimestampMs(previous.updatedAt);
-  const nextTime = parseTimestampMs(next.updatedAt);
-  if (previousTime !== null && nextTime !== null && nextTime < previousTime) return true;
-  if (next.percent < previous.percent) return true;
-  if (previous.terminal && !next.terminal) return true;
-  return previousTime !== null && nextTime === null && next.percent <= previous.percent;
-}
+function weightedWorkflowProgress(stages, currentKey, status, job, stageProgress = null) { return jobLifecycleControllerBoundary.weightedWorkflowProgress(...arguments); }
 
-function normalizeGenomeProgressItems(job) {
-  const source = Array.isArray(job?.genome_progress)
-    ? job.genome_progress
-    : Array.isArray(job?.genomeProgress)
-      ? job.genomeProgress
-      : [];
-  const keyed = new Map();
-  source.forEach((item, index) => {
-    const normalized = normalizeGenomeProgressItem(item, index);
-    if (!normalized) return;
-    const key = String(normalized.id || normalized.label).toLowerCase();
-    if (keyed.has(key)) keyed.delete(key);
-    keyed.set(key, normalized);
-  });
-  const attemptKey = genomeProgressAttemptKey(job);
-  if (genomeProgressSnapshotKey !== attemptKey) resetGenomeProgressSnapshot(
-    job?.id ?? job?.job_id ?? activeJobId ?? '',
-    job?.rerun_count ?? job?.rerunCount ?? 0,
-  );
-  const reconciled = new Map();
-  genomeProgressSnapshot.forEach((previous, key) => {
-    const next = keyed.get(key);
-    reconciled.set(
-      key,
-      !next || genomeProgressSnapshotPrefersPrevious(previous, next) ? previous : next,
-    );
-  });
-  keyed.forEach((next, key) => {
-    if (!reconciled.has(key)) reconciled.set(key, next);
-  });
-  const items = Array.from(reconciled.values());
-  genomeProgressSnapshot = new Map(items.map(item => [String(item.id || item.label).toLowerCase(), item]));
-  return items;
-}
+function bgcWorkflowPayload(job = activeJobMeta) { return jobLifecycleControllerBoundary.bgcWorkflowPayload(...arguments); }
 
-function genomeProgressStages(item) {
-  if (item.taxon === 'Bacteria') return ['Genome acquired', 'antiSMASH', 'Complete'];
-  const usesFunannotate = item.annotationMethod === 'funannotate'
-    || /\bfunannotate\b/i.test(`${item.stage || ''} ${item.tool || ''}`);
-  return usesFunannotate
-    ? ['Genome acquired', 'Funannotate', 'antiSMASH', 'FunBGCeX', 'Complete']
-    : ['Genome acquired', 'antiSMASH', 'FunBGCeX', 'Complete'];
-}
 
-function genomeProgressCurrentStageIndex(item, stages) {
-  if (item.terminal && !item.warning) return stages.length - 1;
-  const stage = String(item.stage || '').toLowerCase();
-  const tool = String(item.tool || '').toLowerCase();
-  const combined = `${stage} ${tool}`;
-  const acquiredIndex = 0;
-  const funannotateIndex = stages.indexOf('Funannotate');
-  const antismashIndex = stages.indexOf('antiSMASH');
-  const funbgcexIndex = stages.indexOf('FunBGCeX');
-  if (item.taxon === 'Bacteria') {
-    if (/complete/.test(stage)) return stages.length - 1;
-    if (/antismash|prodigal/.test(combined)) return antismashIndex;
-    if (item.warning || /download|ncbi/.test(combined)) return acquiredIndex;
-    if (GENOME_PROGRESS_ACTIVE_STATES.has(item.status) || item.percent > 8) return antismashIndex;
-    return acquiredIndex;
-  }
-  if (/complete/.test(stage)) return stages.length - 1;
-  if (/funbgcex/.test(combined)) return funbgcexIndex;
-  if (/antismash/.test(combined)) return antismashIndex;
-  if (funannotateIndex >= 0 && /annotat|funannotate|predict/.test(combined)) {
-    return funannotateIndex;
-  }
-  return acquiredIndex;
-}
 
-function genomeProgressStageKey(label) {
-  return ({
-    'Genome acquired': 'genome_acquired',
-    Funannotate: 'funannotate',
-    antiSMASH: 'antismash',
-    FunBGCeX: 'funbgcex',
-    Complete: 'complete',
-  })[label] || '';
-}
+function alt06StepStatus(group, sourceSteps, payload) { return jobLifecycleControllerBoundary.alt06StepStatus(...arguments); }
 
-function genomeProgressStageFraction(item, key, status) {
-  if (status === 'complete') return 1;
-  if (!['running', 'failed'].includes(status)) return 0;
-  if (key === 'antismash' && item.regionProgress?.total) {
-    return Math.max(0, Math.min(1, item.regionProgress.processed / item.regionProgress.total));
-  }
-  const ranges = {
-    genome_acquired: [0, 8],
-    funannotate: [10, 25],
-    antismash: [35, 70],
-    funbgcex: [80, 100],
-    complete: [100, 100],
-  };
-  const [start, end] = ranges[key] || [0, 100];
-  if (end <= start) return item.terminal ? 1 : 0;
-  return Math.max(0, Math.min(1, (item.percent - start) / (end - start)));
-}
+function alt06WorkflowCaption(payload) { return jobLifecycleControllerBoundary.alt06WorkflowCaption(...arguments); }
 
-function genomeProgressStageModel(item) {
-  const stages = genomeProgressStages(item);
-  const currentIndex = genomeProgressCurrentStageIndex(item, stages);
-  return stages.map((label, index) => {
-    const key = genomeProgressStageKey(label);
-    const structured = item.stageStates?.[key];
-    let status = 'queued';
-    if (structured) {
-      status = structured.status === 'failed' ? 'failed'
-        : structured.status === 'running' ? 'running'
-          : structured.status === 'complete' ? 'complete' : 'queued';
-    } else {
-      const acquiredAndQueued = item.percent > 0 && item.status === 'queued' && currentIndex === 0;
-      const complete = item.terminal && !item.warning
-        ? index <= currentIndex
-        : index < currentIndex || (acquiredAndQueued && index === 0);
-      const current = index === currentIndex && (GENOME_PROGRESS_ACTIVE_STATES.has(item.status) || item.warning);
-      status = complete ? 'complete' : current ? (item.warning ? 'failed' : 'running') : 'queued';
-    }
-    const progress = Math.round(genomeProgressStageFraction(item, key, status) * 100);
-    return {
-      key,
-      label,
-      status,
-      progress,
-      stateClass: status === 'complete' ? 'is-complete'
-        : status === 'running' ? 'is-active'
-          : status === 'failed' ? 'is-warning' : 'is-upcoming',
-      stateLabel: status === 'failed' ? 'error'
-        : status === 'running' ? 'current'
-          : status === 'complete' ? 'complete' : 'queued',
-    };
-  });
-}
+function renderBgcWorkflowStageStrip(payload) { return jobLifecycleControllerBoundary.renderBgcWorkflowStageStrip(...arguments); }
 
-function renderGenomeProgressStages(item, model = genomeProgressStageModel(item)) {
-  return `<ol class="genome-progress-stages" style="--genome-stage-count: ${model.length}" aria-label="${escapeHtml(`${item.label} workflow stages`)}">${model.map(stage => (
-    `<li class="${stage.stateClass}" aria-label="${escapeHtml(`${stage.label}: ${stage.stateLabel}`)}"><span aria-hidden="true"></span><b>${escapeHtml(stage.label)}</b></li>`
-  )).join('')}</ol>`;
-}
+function applyBgcWorkflowPayload(payload) { return jobLifecycleControllerBoundary.applyBgcWorkflowPayload(...arguments); }
 
-function genomeProgressMeterModel(item, stages = genomeProgressStageModel(item)) {
-  const current = stages.find(stage => stage.status === 'running' || stage.status === 'failed');
-  if (current) return {
-    label: current.label,
-    percent: current.progress,
-    text: `${current.label} ${current.progress}%`,
-  };
-  if (item.terminal && !item.warning) return { label: 'Complete', percent: 100, text: 'Complete 100%' };
-  return { label: 'Queued', percent: 0, text: 'Queued' };
-}
+function updateBgcWorkflowDnaFromJob(job = activeJobMeta) { return jobLifecycleControllerBoundary.updateBgcWorkflowDnaFromJob(...arguments); }
 
-function genomeProgressRibbonText(item, statusMessage, stages) {
-  const current = stages.find(stage => stage.status === 'running' || stage.status === 'failed');
-  const region = item.regionProgress;
-  const pieces = [];
-  if (current?.key === 'antismash' && region?.total) {
-    pieces.push(`Region (${region.processed}/${region.total})`);
-    if (region.active) pieces.push(`${region.active} active`);
-  }
-  const activity = safeGenomeProgressText(statusMessage, '', 180);
-  if (activity && !pieces.some(piece => piece === activity)) pieces.push(activity);
-  return pieces.join(' · ') || 'Waiting for the next genome milestone';
-}
+function bootBgcWorkflowDna() { return jobLifecycleControllerBoundary.bootBgcWorkflowDna(...arguments); }
 
-function renderGenomeProgressMeter(item, statusMessage, stages) {
-  const meter = genomeProgressMeterModel(item, stages);
-  const ribbonText = genomeProgressRibbonText(item, statusMessage, stages);
-  const valueText = `${ribbonText} · overall milestone ${item.percent}%`;
-  return `
-    <div class="genome-progress-meter-row">
-      <div class="genome-progress-track" role="progressbar" aria-label="${escapeHtml(`${item.label} current stage progress`)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${meter.percent}" aria-valuetext="${escapeHtml(valueText)}" style="--genome-stage-count: ${stages.length}">
-        ${stages.map(stage => {
-          const liveRegionClass = stage.key === 'antismash'
-            && stage.status === 'running'
-            && item.regionProgress?.active ? ' has-live-region-work' : '';
-          return `<span class="genome-progress-segment ${stage.stateClass}${liveRegionClass}" title="${escapeHtml(`${stage.label}: ${stage.progress}%`)}"><span class="genome-progress-segment-fill" style="--genome-stage-progress: ${stage.progress}%"></span></span>`;
-        }).join('')}
-      </div>
-    </div>`;
-}
+function updateStageTelemetry() { return jobLifecycleControllerBoundary.updateStageTelemetry(...arguments); }
 
-function renderGenomeProgressCard(item) {
-  const active = GENOME_PROGRESS_ACTIVE_STATES.has(item.status);
-  const stateClass = item.warning ? 'is-warning' : item.terminal ? 'is-complete' : active ? 'is-running' : 'is-waiting';
-  const advisoryClass = item.completedWithWarning ? ' has-advisory' : '';
-  const stateLabel = item.warning ? 'error'
-    : item.completedWithWarning ? 'complete with warning'
-      : item.terminal ? 'complete' : active ? 'running' : 'queued';
-  const liveMessage = item.activityMessage || item.message;
-  const statusMessage = item.warningMessage || (
-    item.warning && item.warningTool && !liveMessage.toLowerCase().includes(item.warningTool.toLowerCase())
-      ? `${liveMessage} · ${item.warningTool} error` : liveMessage
-  );
-  const stageModel = genomeProgressStageModel(item);
-  const meter = genomeProgressMeterModel(item, stageModel);
-  const ribbonText = genomeProgressRibbonText(item, statusMessage, stageModel);
-  const aria = `${item.label}, ${item.taxon}, ${meter.text}, ${stateLabel}. ${ribbonText}`;
-  return `
-    <article class="genome-progress-row ${stateClass}${advisoryClass}" role="listitem" data-genome-progress-id="${escapeHtml(item.id)}" aria-label="${escapeHtml(aria)}">
-      <div class="genome-progress-row-head">
-        <span class="genome-progress-organism"><strong title="${escapeHtml(item.label)}">${escapeHtml(item.label)}</strong><span class="genome-progress-taxon">${escapeHtml(item.taxon)}</span></span>
-      </div>
-      ${renderGenomeProgressMeter(item, statusMessage, stageModel)}
-      ${renderGenomeProgressStages(item, stageModel)}
-      <div class="genome-progress-status"><small title="${escapeHtml(ribbonText)}">${escapeHtml(ribbonText)}</small></div>
-    </article>`;
-}
+function refreshDnaTimingNodes() { return jobLifecycleControllerBoundary.refreshDnaTimingNodes(...arguments); }
 
-function genomeProgressSummaryText(items) {
-  const rows = Array.isArray(items) ? items : [];
-  const errorCount = rows.filter(item => item.warning).length;
-  const advisoryCount = rows.filter(item => item.completedWithWarning).length;
-  const completeCount = rows.filter(item => item.terminal && !item.warning).length;
-  const activeCount = rows.filter(
-    item => !item.terminal && !item.warning && GENOME_PROGRESS_ACTIVE_STATES.has(item.status),
-  ).length;
-  const queuedCount = Math.max(0, rows.length - completeCount - activeCount - errorCount);
-  if (rows.length && completeCount === rows.length) {
-    return `All ${rows.length} genome milestone${rows.length === 1 ? '' : 's'} complete${advisoryCount ? ` · warnings: ${advisoryCount}` : ''}`;
-  }
-  return `${completeCount} complete · ${activeCount} active · ${queuedCount} queued${advisoryCount ? ` · warnings: ${advisoryCount}` : ''}${errorCount ? ` · errors: ${errorCount}` : ''}`;
-}
+function startStageTicker() { return jobLifecycleControllerBoundary.startStageTicker(...arguments); }
 
-function bgcWorkflowTitle(payload, genomeLayerActive) {
-  if (payload?.state === 'idle') return 'Workflow waiting';
-  if (payload?.state === 'complete') return 'Workflow complete';
-  if (payload?.state === 'failed') return 'Workflow needs review';
-  if (genomeLayerActive) return 'Genome annotation / BGC detection';
-  const titles = {
-    prep: 'Genome preparation',
-    bigscape: 'BiG-SCAPE grouping',
-    summary: 'BGC family summary',
-    clinker: 'Synteny comparison',
-    figures: 'Result rendering',
-    nplinker: 'NPLinker follow-up',
-  };
-  return titles[String(payload?.currentStepId || '').toLowerCase()] || 'BGC workflow';
-}
-// END GENOME_PROGRESS_PURE
+function normalizePublicWeaveEvent(event) { return jobLifecycleBoundary.normalizePublicWeaveEvent(...arguments); }
 
-function renderGenomeProgressLayer(payload) {
-  const station = document.getElementById('bgc-workflow-station');
-  const layer = document.getElementById('bgc-genome-progress-layer');
-  const grid = document.getElementById('bgc-genome-progress-grid');
-  const summary = document.getElementById('bgc-genome-progress-summary');
-  if (!station || !layer || !grid) return;
-  const items = Array.isArray(payload?.genomes) ? payload.genomes : [];
-  const warningCount = items.filter(item => item.warning).length;
-  const handoff = !!payload?.genomeProgressHandoff;
-  const completed = payload?.state === 'complete';
-  station.classList.toggle('has-genome-progress', !!items.length);
-  station.classList.toggle('is-genome-progress-handoff', handoff);
-  station.classList.toggle('has-terminal-genome-warning', warningCount > 0);
-  layer.classList.toggle('is-aggregate-handoff', handoff);
-  layer.classList.toggle('has-terminal-warning', warningCount > 0);
-  if (!items.length || completed) {
-    layer.hidden = true;
-    layer.setAttribute('aria-hidden', completed ? 'true' : 'false');
-    if (grid.dataset.renderKey) {
-      grid.innerHTML = '';
-      delete grid.dataset.renderKey;
-    }
-    if (summary && summary.textContent !== 'Waiting for genome milestones') {
-      summary.textContent = 'Waiting for genome milestones';
-    }
-    return;
-  }
-  layer.hidden = false;
-  layer.setAttribute('aria-hidden', handoff && !warningCount ? 'true' : 'false');
-  const renderKey = items.map(item => [
-    item.id,
-    item.label,
-    item.taxon,
-    item.percent,
-    item.status,
-    item.stage,
-    item.message,
-    item.activityMessage,
-    item.terminal ? 1 : 0,
-    item.warning ? 1 : 0,
-    item.completedWithWarning ? 1 : 0,
-    JSON.stringify(item.regionProgress || {}),
-    JSON.stringify(item.stageStates || {}),
-    item.warningMessage || '',
-  ].join('\u001f')).join('\u001e');
-  if (grid.dataset.renderKey !== renderKey) {
-    grid.innerHTML = items.map(renderGenomeProgressCard).join('');
-    grid.dataset.renderKey = renderKey;
-  }
-  if (summary) {
-    const summaryText = genomeProgressSummaryText(items);
-    if (summary.textContent !== summaryText) summary.textContent = summaryText;
-  }
-}
+function mergeWeaveActivityEvents(events) { return jobLifecycleControllerBoundary.mergeWeaveActivityEvents(...arguments); }
 
-function workflowStageWeight(stage) {
-  return WORKFLOW_PROGRESS_WEIGHTS[stage?.key] || 0.1;
-}
+function recordWeaveActivity(job) { return jobLifecycleControllerBoundary.recordWeaveActivity(...arguments); }
 
-function parseWorkflowGenomePosition(value) {
-  const text = String(value || '');
-  const match = text.match(/\bGenome\s+(\d+)\s+of\s+(\d+)\b/i)
-    || text.match(/\[(\d+)\/(\d+)\]\s+genome=/i);
-  if (!match) return null;
-  const current = Number(match[1]);
-  const total = Number(match[2]);
-  if (!Number.isFinite(current) || !Number.isFinite(total) || total < 1) return null;
-  return { current: Math.max(1, Math.min(current, total)), total };
-}
+function latestWeaveEventByStage() { return jobLifecycleControllerBoundary.latestWeaveEventByStage(...arguments); }
 
-function workflowGenomePhaseFromTitle(title) {
-  const text = String(title || '');
-  const capabilities = activeAnalysisCapabilities();
-  if (/Finished\s+FunBGCeX/i.test(text)) return capabilities.funbgcex ? 1 : null;
-  if (/Running\s+FunBGCeX/i.test(text)) return capabilities.funbgcex ? 0.82 : null;
-  if (/Finished\s+antiSMASH/i.test(text)) return capabilities.funbgcex ? 0.68 : 1;
-  if (/antiSMASH:\s*(Writing|Output|Result)/i.test(text)) return 0.62;
-  if (/antiSMASH|still\s+running/i.test(text)) return 0.42;
-  if (/Preparing\s+genome/i.test(text)) return 0.06;
-  if (/Queued\s+\d+\s+genomes?/i.test(text)) return 0;
-  return null;
-}
+function stageTimelineLabel(visual) { return jobLifecycleControllerBoundary.stageTimelineLabel(...arguments); }
 
-function annotationGenomeProgress(job) {
-  const events = jobPublicWorkflowEvents(job, 'annotation').filter(event => event?.stage === 'annotation');
-  let latestPosition = null;
-  let latest = null;
-  events.forEach((event) => {
-    const position = parseWorkflowGenomePosition(`${event.title || ''} ${event.meta || ''}`);
-    if (position) latestPosition = position;
-    const phase = workflowGenomePhaseFromTitle(event.title);
-    const source = position || (phase !== null ? latestPosition : null);
-    if (!source) return;
-    const currentPhase = phase === null ? 0.5 : phase;
-    const fraction = clampUnit((source.current - 1 + currentPhase) / source.total);
-    latest = {
-      current: source.current,
-      total: source.total,
-      fraction,
-      label: `Genome ${source.current} of ${source.total}`,
-    };
-  });
-  return latest;
-}
+function stageTimelineDetailKey(visual) { return jobLifecycleControllerBoundary.stageTimelineDetailKey(...arguments); }
 
-function workflowCurrentStageFraction(job, currentKey, status) {
-  if (!currentKey) return 0;
-  if (currentKey === 'annotation') {
-    const genomeProgress = annotationGenomeProgress(job);
-    if (genomeProgress) return genomeProgress.fraction;
-  }
-  if (String(status || '').toLowerCase() === 'pending') return 0;
-  return 0.5;
-}
+function eventSummaryText(event) { return jobLifecycleControllerBoundary.eventSummaryText(...arguments); }
 
-function weightedWorkflowProgress(stages, currentKey, status, job, stageProgress = null) {
-  if (status === 'success') return 1;
-  if (!currentKey) return 0;
-  const totalWeight = stages.reduce((sum, stage) => sum + workflowStageWeight(stage), 0) || 1;
-  const currentIndex = stages.findIndex(stage => stage.key === currentKey);
-  let doneWeight = 0;
-  stages.forEach((stage, index) => {
-    if (activeStageState?.completed.has(stage.key) || (currentIndex >= 0 && index < currentIndex)) {
-      doneWeight += workflowStageWeight(stage);
-    }
-  });
-  if (currentIndex >= 0) {
-    const currentStage = stages[currentIndex];
-    const currentFraction = stageProgress && currentKey === 'annotation'
-      ? stageProgress.fraction
-      : workflowCurrentStageFraction(job, currentKey, status);
-    doneWeight += workflowStageWeight(currentStage) * currentFraction;
-  }
-  return clampUnit(doneWeight / totalWeight);
-}
+function stageTimelineMeta(stage, visual, event) { return jobLifecycleControllerBoundary.stageTimelineMeta(...arguments); }
 
-function bgcWorkflowPayload(job = activeJobMeta) {
-  syncInferredStageState(job);
-  const stages = bgcWorkflowStages(job);
-  const status = String((job && job.status) || '').toLowerCase();
-  const rawCurrentKey = currentWorkflowStage() || jobCurrentStageKey(job);
-  const currentKey = status === 'success' ? '' : rawCurrentKey;
-  let state = 'idle';
-  if (status === 'success') state = 'complete';
-  else if (status === 'failed') state = 'failed';
-  else if (status === 'running' || status === 'pending' || activeJobId) state = 'running';
-  const stageProgress = currentKey === 'annotation' ? annotationGenomeProgress(job) : null;
-  const genomes = normalizeGenomeProgressItems(job);
-  const genomeProgressAllTerminal = genomes.length > 0 && genomes.every(item => item.terminal);
-  const aggregateDownstreamStage = status === 'success'
-    || ['bigscape', 'summary', 'clinker', 'figures', 'nplinker'].includes(currentKey);
-  const genomeProgressHandoff = genomeProgressAllTerminal && aggregateDownstreamStage;
-  const progress = weightedWorkflowProgress(stages, currentKey, status, job, stageProgress);
-  const percent = Math.round(progress * 100);
-  const currentStage = stages.find(stage => stage.key === currentKey);
-  const hasSkippedStages = workflowPayloadHasSkippedStages();
-  const tool = currentStage ? (STAGE_DETAILS[currentStage.key]?.name || currentStage.label) : (status === 'success' ? (hasSkippedStages ? 'Selected stages complete' : 'Workflow complete') : 'Input queue');
-  const detail = state === 'idle'
-    ? 'Waiting for submitted inputs'
-    : status === 'failed'
-      ? (job?.error_summary || job?.error || 'Workflow needs attention')
-      : status === 'success'
-        ? (hasSkippedStages ? 'Selected workflow tools complete; downstream stages skipped' : 'All workflow tools complete')
-        : currentStage
-          ? jobStageDisplay(job)
-          : queueStatusLabel(job);
-  const activityChip = bgcActivityChipPayload(job, state, currentKey, tool);
-  return {
-    hasSkippedStages,
-    state,
-    progress,
-    percent,
-    tool,
-    statusText: detail,
-    stationDetailText: state === 'running' ? '' : detail,
-    progressLabel: stageProgress?.label || '',
-    activityText: activityChip.text,
-    activityTitle: activityChip.title,
-    motionPaused: state === 'failed',
-    genomes,
-    genomeProgressAllTerminal,
-    genomeProgressHandoff,
-    steps: stages.map(stage => ({
-      id: stage.key,
-      label: STAGE_DETAILS[stage.key]?.name || stage.label,
-      status: bgcStageStatus(stage, currentKey, status),
-    })),
-    currentStepId: currentKey || '',
-  };
-}
+function legacyStageOverviewNodes(job = activeJobMeta) { return jobLifecycleControllerBoundary.legacyStageOverviewNodes(...arguments); }
 
-const ALT06_WORKFLOW_STEPS = [
-  { id: 'prepare', label: 'Prepare', keys: ['prep'] },
-  { id: 'annotate', label: 'Annotate', keys: ['annotation'] },
-  { id: 'group', label: 'Group', keys: ['bigscape', 'summary'] },
-  { id: 'compare', label: 'Compare', keys: ['clinker'] },
-  { id: 'render', label: 'Render', keys: ['figures', 'nplinker'] },
-];
-
-function alt06StepStatus(group, sourceSteps, payload) {
-  const source = sourceSteps.filter(step => group.keys.includes(step.id));
-  if (payload.state === 'idle' || !source.length) return 'waiting';
-  if (source.some(step => step.status === 'error' || step.status === 'failed')) return 'failed';
-  if (source.some(step => step.status === 'running')) return 'running';
-  if (source.every(step => step.status === 'skipped')) return 'skipped';
-  if (source.every(step => step.status === 'complete' || step.status === 'done' || step.status === 'skipped')) return 'done';
-  return 'waiting';
-}
-
-function alt06WorkflowCaption(payload) {
-  if (payload.state === 'idle') return 'Submit to activate BGC workflow';
-  if (payload.state === 'complete') return payload.hasSkippedStages ? 'Selected workflow stages complete; downstream stages skipped' : 'All workflow stages complete';
-  if (payload.state === 'failed') return payload.statusText || 'Compare stage failed validation';
-  if (payload.progressLabel) return payload.progressLabel;
-  return payload.statusText || 'BGC workflow running';
-}
-
-function renderBgcWorkflowStageStrip(payload) {
-  const strip = document.getElementById('bgc-stage-strip');
-  if (!strip || !payload) return;
-  const sourceSteps = Array.isArray(payload.steps) ? payload.steps : [];
-  const statuses = ALT06_WORKFLOW_STEPS.map(group => alt06StepStatus(group, sourceSteps, payload));
-  const failedIndex = statuses.indexOf('failed');
-  const renderKey = statuses.join('|');
-  if (strip.dataset.renderKey === renderKey) return;
-  strip.innerHTML = ALT06_WORKFLOW_STEPS.map((group, index) => {
-    let status = statuses[index];
-    if (failedIndex >= 0 && index > failedIndex && status === 'waiting') status = 'blocked';
-    const stateClass = status === 'running' ? 'is-active' : status === 'failed' ? 'is-failed' : '';
-    return `
-    <div class="stage-card bgc-stage-card ${escapeHtml(status)} ${stateClass}" data-bgc-stage="${escapeHtml(group.id)}">
-      <span class="num">${index + 1}</span><b>${escapeHtml(group.label)}</b><small>${escapeHtml(status)}</small>
-    </div>`;
-  }).join('');
-  strip.dataset.renderKey = renderKey;
-}
-
-function applyBgcWorkflowPayload(payload) {
-  if (!payload) return;
-  bgcWorkflowPendingPayload = payload;
-  const genomeLayerActive = Array.isArray(payload.genomes)
-    && payload.genomes.length > 0
-    && !payload.genomeProgressHandoff;
-  const region = document.getElementById('bgc-dna-progress-region');
-  const nativeProgress = document.getElementById('bgc-workflow-native-progress');
-  const percent = document.getElementById('bgc-workflow-percent');
-  const headMeta = document.getElementById('workflow-head-meta');
-  const captionLabel = document.getElementById('workflow-caption-label');
-  const captionPercent = document.getElementById('workflow-percent');
-  const tool = document.getElementById('bgc-workflow-tool');
-  const detail = document.getElementById('bgc-workflow-detail');
-  const activityChip = document.getElementById('bgc-tool-activity-chip');
-  const title = document.getElementById('workflow-title');
-  const stageStrip = document.getElementById('bgc-stage-strip');
-  const toolStatus = tool?.closest('.workflow-tool-status');
-  const completePresentation = payload.state === 'complete';
-  if (region) {
-    region.setAttribute('aria-valuenow', String(payload.percent));
-    region.setAttribute('aria-valuetext', `${payload.percent}% - ${payload.tool} - ${payload.statusText}`);
-  }
-  if (nativeProgress) {
-    nativeProgress.value = payload.percent;
-    nativeProgress.textContent = `${payload.percent}%`;
-  }
-  if (headMeta) headMeta.textContent = payload.state === 'idle' ? 'Waiting' : payload.state === 'complete' ? 'Complete' : payload.state === 'failed' ? 'Needs review' : 'Running';
-  if (title) {
-    title.textContent = bgcWorkflowTitle(payload, genomeLayerActive);
-    title.hidden = completePresentation;
-  }
-  if (percent) percent.textContent = `${payload.percent}%`;
-  if (captionPercent) captionPercent.textContent = `${payload.percent}%`;
-  if (captionLabel) {
-    captionLabel.textContent = alt06WorkflowCaption(payload);
-    captionLabel.hidden = completePresentation;
-  }
-  if (tool) tool.textContent = payload.tool;
-  if (detail) {
-    const stationDetail = payload.stationDetailText || '';
-    detail.textContent = stationDetail;
-    detail.hidden = !stationDetail;
-  }
-  if (activityChip) {
-    activityChip.textContent = payload.activityText || (payload.state === 'running' ? 'RUNNING' : payload.state.toUpperCase());
-    activityChip.dataset.state = payload.state || 'idle';
-    activityChip.title = payload.activityTitle || payload.activityText || '';
-    activityChip.hidden = completePresentation;
-  }
-  renderBgcWorkflowStageStrip(payload);
-  renderGenomeProgressLayer(payload);
-  if (stageStrip) {
-    stageStrip.hidden = false;
-    stageStrip.removeAttribute('aria-hidden');
-  }
-  if (toolStatus) {
-    toolStatus.hidden = completePresentation;
-    toolStatus.setAttribute('aria-hidden', completePresentation ? 'true' : 'false');
-  }
-  setBgcWorkflowAggregatePresentationSuspended(genomeLayerActive);
-  setBgcWorkflowGenomeLayerSuspended(genomeLayerActive);
-  if (bgcWorkflowDna) bgcWorkflowDna.setProgress(payload.progress, payload);
-  else bootBgcWorkflowDna();
-}
-
-function updateBgcWorkflowDnaFromJob(job = activeJobMeta) {
-  applyBgcWorkflowPayload(bgcWorkflowPayload(job));
-}
-
-function bootBgcWorkflowDna() {
-  if (bgcWorkflowDna || bgcWorkflowDnaLoading) return;
-  const canvas = document.getElementById('bgc-dna-canvas');
-  const region = document.getElementById('bgc-dna-progress-region');
-  const fallback = document.getElementById('bgc-dna-fallback');
-  if (!canvas || !region) return;
-  bgcWorkflowDnaLoading = true;
-  import(WORKFLOW_DNA_MODULE_PATH).then(({ createWorkflowDnaProgress }) => {
-    bgcWorkflowDna = createWorkflowDnaProgress({
-      canvas,
-      region,
-      autoSpiral: true,
-      ariaLabel: 'BGC workflow DNA progress',
-    });
-    region.classList.add('is-ready');
-    if (fallback) fallback.textContent = '';
-    syncBgcWorkflowDnaSuspension();
-    if (bgcWorkflowPendingPayload) {
-      bgcWorkflowDna.setProgress(bgcWorkflowPendingPayload.progress, bgcWorkflowPendingPayload);
-    }
-  }).catch((error) => {
-    if (fallback) fallback.textContent = `3D DNA unavailable: ${error.message}`;
-  }).finally(() => {
-    bgcWorkflowDnaLoading = false;
-  });
-}
-
-function updateStageTelemetry() {
-  renderJobRuntime(activeJobMeta);
-  if (!activeStageState) return;
-  let currentKey = currentWorkflowStage();
-  document.querySelectorAll('.stage-step').forEach(el => {
-    const key = el.dataset.stage;
-    const visual = stageVisualState(key);
-    const elapsed = el.querySelector('.stage-elapsed');
-    const estimate = el.querySelector('.stage-estimate');
-    if (elapsed) elapsed.textContent = `Elapsed ${stageElapsedText(key, visual.cls)}`;
-    if (estimate) estimate.textContent = stageEstimateText(key);
-  });
-  const currentStage = currentKey ? STAGES.find(stage => stage.key === currentKey) : null;
-  const visual = currentKey ? stageVisualState(currentKey) : null;
-  const queued = String((activeJobMeta && activeJobMeta.status) || '').toLowerCase() === 'pending';
-  const stageEl = document.getElementById('workflow-current-stage');
-  const elapsedEl = document.getElementById('workflow-current-elapsed');
-  const estimateEl = document.getElementById('workflow-current-estimate');
-  if (stageEl) stageEl.textContent = currentStage ? (STAGE_DETAILS[currentStage.key]?.name || currentStage.label) : (queued ? queueStatusLabel(activeJobMeta) : 'Waiting for run');
-  if (elapsedEl) elapsedEl.textContent = currentKey && visual ? stageElapsedText(currentKey, visual.cls) : 'Not started';
-  if (estimateEl) estimateEl.textContent = currentKey ? stageEstimateText(currentKey) : (queued ? queueStatusDetail(activeJobMeta) : 'Run dependent');
-  refreshDnaTimingNodes();
-}
-
-function refreshDnaTimingNodes() {
-  if (!activeStageState) return;
-  document.querySelectorAll('.dna-base-popover').forEach(popover => {
-    const key = popover.dataset.stage;
-    if (!key) return;
-    const visual = stageVisualState(key);
-    const timing = popover.querySelector('[data-node-kind="timing"]');
-    if (!timing) return;
-    const title = timing.querySelector('.dna-node-title');
-    const meta = timing.querySelector('.dna-node-meta');
-    if (title) title.textContent = `Elapsed ${stageElapsedText(key, visual.cls)}`;
-    if (meta) meta.textContent = stageEstimateText(key);
-  });
-}
-
-function startStageTicker() {
-  if (stageTickerId) return;
-  stageTickerId = setInterval(updateStageTelemetry, 1000);
-}
-
-function normalizePublicWeaveEvent(event) {
-  if (!event || typeof event !== 'object') return null;
-  const stage = STAGES.some(item => item.key === event.stage) ? event.stage : 'prep';
-  const title = String(event.title || '').trim();
-  if (!title) return null;
-  const meta = String(event.meta || '').trim();
-  const time = String(event.time || '').trim();
-  return {
-    stage,
-    title,
-    meta: meta || time,
-    time,
-  };
-}
-
-function mergeWeaveActivityEvents(events) {
-  const incoming = Array.isArray(events)
-    ? events.map(normalizePublicWeaveEvent).filter(Boolean)
-    : [];
-  if (!incoming.length) return 0;
-  const keyed = new Map();
-  [...weaveActivity.events, ...incoming].forEach(event => {
-    keyed.set(`${event.stage}|${event.title}|${event.meta}`, event);
-  });
-  weaveActivity.events = Array.from(keyed.values()).slice(-24);
-  return incoming.length;
-}
-
-function recordWeaveActivity(job) {
-  if (!job || !job.id) return;
-  const currentCount = Number(job.log_count || 0);
-  const status = String(job.status || '');
-  if (weaveActivity.jobId !== job.id) {
-    resetWeaveActivity(job);
-    mergeWeaveActivityEvents(job.public_events);
-    return;
-  }
-  mergeWeaveActivityEvents(job.public_events);
-  weaveActivity.lastLogCount = currentCount;
-  weaveActivity.lastStatus = status;
-  if (weaveActivity.events.length > 18) weaveActivity.events = weaveActivity.events.slice(-18);
-}
-
-function latestWeaveEventByStage() {
-  const latest = new Map();
-  (weaveActivity.events || []).forEach(event => {
-    if (event && event.stage) latest.set(event.stage, event);
-  });
-  return latest;
-}
-
-function stageTimelineLabel(visual) {
-  const cls = visual && visual.cls ? visual.cls : 'upcoming';
-  if (cls === 'done' || cls === 'complete') return 'Completed';
-  if (cls === 'active') return 'Current';
-  if (cls === 'failed') return 'Failed';
-  if (cls === 'disabled') return 'Skipped';
-  return 'Future';
-}
-
-function stageTimelineDetailKey(visual) {
-  const cls = visual && visual.cls ? visual.cls : 'upcoming';
-  if (cls === 'done' || cls === 'complete') return 'done';
-  if (cls === 'upcoming') return 'queued';
-  return cls;
-}
-
-function eventSummaryText(event) {
-  if (!event || !event.title) return '';
-  return event.meta ? `${event.title} / ${event.meta}` : event.title;
-}
-
-function stageTimelineMeta(stage, visual, event) {
-  const details = STAGE_DETAILS[stage.key] || {};
-  const cls = visual && visual.cls ? visual.cls : 'upcoming';
-  const eventText = ['done', 'complete', 'active', 'failed'].includes(cls) ? eventSummaryText(event) : '';
-  if (eventText) return eventText;
-  if (cls === 'disabled') return 'Skipped for this run.';
-  return details[stageTimelineDetailKey(visual)] || details.queued || 'Waiting for workflow state.';
-}
-
-function legacyStageOverviewNodes(job = activeJobMeta) {
-  const latestByStage = latestWeaveEventByStage();
-  return workflowStageList(job).map(stage => {
-    const details = STAGE_DETAILS[stage.key] || stage;
-    const visual = stageVisualState(stage.key);
-    return {
-      kind: `stage-${visual.cls}`,
-      stageKey: stage.key,
-      title: `${stageTimelineLabel(visual)}: ${details.name || stage.label}`,
-      meta: stageTimelineMeta(stage, visual, latestByStage.get(stage.key)),
-    };
-  });
-}
-
-function publicStageNodes(stage, visual, job) {
-  const status = String((job && job.status) || 'pending').toLowerCase();
-  const nodes = [
-    {
-      kind: 'timing',
-      title: `Run elapsed ${jobElapsedText(job)}`,
-      meta: currentWorkflowStage() ? stageEstimateText(currentWorkflowStage()) : 'Run dependent',
-    },
-    ...legacyStageOverviewNodes(job),
-  ];
-  const latestForStage = latestWeaveEventByStage().get(stage.key);
-  if (latestForStage && visual.cls === 'active') {
-    nodes.push({
-      kind: 'current-signal',
-      title: 'Latest current-stage signal',
-      meta: eventSummaryText(latestForStage),
-    });
-  }
-  if (visual.cls === 'failed' || status === 'failed') {
-    nodes.push({
-      kind: 'failure-context',
-      title: 'Failure context',
-      meta: job && (job.error_summary || job.error) ? String(job.error_summary || job.error) : 'Review available outputs below.',
-    });
-  } else if ((visual.cls === 'done' || visual.cls === 'complete') && status === 'success') {
-    nodes.push({
-      kind: 'result-context',
-      title: 'Terminal status reached',
-      meta: `${Number((job && job.result_files && job.result_files.length) || 0)} output files indexed`,
-    });
-  }
-  return nodes.slice(0, 10);
-}
+function publicStageNodes(stage, visual, job) { return jobLifecycleControllerBoundary.publicStageNodes(...arguments); }
 
 function dnaLabelLines(stageKey) {
   const labels = {
@@ -9923,392 +4133,38 @@ function dnaStageModels(job, layout) {
   });
 }
 
-function reducedMotionPreferred() {
-  return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-}
-
-function clearRetiredMotionSettings() {
-  try {
-    RETIRED_MOTION_STORAGE_KEYS.forEach(key => window.localStorage?.removeItem(key));
-  } catch (error) {}
-}
-
-function richMotionDisabled() {
-  return false;
-}
-
-function initializeRetiredMotionControls() {
-  clearRetiredMotionSettings();
-  document.body.dataset.richMotion = 'enabled';
-  document.body.dataset.threeWeavemap = 'disabled';
-  document.body.dataset.threeWeavemapOptIn = 'disabled';
-}
-
-function wireMotionLifecycleGuards() {
-  if (motionLifecycleWired) return;
-  motionLifecycleWired = true;
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden) {
-      teardownGsapMotion('page-hidden');
-      return;
-    }
-    const helix = document.getElementById('weavemap-helix');
-    if (helix) delete helix.dataset.rendered;
-    if (richDomMotionEnabled()) warmGsapMotion();
-    renderWeaveHelix(activeJobMeta);
-  });
-  window.addEventListener('pagehide', () => {
-    teardownGsapMotion('pagehide');
-  });
-}
-
-function richDomMotionEnabled() {
-  return !reducedMotionPreferred() && !richMotionDisabled();
-}
-
-function markGsapMotionFallback(reason) {
-  gsapMotion.fallbackReason = reason || 'unavailable';
-  document.body.dataset.gsapMotion = 'fallback';
-}
-
-function gsapMotionReady() {
-  if (!richDomMotionEnabled()) return null;
-  if (gsapMotion.gsap) return gsapMotion.gsap;
-  if (window.gsap) {
-    gsapMotion.gsap = window.gsap;
-    gsapMotion.fallbackReason = '';
-    document.body.dataset.gsapMotion = 'ready';
-    return gsapMotion.gsap;
-  }
-  return null;
-}
-
-function loadGsapMotion() {
-  if (!richDomMotionEnabled()) {
-    document.body.dataset.gsapMotion = 'disabled';
-    return Promise.resolve(null);
-  }
-  const ready = gsapMotionReady();
-  if (ready) return Promise.resolve(ready);
-  if (gsapMotion.promise) return gsapMotion.promise;
-  document.body.dataset.gsapMotion = 'loading';
-  gsapMotion.promise = new Promise(resolve => {
-    const finish = () => {
-      const lib = window.gsap || null;
-      if (!lib) {
-        markGsapMotionFallback('vendor-load-failed');
-        resolve(null);
-        return;
-      }
-      gsapMotion.gsap = lib;
-      gsapMotion.fallbackReason = '';
-      document.body.dataset.gsapMotion = richDomMotionEnabled() ? 'ready' : 'disabled';
-      resolve(lib);
-    };
-    const fail = () => {
-      markGsapMotionFallback('vendor-load-failed');
-      resolve(null);
-    };
-    const existing = document.querySelector(`script[src="${GSAP_BROWSER_PATH}"]`);
-    if (existing) {
-      existing.addEventListener('load', finish, { once: true });
-      existing.addEventListener('error', fail, { once: true });
-      window.setTimeout(() => { if (window.gsap) finish(); }, 0);
-      return;
-    }
-    const script = document.createElement('script');
-    script.src = GSAP_BROWSER_PATH;
-    script.async = true;
-    script.onload = finish;
-    script.onerror = fail;
-    document.head.appendChild(script);
-  });
-  return gsapMotion.promise;
-}
-
-function warmGsapMotion() {
-  if (!richDomMotionEnabled()) {
-    document.body.dataset.gsapMotion = 'disabled';
-    return;
-  }
-  loadGsapMotion().catch(() => markGsapMotionFallback('vendor-load-failed'));
-}
-
-function killGsapTimeline(key) {
-  const timeline = gsapMotion.timelines.get(key);
-  if (timeline && typeof timeline.kill === 'function') timeline.kill();
-  gsapMotion.timelines.delete(key);
-}
-
-function clearDocsMotionVars(docs = document.getElementById('docs')) {
-  if (!docs) return;
-  [
-    '--docs-motion-overlay-opacity',
-    '--docs-motion-panel-opacity',
-    '--docs-motion-panel-y',
-    '--docs-motion-panel-scale',
-  ].forEach(name => docs.style.removeProperty(name));
-  document.body?.style?.removeProperty('--docs-motion-overlay-opacity');
-}
-
-function teardownGsapMotion(reason = '') {
-  gsapMotion.timelines.forEach(timeline => {
-    if (timeline && typeof timeline.kill === 'function') timeline.kill();
-  });
-  gsapMotion.timelines.clear();
-  clearDocsMotionVars();
-  document.body.dataset.gsapMotion = richDomMotionEnabled() ? (gsapMotion.gsap ? 'ready' : 'idle') : 'disabled';
-  if (reason) gsapMotion.fallbackReason = reason;
-}
-
-function motionTargets(targets, root = document) {
-  const input = Array.isArray(targets) ? targets : [targets];
-  const nodes = [];
-  input.forEach(target => {
-    if (!target) return;
-    if (typeof target === 'string') nodes.push(...Array.from(root.querySelectorAll(target)));
-    else nodes.push(target);
-  });
-  return Array.from(new Set(nodes)).filter(el => {
-    if (!el || !el.isConnected || el.hidden || el.classList?.contains('hidden')) return false;
-    return !!(el.getClientRects && el.getClientRects().length);
-  });
-}
-
-function runGsapMotion(key, build) {
-  const gsap = gsapMotionReady();
-  if (!gsap) {
-    warmGsapMotion();
-    return false;
-  }
-  killGsapTimeline(key);
-  try {
-    const timeline = gsap.timeline({
-      defaults: { overwrite: 'auto' },
-      onComplete: () => {
-        if (gsapMotion.timelines.get(key) === timeline) gsapMotion.timelines.delete(key);
-      },
-      onInterrupt: () => {
-        if (gsapMotion.timelines.get(key) === timeline) gsapMotion.timelines.delete(key);
-      },
-    });
-    gsapMotion.timelines.set(key, timeline);
-    build(timeline, gsap);
-    return true;
-  } catch (error) {
-    killGsapTimeline(key);
-    markGsapMotionFallback('animation-error');
-    return false;
-  }
-}
-
-function animateEntryTabTransition(selectedName) {
-  const panel = document.getElementById(`entry-panel-${selectedName}`);
-  if (!panel) return;
-  const selectors = selectedName === 'existing'
-    ? ['.access-copy', '.reviewer-access > summary']
-    : ['.input-node-head', '.intake-grid', '.settings-section', '.workflow-controls', '.data-use-ack', '.run-row'];
-  const targets = motionTargets(selectors, panel);
-  const activeTab = document.querySelector('.entry-tab.active');
-  runGsapMotion(`entry-${selectedName}`, timeline => {
-    if (targets.length) {
-      timeline.fromTo(targets,
-        { opacity: 0.72, y: 8 },
-        { opacity: 1, y: 0, duration: 0.18, ease: 'power2.out', stagger: 0.022, clearProps: 'opacity,transform' },
-        0);
-    }
-    if (activeTab) {
-      timeline.fromTo(activeTab,
-        { scale: 0.985 },
-        { scale: 1, duration: 0.16, ease: 'power2.out', clearProps: 'transform' },
-        0);
-    }
-  });
-}
-
-function animateLaunchTransition() {
-  const targets = motionTargets(['#workflow-progress-panel', '#weavemap .weavemap-stage-wrap', '#results-card .card-header']);
-  const uploadCard = document.getElementById('upload-card');
-  runGsapMotion('launch-transition', timeline => {
-    if (uploadCard) {
-      timeline.fromTo(uploadCard,
-        { filter: 'brightness(1.08)' },
-        { filter: 'brightness(1)', duration: 0.2, ease: 'power2.out', clearProps: 'filter' },
-        0);
-    }
-    if (targets.length) {
-      timeline.fromTo(targets,
-        { opacity: 0.74, y: 12 },
-        { opacity: 1, y: 0, duration: 0.24, ease: 'power2.out', stagger: 0.035, clearProps: 'opacity,transform' },
-        0.02);
-    }
-  });
-}
-
-function animateExistingResultUnlock() {
-  const targets = motionTargets([document.getElementById('result-link-status') || document.getElementById('existing-run-status'), document.getElementById('entry-tab-existing')]);
-  if (!targets.length) return;
-  runGsapMotion('existing-unlock', timeline => {
-    timeline.fromTo(targets,
-      { opacity: 0.7, y: 5 },
-      { opacity: 1, y: 0, duration: 0.16, ease: 'power2.out', stagger: 0.025, clearProps: 'opacity,transform' });
-  });
-}
-
-function animateResultDashboardOpen(source = '') {
-  const targets = motionTargets([
-    '#result-dashboard-section .result-dashboard-head',
-    '#result-bubble-panel',
-    '#weavemap .weavemap-stage-wrap',
-  ]);
-  if (!targets.length) return;
-  runGsapMotion(`result-dashboard-${source || 'open'}`, timeline => {
-    timeline.fromTo(targets,
-      { opacity: 0.76, y: 14 },
-      { opacity: 1, y: 0, duration: 0.22, ease: 'power2.out', stagger: 0.028, clearProps: 'opacity,transform' });
-  });
-}
-
-function animateResultFocusChange(category = '') {
-  const selected = document.querySelector('.dna-result-output.is-selected .dna-result-output-trigger');
-  const targets = motionTargets([
-    selected,
-    '#result-reader-surface',
-  ]);
-  if (!targets.length) return;
-  runGsapMotion(`result-focus-${category || resultFocusMode}`, timeline => {
-    timeline.fromTo(targets,
-      { opacity: 0.78, y: 7, scale: 0.992 },
-      { opacity: 1, y: 0, scale: 1, duration: 0.18, ease: 'power2.out', stagger: 0.022, clearProps: 'opacity,transform' });
-  });
-}
-
-function animateResultReaderOpen() {
-  const container = document.getElementById('files-container');
-  if (!container) return;
-  const targets = motionTargets(['.artifact-reader-head', '.summary-condensed-head', '.summary-markdown-body'], container);
-  if (!targets.length) return;
-  runGsapMotion('result-reader-open', timeline => {
-    timeline.fromTo(targets,
-      { opacity: 0.72, y: 8 },
-      { opacity: 1, y: 0, duration: 0.18, ease: 'power2.out', stagger: 0.02, clearProps: 'opacity,transform' });
-  });
-}
-
-function animateSummaryReaderDocument() {
-  const targets = motionTargets('#summary-reader-doc > *');
-  if (!targets.length) return;
-  runGsapMotion('summary-reader-doc', timeline => {
-    timeline.fromTo(targets,
-      { opacity: 0.72, y: 6 },
-      { opacity: 1, y: 0, duration: 0.16, ease: 'power2.out', clearProps: 'opacity,transform' });
-  });
-}
-
-function animateRerunPanelReady() {
-  const targets = motionTargets('#rerun-panel .rerun-summary > .summary-head');
-  if (!targets.length) return;
-  runGsapMotion('rerun-panel-ready', timeline => {
-    timeline.fromTo(targets,
-      { opacity: 0.72, y: 7 },
-      { opacity: 1, y: 0, duration: 0.16, ease: 'power2.out', clearProps: 'opacity,transform' });
-  });
-}
-
-function animateRerunPanelOpen(details) {
-  const targets = motionTargets('.rerun-panel-body', details || document);
-  if (!targets.length) return;
-  runGsapMotion('rerun-panel-open', timeline => {
-    timeline.fromTo(targets,
-      { opacity: 0.72, y: -6 },
-      { opacity: 1, y: 0, duration: 0.18, ease: 'power2.out', clearProps: 'opacity,transform' });
-  });
-}
-
-function wireRerunPanelMotion(details) {
-  if (!details || details.dataset.motionWired === '1') return;
-  details.dataset.motionWired = '1';
-  details.addEventListener('toggle', () => {
-    if (details.open) animateRerunPanelOpen(details);
-  });
-}
-
-function animateRerunQueued() {
-  const status = document.getElementById('rerun-status');
-  if (!status) return;
-  runGsapMotion('rerun-queued', timeline => {
-    timeline.fromTo(status,
-      { opacity: 0.68, y: 4 },
-      { opacity: 1, y: 0, duration: 0.16, ease: 'power2.out', clearProps: 'opacity,transform' });
-  });
-}
-
-function animateOpsPanelToggle(expanded) {
-  const panel = document.getElementById('ops-side-panel');
-  const toggle = document.getElementById('ops-panel-toggle');
-  runGsapMotion(`ops-panel-${expanded ? 'open' : 'closed'}`, timeline => {
-    if (expanded && panel && motionTargets(panel).length) {
-      timeline.fromTo(panel,
-        { opacity: 0.78, x: -18 },
-        { opacity: 1, x: 0, duration: 0.2, ease: 'power2.out', clearProps: 'opacity,transform' },
-        0);
-    }
-    if (toggle && motionTargets(toggle).length) {
-      timeline.fromTo(toggle,
-        { scale: 0.96 },
-        { scale: 1, duration: 0.16, ease: 'power2.out', clearProps: 'transform' },
-        0);
-    }
-  });
-}
-
-function animateDiagnosticsReveal() {
-  const targets = motionTargets(['#ops-side-panel', '#ops-panel-toggle', '.runtime-diagnostics-only']);
-  if (!targets.length) return;
-  runGsapMotion('diagnostics-reveal', timeline => {
-    timeline.fromTo(targets,
-      { opacity: 0.72, y: 8 },
-      { opacity: 1, y: 0, duration: 0.2, ease: 'power2.out', stagger: 0.025, clearProps: 'opacity,transform' });
-  });
-}
-
-function setDocsMotionVars(docs, values) {
-  if (!docs) return;
-  Object.entries(values).forEach(([name, value]) => {
-    docs.style.setProperty(name, String(value));
-    if (name === '--docs-motion-overlay-opacity') document.body?.style?.setProperty(name, String(value));
-  });
-}
-
-function animateDocsDisclosureOpen() {
-  const docs = document.getElementById('docs');
-  killGsapTimeline('docs-disclosure-open');
-  killGsapTimeline('docs-disclosure-close');
-  clearDocsMotionVars(docs);
-}
-
-function animateDocsDisclosureClose(docs, done) {
-  killGsapTimeline('docs-disclosure-open');
-  killGsapTimeline('docs-disclosure-close');
-  clearDocsMotionVars(docs);
-  return false;
-}
-
-function animateDnaOverlayPolish(stageWrap, renderKey) {
-  if (!stageWrap || gsapMotion.lastWeaveMotionKey === renderKey) return;
-  gsapMotion.lastWeaveMotionKey = renderKey;
-  const targets = motionTargets([
-    '.dna-base-popover.active .dna-popover-panel',
-    '.dna-base-popover.failed .dna-popover-panel',
-    '.dna-result-output:not(.is-dimmed) .dna-result-output-trigger',
-  ], stageWrap);
-  if (!targets.length) return;
-  runGsapMotion('dna-overlay-polish', timeline => {
-    timeline.fromTo(targets,
-      { opacity: 0.76, x: 8 },
-      { opacity: 1, x: 0, duration: 0.18, ease: 'power2.out', stagger: 0.018, clearProps: 'opacity,transform' });
-  });
-}
+function reducedMotionPreferred() { return motionBoundary.reducedMotionPreferred(...arguments); }
+function clearRetiredMotionSettings() { return motionBoundary.clearRetiredMotionSettings(...arguments); }
+function richMotionDisabled() { return motionBoundary.richMotionDisabled(...arguments); }
+function initializeRetiredMotionControls() { return motionBoundary.initializeRetiredMotionControls(...arguments); }
+function wireMotionLifecycleGuards() { return motionBoundary.wireMotionLifecycleGuards(...arguments); }
+function richDomMotionEnabled() { return motionBoundary.richDomMotionEnabled(...arguments); }
+function markGsapMotionFallback(reason) { return motionBoundary.markGsapMotionFallback(...arguments); }
+function gsapMotionReady() { return motionBoundary.gsapMotionReady(...arguments); }
+function loadGsapMotion() { return motionBoundary.loadGsapMotion(...arguments); }
+function warmGsapMotion() { return motionBoundary.warmGsapMotion(...arguments); }
+function killGsapTimeline(key) { return motionBoundary.killGsapTimeline(...arguments); }
+function clearDocsMotionVars(docs = document.getElementById('docs')) { return motionBoundary.clearDocsMotionVars(...arguments); }
+function teardownGsapMotion(reason = '') { return motionBoundary.teardownGsapMotion(...arguments); }
+function motionTargets(targets, root = document) { return motionBoundary.motionTargets(...arguments); }
+function runGsapMotion(key, build) { return motionBoundary.runGsapMotion(...arguments); }
+function animateEntryTabTransition(selectedName) { return motionBoundary.animateEntryTabTransition(...arguments); }
+function animateLaunchTransition() { return motionBoundary.animateLaunchTransition(...arguments); }
+function animateExistingResultUnlock() { return motionBoundary.animateExistingResultUnlock(...arguments); }
+function animateResultDashboardOpen(source = '') { return motionBoundary.animateResultDashboardOpen(...arguments); }
+function animateResultFocusChange(category = '') { return motionBoundary.animateResultFocusChange(...arguments); }
+function animateResultReaderOpen() { return motionBoundary.animateResultReaderOpen(...arguments); }
+function animateSummaryReaderDocument() { return motionBoundary.animateSummaryReaderDocument(...arguments); }
+function animateRerunPanelReady() { return motionBoundary.animateRerunPanelReady(...arguments); }
+function animateRerunPanelOpen(details) { return motionBoundary.animateRerunPanelOpen(...arguments); }
+function wireRerunPanelMotion(details) { return motionBoundary.wireRerunPanelMotion(...arguments); }
+function animateRerunQueued() { return motionBoundary.animateRerunQueued(...arguments); }
+function animateOpsPanelToggle(expanded) { return motionBoundary.animateOpsPanelToggle(...arguments); }
+function animateDiagnosticsReveal() { return motionBoundary.animateDiagnosticsReveal(...arguments); }
+function setDocsMotionVars(docs, values) { return motionBoundary.setDocsMotionVars(...arguments); }
+function animateDocsDisclosureOpen() { return motionBoundary.animateDocsDisclosureOpen(...arguments); }
+function animateDocsDisclosureClose(docs, done) { return motionBoundary.animateDocsDisclosureClose(...arguments); }
+function animateDnaOverlayPolish(stageWrap, renderKey) { return motionBoundary.animateDnaOverlayPolish(...arguments); }
 
 function dnaTrackOffset(layout, helix, job) {
   const state = String(document.body.dataset.workflowState || 'idle');
@@ -10898,202 +4754,39 @@ function renderWeaveHelix(job = activeJobMeta) {
   animateDnaOverlayPolish(stageWrap, renderKey);
 }
 
-function stageFromLine(line) {
-  if (/=== Stage: (Preparing ClusterWeave project layout|Installing NCBI CLI|Preparing genomes from accessions)/i.test(line)) return 'prep';
-  if (/Stage 1\/4: running run_annotation_and_detection\.sh/i.test(line)) return 'annotation';
-  if (/Stage 2\/4: running run_bigscape\.sh/i.test(line)) return 'bigscape';
-  if (/Stage 3\/4: running summarize_clusterweave\.sh/i.test(line)) return 'summary';
-  if (/Stage 4\/4: running run_clinker\.sh/i.test(line)) return 'clinker';
-  if (/=== Stage: Rendering summary figures/i.test(line)) return 'figures';
-  if (/=== Stage: Running optional NPLinker follow-up/i.test(line)) return 'nplinker';
-  return null;
-}
+function stageFromLine(line) { return jobLifecycleControllerBoundary.stageFromLine(...arguments); }
 
-function advanceToStage(key, options = {}) {
-  if (!activeStageState || !activeStageState.enabled.has(key)) return;
-  const eventId = options.eventId || '';
-  if (eventId && activeStageState.appliedEvents.has(eventId)) return;
-  const source = options.source || (options.line ? 'log' : 'snapshot');
-  const eventMs = stageTransitionTimeMs(options);
-  if (eventId) activeStageState.appliedEvents.add(eventId);
-  if (Number.isFinite(eventMs)) activeStageState.lastEventMs = Math.max(activeStageState.lastEventMs || eventMs, eventMs);
-  const nextIdx = stageIndex(key);
-  const currentIdx = stageIndex(activeStageState.current);
-  const isRestart = Boolean(
-    activeStageState.failed === key ||
-    activeStageState.completed.has(key) ||
-    (activeStageState.current === key && Number.isFinite(activeStageState.endedAt[key])) ||
-    (activeStageState.current && activeStageState.current !== key && currentIdx >= nextIdx)
-  );
-  if (isRestart) clearStageTimingFrom(key);
-  if (activeStageState.current && activeStageState.current !== key) {
-    if (currentIdx >= 0 && currentIdx < nextIdx) activeStageState.completed.add(activeStageState.current);
-    setStageEndTime(activeStageState.current, eventMs, source);
-  }
-  for (let i = 0; i < nextIdx; i++) {
-    const prior = STAGES[i].key;
-    if (!activeStageState.enabled.has(prior)) continue;
-    activeStageState.completed.add(prior);
-    if (Number.isFinite(activeStageState.startedAt[prior])) setStageEndTime(prior, eventMs, source);
-  }
-  setStageStartTime(key, eventMs, source, { force: isRestart });
-  if (isRestart) delete activeStageState.endedAt[key];
-  if (isRestart) delete activeStageState.endedAtSource[key];
-  activeStageState.current = key;
-  activeStageState.failed = null;
-  startStageTicker();
-  renderStageState();
-}
+function advanceToStage(key, options = {}) { return jobLifecycleControllerBoundary.advanceToStage(...arguments); }
 
-function sanitizeWeaveLogTitle(line) {
-  let title = String(line || '')
-    .replace(/^\[\d{2}:\d{2}:\d{2}\]\s*/, '')
-    .replace(/^\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\]\s*/, '')
-    .replace(/^\[(INFO|WARN|ERROR|WORK)\]\s*/i, '')
-    .replace(/^\$\s*/, '')
-    .trim();
-  title = title
-    .replace(/\/data\/jobs\/[^\s)]+/g, 'job workspace')
-    .replace(/\/clusterweave\/[^\s)]+/g, 'workflow helper')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return title.length > 96 ? `${title.slice(0, 93)}...` : title;
-}
+function sanitizeWeaveLogTitle(line) { return jobLifecycleControllerBoundary.sanitizeWeaveLogTitle(...arguments); }
 
-function recordWeaveLogActivity(line, stageKey = '') {
-  if (!activeJobMeta || !weaveActivity || !weaveActivity.jobId) return;
-  const title = sanitizeWeaveLogTitle(line);
-  if (!title || /^New version of client/i.test(title)) return;
-  if (!/antiSMASH|genome|Stage|flags|process|staged|complete|queued|running|prepared|input/i.test(title)) return;
-  const stage = stageKey || activeStageState?.current || jobCurrentStageKey(activeJobMeta) || 'prep';
-  const timeMatch = String(line || '').match(/^\[(\d{2}:\d{2}:\d{2})\]/);
-  const meta = timeMatch ? timeMatch[1] : formatWorkflowTime(activeJobMeta.updated_at || activeJobMeta.created_at);
-  const key = `${stage}|${title}|${meta}`;
-  if (weaveActivity.events.some(event => `${event.stage}|${event.title}|${event.meta}` === key)) return;
-  weaveActivity.events.push({ stage, title, meta });
-  if (weaveActivity.events.length > 18) weaveActivity.events = weaveActivity.events.slice(-18);
-}
+function recordWeaveLogActivity(line, stageKey = '') { return jobLifecycleControllerBoundary.recordWeaveLogActivity(...arguments); }
 
-function updateStageBar(line) {
-  const key = stageFromLine(line);
-  const eventTimeMs = stageTimestampFromLogLine(line, activeJobMeta);
-  if (key) {
-    const eventId = `log:${activeJobId || ''}:${logCursor}:${key}`;
-    advanceToStage(key, { eventTimeMs, source: 'log', eventId });
-  }
-  recordWeaveLogActivity(line, key);
-  if (/FATAL:|ERROR:|failed with exit code/i.test(line) && activeStageState && activeStageState.current) {
-    activeStageState.failed = activeStageState.current;
-    setStageEndTime(activeStageState.current, eventTimeMs || Date.now(), 'log');
-    renderStageState();
-  }
-}
+function updateStageBar(line) { return jobLifecycleControllerBoundary.updateStageBar(...arguments); }
 
-function terminalStageTimeMs(status) {
-  const normalized = String(status || '').toLowerCase();
-  const finishedAt = normalized === 'success'
-    ? activeJobMeta?.completed_at || activeJobMeta?.finished_at || activeJobMeta?.updated_at
-    : activeJobMeta?.failed_at || activeJobMeta?.finished_at || activeJobMeta?.updated_at;
-  return parseTimestampMs(finishedAt || activeJobMeta?.updated_at || activeJobMeta?.created_at) || Date.now();
-}
+function terminalStageTimeMs(status) { return jobLifecycleControllerBoundary.terminalStageTimeMs(...arguments); }
 
-function finalizeStageState(status) {
-  if (!activeStageState) return;
-  const normalized = String(status || '').toLowerCase();
-  const terminalMs = terminalStageTimeMs(normalized);
-  if (normalized === 'success') {
-    if (activeStageState.current) setStageEndTime(activeStageState.current, terminalMs, 'terminal');
-    for (const key of activeStageState.enabled) activeStageState.completed.add(key);
-    activeStageState.current = null;
-    activeStageState.failed = null;
-  } else if (normalized === 'failed') {
-    const failedKey = activeStageState.current || jobCurrentStageKey(activeJobMeta);
-    if (failedKey) {
-      activeStageState.failed = failedKey;
-      activeStageState.current = failedKey;
-      setStageEndTime(failedKey, terminalMs, 'terminal');
-    }
-  }
-  renderStageState();
-}
+function finalizeStageState(status) { return jobLifecycleControllerBoundary.finalizeStageState(...arguments); }
 
-function renderStageState() {
-  if (!activeStageState) return;
-  document.querySelectorAll('.stage-step').forEach(el => {
-    const key = el.dataset.stage;
-    const stageLabel = (STAGES.find(s => s.key === key) || {}).label || key;
-    const stateEl = el.querySelector('.stage-state');
-    let stateLabel = 'Queued';
-    el.classList.remove('active','done','upcoming','disabled','failed','complete');
-    const visual = stageVisualState(key);
-    el.classList.add(visual.cls);
-    stateLabel = visual.label;
-    if (visual.cls === 'active' || visual.cls === 'failed') el.setAttribute('aria-current', 'step');
-    else el.removeAttribute('aria-current');
-    if (stateEl) stateEl.textContent = stateLabel;
-    el.setAttribute('aria-label', `${stageLabel}: ${stateLabel}`);
-  });
-  renderWeaveHelix(activeJobMeta);
-  updateStageTelemetry();
-  updateBgcWorkflowDnaFromJob(activeJobMeta);
-}
+function renderStageState() { return jobLifecycleControllerBoundary.renderStageState(...arguments); }
 
 
-function updateProgressBadge(status) {
-  setStatusBadge(document.getElementById('progress-badge'), status, activeJobMeta);
-  finalizeStageState(status);
-  renderQaDrawer(activeJobMeta, activeResultFiles);
-}
+function updateProgressBadge(status) { return jobLifecycleControllerBoundary.updateProgressBadge(...arguments); }
 
 // ── Results ────────────────────────────────────────────────────────────────
-function queueStatusForJob(job = activeJobMeta) {
-  const queue = job && job.queue_status;
-  return queue && typeof queue === 'object' ? queue : null;
-}
+function queueStatusForJob(job = activeJobMeta) { return jobLifecycleControllerBoundary.queueStatusForJob(...arguments); }
 
-function queueStatusLabel(job = activeJobMeta) {
-  const queue = queueStatusForJob(job);
-  if (!queue) return 'Queued';
-  if (queue.state === 'running') return 'Running';
-  if (queue.state === 'claiming') return 'Claiming worker slot';
-  const position = Number(queue.position || 0);
-  return position > 0 ? `Queued #${position}` : 'Queued';
-}
+function queueStatusLabel(job = activeJobMeta) { return jobLifecycleControllerBoundary.queueStatusLabel(...arguments); }
 
-function queueStatusDetail(job = activeJobMeta) {
-  const queue = queueStatusForJob(job);
-  if (!queue) return 'Waiting for a worker slot.';
-  return String(queue.detail || 'Waiting for a worker slot.');
-}
+function queueStatusDetail(job = activeJobMeta) { return jobLifecycleControllerBoundary.queueStatusDetail(...arguments); }
 
-function statusBadgeModel(status, job = activeJobMeta) {
-  const normalized = String(status || '').toLowerCase();
-  if (normalized === 'success') return ['badge-success', 'Complete'];
-  if (normalized === 'failed') return ['badge-failed', 'Failed'];
-  if (normalized === 'running') return ['badge-running', 'Running'];
-  if (normalized === 'pending') return ['badge-pending', queueStatusLabel(job)];
-  return ['badge-pending', status || 'Pending'];
-}
+function statusBadgeModel(status, job = activeJobMeta) { return jobLifecycleControllerBoundary.statusBadgeModel(...arguments); }
 
-function setStatusBadge(el, status, job = activeJobMeta) {
-  if (!el) return;
-  const [cls, label] = statusBadgeModel(status, job);
-  el.className = 'badge ' + cls;
-  el.innerHTML = `<span class="badge-dot"></span> ${escapeHtml(label)}`;
-}
+function setStatusBadge(el, status, job = activeJobMeta) { return jobLifecycleControllerBoundary.setStatusBadge(...arguments); }
 
-function pendingQueueNote(job = activeJobMeta) {
-  const status = String((job && job.status) || '').toLowerCase();
-  if (status !== 'pending') return '';
-  return `<div class="queue-wait-note">${escapeHtml(queueStatusDetail(job))}</div>`;
-}
+function pendingQueueNote(job = activeJobMeta) { return jobLifecycleControllerBoundary.pendingQueueNote(...arguments); }
 
-function renderCompletionCallout(status) {
-  const callout = document.getElementById('completion-callout');
-  if (!callout) return;
-  callout.classList.add('hidden');
-  callout.setAttribute('aria-hidden', 'true');
-}
+function renderCompletionCallout(status) { return jobLifecycleControllerBoundary.renderCompletionCallout(...arguments); }
 
 function setResultFocusMode(mode) {
   resultFocusMode = mode === 'focused' ? 'focused' : 'overview';
@@ -11117,847 +4810,150 @@ function toggleResultsPanel() {
   setResultsPanelCollapsed(document.body.dataset.resultsPanel === 'open');
 }
 
-function resultCategoryKey(category) {
-  const key = String(category || '').toLowerCase();
-  const aliases = {
-    summary: 'summaries',
-    summaries: 'summaries',
-    clinker: 'synteny',
-    antismash: 'antismash',
-    funbgcex: 'funbgcex',
-    bigscape: 'bigscape',
-    figures: 'figures',
-    phylogeny: 'figures',
-    synteny: 'synteny',
-    other: 'other',
-    downloads: 'downloads',
-    files: 'downloads',
-  };
-  return aliases[key] || 'downloads';
-}
+function resultCategoryKey(category) { return resultReaderBoundary.resultCategoryKey(category); }
 
-const RESULT_FOLDER_TABS = [
-  { key: 'antismash', label: 'ANTISMASH' },
-  { key: 'funbgcex', label: 'FUNBGCEX', capability: 'funbgcex' },
-  { key: 'bigscape', label: 'BIG-SCAPE' },
-  { key: 'synteny', label: 'CLINKER' },
-  { key: 'summaries', label: 'SUMMARY' },
-  { key: 'figures', label: 'FIGURES' },
-];
+function resultFolderTabs(counts = {}) { return resultReaderBoundary.resultFolderTabs(counts); }
 
-function resultFolderTabs(counts = {}) {
-  return RESULT_FOLDER_TABS.filter(tab => (
-    analysisCapabilityEnabled(tab.capability)
-    && (!tab.optionalWhenAvailable || Number((counts || {})[resultCategoryKey(tab.key)] || 0) > 0)
-  ));
-}
+function resultPathExt(path) { return resultReaderBoundary.resultPathExt(path); }
 
-function resultPathExt(path) {
-  const name = resultArtifactName(path).toLowerCase();
-  return name.includes('.') ? name.split('.').pop() : '';
-}
+function isHtmlAsset(path) { return resultReaderBoundary.isHtmlAsset(path); }
 
-function isHtmlAsset(path) {
-  return ['html', 'htm'].includes(resultPathExt(path));
-}
+function isDataResultsZip(path) { return resultReaderBoundary.isDataResultsZip(path); }
 
-function isDataResultsZip(path) {
-  const descriptor = resultArtifactDescriptor(path);
-  if (descriptor) return descriptor.category === 'downloads' && /_public_results\.zip$/i.test(descriptor.filename);
-  const normalized = normalizedResultPath(path);
-  return /^downloads\/[^/]+_public_results\.zip$/i.test(normalized) || /\/downloads\/[^/]+_public_results\.zip$/i.test(normalized);
-}
+function isAntiSmashArtifact(path) { return resultReaderBoundary.isAntiSmashArtifact(path); }
 
-function isAntiSmashArtifact(path) {
-  return resultArtifactDescriptor(path)?.category === 'antismash'
-}
+function isAntiSmashHtmlArtifact(path) { return resultReaderBoundary.isAntiSmashHtmlArtifact(path); }
 
-function isAntiSmashHtmlArtifact(path) {
-  return isAntiSmashArtifact(path) && isHtmlAsset(path);
-}
+function isFunbgcexArtifact(path) { return resultReaderBoundary.isFunbgcexArtifact(path); }
 
-function isFunbgcexArtifact(path) {
-  return /(^|\/)funbgcex(\/|$)/i.test(normalizedResultPath(path));
-}
+function isFunbgcexHtmlArtifact(path) { return resultReaderBoundary.isFunbgcexHtmlArtifact(path); }
 
-function isFunbgcexHtmlArtifact(path) {
-  return isFunbgcexArtifact(path) && isHtmlAsset(path);
-}
+function isBigscapeArtifact(path) { return resultReaderBoundary.isBigscapeArtifact(path); }
 
-function isBigscapeArtifact(path) {
-  return /(^|\/)(big_scape|bigscape|big-s[c]?ape)(\/|$)/i.test(normalizedResultPath(path));
-}
-
-function isBigscapeHtmlArtifact(path) {
-  return isBigscapeArtifact(path) && isHtmlAsset(path);
-}
+function isBigscapeHtmlArtifact(path) { return resultReaderBoundary.isBigscapeHtmlArtifact(path); }
 
 const BIGSCAPE_PUBLIC_DATABASE_NAME = 'clusterweave_public.sqlite';
-const BIGSCAPE_VIEWER_DATABASE_NAME = 'clusterweave_viewer.sqlite';
+
 // Automatic Open accepts only the compact web-viewer derivative. The complete
 // sanitized public export remains downloadable and is never loaded here.
-const BIGSCAPE_BROWSER_DATABASE_MAX_BYTES = 64 * 1024 * 1024;
-const SQLITE_FORMAT_HEADER = Object.freeze([83, 81, 76, 105, 116, 101, 32, 102, 111, 114, 109, 97, 116, 32, 51, 0]);
 
-function isBigscapeDatabaseArtifact(path) {
-  const descriptor = resultArtifactDescriptor(path);
-  if (descriptor) return descriptor.category === 'bigscape' && descriptor.role === 'public-database';
-  const normalized = normalizedResultPath(path);
-  const parts = normalized.split('/');
-  if (parts.some(part => !part || part === '.' || part === '..')) return false;
-  return /^data\/results\/[^/]+\/(?:big_scape|bigscape|big-scape)\/(?:public|output_files\/public)\/clusterweave_public\.sqlite$/.test(normalized);
-}
+function isBigscapeDatabaseArtifact(path) { return resultReaderBoundary.isBigscapeDatabaseArtifact(path); }
 
-function isBigscapeViewerDatabaseArtifact(path) {
-  const descriptor = resultArtifactDescriptor(path);
-  if (descriptor?.category === 'bigscape' && descriptor.role === 'viewer-database') return true;
-  if (String(path || '') === BIGSCAPE_VIEWER_DATABASE_NAME) {
-    return activeJobMeta?.bigscape_viewer_available === true;
-  }
-  const normalized = normalizedResultPath(path);
-  const parts = normalized.split('/');
-  if (parts.some(part => !part || part === '.' || part === '..')) return false;
-  return /^data\/results\/[^/]+\/(?:big_scape|bigscape|big-scape)\/(?:public|output_files\/public)\/clusterweave_viewer\.sqlite$/.test(normalized);
-}
+function isBigscapeViewerDatabaseArtifact(path) { return resultReaderBoundary.isBigscapeViewerDatabaseArtifact(path); }
 
-function isSummaryArtifact(path) {
-  const descriptor = resultArtifactDescriptor(path);
-  if (descriptor) return descriptor.category === 'summaries';
-  const normalized = normalizedResultPath(path);
-  if (!/(^|\/)(summary|summary_tables)(\/|$)/i.test(normalized)) return false;
-  if (isDataResultsZip(normalized)) return false;
-  const ext = resultPathExt(normalized);
-  return ['html', 'htm', 'md', 'tsv', 'csv', 'txt'].includes(ext);
-}
+function isSummaryArtifact(path) { return resultReaderBoundary.isSummaryArtifact(path); }
 
-function isAtlasShortlistArtifact(path) {
-  const normalized = normalizedResultPath(path);
-  if (!isSummaryArtifact(normalized)) return false;
-  return /^family_atlas_shortlist\.(md|tsv|csv|txt|html?)$/i.test(fileNameFromPath(normalized));
-}
+function isAtlasShortlistArtifact(path) { return resultReaderBoundary.isAtlasShortlistArtifact(path); }
 
-function summaryReaderArtifactKind(path) {
-  const normalized = normalizedResultPath(path);
-  if (!isSummaryArtifact(normalized)) return '';
-  const name = fileNameFromPath(normalized).toLowerCase();
-  if (name === 'all_tools_bgc_comparison.csv') return 'all_bgcs';
-  if (/^priority_shortlist\.(md|tsv|csv|txt|html?)$/i.test(name)) return 'target';
-  if (/^family_atlas_shortlist\.(md|tsv|csv|txt|html?)$/i.test(name)) return 'atlas';
-  return '';
-}
+function summaryReaderArtifactKind(path) { return resultReaderBoundary.summaryReaderArtifactKind(path); }
 
-function isSummaryReaderArtifact(path) {
-  return !!summaryReaderArtifactKind(path);
-}
+function isSummaryReaderArtifact(path) { return resultReaderBoundary.isSummaryReaderArtifact(path); }
 
-function preferredSummaryViewFile(files, kind) {
-  const extensionOrder = kind === 'atlas'
-    ? { tsv: 0, csv: 1, md: 2, txt: 3, html: 4, htm: 4 }
-    : { md: 0, tsv: 1, csv: 2, txt: 3, html: 4, htm: 4 };
-  return (files || [])
-    .filter(path => summaryReaderArtifactKind(path) === kind)
-    .sort((a, b) => {
-      const extA = resultPathExt(a);
-      const extB = resultPathExt(b);
-      const keyA = (extensionOrder[extA] ?? 9) + ':' + summarySortKey(a);
-      const keyB = (extensionOrder[extB] ?? 9) + ':' + summarySortKey(b);
-      return keyA.localeCompare(keyB);
-    })[0] || '';
-}
+function preferredSummaryViewFile(files, kind) { return resultReaderBoundary.preferredSummaryViewFile(files, kind); }
 
-const CROSS_KINGDOM_EVIDENCE_FILENAMES = Object.freeze([
-  'cross_kingdom_evidence_cards.txt',
-  'cross_kingdom_evidence.tsv',
-  'cross_kingdom_evidence.json',
-  'putative_transfer_evidence_cards.txt',
-  'putative_transfer_evidence.tsv',
-  'putative_transfer_evidence.json',
-]);
+function crossKingdomEvidenceArtifact(path) { return resultReaderBoundary.crossKingdomEvidenceArtifact(path); }
 
-function crossKingdomEvidenceArtifact(path) {
-  const descriptor = resultArtifactDescriptor(path);
-  if (descriptor?.category === 'evidence') {
-    const descriptorName = String(descriptor.filename || '').toLowerCase();
-    return CROSS_KINGDOM_EVIDENCE_FILENAMES.includes(descriptorName)
-      ? { path: normalizedResultPath(path), name: descriptorName } : null;
-  }
-  const normalized = normalizedResultPath(path);
-  const match = normalized.match(/^data\/results\/[^/]+\/integrated_evidence\/([^/]+)$/i);
-  if (!match) return null;
-  const name = String(match[1] || '').toLowerCase();
-  if (!CROSS_KINGDOM_EVIDENCE_FILENAMES.includes(name)) return null;
-  return { path: normalized, name };
-}
+function isPackageOnlyResultArtifact(path) { return resultReaderBoundary.isPackageOnlyResultArtifact(path); }
 
-function isPackageOnlyResultArtifact(path) {
-  const descriptor = resultArtifactDescriptor(path);
-  const category = String(descriptor?.category || '').trim().toLowerCase();
-  if (['evidence', 'integrated_evidence', 'cross_kingdom', 'putative_transfer'].includes(category)) {
-    return true;
-  }
-  return !!crossKingdomEvidenceArtifact(path);
-}
+function isSyntenyArtifact(path) { return resultReaderBoundary.isSyntenyArtifact(path); }
 
-function isSyntenyArtifact(path) {
-  if (resultArtifactDescriptor(path)?.category === 'synteny') return true;
-  return /(^|\/)(clinker|synteny)(\/|$)|\/panel\.html$|\/panels?\//i.test(normalizedResultPath(path));
-}
+function isPrimaryResultCategory(path) { return resultReaderBoundary.isPrimaryResultCategory(path); }
 
-function isPrimaryResultCategory(path) {
-  return isFigureAsset(path)
-    || isAntiSmashArtifact(path)
-    || isFunbgcexArtifact(path)
-    || isBigscapeArtifact(path)
-    || isSummaryArtifact(path)
-    || isPackageOnlyResultArtifact(path)
-    || isSyntenyArtifact(path)
-    || isDataResultsZip(path);
-}
+function resultCategoryMatches(category, path) { return resultReaderBoundary.resultCategoryMatches(category, path); }
 
-function resultCategoryMatches(category, path) {
-  const key = resultCategoryKey(category);
-  if (isPackageOnlyResultArtifact(path)) return false;
-  const descriptor = resultArtifactDescriptor(path);
-  if (descriptor) {
-    const descriptorKey = resultCategoryKey(descriptor.category);
-    if (key === 'downloads') return descriptor.downloadable !== false;
-    if (key === 'other') return descriptorKey === 'other';
-    return descriptorKey === key;
-  }
-  if (key === 'figures') return isFigureAsset(path) && figureApplicableToAnalysis(path);
-  if (key === 'antismash') return isAntiSmashArtifact(path);
-  if (key === 'funbgcex') return isFunbgcexArtifact(path);
-  if (key === 'bigscape') return isBigscapeArtifact(path);
-  if (key === 'summaries') return isSummaryArtifact(path);
-  if (key === 'synteny') return isSyntenyArtifact(path);
-  if (key === 'other') return !isPrimaryResultCategory(path);
-  return true;
-}
+function resultPathParts(path) { return resultReaderBoundary.resultPathParts(path); }
 
-function resultPathParts(path) {
-  return normalizedResultPath(path).split('/').filter(Boolean);
-}
+function toolSegmentIndex(path, matcher) { return resultReaderBoundary.toolSegmentIndex(path, matcher); }
 
-function toolSegmentIndex(path, matcher) {
-  return resultPathParts(path).findIndex(part => matcher.test(part));
-}
-
-function readableArtifactLabel(value, fallback = 'artifact') {
-  const raw = String(value || fallback || '').trim() || fallback;
-  try { return decodeURIComponent(raw).replace(/[_]+/g, ' '); }
-  catch (e) { return raw.replace(/[_]+/g, ' '); }
-}
+function readableArtifactLabel(value, fallback = 'artifact') { return resultReaderBoundary.readableArtifactLabel(value, fallback); }
 
 
-function readableGenomeArtifactLabel(value, fallback = 'Unknown organism') {
-  return readableArtifactLabel(value, fallback).replace(/^bacteria\s+/i, '').trim() || fallback;
-}
-function titleCaseArtifactLabel(value, fallback = 'artifact') {
-  return readableArtifactLabel(value, fallback)
-    .replace(/[-]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/\b([a-z])/g, ch => ch.toUpperCase());
-}
+function readableGenomeArtifactLabel(value, fallback = 'Unknown organism') { return resultReaderBoundary.readableGenomeArtifactLabel(value, fallback); }
+function titleCaseArtifactLabel(value, fallback = 'artifact') { return resultReaderBoundary.titleCaseArtifactLabel(value, fallback); }
 
-function fileStemFromPath(path) {
-  const name = fileNameFromPath(path);
-  return name.includes('.') ? name.slice(0, name.lastIndexOf('.')) : name;
-}
+function fileStemFromPath(path) { return resultReaderBoundary.fileStemFromPath(path); }
 
-function summaryArtifactLabel(path) {
-  const name = fileNameFromPath(path).toLowerCase();
-  const ext = resultPathExt(path).toUpperCase();
-  if (/^family_atlas_shortlist\./i.test(name)) return `Family atlas shortlist ${ext}`.trim();
-  if (/priority|shortlist/i.test(name)) return `${titleCaseArtifactLabel(fileStemFromPath(path), 'Summary')} ${ext}`.trim();
-  return `${titleCaseArtifactLabel(fileStemFromPath(path), 'Summary')} ${ext}`.trim();
-}
+function summaryArtifactLabel(path) { return resultReaderBoundary.summaryArtifactLabel(path); }
 
-function syntenyGcfQualifier(value) {
-  const match = String(value || '').match(/^gcf_([a-z0-9]+)_c(\d+)_(\d+)_(.+)$/i);
-  if (!match) return '';
-  return `GCF ${match[1].toUpperCase()} c${match[2]}.${match[3]} ${titleCaseArtifactLabel(match[4], 'family')}`;
-}
+function syntenyGcfQualifier(value) { return resultReaderBoundary.syntenyGcfQualifier(value); }
 
-function syntenyArtifactLabel(path) {
-  const descriptor = resultArtifactDescriptor(path);
-  if (descriptor) {
-    return descriptor.label && !/^panel\.html$/i.test(descriptor.label)
-      ? titleCaseArtifactLabel(descriptor.label) : 'clinker synteny HTML panel';
-  }
-  const parts = resultPathParts(path);
-  const idx = parts.findIndex(part => /^(clinker|synteny|clinker_shared_family)$/i.test(part));
-  const filename = fileNameFromPath(path);
-  const artifact = /^panel\.html$/i.test(filename) ? 'synteny panel.html' : readableArtifactLabel(filename, 'synteny artifact');
-  const ignored = /^(panels?|html|assets?|static|scripts?|styles?|css|js|atlas|priority|prioritized?|shared[-_]?family|shared|family|track|tracks)$/i;
-  let compound = '';
-  let qualifier = '';
-  for (let i = Math.max(0, idx + 1); i < parts.length - 1; i += 1) {
-    if (!ignored.test(parts[i])) {
-      const [compoundPart, qualifierPart = ''] = parts[i].split('__', 2);
-      compound = titleCaseArtifactLabel(compoundPart, 'clinker');
-      qualifier = syntenyGcfQualifier(qualifierPart);
-      break;
-    }
-  }
-  const label = qualifier ? `${compound} · ${qualifier}` : compound;
-  if (label && /^panel\.html$/i.test(filename)) return label;
-  return label ? `${label} - ${artifact}` : artifact;
-}
+function syntenyArtifactLabel(path) { return resultReaderBoundary.syntenyArtifactLabel(path); }
 
-function activeGenomeArtifactLabel(genomeId, fallback) {
-  const source = Array.isArray(activeJobMeta?.genome_progress)
-    ? activeJobMeta.genome_progress
-    : Array.isArray(activeJobMeta?.genomeProgress)
-      ? activeJobMeta.genomeProgress
-      : [];
-  const target = String(genomeId || '').trim().toLowerCase();
-  const match = source.find(item => String(item?.genome_id ?? item?.genome ?? item?.id ?? '').trim().toLowerCase() === target);
-  return match ? safeGenomeProgressLabel(match, 0) : fallback;
-}
+function activeGenomeArtifactLabel(genomeId, fallback) { return resultReaderBoundary.activeGenomeArtifactLabel(genomeId, fallback); }
 
-function artifactMetaLabel(path, category = '') {
-  const key = resultCategoryKey(category);
-  if (key === 'antismash') return `${toolGenomeLabel(path, 'antismash')} HTML view`;
-  if (key === 'funbgcex') return `${toolGenomeLabel(path, 'funbgcex')} HTML view`;
-  if (key === 'bigscape') return isBigscapeDatabaseArtifact(path)
-    ? `BiG-SCAPE database ${fileNameFromPath(path)}`
-    : 'BiG-SCAPE web view';
-  if (key === 'summaries') return summaryArtifactLabel(path);
-  if (key === 'synteny') return isHtmlAsset(path) ? 'clinker synteny HTML panel' : 'clinker synteny artifact';
-  if (key === 'figures') return figureCaption(path);
-  return readableArtifactLabel(fileNameFromPath(path), 'artifact');
-}
+function artifactMetaLabel(path, category = '') { return resultReaderBoundary.artifactMetaLabel(path, category); }
 
-function toolGenomeLabel(path, toolKey) {
-  const descriptor = resultArtifactDescriptor(path);
-  if (descriptor?.category === toolKey && descriptor.genome_label) {
-    const fallback = readableGenomeArtifactLabel(descriptor.genome_label, fileNameFromPath(path));
-    return activeGenomeArtifactLabel(descriptor.genome_label, fallback);
-  }
-  const parts = resultPathParts(path);
-  const matcher = toolKey === 'antismash' ? /^antismash$/i : /^funbgcex$/i;
-  const idx = parts.findIndex(part => matcher.test(part));
-  const after = idx >= 0 ? parts[idx + 1] : '';
-  if (after && !/\.html?$/i.test(after)) {
-    const fallback = readableGenomeArtifactLabel(after, fileNameFromPath(path));
-    return activeGenomeArtifactLabel(after, fallback);
-  }
-  const parent = parts.length > 1 ? parts[parts.length - 2] : '';
-  if (parent && !matcher.test(parent)) return readableGenomeArtifactLabel(parent, fileNameFromPath(path));
-  return toolKey === 'antismash' ? 'antiSMASH index' : 'FunBGCeX index';
-}
+function toolGenomeLabel(path, toolKey) { return resultReaderBoundary.toolGenomeLabel(path, toolKey); }
 
-function toolHtmlSortKey(path) {
-  const name = fileNameFromPath(path).toLowerCase();
-  const normalized = normalizedResultPath(path).toLowerCase();
-  const priority = name === 'index.html' ? 0 : /overview|results?|knowncluster/.test(name) ? 1 : 2;
-  return `${priority}:${normalized}`;
-}
+function toolHtmlSortKey(path) { return resultReaderBoundary.toolHtmlSortKey(path); }
 
-function uniqueToolHtmlArtifacts(files, toolKey) {
-  const predicate = toolKey === 'antismash' ? isAntiSmashHtmlArtifact : isFunbgcexHtmlArtifact;
-  const grouped = new Map();
-  (files || []).filter(predicate).sort((a, b) => toolHtmlSortKey(a).localeCompare(toolHtmlSortKey(b))).forEach(path => {
-    const label = toolGenomeLabel(path, toolKey);
-    const descriptor = resultArtifactDescriptor(path);
-    const groupKey = String(descriptor?.bundle_id || label);
-    if (!grouped.has(groupKey)) grouped.set(groupKey, { label, path });
-  });
-  return Array.from(grouped.values()).sort((a, b) => a.label.localeCompare(b.label));
-}
+function uniqueToolHtmlArtifacts(files, toolKey) { return resultReaderBoundary.uniqueToolHtmlArtifacts(files, toolKey); }
 
-function bigscapeHtmlSortKey(path) {
-  const name = fileNameFromPath(path).toLowerCase();
-  const priority = name === 'index.html' ? 0 : /visual|network|bigscape|app/.test(name) ? 1 : 2;
-  return `${priority}:${normalizedResultPath(path).toLowerCase()}`;
-}
+function bigscapeHtmlSortKey(path) { return resultReaderBoundary.bigscapeHtmlSortKey(path); }
 
-function bigscapeExpectedHtmlPathForDatabase(databasePath) {
-  const normalized = normalizedResultPath(databasePath);
-  const match = normalized.match(/^(data\/results\/[^/]+\/(?:big_scape|bigscape|big-scape)\/(?:output_files\/)?)(?:public\/clusterweave_public\.sqlite)$/);
-  return match ? `${match[1]}index.html` : '';
-}
+function bigscapeExpectedHtmlPathForDatabase(databasePath) { return resultReaderBoundary.bigscapeExpectedHtmlPathForDatabase(databasePath); }
 
-function bigscapeExpectedViewerPathForDatabase(databasePath) {
-  const normalized = normalizedResultPath(databasePath);
-  if (!bigscapeExpectedHtmlPathForDatabase(normalized)) return '';
-  return normalized.replace(/\/clusterweave_public\.sqlite$/, '/clusterweave_viewer.sqlite');
-}
+function bigscapeExpectedViewerPathForDatabase(databasePath) { return resultReaderBoundary.bigscapeExpectedViewerPathForDatabase(databasePath); }
 
-function chooseBigscapeDatabase(htmlPath, databaseFiles) {
-  const htmlDescriptor = resultArtifactDescriptor(htmlPath);
-  const pairId = String(htmlDescriptor?.pair_id || htmlDescriptor?.bundle_id || '');
-  if (!pairId || !databaseFiles.length) return '';
-  return databaseFiles.find(path => {
-    const descriptor = resultArtifactDescriptor(path);
-    return String(descriptor?.pair_id || descriptor?.bundle_id || '') === pairId;
-  }) || '';
-}
+function chooseBigscapeDatabase(htmlPath, databaseFiles) { return resultReaderBoundary.chooseBigscapeDatabase(htmlPath, databaseFiles); }
 
-function summarySortKey(path) {
-  const normalized = normalizedResultPath(path).toLowerCase();
-  const name = fileNameFromPath(path).toLowerCase();
-  const preferred = [
-    'family_atlas_shortlist.md',
-    'family_atlas_shortlist.tsv',
-    'priority_shortlist.md',
-    'priority_shortlist.tsv',
-    'targeted_candidate_ranking.tsv',
-    'bigscape_family_atlas.tsv',
-    'all_tools_shared_unshared_summary.csv',
-  ];
-  const idx = preferred.indexOf(name);
-  return `${idx === -1 ? preferred.length : idx}:${normalized}`;
-}
+function summarySortKey(path) { return resultReaderBoundary.summarySortKey(path); }
 
-function buildResultArtifacts(files) {
-  const normalized = (files || []).map(normalizedResultPath).filter(Boolean);
-  const capabilities = activeAnalysisCapabilities();
-  const bigscapeHtmlFiles = normalized.filter(isBigscapeHtmlArtifact).sort((a, b) => bigscapeHtmlSortKey(a).localeCompare(bigscapeHtmlSortKey(b)));
-  const bigscapeDatabaseFiles = normalized.filter(isBigscapeDatabaseArtifact).sort((a, b) => normalizedResultPath(a).localeCompare(normalizedResultPath(b)));
-  const bigscapePairs = bigscapeHtmlFiles.map(html => ({
-    html,
-    database: chooseBigscapeDatabase(html, bigscapeDatabaseFiles),
-  })).filter(pair => pair.database);
-  const selectedPair = bigscapePairs[0] || null;
-  const bigscapeHtml = selectedPair?.html || bigscapeHtmlFiles[0] || '';
-  const bigscapeDatabase = selectedPair?.database || '';
-  const bigscapeViewerDatabase = selectedPair && activeJobMeta?.bigscape_viewer_available === true
-    ? BIGSCAPE_VIEWER_DATABASE_NAME : '';
-  return {
-    files: normalized,
-    antismash: uniqueToolHtmlArtifacts(normalized, 'antismash'),
-    funbgcex: capabilities.funbgcex ? uniqueToolHtmlArtifacts(normalized, 'funbgcex') : [],
-    bigscape: {
-      html: bigscapeHtml,
-      database: bigscapeDatabase,
-      viewerDatabase: bigscapeViewerDatabase,
-      htmlFiles: bigscapeHtmlFiles,
-      databaseFiles: bigscapeDatabaseFiles,
-    },
-    summaries: normalized.filter(isSummaryReaderArtifact).sort((a, b) => summarySortKey(a).localeCompare(summarySortKey(b))),
-    synteny: normalized.filter(isSyntenyArtifact).sort((a, b) => normalizedResultPath(a).localeCompare(normalizedResultPath(b))),
-    figures: normalized
-      .filter(path => isFigureAsset(path) && figureApplicableToAnalysis(path, capabilities))
-      .sort((a, b) => figureSortKey(a).localeCompare(figureSortKey(b))),
-  };
-}
+function buildResultArtifacts(files) { return resultReaderBoundary.buildResultArtifacts(files); }
 
-function resultArtifacts(files = activeResultFiles) {
-  activeResultArtifacts = buildResultArtifacts(files);
-  return activeResultArtifacts;
-}
+function resultArtifacts(files = activeResultFiles) { return resultReaderBoundary.resultArtifacts(files); }
 
-function resultCategoryCounts(files) {
-  const normalized = (files || []).map(normalizedResultPath).filter(Boolean);
-  const artifacts = buildResultArtifacts(normalized);
-  const other = normalized.filter(path => resultCategoryMatches('other', path)).length;
-  return {
-    figures: artifacts.figures.length,
-    antismash: artifacts.antismash.length,
-    funbgcex: artifacts.funbgcex.length,
-    bigscape: artifacts.bigscape.html ? 1 : 0,
-    summaries: artifacts.summaries.length,
-    synteny: artifacts.synteny.length,
-    other,
-    downloads: normalized.length,
-  };
-}
+function resultCategoryCounts(files) { return resultReaderBoundary.resultCategoryCounts(files); }
 
-function resultCategoryAvailable(category, counts) {
-  const key = resultCategoryKey(category);
-  return resultCategoryApplicable(key) && Number((counts || {})[key] || 0) > 0;
-}
+function resultCategoryAvailable(category, counts) { return resultReaderBoundary.resultCategoryAvailable(category, counts); }
 
-function firstAvailableResultCategory(counts) {
-  return resultFolderTabs(counts).map(tab => tab.key)
-    .find(key => resultCategoryAvailable(key, counts)) || 'downloads';
-}
+function firstAvailableResultCategory(counts) { return resultReaderBoundary.firstAvailableResultCategory(counts); }
 
-function defaultFocusedResultCategory(counts) {
-  return resultCategoryAvailable('antismash', counts)
-    ? 'antismash'
-    : firstAvailableResultCategory(counts);
-}
+function defaultFocusedResultCategory(counts) { return resultReaderBoundary.defaultFocusedResultCategory(counts); }
 
-function resultFilesForCategory(category, files) {
-  const key = resultCategoryKey(category);
-  if (!resultCategoryApplicable(key)) return [];
-  const normalized = (files || []).map(normalizedResultPath).filter(Boolean);
-  if (key === 'downloads') return normalized;
-  return normalized.filter(path => resultCategoryMatches(key, path));
-}
+function resultFilesForCategory(category, files) { return resultReaderBoundary.resultFilesForCategory(category, files); }
 
-function resultCategoryLabel(category) {
-  const labels = {
-    figures: 'FIGURES',
-    antismash: 'ANTISMASH',
-    funbgcex: 'FUNBGCEX',
-    bigscape: 'BIG-SCAPE',
-    summaries: 'SUMMARY',
-    synteny: 'CLINKER',
-    other: 'Other artifacts',
-    downloads: 'Files',
-  };
-  const key = resultCategoryKey(category);
-  return labels[key] || labels.downloads;
-}
+function resultCategoryLabel(category) { return resultReaderBoundary.resultCategoryLabel(category); }
 
-function resultCategoryCopy(category) {
-  const capabilities = activeAnalysisCapabilities();
-  const copy = {
-    figures: 'Zoomable SVG/PNG figures.',
-    antismash: 'Per-genome antiSMASH HTML views.',
-    funbgcex: 'Per-genome FunBGCeX HTML views.',
-    bigscape: 'BiG-SCAPE clustering output; interactive view when a safe database is available.',
-    summaries: 'Atlas shortlist and priority tables.',
-    synteny: 'clinker panels grouped by family context.',
-    other: 'Additional indexed artifacts.',
-    downloads: 'All indexed artifacts as download rows.',
-  };
-  const key = resultCategoryKey(category);
-  if (key === 'funbgcex' && capabilities.mixedDomain) {
-    return 'Per-genome FunBGCeX HTML views for fungal genomes only; bacterial genomes are not applicable.';
-  }
-  return copy[key] || copy.downloads;
-}
+function resultCategoryCopy(category) { return resultReaderBoundary.resultCategoryCopy(category); }
 
-function resultCategoryIcon(category) {
-  const icons = { antismash: '06', funbgcex: '07', bigscape: '08', summaries: '09', figures: '10', synteny: 'SYN', other: 'OUT', downloads: 'ZIP' };
-  return icons[resultCategoryKey(category)] || 'OUT';
-}
+function resultCategoryIcon(category) { return resultReaderBoundary.resultCategoryIcon(category); }
 
-function resultItemCountLabel(item) {
-  const count = Number((item && item.count) || 0);
-  const unit = String((item && item.unit) || 'item');
-  return `${count} ${unit}${count === 1 ? '' : 's'}`;
-}
+function resultItemCountLabel(item) { return resultReaderBoundary.resultItemCountLabel(item); }
 
-function resultOverviewMetricItems(items, counts) {
-  const metrics = (items || []).map(item => ({
-    key: item.key,
-    label: item.label,
-    icon: item.icon,
-    count: resultItemCountLabel(item),
-    copy: item.copy,
-  }));
-  const totalFiles = Number((counts || {}).downloads || 0);
-  if (totalFiles) {
-    metrics.push({
-      key: 'downloads',
-      label: resultCategoryLabel('downloads'),
-      icon: resultCategoryIcon('downloads'),
-      count: `${totalFiles} file${totalFiles === 1 ? '' : 's'}`,
-      copy: 'Full manifest and package downloads.',
-    });
-  }
-  return metrics;
-}
+function resultOverviewMetricItems(items, counts) { return resultReaderBoundary.resultOverviewMetricItems(items, counts); }
 
-function renderResultMetricItem(item) {
-  return `
-    <div class="result-overview-item" data-output-key="${escapeHtml(item.key)}">
-      <span class="result-overview-item-icon" aria-hidden="true">${escapeHtml(item.icon)}</span>
-      <span class="result-overview-item-main">
-        <span class="result-overview-item-label">${escapeHtml(item.label)}</span>
-        <span class="result-overview-item-copy">${escapeHtml(item.copy)}</span>
-      </span>
-      <span class="result-overview-item-count">${escapeHtml(item.count)}</span>
-    </div>`;
-}
+function renderResultMetricItem(item) { return resultReaderBoundary.renderResultMetricItem(item); }
 
-function resultLollipopItems(artifacts = activeResultArtifacts || buildResultArtifacts(activeResultFiles), counts = null) {
-  const items = [];
-  if (artifacts.antismash.length) {
-    items.push({ key: 'antismash', count: artifacts.antismash.length, unit: 'view', label: resultCategoryLabel('antismash'), copy: resultCategoryCopy('antismash'), icon: resultCategoryIcon('antismash') });
-  }
-  if (resultCategoryApplicable('funbgcex') && artifacts.funbgcex.length) {
-    items.push({ key: 'funbgcex', count: artifacts.funbgcex.length, unit: 'view', label: resultCategoryLabel('funbgcex'), copy: resultCategoryCopy('funbgcex'), icon: resultCategoryIcon('funbgcex') });
-  }
-  if (artifacts.bigscape.html) {
-    items.push({ key: 'bigscape', count: artifacts.bigscape.database ? 2 : 1, unit: 'file', label: resultCategoryLabel('bigscape'), copy: resultCategoryCopy('bigscape'), icon: resultCategoryIcon('bigscape') });
-  }
-  if (artifacts.summaries.length) {
-    items.push({ key: 'summaries', count: artifacts.summaries.length, unit: 'file', label: resultCategoryLabel('summaries'), copy: resultCategoryCopy('summaries'), icon: resultCategoryIcon('summaries') });
-  }
-  if (artifacts.synteny.length) {
-    items.push({ key: 'synteny', count: artifacts.synteny.length, unit: 'panel', label: resultCategoryLabel('synteny'), copy: resultCategoryCopy('synteny'), icon: resultCategoryIcon('synteny') });
-  }
-  if (artifacts.figures.length) {
-    items.push({ key: 'figures', count: artifacts.figures.length, unit: 'figure', label: resultCategoryLabel('figures'), copy: resultCategoryCopy('figures'), icon: resultCategoryIcon('figures') });
-  }
-  const totalFiles = Number((counts && counts.downloads) || activeResultFiles.length || 0);
-  if (totalFiles) {
-    items.push({ key: 'downloads', count: totalFiles, unit: 'file', label: resultCategoryLabel('downloads'), copy: 'Full manifest and package downloads.', icon: resultCategoryIcon('downloads') });
-  }
-  return items;
-}
+function resultLollipopItems(artifacts = activeResultArtifacts || buildResultArtifacts(activeResultFiles), counts = null) { return resultReaderBoundary.resultLollipopItems(artifacts, counts); }
 
-function resultCategoryItems(counts) {
-  return resultLollipopItems(activeResultArtifacts || buildResultArtifacts(activeResultFiles), counts).filter(item => resultCategoryAvailable(item.key, counts));
-}
+function resultCategoryItems(counts) { return resultReaderBoundary.resultCategoryItems(counts); }
 
-function renderResultOverviewPanel(items, counts) {
-  const panel = document.getElementById('result-overview-panel');
-  if (!panel) return;
-  const focusPanel = document.getElementById('result-focus-panel');
-  if (!items.length) {
-    const fallback = Number((counts || {}).downloads || 0) > 0
-      ? 'No tool-specific views were indexed. Use the package download or Files list for the available artifacts.'
-      : 'No web-facing result artifacts were indexed for this run.';
-    if (focusPanel) focusPanel.dataset.overviewFallback = 'true';
-    panel.innerHTML = `<div class="empty-state">${escapeHtml(fallback)}</div>`;
-    return;
-  }
-  if (focusPanel) delete focusPanel.dataset.overviewFallback;
-  panel.innerHTML = '';
-}
+function renderResultOverviewPanel(items, counts) { return resultReaderBoundary.renderResultOverviewPanel(items, counts); }
 
-function resultFolderTabUnit(key) {
-  const units = {
-    antismash: 'view',
-    funbgcex: 'view',
-    bigscape: 'view',
-    synteny: 'panel',
-    summaries: 'file',
-    figures: 'figure',
-    evidence: 'file',
-  };
-  return units[resultCategoryKey(key)] || 'item';
-}
+function resultFolderTabUnit(key) { return resultReaderBoundary.resultFolderTabUnit(key); }
 
-function resultFolderTabCountLabel(key, count) {
-  const safeCount = Number(count || 0);
-  if (!safeCount) return 'Not available';
-  const unit = resultFolderTabUnit(key);
-  return `${safeCount} ${unit}${safeCount === 1 ? '' : 's'}`;
-}
+function resultFolderTabCountLabel(key, count) { return resultReaderBoundary.resultFolderTabCountLabel(key, count); }
 
-function resultFolderTabItems(counts) {
-  return resultFolderTabs(counts).map(tab => {
-    const key = resultCategoryKey(tab.key);
-    const count = Number((counts || {})[key] || 0);
-    return {
-      key,
-      label: resultCategoryLabel(key),
-      count,
-      unit: resultFolderTabUnit(key),
-      copy: resultCategoryCopy(key),
-      icon: resultCategoryIcon(key),
-      available: count > 0,
-    };
-  });
-}
+function resultFolderTabItems(counts) { return resultReaderBoundary.resultFolderTabItems(counts); }
 
-function renderResultFolderTab(item) {
-  const selected = resultFocusMode === 'focused' && item.key === activeResultCategory;
-  const jsKey = escapeJsString(item.key);
-  const disabled = !item.available;
-  const classes = `output result-bubble result-lollipop result-folder-tab${selected ? ' active is-selected' : ''}${disabled ? ' is-unavailable' : ''}`;
-  const buttonLabel = disabled
-    ? `${item.label} output is not available for this run.`
-    : `${item.label} output is available.`;
-  return `
-    <button class="${classes}" type="button" role="tab" data-output-key="${escapeHtml(item.key)}" data-output-node="${escapeHtml(item.icon)}" onclick="focusResultCategory('${escapeHtml(jsKey)}', event)" aria-selected="${selected ? 'true' : 'false'}" aria-controls="result-focus-panel" aria-label="${escapeHtml(buttonLabel)}" title="${escapeHtml(buttonLabel)}"${disabled ? ' disabled aria-disabled="true" tabindex="-1"' : ' tabindex="0"'}>
-      <b>${escapeHtml(item.label)}</b>
-    </button>`;
-}
+function renderResultFolderTab(item) { return resultReaderBoundary.renderResultFolderTab(item); }
 
-function updateResultDashboardVisibility(status, fileCount = null) {
-  const panel = document.getElementById('result-bubble-panel');
-  if (!panel) return;
-  const loaded = !!activeJobMeta;
-  const files = fileCount === null ? Number(panel.dataset.fileCount || 0) : Number(fileCount || 0);
-  const shouldShowReader = loaded && resultDashboardOpen;
-  const board = document.getElementById('result-dashboard-section');
-  panel.classList.remove('hidden');
-  if (board) board.classList.toggle('hidden', !shouldShowReader);
-  document.querySelectorAll('.result-dashboard-surface').forEach(el => {
-    if (el.id === 'result-dashboard-section') return;
-    el.classList.toggle('hidden', !shouldShowReader);
-  });
-  setStatusBadge(document.getElementById('result-flow-status'), status || panel.dataset.status || '', activeJobMeta);
-  updateArchiveButton();
-}
+function updateResultDashboardVisibility(status, fileCount = null) { return resultReaderBoundary.updateResultDashboardVisibility(status, fileCount); }
 
-function renderResultBubblePanel(files, status) {
-  const panel = document.getElementById('result-bubble-panel');
-  if (!panel) return;
-  const indexedFiles = (files || []).map(normalizedResultPath).filter(Boolean);
-  activeResultPackageFileCount = indexedFiles.length;
-  activeResultFiles = indexedFiles.filter(path => !isPackageOnlyResultArtifact(path));
-  document.body.dataset.resultsAvailable = (activeResultFiles.length || activeResultPackageFileCount) ? 'true' : 'false';
-  const artifacts = resultArtifacts(activeResultFiles);
-  const counts = resultCategoryCounts(activeResultFiles);
-  const folderItems = resultFolderTabItems(counts);
-  const availableItems = resultLollipopItems(artifacts, counts)
-    .filter(item => resultFolderTabs(counts).some(tab => resultCategoryKey(tab.key) === item.key));
-  if (resultFocusMode === 'focused' && !resultCategoryAvailable(activeResultCategory, counts)) {
-    setResultFocusMode('overview');
-    activeResultCategory = firstAvailableResultCategory(counts);
-  }
-  panel.dataset.status = String(status || '');
-  panel.dataset.fileCount = String(counts.downloads);
-  panel.innerHTML = folderItems.map(renderResultFolderTab).join('');
-  renderResultOverviewPanel(availableItems, counts);
-  updateResultDashboardVisibility(status, counts.downloads);
-  rerenderWorkflowSpineForResults();
-}
+function renderResultBubblePanel(files, status) { return resultReaderBoundary.renderResultBubblePanel(files, status); }
 
-function updateArchiveButton() {
-  const btn = document.getElementById('download-package-btn');
-  if (!btn) return;
-  const inFlight = !!activeArchiveDownload;
-  const sameRun = inFlight && activeArchiveDownload.jobId === activeJobId;
-  const percent = inFlight && activeArchiveDownload.total > 0
-    ? Math.min(100, Math.floor((activeArchiveDownload.received / activeArchiveDownload.total) * 100))
-    : 0;
-  btn.disabled = !activeJobId || activeResultPackageFileCount < 1 || inFlight;
-  btn.textContent = inFlight
-    ? (sameRun && percent ? `Downloading ${percent}%` : 'Download in progress')
-    : 'Download package';
-}
+function updateArchiveButton() { return resultReaderBoundary.updateArchiveButton(); }
 
-function archiveDownloadDetail(download) {
-  const received = Number(download?.received || 0);
-  const total = Number(download?.total || 0);
-  const runId = String(download?.runId || 'result');
-  if (total > 0) return `${runId} · ${fmt_size(received)} of ${fmt_size(total)} received in the background.`;
-  if (received > 0) return `${runId} · ${fmt_size(received)} received in the background.`;
-  return `${runId} · preparing the full result package in the background.`;
-}
+function archiveDownloadDetail(download) { return resultReaderBoundary.archiveDownloadDetail(download); }
 
-function renderArchiveDownloadStatus(status = archiveDownloadStatus) {
-  const tray = document.getElementById('archive-download-tray');
-  const title = document.getElementById('archive-download-title');
-  const percentLabel = document.getElementById('archive-download-percent');
-  const detail = document.getElementById('archive-download-detail');
-  const progress = document.getElementById('archive-download-progress');
-  const fill = document.getElementById('archive-download-progress-fill');
-  if (!tray || !title || !percentLabel || !detail || !progress || !fill) return;
-  if (!status) {
-    tray.hidden = true;
-    tray.setAttribute('aria-busy', 'false');
-    return;
-  }
-  const state = String(status.state || 'running');
-  const received = Number(status.received || 0);
-  const total = Number(status.total || 0);
-  const percent = total > 0 ? Math.min(100, Math.floor((received / total) * 100)) : 0;
-  tray.hidden = false;
-  tray.dataset.state = state;
-  tray.setAttribute('aria-busy', state === 'running' ? 'true' : 'false');
-  title.textContent = state === 'complete' ? 'PACKAGE READY' : state === 'error' ? 'DOWNLOAD INTERRUPTED' : 'PACKAGE DOWNLOAD';
-  percentLabel.textContent = state === 'complete' ? '100%' : state === 'error' ? 'RETRY' : total > 0 ? `${percent}%` : 'WORKING';
-  detail.textContent = String(status.message || archiveDownloadDetail(status));
-  progress.classList.toggle('is-indeterminate', state === 'running' && total <= 0);
-  if (total > 0 || state === 'complete') {
-    const value = state === 'complete' ? 100 : percent;
-    progress.setAttribute('aria-valuenow', String(value));
-    fill.style.width = `${value}%`;
-  } else {
-    progress.removeAttribute('aria-valuenow');
-    fill.style.width = '';
-  }
-}
+function renderArchiveDownloadStatus(status = archiveDownloadStatus) { return resultReaderBoundary.renderArchiveDownloadStatus(status); }
 
-function setArchiveDownloadStatus(status, dismissAfterMs = 0) {
-  if (archiveDownloadDismissTimer) {
-    clearTimeout(archiveDownloadDismissTimer);
-    archiveDownloadDismissTimer = null;
-  }
-  archiveDownloadStatus = status;
-  renderArchiveDownloadStatus(status);
-  if (status && dismissAfterMs > 0) {
-    archiveDownloadDismissTimer = setTimeout(() => {
-      archiveDownloadStatus = null;
-      archiveDownloadDismissTimer = null;
-      renderArchiveDownloadStatus(null);
-    }, dismissAfterMs);
-  }
-}
+function setArchiveDownloadStatus(status, dismissAfterMs = 0) { return resultReaderBoundary.setArchiveDownloadStatus(status, dismissAfterMs); }
 
-async function readArchiveResponseBlob(response, requestId) {
-  const headerTotal = Number(response.headers.get('content-length') || 0);
-  if (!response.body || typeof response.body.getReader !== 'function') {
-    const blob = await response.blob();
-    if (activeArchiveDownload?.requestId === requestId) {
-      activeArchiveDownload.received = blob.size;
-      activeArchiveDownload.total = headerTotal || blob.size;
-      setArchiveDownloadStatus({ ...activeArchiveDownload, state: 'running' });
-    }
-    return blob;
-  }
-  const reader = response.body.getReader();
-  const chunks = [];
-  let received = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (!value) continue;
-    chunks.push(value);
-    received += value.byteLength;
-    if (activeArchiveDownload?.requestId === requestId) {
-      activeArchiveDownload.received = received;
-      activeArchiveDownload.total = headerTotal;
-      setArchiveDownloadStatus({ ...activeArchiveDownload, state: 'running' });
-      updateArchiveButton();
-    }
-  }
-  return new Blob(chunks, { type: response.headers.get('content-type') || 'application/zip' });
-}
+async function readArchiveResponseBlob(response, requestId) { return resultReaderBoundary.readArchiveResponseBlob(response, requestId); }
 
-async function downloadResultArchive(event) {
-  event?.preventDefault?.();
-  if (!activeJobId || activeArchiveDownload) return false;
-  const requestJobId = activeJobId;
-  const requestRunId = publicRunIdForJob(requestJobId);
-  const requestId = ++resultArchiveRequestSeq;
-  activeArchiveDownload = {
-    jobId: requestJobId,
-    runId: requestRunId,
-    requestId,
-    received: 0,
-    total: 0,
-  };
-  setArchiveDownloadStatus({ ...activeArchiveDownload, state: 'running' });
-  updateArchiveButton();
-  try {
-    const resp = await apiFetch(
-      `api/results/${encodeURIComponent(requestRunId)}/archive`,
-      { cache: 'no-store' },
-      { kind: 'job', jobId: requestRunId },
-    );
-    if (!resp.ok) throw new Error('Full package download is not available for this run yet.');
-    const blob = await readArchiveResponseBlob(resp, requestId);
-    if (resultArchiveObjectUrl) URL.revokeObjectURL(resultArchiveObjectUrl);
-    resultArchiveObjectUrl = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = resultArchiveObjectUrl;
-    a.download = `${requestRunId}_clusterweave_results.zip`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setArchiveDownloadStatus({
-      ...activeArchiveDownload,
-      state: 'complete',
-      received: blob.size,
-      total: blob.size,
-      message: `${requestRunId} · package received; the browser download has started.`,
-    }, 6000);
-  } catch (err) {
-    setArchiveDownloadStatus({
-      ...(activeArchiveDownload || { runId: requestRunId }),
-      state: 'error',
-      message: err?.message || 'Package download was interrupted. Select Download package to retry.',
-    }, 8000);
-  } finally {
-    if (activeArchiveDownload?.requestId === requestId) activeArchiveDownload = null;
-    updateArchiveButton();
-  }
-  return false;
-}
+async function downloadResultArchive(event) { return resultReaderBoundary.downloadResultArchive(event); }
 
 
 function scrollResultSpineToStage(stageKey) {
@@ -12010,1001 +5006,107 @@ function clearResultFocus() {
   (firstOutput || document.getElementById('weavemap'))?.focus({ preventScroll: true });
 }
 
-function setResultReaderSurface(surface) {
-  const selected = surface === 'viz' ? 'viz' : 'files';
-  const viz = document.getElementById('viz-container');
-  const files = document.getElementById('files-container');
-  if (viz) viz.hidden = selected !== 'viz';
-  if (files) files.hidden = selected !== 'files';
-}
+function setResultReaderSurface(surface) { return resultReaderBoundary.setResultReaderSurface(surface); }
 
-function renderResultFileSurface(jobId, files) {
-  if (resultFocusMode === 'focused') {
-    renderFocusedResultCategory(activeResultCategory);
-    return;
-  }
-  setResultReaderSurface('files');
-  renderFileTable(jobId, files);
-}
+function renderResultFileSurface(jobId, files) { return resultReaderBoundary.renderResultFileSurface(jobId, files); }
 
-function renderFocusedResultCategory(category) {
-  const key = resultCategoryKey(category);
-  if (!resultCategoryApplicable(key)) {
-    setResultFocusMode('overview');
-    renderResultBubblePanel(activeResultFiles, activeJobMeta?.status || '');
-    return;
-  }
-  const artifacts = resultArtifacts(activeResultFiles);
-  if (key === 'figures') {
-    setResultReaderSurface('viz');
-    if (activeJobId) renderViz(activeJobId, activeResultFiles);
-    return;
-  }
-  setResultReaderSurface('files');
-  if (!activeJobId) return;
-  if (key === 'antismash') {
-    renderToolHtmlReader(activeJobId, 'antismash', artifacts.antismash);
-    return;
-  }
-  if (key === 'funbgcex') {
-    renderToolHtmlReader(activeJobId, 'funbgcex', artifacts.funbgcex);
-    return;
-  }
-  if (key === 'bigscape') {
-    renderBigscapeReader(activeJobId, artifacts.bigscape);
-    return;
-  }
-  if (key === 'summaries') {
-    renderSummaryReader(activeJobId, artifacts.summaries);
-    return;
-  }
-  if (key === 'synteny') {
-    renderSyntenyReader(activeJobId, artifacts.synteny);
-    return;
-  }
-  renderFileTable(activeJobId, activeResultFiles, { category: key });
-}
+function renderFocusedResultCategory(category) { return resultReaderBoundary.renderFocusedResultCategory(category); }
 
-function artifactReaderHead(category, countLabel) {
-  return `
-    <div class="artifact-reader-head">
-      <div>
-        <div class="artifact-reader-title">${escapeHtml(resultCategoryLabel(category))}</div>
-        <div class="artifact-reader-copy">${escapeHtml(resultCategoryCopy(category))}</div>
-      </div>
-      <span class="ext-badge">${escapeHtml(countLabel)}</span>
-    </div>`;
-}
+function artifactReaderHead(category, countLabel) { return resultReaderBoundary.artifactReaderHead(category, countLabel); }
 
-function resultOpenLink(jobId, path, label = 'Open') {
-  if (isHtmlAsset(path) && !canOpenRichHtmlArtifacts(jobId)) {
-    return resultDownloadLink(jobId, path, 'Download HTML');
-  }
-  const href = resultHref(jobId, path);
-  const jsJobId = escapeJsString(jobId);
-  const jsPath = escapeJsString(path);
-  return `<a class="btn btn-ghost text-sm" href="${escapeHtml(href)}" target="_blank" onclick="return handleResultLinkClick(event,'${escapeHtml(jsJobId)}','${escapeHtml(jsPath)}',false)">${escapeHtml(label)}</a>`;
-}
+function resultOpenLink(jobId, path, label = 'Open') { return resultReaderBoundary.resultOpenLink(jobId, path, label); }
 
-function resultDownloadLink(jobId, path, label = 'Download') {
-  const href = resultHref(jobId, path, { download: true });
-  const name = fileNameFromPath(path);
-  const jsJobId = escapeJsString(jobId);
-  const jsPath = escapeJsString(path);
-  return `<a class="btn btn-ghost text-sm" href="${escapeHtml(href)}" download="${escapeHtml(name)}" onclick="return handleResultLinkClick(event,'${escapeHtml(jsJobId)}','${escapeHtml(jsPath)}',true)">${escapeHtml(label)}</a>`;
-}
+function resultDownloadLink(jobId, path, label = 'Download') { return resultReaderBoundary.resultDownloadLink(jobId, path, label); }
 
-function renderToolHtmlReader(jobId, toolKey, items) {
-  const container = document.getElementById('files-container');
-  if (!container) return;
-  const category = toolKey === 'antismash' ? 'antismash' : 'funbgcex';
-  if (!items.length) {
-    container.innerHTML = `<div class="empty-state">No ${escapeHtml(resultCategoryLabel(category))} HTML views were found for this run.</div>`;
-    return;
-  }
-  const rows = items.map(item => `
-    <div class="artifact-row is-compact result-tool-row">
-      <div class="artifact-row-name">${escapeHtml(item.label)}</div>
-      <div class="artifact-row-actions">
-        ${resultOpenLink(jobId, item.path, 'Open')}
-        ${resultDownloadLink(jobId, item.path, 'Download')}
-      </div>
-    </div>`).join('');
-  container.innerHTML = `
-    <div class="artifact-reader">
-      ${artifactReaderHead(category, `${items.length} ${items.length === 1 ? 'view' : 'views'}`)}
-      <div class="artifact-list">${rows}</div>
-    </div>`;
-  animateResultReaderOpen();
-}
+function renderToolHtmlReader(jobId, toolKey, items) { return resultReaderBoundary.renderToolHtmlReader(jobId, toolKey, items); }
 
-function normalizedSyntenyTaxon(value) {
-  const taxon = String(value || '').trim().toLowerCase();
-  return ['fungi', 'bacteria'].includes(taxon) ? taxon : '';
-}
+function normalizedSyntenyTaxon(value) { return resultReaderBoundary.normalizedSyntenyTaxon(value); }
 
-function syntenyArtifactTaxon(path) {
-  const descriptorTaxon = normalizedSyntenyTaxon(resultArtifactDescriptor(path)?.taxon_group);
-  if (descriptorTaxon) return descriptorTaxon;
-  const capabilities = activeAnalysisCapabilities();
-  if (capabilities.hasFungi && !capabilities.hasBacteria) return 'fungi';
-  if (capabilities.hasBacteria && !capabilities.hasFungi) return 'bacteria';
-  return 'other';
-}
+function syntenyArtifactTaxon(path) { return resultReaderBoundary.syntenyArtifactTaxon(path); }
 
-function syntenyArtifactGenome(path) {
-  const descriptor = resultArtifactDescriptor(path);
-  const genome = String(descriptor?.genome_label || '').trim();
-  if (!genome) return 'Dataset context';
-  return activeGenomeArtifactLabel(
-    genome,
-    readableGenomeArtifactLabel(genome, 'Dataset context'),
-  );
-}
+function syntenyArtifactGenome(path) { return resultReaderBoundary.syntenyArtifactGenome(path); }
 
-function syntenyArtifactTrack(path) {
-  const track = String(resultArtifactDescriptor(path)?.track || '').trim();
-  if (!track) return 'Panel';
-  return titleCaseArtifactLabel(track.replace(/_/g, ' '), 'Panel');
-}
+function syntenyArtifactTrack(path) { return resultReaderBoundary.syntenyArtifactTrack(path); }
 
-function syntenyTaxonGroups(items) {
-  const groups = new Map();
-  (items || []).map(normalizedResultPath).filter(Boolean).forEach(path => {
-    const taxon = syntenyArtifactTaxon(path);
-    if (!groups.has(taxon)) groups.set(taxon, []);
-    groups.get(taxon).push(path);
-  });
-  return groups;
-}
+function syntenyTaxonGroups(items) { return resultReaderBoundary.syntenyTaxonGroups(items); }
 
-function switchSyntenyTaxon(taxon) {
-  const selected = ['fungi', 'bacteria', 'other'].includes(String(taxon || '')) ? String(taxon) : '';
-  const groups = syntenyTaxonGroups(resultArtifacts(activeResultFiles).synteny);
-  if (!selected || !groups.has(selected)) return;
-  activeSyntenyTaxon = selected;
-  renderSyntenyReader(activeJobId, resultArtifacts(activeResultFiles).synteny);
-}
+function switchSyntenyTaxon(taxon) { return resultReaderBoundary.switchSyntenyTaxon(taxon); }
 
-function renderSyntenyReader(jobId, items) {
-  const container = document.getElementById('files-container');
-  if (!container) return;
-  const syntenyFiles = (items || []).map(normalizedResultPath).filter(Boolean);
-  if (!syntenyFiles.length) {
-    container.innerHTML = '<div class="empty-state">No synteny panel artifacts were found for this run.</div>';
-    return;
-  }
-  const groups = syntenyTaxonGroups(syntenyFiles);
-  const taxonOrder = ['fungi', 'bacteria', 'other'].filter(taxon => groups.has(taxon));
-  if (syntenyReaderJobId !== jobId) {
-    syntenyReaderJobId = jobId;
-    activeSyntenyTaxon = taxonOrder[0] || '';
-  }
-  if (!groups.has(activeSyntenyTaxon)) activeSyntenyTaxon = taxonOrder[0] || '';
-  const labels = { fungi: 'FUNGAL PANELS', bacteria: 'BACTERIAL PANELS', other: 'OTHER PANELS' };
-  const tabs = taxonOrder.map(taxon => {
-    const active = taxon === activeSyntenyTaxon;
-    const count = groups.get(taxon)?.length || 0;
-    return `<button class="summary-subtab clinker-subtab" type="button" role="tab" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" onclick="switchSyntenyTaxon('${taxon}')">${escapeHtml(labels[taxon])}<span>${count}</span></button>`;
-  }).join('');
-  const selectedFiles = groups.get(activeSyntenyTaxon) || [];
-  const rows = selectedFiles.map(path => `
-    <tr>
-      <td class="clinker-col-organism">${escapeHtml(syntenyArtifactGenome(path))}</td>
-      <td class="clinker-col-panel">${escapeHtml(syntenyArtifactLabel(path))}</td>
-      <td>${escapeHtml(syntenyArtifactTrack(path))}</td>
-      <td class="clinker-col-actions"><div class="artifact-row-actions">
-        ${resultOpenLink(jobId, path, 'Open')}
-        ${resultDownloadLink(jobId, path, 'Download')}
-      </div></td>
-    </tr>`).join('');
-  container.innerHTML = `
-    <div class="summary-reader clinker-reader" data-clinker-taxon="${escapeHtml(activeSyntenyTaxon)}">
-      <div class="summary-reader-head">
-        <div class="summary-subtabs" role="tablist" aria-label="clinker panel taxon groups">${tabs}</div>
-        <span class="ext-badge">${escapeHtml(`${syntenyFiles.length} ${syntenyFiles.length === 1 ? 'panel' : 'panels'}`)}</span>
-      </div>
-      <div class="summary-condensed-head clinker-condensed-head">
-        <div class="summary-condensed-title">${escapeHtml(labels[activeSyntenyTaxon] || 'CLINKER PANELS')}</div>
-        <div class="summary-condensed-meta">${escapeHtml(`${selectedFiles.length} ${selectedFiles.length === 1 ? 'panel' : 'panels'}`)}</div>
-      </div>
-      <div class="summary-table-wrap clinker-table-wrap">
-        <table class="summary-reader-table clinker-table">
-          <thead><tr><th>Organism</th><th>Panel</th><th>Set</th><th>Actions</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>
-    </div>`;
-  animateResultReaderOpen();
-}
+function renderSyntenyReader(jobId, items) { return resultReaderBoundary.renderSyntenyReader(jobId, items); }
 
-function jsonForInlineScript(value) {
-  return JSON.stringify(value).replace(/</g, '\\u003c');
-}
+function jsonForInlineScript(value) { return resultReaderBoundary.jsonForInlineScript(value); }
 
-function bigscapePreviewChannel() {
-  if (typeof window.crypto?.randomUUID === 'function') return window.crypto.randomUUID();
-  const bytes = new Uint8Array(16);
-  if (typeof window.crypto?.getRandomValues === 'function') window.crypto.getRandomValues(bytes);
-  else for (let i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * 256);
-  return Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('');
-}
+function bigscapePreviewChannel() { return resultReaderBoundary.bigscapePreviewChannel(); }
 
-async function validatedBigscapeDatabaseBuffer(response) {
-  const declaredSize = Number(response?.headers?.get?.('Content-Length') || 0);
-  if (Number.isFinite(declaredSize) && declaredSize > BIGSCAPE_BROWSER_DATABASE_MAX_BYTES) {
-    throw new Error('The compact BiG-SCAPE viewer database is too large for automatic browser loading.');
-  }
-  const buffer = await response.arrayBuffer();
-  if (!buffer.byteLength || buffer.byteLength > BIGSCAPE_BROWSER_DATABASE_MAX_BYTES) {
-    throw new Error('The compact BiG-SCAPE viewer database is empty or too large for automatic browser loading.');
-  }
-  const header = new Uint8Array(buffer, 0, Math.min(SQLITE_FORMAT_HEADER.length, buffer.byteLength));
-  const validHeader = header.length === SQLITE_FORMAT_HEADER.length
-    && SQLITE_FORMAT_HEADER.every((value, index) => header[index] === value);
-  if (!validHeader) throw new Error('The paired BiG-SCAPE viewer database is not valid sanitized SQLite.');
-  return buffer;
-}
+async function validatedBigscapeDatabaseBuffer(response) { return resultReaderBoundary.validatedBigscapeDatabaseBuffer(response); }
 
-function injectBigscapeDatabaseContract(htmlText, dbName, dbPath, channel) {
-  const headScript = `<script>window.CLUSTERWEAVE_BIGSCAPE_DATABASE_NAME=${jsonForInlineScript(dbName)};window.CLUSTERWEAVE_BIGSCAPE_DATABASE_PATH=${jsonForInlineScript(dbPath)};window.CLUSTERWEAVE_BIGSCAPE_DATABASE_CHANNEL=${jsonForInlineScript(channel)};<\/script>`;
-  const loaderScript = `<script>(function(){
-  const name = window.CLUSTERWEAVE_BIGSCAPE_DATABASE_NAME || 'clusterweave_viewer.sqlite';
-  const path = window.CLUSTERWEAVE_BIGSCAPE_DATABASE_PATH || name;
-  const channel = window.CLUSTERWEAVE_BIGSCAPE_DATABASE_CHANNEL || '';
-  let loadPromise = null;
-  let bufferPromise = null;
+function injectBigscapeDatabaseContract(htmlText, dbName, dbPath, channel) { return resultReaderBoundary.injectBigscapeDatabaseContract(htmlText, dbName, dbPath, channel); }
 
-  function setStatus(message) {
-    try { if (typeof window.showLoading === 'function') window.showLoading(true, true); } catch (e) {}
-    const status = document.getElementById('status');
-    if (status) status.textContent = message;
-  }
+async function openBigscapeResult(event, jobId, htmlPath, databasePath) { return resultReaderBoundary.openBigscapeResult(event, jobId, htmlPath, databasePath); }
 
-  function fail(err) {
-    const message = err && err.message ? err.message : 'ClusterWeave could not load the compact BiG-SCAPE viewer database.';
-    try { if (typeof window.sendError === 'function') window.sendError(message); } catch (e) {}
-    const status = document.getElementById('status');
-    if (status) status.textContent = message;
-    throw err;
-  }
-
-  function waitForFunction(label, timeoutMs) {
-    const started = Date.now();
-    return new Promise((resolve, reject) => {
-      function tick() {
-        if (typeof window[label] === 'function') {
-          resolve(window[label]);
-          return;
-        }
-        if (Date.now() - started > timeoutMs) {
-          reject(new Error(label + ' did not load before the database autoload timed out.'));
-          return;
-        }
-        window.setTimeout(tick, 80);
-      }
-      tick();
-    });
-  }
-
-  function receiveBuffer() {
-    if (!bufferPromise) {
-      bufferPromise = new Promise((resolve, reject) => {
-        let timer = null;
-        let readyInterval = null;
-        let settled = false;
-        const maxBytes = ${BIGSCAPE_BROWSER_DATABASE_MAX_BYTES};
-        const sqliteHeader = [83, 81, 76, 105, 116, 101, 32, 102, 111, 114, 109, 97, 116, 32, 51, 0];
-        function cleanup() {
-          window.removeEventListener('message', onMessage);
-          if (timer) window.clearTimeout(timer);
-          if (readyInterval) window.clearInterval(readyInterval);
-          timer = null;
-          readyInterval = null;
-        }
-        function rejectTransfer(message) {
-          if (settled) return;
-          settled = true;
-          cleanup();
-          reject(new Error(message));
-        }
-        function resolveTransfer(buffer) {
-          if (settled) return;
-          settled = true;
-          cleanup();
-          resolve(buffer);
-        }
-        function onMessage(event) {
-          if (event.source !== window.parent) return;
-          const payload = event && event.data;
-          if (!payload || payload.channel !== channel) return;
-          if (payload.type === 'clusterweave:bigscape-database-error') {
-            rejectTransfer('ClusterWeave could not transfer the compact BiG-SCAPE viewer database.');
-            return;
-          }
-          if (payload.type !== 'clusterweave:bigscape-database') return;
-          if (
-            Object.prototype.toString.call(payload.buffer) !== '[object ArrayBuffer]'
-            || payload.buffer.byteLength <= 0
-            || payload.buffer.byteLength > maxBytes
-          ) {
-            rejectTransfer('The compact BiG-SCAPE viewer database transfer is invalid.');
-            return;
-          }
-          const output = new Uint8Array(payload.buffer);
-          const validHeader = sqliteHeader.every((value, index) => output[index] === value);
-          if (!validHeader) {
-            rejectTransfer('The transferred BiG-SCAPE viewer database is not valid sanitized SQLite.');
-            return;
-          }
-          resolveTransfer(payload.buffer);
-        }
-        window.addEventListener('message', onMessage);
-        function announceReady() {
-          try { window.parent.postMessage({ type: 'clusterweave:bigscape-database-ready', channel: channel }, '*'); } catch (e) {}
-        }
-        announceReady();
-        readyInterval = window.setInterval(announceReady, 250);
-        timer = window.setTimeout(() => {
-          rejectTransfer('Compact BiG-SCAPE viewer database transfer timed out.');
-        }, 120000);
-      });
-    }
-    return bufferPromise;
-  }
-
-  function emitReady() {
-    const detail = { name: name, path: path };
-    try { window.dispatchEvent(new CustomEvent('clusterweave:bigscape-database-ready', { detail: detail })); } catch (e) {}
-    try { document.dispatchEvent(new CustomEvent('clusterweave:bigscape-database-ready', { detail: detail })); } catch (e) {}
-  }
-
-  async function autoloadDatabase() {
-    if (loadPromise) return loadPromise;
-    loadPromise = (async function(){
-      setStatus('Loading BiG-SCAPE database: ' + name);
-      const initSqlJs = await waitForFunction('initSqlJs', 24000);
-      const dataLoaded = await waitForFunction('dataLoaded', 24000);
-      const buffer = await receiveBuffer();
-      window.CLUSTERWEAVE_BIGSCAPE_DATABASE_BYTES = buffer.byteLength || 0;
-      const SQL = await initSqlJs();
-      window.db = new SQL.Database(new Uint8Array(buffer));
-      window.CLUSTERWEAVE_BIGSCAPE_DATABASE_LOADED = true;
-      const status = document.getElementById('status');
-      if (status) status.textContent = 'Loaded ' + name;
-      emitReady();
-      dataLoaded();
-      return window.db;
-    })().catch(fail);
-    return loadPromise;
-  }
-
-  window.CLUSTERWEAVE_BIGSCAPE_AUTOLOAD_DATABASE = autoloadDatabase;
-  function scheduleAutoload() { window.setTimeout(function(){ autoloadDatabase().catch(function(){}); }, 0); }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', scheduleAutoload, { once: true });
-  else scheduleAutoload();
-  window.addEventListener('load', scheduleAutoload, { once: true });
-})();<\/script>`;
-  const withHead = /<head[^>]*>/i.test(htmlText)
-    ? htmlText.replace(/<head([^>]*)>/i, `<head$1>${headScript}`)
-    : `${headScript}${htmlText}`;
-  if (/<\/body\s*>/i.test(withHead)) return withHead.replace(/<\/body\s*>/i, `${loaderScript}</body>`);
-  return `${withHead}${loaderScript}`;
-}
-
-async function openBigscapeResult(event, jobId, htmlPath, databasePath) {
-  event?.preventDefault?.();
-  if (!jobId || !isBigscapeHtmlArtifact(htmlPath) || !isBigscapeViewerDatabaseArtifact(databasePath)) {
-    window.alert('A compact ClusterWeave BiG-SCAPE viewer database is required for automatic opening.');
-    return false;
-  }
-  let previewWindow = window.open('', '_blank');
-  if (!previewWindow) {
-    window.alert('Allow pop-ups for this site to open the paired BiG-SCAPE HTML and database view.');
-    return false;
-  }
-  previewWindow.opener = null;
-  previewWindow.document.title = 'BiG-SCAPE';
-  previewWindow.document.body.textContent = 'Loading BiG-SCAPE result...';
-  try {
-    const [htmlResp, dbResp] = await Promise.all([
-      resultFetch(jobId, htmlPath),
-      bigscapeViewerFetch(jobId),
-    ]);
-    if (!htmlResp.ok) throw new Error('BiG-SCAPE HTML view could not be opened with this result access code.');
-    if (!dbResp.ok) throw new Error('The compact BiG-SCAPE viewer database could not be opened with this result access code.');
-    const htmlText = await htmlResp.text();
-    const databaseBuffer = await validatedBigscapeDatabaseBuffer(dbResp);
-    const dbName = fileNameFromPath(databasePath);
-    const channel = bigscapePreviewChannel();
-    const contractedHtml = injectBigscapeDatabaseContract(htmlText, dbName, databasePath, channel);
-    const rewrittenHtml = await rewriteHtmlResultAssets(contractedHtml, jobId, htmlPath, {
-      allowBigscapeScripts: true,
-    });
-    renderSandboxedBigscapePreview(previewWindow, htmlPath, rewrittenHtml, databaseBuffer, channel);
-  } catch (err) {
-    const message = err && err.message ? err.message : 'BiG-SCAPE result could not be opened.';
-    previewWindow.document.body.innerHTML = `<pre style="white-space:pre-wrap;font:14px system-ui,sans-serif;color:#111">${escapeHtml(message)}</pre>`;
-  }
-  return false;
-}
-
-function renderBigscapeReader(jobId, bigscape) {
-  const container = document.getElementById('files-container');
-  if (!container) return;
-  if (!bigscape || !bigscape.html) {
-    container.innerHTML = '<div class="empty-state">No BiG-SCAPE web output was indexed for this run.</div>';
-    return;
-  }
-  if (!bigscape.database) {
-    container.innerHTML = `
-      <div class="artifact-reader">
-        ${artifactReaderHead('bigscape', 'clustering complete')}
-        <div class="artifact-row result-tool-row">
-          <div>
-            <div class="artifact-row-name">BiG-SCAPE clustering complete</div>
-            <div class="artifact-row-meta">The raw SQLite database is excluded from public results and remains private because it contains sequence data and execution paths. Use the BiG-SCAPE multipanels and network figures; an interactive reader requires the redacted ClusterWeave database.</div>
-          </div>
-          <div class="artifact-row-actions">
-            ${resultDownloadLink(jobId, bigscape.html, 'Download HTML')}
-          </div>
-        </div>
-      </div>`;
-    animateResultReaderOpen();
-    return;
-  }
-  if (!bigscape.viewerDatabase) {
-    container.innerHTML = `
-      <div class="artifact-reader">
-        ${artifactReaderHead('bigscape', 'web view')}
-        <div class="artifact-row result-tool-row">
-          <div>
-            <div class="artifact-row-name">BiG-SCAPE web view</div>
-            <div class="artifact-row-meta">Automatic Open is unavailable because this run has no independently attested compact viewer database. The complete sanitized database remains available for download.</div>
-          </div>
-          <div class="artifact-row-actions">
-            ${resultDownloadLink(jobId, bigscape.database, 'Download sanitized SQLite')}
-          </div>
-        </div>
-      </div>`;
-    animateResultReaderOpen();
-    return;
-  }
-  const jsJobId = escapeJsString(jobId);
-  const jsHtml = escapeJsString(bigscape.html);
-  const jsDb = escapeJsString(bigscape.viewerDatabase);
-  const href = resultHref(jobId, bigscape.html);
-  container.innerHTML = `
-    <div class="artifact-reader">
-      ${artifactReaderHead('bigscape', 'web view')}
-      <div class="artifact-row is-compact result-tool-row">
-        <div class="artifact-row-name">BiG-SCAPE web view</div>
-        <div class="artifact-row-actions">
-          <a class="btn btn-primary text-sm" href="${escapeHtml(href)}" target="_blank" onclick="return openBigscapeResult(event,'${escapeHtml(jsJobId)}','${escapeHtml(jsHtml)}','${escapeHtml(jsDb)}')">Open</a>
-          ${resultDownloadLink(jobId, bigscape.database, 'Download sanitized SQLite')}
-        </div>
-      </div>
-    </div>`;
-  animateResultReaderOpen();
-}
+function renderBigscapeReader(jobId, bigscape) { return resultReaderBoundary.renderBigscapeReader(jobId, bigscape); }
 
 
-function summaryViewDefinitions(summaryFiles) {
-  const definitions = [
-    { key: 'all_bgcs', label: 'ALL BGCs' },
-    { key: 'target', label: 'TARGET' },
-    { key: 'atlas', label: 'ATLAS' },
-  ];
-  return definitions.map(item => ({
-    ...item,
-    path: preferredSummaryViewFile(summaryFiles, item.key),
-  })).filter(item => item.path);
-}
+function summaryViewDefinitions(summaryFiles) { return resultReaderBoundary.summaryViewDefinitions(summaryFiles); }
 
-function switchSummaryView(view) {
-  const summaries = resultArtifacts(activeResultFiles).summaries;
-  if (!summaryViewDefinitions(summaries).some(item => item.key === view)) return;
-  activeSummaryView = view;
-  renderSummaryReader(activeJobId, summaries);
-}
+function switchSummaryView(view) { return resultReaderBoundary.switchSummaryView(view); }
 
-function renderSummaryReader(jobId, summaryFiles) {
-  const container = document.getElementById('files-container');
-  if (!container) return;
-  const views = summaryViewDefinitions(summaryFiles);
-  if (!views.length) {
-    container.innerHTML = '<div class="empty-state">No public Summary table was found for this run.</div>';
-    return;
-  }
-  if (summaryReaderJobId !== jobId) {
-    summaryReaderJobId = jobId;
-    activeSummaryView = 'all_bgcs';
-    allBgcTableState = null;
-  }
-  if (!views.some(item => item.key === activeSummaryView)) activeSummaryView = views[0].key;
-  const selected = views.find(item => item.key === activeSummaryView) || views[0];
-  const tabs = views.map(item => {
-    const active = item.key === selected.key;
-    return `<button class="summary-subtab" type="button" role="tab" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" onclick="switchSummaryView('${item.key}')">${escapeHtml(item.label)}</button>`;
-  }).join('');
-  container.innerHTML = `
-    <div class="summary-reader">
-      <div class="summary-reader-head">
-        <div class="summary-subtabs" role="tablist" aria-label="Summary result views">${tabs}</div>
-        ${resultDownloadLink(jobId, selected.path, 'Download table')}
-      </div>
-      <div class="summary-reader-doc" id="summary-reader-doc" role="tabpanel"><div class="viz-placeholder text-sm">Loading summary document...</div></div>
-    </div>`;
-  animateResultReaderOpen();
-  if (selected.key === 'all_bgcs') loadAllBgcReaderFile(selected.path);
-  else loadSummaryReaderFile(selected.path);
-}
-function parseDelimitedLine(line, delimiter) {
-  const cells = [];
-  let value = '';
-  let quoted = false;
-  for (let i = 0; i < line.length; i += 1) {
-    const ch = line[i];
-    if (ch === '"') {
-      if (quoted && line[i + 1] === '"') {
-        value += '"';
-        i += 1;
-      } else {
-        quoted = !quoted;
-      }
-    } else if (ch === delimiter && !quoted) {
-      cells.push(value);
-      value = '';
-    } else {
-      value += ch;
-    }
-  }
-  cells.push(value);
-  return cells;
-}
+function renderSummaryReader(jobId, summaryFiles) { return resultReaderBoundary.renderSummaryReader(jobId, summaryFiles); }
+function parseDelimitedLine(line, delimiter) { return resultReaderBoundary.parseDelimitedLine(line, delimiter); }
 
-const ALL_BGC_COLUMNS = Object.freeze([
-  { key: 'genome', label: 'Organism' },
-  { key: 'taxon_group', label: 'Kingdom' },
-  { key: 'detector_relation', label: 'Detector support' },
-  { key: 'antismash_bgc_id', label: 'antiSMASH region' },
-  { key: 'antismash_bgc_class', label: 'antiSMASH BGC class' },
-  { key: 'antismash_knowncluster_similarity_score', label: 'KnownClusterBlast score' },
-  { key: 'antismash_knowncluster_accession', label: 'KnownCluster accession' },
-  { key: 'antismash_knowncluster_product', label: 'KnownCluster product' },
-  { key: 'antismash_clustercompare_similarity_score', label: 'ClusterCompare score' },
-  { key: 'antismash_clustercompare_compounds', label: 'ClusterCompare compounds' },
-  { key: 'antismash_clustercompare_organism', label: 'ClusterCompare organism' },
-  { key: 'funbgcex_core_enzymes', label: 'FunBGCeX core enzymes' },
-  { key: 'funbgcex_similar_bgc', label: 'FunBGCeX similar BGC' },
-  { key: 'funbgcex_similarity_score', label: 'FunBGCeX similarity score' },
-  { key: 'funbgcex_putative_product', label: 'FunBGCeX putative product' },
-]);
+function allBgcDisplayValue(row, key) { return resultReaderBoundary.allBgcDisplayValue(row, key); }
 
-function allBgcDisplayValue(row, key) {
-  if (key === 'genome') {
-    const fallback = readableGenomeArtifactLabel(row.genome || '', 'Unknown organism');
-    return activeGenomeArtifactLabel(row.genome || '', fallback);
-  }
-  if (key === 'taxon_group') return titleCaseArtifactLabel(row.taxon_group || '', 'Unresolved');
-  if (key === 'detector_relation') return titleCaseArtifactLabel(row.detector_relation || '', 'Single detector');
-  if (key === 'antismash_bgc_id') {
-    const region = String(row.antismash_bgc_id || '');
-    const genome = String(row.genome || '');
-    if (String(row.taxon_group || '').toLowerCase() === 'bacteria' && genome) {
-      for (const separator of ['_', '.']) {
-        const prefix = genome + separator;
-        if (region.startsWith(prefix)) return region.slice(prefix.length);
-      }
-    }
-    return region || '—';
-  }
-  return row[key] || '—';
-}
+function allBgcFilteredRows() { return resultReaderBoundary.allBgcFilteredRows(); }
 
-function allBgcFilteredRows() {
-  if (!allBgcTableState) return [];
-  const query = String(allBgcTableState.query || '').trim().toLowerCase();
-  return allBgcTableState.rows.filter(row => {
-    if (allBgcTableState.taxon && String(row.taxon_group || '').toLowerCase() !== allBgcTableState.taxon) return false;
-    if (allBgcTableState.genome && String(row.genome || '') !== allBgcTableState.genome) return false;
-    if (!query) return true;
-    return ALL_BGC_COLUMNS.some(column => String(allBgcDisplayValue(row, column.key)).toLowerCase().includes(query));
-  }).sort((a, b) => {
-    const left = String(allBgcDisplayValue(a, allBgcTableState.sortKey)).toLowerCase();
-    const right = String(allBgcDisplayValue(b, allBgcTableState.sortKey)).toLowerCase();
-    const order = left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' });
-    return allBgcTableState.sortDir === 'desc' ? -order : order;
-  });
-}
+function allBgcGenomeValues(rows, taxon = '') { return resultReaderBoundary.allBgcGenomeValues(rows, taxon); }
 
-function allBgcGenomeValues(rows, taxon = '') {
-  const values = Array.from(new Set(rows
-    .filter(row => !taxon || String(row.taxon_group || '').toLowerCase() === taxon)
-    .map(row => String(row.genome || '')).filter(Boolean)));
-  return values.sort((a, b) => allBgcDisplayValue({ genome: a }, 'genome').localeCompare(
-    allBgcDisplayValue({ genome: b }, 'genome'), undefined, { numeric: true, sensitivity: 'base' },
-  ));
-}
+function allBgcTableMarkup(rows) { return resultReaderBoundary.allBgcTableMarkup(rows); }
 
-function allBgcTableMarkup(rows) {
-  const head = ALL_BGC_COLUMNS.map(column => {
-    const selected = allBgcTableState.sortKey === column.key;
-    const arrow = selected ? (allBgcTableState.sortDir === 'asc' ? ' ↑' : ' ↓') : '';
-    return '<th><button type="button" onclick="sortAllBgcTable(\'' + column.key + '\')" aria-label="Sort by ' + escapeHtml(column.label) + '">' + escapeHtml(column.label + arrow) + '</button></th>';
-  }).join('');
-  const body = rows.map(row => '<tr>' + ALL_BGC_COLUMNS.map(column => '<td>' + escapeHtml(allBgcDisplayValue(row, column.key)) + '</td>').join('') + '</tr>').join('');
-  return rows.length
-    ? '<div class="summary-table-wrap all-bgc-table-wrap"><table class="summary-reader-table all-bgc-table"><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table></div>'
-    : '<div class="empty-state">No BGC records match the selected filters.</div>';
-}
+function refreshAllBgcRows() { return resultReaderBoundary.refreshAllBgcRows(); }
 
-function refreshAllBgcRows() {
-  const doc = document.getElementById('summary-reader-doc');
-  if (!doc || !allBgcTableState) return;
-  const rows = allBgcFilteredRows();
-  const meta = doc.querySelector('.summary-condensed-meta');
-  const table = doc.querySelector('#all-bgc-table-region');
-  if (meta) meta.textContent = rows.length + ' matching BGC records';
-  if (table) table.innerHTML = allBgcTableMarkup(rows);
-}
+function updateAllBgcFilter(key, value) { return resultReaderBoundary.updateAllBgcFilter(key, value); }
 
-function updateAllBgcFilter(key, value) {
-  if (!allBgcTableState || !['query', 'taxon', 'genome'].includes(key)) return;
-  allBgcTableState[key] = String(value || '');
-  if (key === 'query') { refreshAllBgcRows(); return; }
-  if (key === 'taxon') {
-    const genomes = allBgcGenomeValues(allBgcTableState.rows, allBgcTableState.taxon);
-    if (allBgcTableState.genome && !genomes.includes(allBgcTableState.genome)) allBgcTableState.genome = '';
-  }
-  renderAllBgcTable();
-}
+function sortAllBgcTable(key) { return resultReaderBoundary.sortAllBgcTable(key); }
 
-function sortAllBgcTable(key) {
-  if (!allBgcTableState || !ALL_BGC_COLUMNS.some(column => column.key === key)) return;
-  if (allBgcTableState.sortKey === key) {
-    allBgcTableState.sortDir = allBgcTableState.sortDir === 'asc' ? 'desc' : 'asc';
-  } else {
-    allBgcTableState.sortKey = key;
-    allBgcTableState.sortDir = 'asc';
-  }
-  refreshAllBgcRows();
-}
+function renderAllBgcTable() { return resultReaderBoundary.renderAllBgcTable(); }
 
-function renderAllBgcTable() {
-  const doc = document.getElementById('summary-reader-doc');
-  if (!doc || !allBgcTableState) return;
-  const genomes = allBgcGenomeValues(allBgcTableState.rows, allBgcTableState.taxon);
-  const rows = allBgcFilteredRows();
-  const taxa = Array.from(new Set(allBgcTableState.rows.map(row => String(row.taxon_group || '').toLowerCase()).filter(Boolean))).sort();
-  const taxonOptions = taxa.map(value => '<option value="' + escapeHtml(value) + '"' + (value === allBgcTableState.taxon ? ' selected' : '') + '>' + escapeHtml(titleCaseArtifactLabel(value)) + '</option>').join('');
-  const genomeOptions = genomes.map(value => {
-    const label = activeGenomeArtifactLabel(value, readableArtifactLabel(value));
-    return '<option value="' + escapeHtml(value) + '"' + (value === allBgcTableState.genome ? ' selected' : '') + '>' + escapeHtml(label) + '</option>';
-  }).join('');
-  doc.innerHTML =
-    '<div class="summary-condensed-head"><div class="summary-condensed-title">ALL BGCs</div><div class="summary-condensed-meta">' + escapeHtml(rows.length + ' matching BGC records') + '</div></div>' +
-    '<div class="all-bgc-controls">' +
-      '<label>Search<input type="search" value="' + escapeHtml(allBgcTableState.query) + '" placeholder="Organism, class, region, compound" oninput="updateAllBgcFilter(\'query\',this.value)"></label>' +
-      '<label>Kingdom<select onchange="updateAllBgcFilter(\'taxon\',this.value)"><option value="">All</option>' + taxonOptions + '</select></label>' +
-      '<label>Organism<select onchange="updateAllBgcFilter(\'genome\',this.value)"><option value="">All</option>' + genomeOptions + '</select></label>' +
-    '</div>' +
-    '<div id="all-bgc-table-region">' + allBgcTableMarkup(rows) + '</div>';
-  animateSummaryReaderDocument();
-}
+async function loadAllBgcReaderFile(path) { return resultReaderBoundary.loadAllBgcReaderFile(path); }
 
-async function loadAllBgcReaderFile(path) {
-  if (!activeJobId || !path) return;
-  if (allBgcTableState?.path === path) { renderAllBgcTable(); return; }
-  const seq = ++summaryReaderSeq;
-  const doc = document.getElementById('summary-reader-doc');
-  if (doc) doc.innerHTML = '<div class="viz-placeholder text-sm">Loading all BGC records...</div>';
-  try {
-    const resp = await resultFetch(activeJobId, path);
-    if (seq !== summaryReaderSeq) return;
-    if (!resp.ok) throw new Error('The all-BGC table could not be opened with this result access code.');
-    const text = await resp.text();
-    const lines = String(text || '').split(/\r?\n/).filter(line => line.trim());
-    if (!lines.length) throw new Error('The all-BGC table is empty.');
-    const headers = parseDelimitedLine(lines[0], ',');
-    const rows = lines.slice(1).map(line => {
-      const cells = parseDelimitedLine(line, ',');
-      return Object.fromEntries(headers.map((header, index) => [header, cells[index] || '']));
-    });
-    allBgcTableState = {
-      path,
-      rows,
-      query: '',
-      taxon: '',
-      genome: '',
-      sortKey: 'genome',
-      sortDir: 'asc',
-    };
-    renderAllBgcTable();
-  } catch (err) {
-    if (doc) doc.innerHTML = '<div class="empty-state">' + escapeHtml(err.message || 'All BGC records are unavailable.') + '</div>';
-  }
-}
+function preferredSummaryColumnIndexes(headers) { return resultReaderBoundary.preferredSummaryColumnIndexes(headers); }
 
-function preferredSummaryColumnIndexes(headers) {
-  const preferred = [
-    'atlas_rank', 'manual_review_bucket', 'selection_track', 'bigscape_cc', 'genome',
-    'ecology_group', 'antismash_region', 'funbgcex_cluster', 'antismash_class',
-    'priority_score', 'priority_tier', 'recommended_followup', 'ranking_rationale', 'safe_claim_text',
-  ];
-  const lowered = headers.map(h => String(h || '').toLowerCase());
-  const selected = [];
-  preferred.forEach(name => {
-    const idx = lowered.indexOf(name);
-    if (idx >= 0 && !selected.includes(idx)) selected.push(idx);
-  });
-  if (!selected.length) {
-    headers.slice(0, 8).forEach((_, idx) => selected.push(idx));
-  }
-  return selected.slice(0, 8);
-}
+function summaryMetricValue(text, label) { return resultReaderBoundary.summaryMetricValue(text, label); }
 
-function summaryMetricValue(text, label) {
-  const escaped = String(label || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const pattern = new RegExp('^-\\s*(?:`)?' + escaped + '(?:`)?\\s*:\\s*(?:`([^`]+)`|(.+))$', 'im');
-  const match = String(text || '').match(pattern);
-  return match ? String(match[1] || match[2] || '').trim() : '';
-}
+function numericSummaryMetric(value) { return resultReaderBoundary.numericSummaryMetric(value); }
 
-function numericSummaryMetric(value) {
-  const match = String(value || '').match(/\d+/);
-  return match ? Number(match[0]) : 0;
-}
+function summaryTitleFromText(path, text) { return resultReaderBoundary.summaryTitleFromText(path, text); }
 
-function summaryTitleFromText(path, text) {
-  const heading = String(text || '').match(/^#\s+(.+)$/m);
-  const title = heading ? heading[1] : summaryArtifactLabel(path).replace(/\s+(MD|TSV|CSV|TXT|HTML?)$/i, '');
-  return titleCaseArtifactLabel(title.replace(/[_-]+/g, ' '), 'Dataset-wide family atlas');
-}
+function summaryTopCount(text) { return resultReaderBoundary.summaryTopCount(text); }
 
-function summaryTopCount(text) {
-  const atlasNow = numericSummaryMetric(summaryMetricValue(text, 'atlas_now'));
-  if (atlasNow) return atlasNow;
-  const topRows = String(text || '').match(/\bTop\s+`?(\d+)`?\s+rows\b/i);
-  if (topRows) return Number(topRows[1]);
-  const ranks = String(text || '').match(/^###\s+Atlas rank\s+\d+:/gim);
-  return ranks ? ranks.length : 0;
-}
+function summaryCondensedTitle(path, text, count = 0) { return resultReaderBoundary.summaryCondensedTitle(path, text, count); }
 
-function summaryCondensedTitle(path, text, count = 0) {
-  const title = summaryTitleFromText(path, text).toUpperCase();
-  return count ? `${title}: TOP ${count}` : title;
-}
+function renderMarkdownBody(text) { return resultReaderBoundary.renderMarkdownBody(text); }
 
-function renderMarkdownBody(text) {
-  const lines = String(text || '').split(/\r?\n/);
-  const html = [];
-  let listOpen = false;
-  const closeList = () => {
-    if (listOpen) html.push('</ul>');
-    listOpen = false;
-  };
-  lines.forEach(line => {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      closeList();
-      return;
-    }
-    const heading = trimmed.match(/^(#{2,4})\s+(.+)$/);
-    if (heading) {
-      closeList();
-      const level = heading[1].length >= 3 ? 'h4' : 'h3';
-      html.push(`<${level}>${escapeHtml(heading[2])}</${level}>`);
-      return;
-    }
-    const bullet = trimmed.match(/^[-*]\s+(.+)$/);
-    if (bullet) {
-      if (!listOpen) {
-        html.push('<ul>');
-        listOpen = true;
-      }
-      html.push(`<li>${escapeHtml(bullet[1])}</li>`);
-      return;
-    }
-    closeList();
-    html.push(`<p>${escapeHtml(trimmed)}</p>`);
-  });
-  closeList();
-  return html.join('') || '<div class="empty-state">Summary file is empty.</div>';
-}
+function condensedMarkdownBodyText(text) { return resultReaderBoundary.condensedMarkdownBodyText(text); }
 
-function condensedMarkdownBodyText(text) {
-  const lines = String(text || '').split(/\r?\n/);
-  const body = [];
-  let sectionStarted = false;
-  lines.forEach(line => {
-    const trimmed = line.trim();
-    if (/^##\s+/.test(trimmed)) sectionStarted = true;
-    if (!sectionStarted) return;
-    if (/source\s+summary/i.test(trimmed)) return;
-    if (/`?data\/(jobs|results)\//i.test(trimmed)) return;
-    body.push(line);
-  });
-  if (body.some(line => line.trim())) return body.join('\n').trim();
-  return lines.filter(line => {
-    const trimmed = line.trim();
-    if (!trimmed) return false;
-    if (/^#\s+/.test(trimmed)) return false;
-    if (/source\s+summary/i.test(trimmed)) return false;
-    if (/`?data\/(jobs|results)\//i.test(trimmed)) return false;
-    return true;
-  }).join('\n').trim();
-}
+function renderSummaryHeading(path, text, count) { return resultReaderBoundary.renderSummaryHeading(path, text, count); }
 
-function renderSummaryHeading(path, text, count) {
-  return '<div class="summary-condensed-head"><div class="summary-condensed-title">' + escapeHtml(summaryCondensedTitle(path, text, count)) + '</div></div>';
-}
+function atlasMemberGenomes(row) { return resultReaderBoundary.atlasMemberGenomes(row); }
 
-const ATLAS_SUMMARY_COLUMNS = Object.freeze([
-  { key: 'atlas_rank', label: 'Rank' },
-  { key: 'genome', label: 'Representative organism' },
-  { key: 'bigscape_cc', label: 'BiG-SCAPE CC' },
-  { key: 'shared_cc_primary_families', label: 'GCF families' },
-  { key: 'shared_cc_record_count', label: 'BGCs' },
-  { key: 'shared_cc_dataset_genome_count', label: 'Genome count' },
-  { key: 'member_genomes', label: 'Genome members' },
-  { key: 'antismash_class', label: 'BGC class' },
-  { key: 'annotation_hits', label: 'Scored annotation hits' },
-  { key: 'note', label: 'Note' },
-]);
+function atlasAnnotationHits(row) { return resultReaderBoundary.atlasAnnotationHits(row); }
 
-function atlasMemberGenomes(row) {
-  const organisms = String(row.shared_cc_dataset_organisms || '').split(';').map(value => value.trim()).filter(Boolean);
-  if (organisms.length) return organisms.join(' · ');
-  const genomes = String(row.shared_cc_dataset_genomes || '').split(';').map(value => value.trim()).filter(Boolean);
-  return genomes.map(value => activeGenomeArtifactLabel(value, readableArtifactLabel(value))).join(' · ') || '—';
-}
+function atlasTaxonSection(row) { return resultReaderBoundary.atlasTaxonSection(row); }
 
-function atlasAnnotationHits(row) {
-  const hits = [];
-  const knownScore = String(row.antismash_knowncluster_similarity_score || '').trim();
-  const knownLabel = [row.antismash_knowncluster_product, row.antismash_knowncluster_accession]
-    .map(value => String(value || '').trim()).filter(Boolean).join(' · ');
-  if (knownLabel || knownScore) hits.push(`KnownClusterBlast: ${knownLabel || 'hit'} · score ${knownScore || 'unavailable'}`);
+function atlasSummaryValue(row, key) { return resultReaderBoundary.atlasSummaryValue(row, key); }
 
-  const compareScore = String(row.antismash_clustercompare_similarity_score || '').trim();
-  const compareLabel = [row.antismash_clustercompare_compounds, row.antismash_clustercompare_organism]
-    .map(value => String(value || '').trim()).filter(Boolean).join(' · ');
-  if (compareLabel || compareScore) hits.push(`ClusterCompare: ${compareLabel || 'hit'} · score ${compareScore || 'unavailable'}`);
+function renderAtlasSummary(headers, bodyRows) { return resultReaderBoundary.renderAtlasSummary(headers, bodyRows); }
 
-  const funScore = String(row.funbgcex_similarity_score || '').trim();
-  const funLabel = [row.funbgcex_similar_bgc, row.funbgcex_putative_product]
-    .map(value => String(value || '').trim()).filter(Boolean).join(' · ');
-  if (funLabel || funScore) hits.push(`FunBGCeX similar BGC: ${funLabel || 'hit'} · score ${funScore || 'unavailable'}`);
-  return hits.join(' | ') || 'No scored annotation hit';
-}
+function renderDelimitedSummary(path, text) { return resultReaderBoundary.renderDelimitedSummary(path, text); }
 
-function atlasTaxonSection(row) {
-  const taxa = String(row.shared_cc_taxon_groups || row.taxon_group || '').toLowerCase()
-    .split(';').map(value => value.trim()).filter(Boolean);
-  const hasFungi = taxa.includes('fungi');
-  const hasBacteria = taxa.includes('bacteria');
-  if (hasFungi && hasBacteria) return 'cross';
-  if (hasBacteria) return 'bacteria';
-  if (hasFungi) return 'fungi';
-  return 'unresolved';
-}
+function renderMarkdownSummary(path, text) { return resultReaderBoundary.renderMarkdownSummary(path, text); }
 
-function atlasSummaryValue(row, key) {
-  if (key === 'genome') {
-    const fallback = readableGenomeArtifactLabel(row.genome || '', 'Unknown organism');
-    return activeGenomeArtifactLabel(row.genome || '', fallback);
-  }
-  if (key === 'member_genomes') return atlasMemberGenomes(row);
-  if (key === 'annotation_hits') return atlasAnnotationHits(row);
-  if (key === 'note') {
-    const conservative = /product identity is not assigned/i.test(row.safe_claim_text || '')
-      ? 'Product identity is not assigned.'
-      : 'Putative annotation; confirm experimentally.';
-    const followup = String(row.recommended_followup || '').trim().replace(/[.]+$/, '');
-    return followup ? `${conservative} Follow-up: ${followup}.` : conservative;
-  }
-  if (key === 'antismash_class') return String(row[key] || '—').replace(/;/g, ' · ');
-  return row[key] || '—';
-}
+function renderTextSummary(path, text) { return resultReaderBoundary.renderTextSummary(path, text); }
 
-function renderAtlasSummary(headers, bodyRows) {
-  const records = bodyRows.map(cells => Object.fromEntries(headers.map((header, index) => [header, cells[index] || ''])));
-  const sorted = records.slice().sort(
-    (a, b) => (Number(a.atlas_rank) || Number.MAX_SAFE_INTEGER) - (Number(b.atlas_rank) || Number.MAX_SAFE_INTEGER),
-  );
-  const head = ATLAS_SUMMARY_COLUMNS.map(column => '<th>' + escapeHtml(column.label) + '</th>').join('');
-  const sectionDefinitions = [
-    { key: 'fungi', label: 'Fungal families' },
-    { key: 'bacteria', label: 'Bacterial families' },
-    { key: 'cross', label: 'Cross-kingdom families' },
-    { key: 'unresolved', label: 'Unresolved-domain families' },
-  ];
-  const sections = sectionDefinitions.map(section => {
-    const sectionRecords = sorted.filter(row => atlasTaxonSection(row) === section.key);
-    if (!sectionRecords.length) return '';
-    const prioritized = sectionRecords.filter(row => String(row.manual_review_bucket || '').toLowerCase() === 'atlas_now');
-    const rows = prioritized.length ? prioritized : sectionRecords.slice(0, 20);
-    const body = rows.map(row => '<tr>' + ATLAS_SUMMARY_COLUMNS.map(column => {
-      const value = escapeHtml(atlasSummaryValue(row, column.key));
-      const content = column.key === 'atlas_rank' ? '<span class="atlas-rank-badge">' + value + '</span>' : value;
-      return '<td class="atlas-col-' + column.key + '">' + content + '</td>';
-    }).join('') + '</tr>').join('');
-    const scopeMeta = prioritized.length
-      ? prioritized.length + ' prioritized · ' + sectionRecords.length + ' total'
-      : rows.length + ' displayed · ' + sectionRecords.length + ' total';
-    return '<section class="atlas-domain-section" data-atlas-domain="' + section.key + '">'
-      + '<div class="atlas-domain-head"><h3>' + escapeHtml(section.label) + '</h3><span>' + escapeHtml(scopeMeta) + '</span></div>'
-      + '<div class="summary-table-wrap atlas-table-wrap"><table class="summary-reader-table atlas-table"><thead><tr>'
-      + head + '</tr></thead><tbody>' + body + '</tbody></table></div></section>';
-  }).filter(Boolean).join('');
-  const counts = sectionDefinitions.map(section => {
-    const count = sorted.filter(row => atlasTaxonSection(row) === section.key).length;
-    return count ? section.label.replace(/ families$/, '') + ' ' + count : '';
-  }).filter(Boolean).join(' · ');
-  return '<div class="summary-condensed-head"><div class="summary-condensed-title">DATASET-WIDE FAMILY ATLAS</div><div class="summary-condensed-meta">'
-    + escapeHtml(records.length + ' total families' + (counts ? ' · ' + counts : '')) + '</div></div>'
-    + sections;
-}
-
-function renderDelimitedSummary(path, text) {
-  const delimiter = resultPathExt(path) === 'csv' ? ',' : '\t';
-  const lines = String(text || '').split(/\r?\n/).filter(line => line.trim());
-  if (!lines.length) return '<div class="empty-state">Summary file is empty.</div>';
-  const headers = parseDelimitedLine(lines[0], delimiter);
-  const bodyRows = lines.slice(1).map(line => parseDelimitedLine(line, delimiter));
-  const kind = summaryReaderArtifactKind(path);
-  if (!bodyRows.length) {
-    const message = kind === 'target' ? 'No target candidates met the selection criteria.' : 'No atlas candidates met the selection criteria.';
-    return renderSummaryHeading(path, '', 0) + '<div class="empty-state">' + escapeHtml(message) + '</div>';
-  }
-  if (kind === 'atlas') return renderAtlasSummary(headers, bodyRows);
-  const indexes = preferredSummaryColumnIndexes(headers);
-  const head = indexes.map(idx => '<th>' + escapeHtml(headers[idx] || 'Column ' + (idx + 1)) + '</th>').join('');
-  const body = bodyRows.map(row => '<tr>' + indexes.map(idx => '<td>' + escapeHtml(row[idx] || '') + '</td>').join('') + '</tr>').join('');
-  return renderSummaryHeading(path, '', bodyRows.length)
-    + '<div class="summary-table-wrap"><table class="summary-reader-table"><thead><tr>'
-    + head + '</tr></thead><tbody>' + body + '</tbody></table></div>';
-}
-
-function renderMarkdownSummary(path, text) {
-  const topCount = summaryTopCount(text);
-  const bodyText = condensedMarkdownBodyText(text);
-  return `
-    ${renderSummaryHeading(path, text, topCount)}
-    <div class="summary-markdown-body">${renderMarkdownBody(bodyText)}</div>`;
-}
-
-function renderTextSummary(path, text) {
-  const ext = resultPathExt(path);
-  if (ext === 'tsv' || ext === 'csv') return renderDelimitedSummary(path, text);
-  if (ext === 'md') return renderMarkdownSummary(path, text);
-  const doc = new DOMParser().parseFromString(String(text || ''), ext === 'html' || ext === 'htm' ? 'text/html' : 'text/plain');
-  if (ext === 'html' || ext === 'htm') {
-    doc.querySelectorAll('script, style, iframe, object, embed').forEach(el => el.remove());
-    return renderMarkdownSummary(path, (doc.body && doc.body.textContent) || '');
-  }
-  return renderMarkdownSummary(path, text);
-}
-
-async function loadSummaryReaderFile(path) {
-  if (!activeJobId || !path) return;
-  const seq = ++summaryReaderSeq;
-  const doc = document.getElementById('summary-reader-doc');
-  if (doc) doc.innerHTML = '<div class="viz-placeholder text-sm">Loading summary document...</div>';
-  try {
-    const resp = await resultFetch(activeJobId, path);
-    if (seq !== summaryReaderSeq) return;
-    if (!resp.ok) throw new Error('Summary document could not be opened with this result access code.');
-    const text = await resp.text();
-    if (doc) {
-      doc.innerHTML = renderTextSummary(path, text);
-      animateSummaryReaderDocument();
-    }
-  } catch (err) {
-    if (doc) doc.innerHTML = `<div class="empty-state">${escapeHtml(err.message || 'Summary document unavailable.')}</div>`;
-  }
-}
+async function loadSummaryReaderFile(path) { return resultReaderBoundary.loadSummaryReaderFile(path); }
 
 function showResultDashboard() {
   if (!activeJobMeta && !activeJobId) return;
@@ -13036,7 +5138,7 @@ function showResultDashboard() {
 }
 
 async function loadResults(jobId, status, seq = jobLoadSeq, job = activeJobMeta) {
-  if (seq !== jobLoadSeq || jobId !== activeJobId) return;
+  if (!currentJobSelection(jobId, seq)) return;
   const card = document.getElementById('results-card');
   card.classList.remove('hidden');
   setResultsLoaded(true);
@@ -13045,7 +5147,7 @@ async function loadResults(jobId, status, seq = jobLoadSeq, job = activeJobMeta)
     const jobResp = await apiFetch(
       `api/results/${encodeURIComponent(runId)}`, {}, { kind: 'job', jobId: runId },
     );
-    if (seq !== jobLoadSeq || jobId !== activeJobId) return;
+    if (!currentJobSelection(jobId, seq)) return;
     job = jobResp.ok ? await jobResp.json() : activeJobMeta;
   }
   activeJobMeta = job || activeJobMeta;
@@ -13061,7 +5163,7 @@ async function loadResults(jobId, status, seq = jobLoadSeq, job = activeJobMeta)
   const resp = await apiFetch(
     `api/results/${encodeURIComponent(runId)}/artifacts`, {}, { kind: 'job', jobId: runId },
   );
-  if (seq !== jobLoadSeq || jobId !== activeJobId) return;
+  if (!currentJobSelection(jobId, seq)) return;
   if (!resp.ok) return;
   const filePayload = await resp.json();
   const files = installResultArtifactDescriptors(filePayload.artifacts, { replace: true });
@@ -13069,7 +5171,7 @@ async function loadResults(jobId, status, seq = jobLoadSeq, job = activeJobMeta)
     activeJobMeta.result_index_state = filePayload.result_index_state || '';
     activeJobMeta.bigscape_viewer_available = filePayload.bigscape_viewer_available === true;
   }
-  if (seq !== jobLoadSeq || jobId !== activeJobId) return;
+  if (!currentJobSelection(jobId, seq)) return;
   const normalizedFiles = files.map(normalizedResultPath).filter(Boolean);
   renderQaDrawer(activeJobMeta, normalizedFiles);
   const counts = resultCategoryCounts(normalizedFiles);
@@ -13126,896 +5228,115 @@ async function loadResults(jobId, status, seq = jobLoadSeq, job = activeJobMeta)
   }
 }
 
-function rerunDefaultChecked(job, key) {
-  if (!job || job.status === 'success') return false;
-  if (!rerunStageAllowed(key)) return false;
-  if (!activeStageState || !activeStageState.enabled.has(key)) return false;
-  return !activeStageState.completed.has(key);
-}
+function rerunDefaultChecked(job, key) { return diagnosticsControllerBoundary.rerunDefaultChecked(...arguments); }
+function rerunPanelMessage(title, copy, status = '') { return diagnosticsControllerBoundary.rerunPanelMessage(...arguments); }
+function selectedRerunJob(jobId, job) { return diagnosticsControllerBoundary.selectedRerunJob(...arguments); }
+function renderRerunPanel(jobId, job) { return diagnosticsControllerBoundary.renderRerunPanel(...arguments); }
+async function rerunActiveJob() { return diagnosticsControllerBoundary.rerunActiveJob(...arguments); }
 
-function rerunPanelMessage(title, copy, status = '') {
-  return `
-    <div class="summary-panel rerun-summary rerun-scope-card">
-      <div class="summary-head rerun-scope-head">${escapeHtml(title)}</div>
-      <div class="rerun-panel-body">
-        <div class="help-note">${escapeHtml(copy)}</div>
-        <div class="flex-gap">
-          <button class="btn btn-primary text-sm" type="button" onclick="rerunActiveJob()">Queue rerun</button>
-          <span class="text-muted text-sm" id="rerun-status">${escapeHtml(status)}</span>
-        </div>
-      </div>
-    </div>`;
-}
+function normalizedResultPath(path) { return resultReaderBoundary.normalizedResultPath(path); }
 
-function selectedRerunJob(jobId, job) {
-  const requestedId = String(rerunScopeOpenJobId || '');
-  if (!requestedId) return { jobId: '', job: null };
-  const inlineJobId = String((job && job.id) || jobId || '');
-  if (inlineJobId === requestedId && job) return { jobId: requestedId, job };
-  if (activeJobId === requestedId && activeJobMeta) return { jobId: requestedId, job: activeJobMeta };
-  return { jobId: requestedId, job: jobHistoryById.get(requestedId) || null };
-}
+function fileNameFromPath(path) { return resultReaderBoundary.fileNameFromPath(path); }
 
-function renderRerunPanel(jobId, job) {
-  const panel = document.getElementById('rerun-panel');
-  if (!panel) return;
-  if (!canUseAdminSurfaces()) {
-    panel.innerHTML = '';
-    return;
-  }
-  const selection = selectedRerunJob(jobId, job);
-  if (!selection.jobId) {
-    panel.innerHTML = rerunPanelMessage('Rerun scope', 'Select a submitted job, then use its Rerun button to open job-scoped rerun options.', 'No job selected.');
-    return;
-  }
-  if (!selection.job) {
-    panel.innerHTML = rerunPanelMessage('Rerun scope', `Loading selected job ${selection.jobId}.`, 'Waiting for job details.');
-    return;
-  }
-  const status = String(selection.job.status || '').toLowerCase();
-  if (status === 'pending' || status === 'running') {
-    panel.innerHTML = rerunPanelMessage(
-      'Rerun scope',
-      `Run ${selection.jobId} is ${statusLabel(selection.job.status).toLowerCase()}. Rerun options unlock after the job finishes or fails.`,
-      'Rerun unavailable while active.',
-    );
-    return;
-  }
-  if (!jobCanRerun(selection.job)) {
-    panel.innerHTML = rerunPanelMessage('Rerun scope', `Run ${selection.jobId} cannot be rerun from its current state.`, 'Rerun unavailable.');
-    return;
-  }
-  const stageRows = STAGES.map(stage => {
-    const enabled = jobStageEnabled(selection.job, stage.key) && rerunStageAllowed(stage.key);
-    const checked = enabled && rerunDefaultChecked(selection.job, stage.key);
-    return `
-      <label class="form-group-inline rerun-stage-option ${enabled ? '' : 'disabled'}">
-        <input type="checkbox" class="rerun-stage" data-stage="${escapeHtml(stage.key)}" ${checked ? 'checked' : ''} ${enabled ? '' : 'disabled'} />
-        <span>${escapeHtml(stage.label)}</span>
-      </label>`;
-  }).join('');
-  panel.innerHTML = `
-    <div class="summary-panel rerun-summary rerun-scope-card" data-rerun-job-id="${escapeHtml(selection.jobId)}">
-      <div class="summary-head rerun-scope-head">
-        <span>Rerun scope</span>
-        <code>${escapeHtml(selection.jobId)}</code>
-      </div>
-      <div class="rerun-panel-body">
-        <div class="help-note">Selected stages rerun inside this job workspace and reuse staged inputs/results.</div>
-        <div class="rerun-grid">${stageRows}</div>
-        <label class="form-group-inline rerun-stage-option"><input type="checkbox" id="rerun-force" /> <span>Force selected stages to overwrite existing outputs</span></label>
-        <div class="flex-gap rerun-actions">
-          <button class="btn btn-primary text-sm" type="button" onclick="rerunActiveJob()">Queue rerun</button>
-          <button class="btn btn-ghost text-sm" type="button" onclick="toggleJobRerunScope(event,'${escapeHtml(escapeJsString(selection.jobId))}')">Close</button>
-          <span class="text-muted text-sm" id="rerun-status"></span>
-        </div>
-      </div>
-    </div>`;
-  animateRerunPanelReady();
-}
+function approvedPhylogenyArtifact(path) { return resultReaderBoundary.approvedPhylogenyArtifact(path); }
 
-async function rerunActiveJob() {
-  if (!canUseAdminSurfaces()) return;
-  const targetJobId = String(rerunScopeOpenJobId || '');
-  const statusEl = document.getElementById('rerun-status');
-  if (!targetJobId) {
-    if (statusEl) statusEl.textContent = 'Select a submitted job first.';
-    return;
-  }
-  const job = activeJobId === targetJobId && activeJobMeta ? activeJobMeta : jobHistoryById.get(targetJobId);
-  const status = String((job && job.status) || '').toLowerCase();
-  if (status === 'pending' || status === 'running') {
-    if (statusEl) statusEl.textContent = 'Wait until the selected job finishes or fails.';
-    return;
-  }
-  const selected = new Set([...document.querySelectorAll('#rerun-panel .rerun-stage:checked')].map(el => el.dataset.stage));
-  if (!selected.size) {
-    if (statusEl) statusEl.textContent = 'Choose at least one stage.';
-    return;
-  }
-  const payload = rerunPayloadFromStages(
-    selected,
-    !!document.getElementById('rerun-force')?.checked,
-  );
-  if (!rerunPayloadHasStages(payload)) {
-    if (statusEl) statusEl.textContent = 'Choose at least one stage.';
-    return;
-  }
-  if (statusEl) statusEl.textContent = 'Queueing rerun...';
-  try {
-    await queueJobRerun(targetJobId, payload);
-    if (statusEl) statusEl.textContent = 'Rerun queued.';
-    animateRerunQueued();
-    rerunScopeOpenJobId = '';
-    document.getElementById('results-card').classList.add('hidden');
-    await loadJob(targetJobId, true, { source: 'rerun' });
-    refreshJobHistory();
-    switchOpsTab('jobs', { focus: false });
-  } catch (err) {
-    if (statusEl) statusEl.textContent = err.message || String(err);
-  }
-}
+function isApprovedPhylogenyArtifact(path) { return resultReaderBoundary.isApprovedPhylogenyArtifact(path); }
 
-function normalizedResultPath(path) {
-  return String(path || '').replace(/\\/g, '/');
-}
+function isTaxonTreeSvgAsset(path) { return resultReaderBoundary.isTaxonTreeSvgAsset(path); }
 
-function fileNameFromPath(path) {
-  const parts = normalizedResultPath(path).split('/');
-  return parts[parts.length - 1] || normalizedResultPath(path);
-}
+function isTaxonTreeVisualAsset(path) { return resultReaderBoundary.isTaxonTreeVisualAsset(path); }
 
-const APPROVED_PHYLOGENY_ARTIFACT_NAMES = new Set([
-  'clusterweave_taxon_tree.svg',
-  'clusterweave_taxon_tree.png',
-  'clusterweave_taxon_tree.nwk',
-  'clusterweave_taxon_tree_leaf_profiles.tsv',
-  'clusterweave_gcf_network_edges.tsv',
-  'clusterweave_taxon_tree.graphml',
-  'clusterweave_tree_manifest.json',
-  'clusterweave_tree_methods.json',
-  'clusterweave_tree_bundle.zip',
-]);
+function isTaxonTreeBundleAsset(path) { return resultReaderBoundary.isTaxonTreeBundleAsset(path); }
 
-function approvedPhylogenyArtifact(path) {
-  const descriptor = resultArtifactDescriptor(path);
-  if (descriptor && resultCategoryKey(descriptor.category) === 'figures') {
-    const descriptorName = String(descriptor.filename || '').toLowerCase();
-    return APPROVED_PHYLOGENY_ARTIFACT_NAMES.has(descriptorName)
-      ? { path: normalizedResultPath(path), name: descriptorName } : null;
-  }
-  const normalized = normalizedResultPath(path);
-  const match = normalized.match(/^data\/results\/[^/]+\/figures\/phylogeny\/([^/]+)$/i);
-  if (!match) return null;
-  const name = String(match[1] || '').toLowerCase();
-  if (!APPROVED_PHYLOGENY_ARTIFACT_NAMES.has(name)) return null;
-  return { path: normalized, name };
-}
+function treeDataBundleForFigure(path, files) { return resultReaderBoundary.treeDataBundleForFigure(path, files); }
 
-function isApprovedPhylogenyArtifact(path) {
-  return !!approvedPhylogenyArtifact(path);
-}
+function isFigureAsset(path) { return resultReaderBoundary.isFigureAsset(path); }
 
-function isTaxonTreeSvgAsset(path) {
-  return approvedPhylogenyArtifact(path)?.name === 'clusterweave_taxon_tree.svg';
-}
+function isSvgFigureAsset(path) { return resultReaderBoundary.isSvgFigureAsset(path); }
 
-function isTaxonTreeVisualAsset(path) {
-  const name = approvedPhylogenyArtifact(path)?.name || '';
-  return name === 'clusterweave_taxon_tree.svg' || name === 'clusterweave_taxon_tree.png';
-}
+function phylogenyArtifactLabel(path) { return resultReaderBoundary.phylogenyArtifactLabel(path); }
 
-function isTaxonTreeBundleAsset(path) {
-  return approvedPhylogenyArtifact(path)?.name === 'clusterweave_tree_bundle.zip';
-}
+function fileTypeLabel(path) { return resultReaderBoundary.fileTypeLabel(path); }
 
-function treeDataBundleForFigure(path, files) {
-  if (!isTaxonTreeSvgAsset(path)) return '';
-  const sourceDescriptor = resultArtifactDescriptor(path);
-  if (sourceDescriptor) {
-    return (files || []).find(candidate => {
-      const descriptor = resultArtifactDescriptor(candidate);
-      return isTaxonTreeBundleAsset(candidate) && descriptor?.bundle_id === sourceDescriptor.bundle_id;
-    }) || '';
-  }
-  const normalized = normalizedResultPath(path);
-  const directory = normalized.slice(0, normalized.lastIndexOf('/'));
-  const expected = `${directory}/clusterweave_tree_bundle.zip`.toLowerCase();
-  return (files || [])
-    .map(normalizedResultPath)
-    .find(candidate => candidate.toLowerCase() === expected && isTaxonTreeBundleAsset(candidate)) || '';
-}
+function fileRowLabel(path) { return resultReaderBoundary.fileRowLabel(path); }
 
-function isFigureAsset(path) {
-  const descriptor = resultArtifactDescriptor(path);
-  if (descriptor) return resultCategoryKey(descriptor.category) === 'figures'
-    && /\.(svg|png|jpe?g|webp)$/i.test(descriptor.filename);
-  const normalized = normalizedResultPath(path);
-  return /^data\/results\/[^/]+\/figures\/[^/]+\.(svg|png|jpe?g|webp)$/i.test(normalized)
-    || isTaxonTreeVisualAsset(normalized);
-}
+function makeFileTreeNode(name, path) { return resultReaderBoundary.makeFileTreeNode(name, path); }
 
-function isSvgFigureAsset(path) {
-  const descriptor = resultArtifactDescriptor(path);
-  if (descriptor) return resultCategoryKey(descriptor.category) === 'figures' && /\.svg$/i.test(descriptor.filename);
-  const normalized = normalizedResultPath(path);
-  return /^data\/results\/[^/]+\/figures\/[^/]+\.svg$/i.test(normalized)
-    || isTaxonTreeSvgAsset(normalized);
-}
+function buildFileTree(files) { return resultReaderBoundary.buildFileTree(files); }
 
-function phylogenyArtifactLabel(path) {
-  const artifact = approvedPhylogenyArtifact(path);
-  if (!artifact) return '';
-  const labels = {
-    'clusterweave_taxon_tree.svg': 'Taxonomy/BGC/GCF context tree SVG',
-    'clusterweave_taxon_tree.png': 'Taxonomy/BGC/GCF context tree PNG',
-    'clusterweave_taxon_tree.nwk': 'Taxonomy context topology (Newick)',
-    'clusterweave_taxon_tree_leaf_profiles.tsv': 'Taxon tree leaf BGC/GCF profiles',
-    'clusterweave_gcf_network_edges.tsv': 'Complete GCF-sharing edge table',
-    'clusterweave_taxon_tree.graphml': 'Taxonomy/BGC/GCF context graph',
-    'clusterweave_tree_manifest.json': 'Taxon tree artifact manifest',
-    'clusterweave_tree_methods.json': 'Taxon tree methods and provenance',
-    'clusterweave_tree_bundle.zip': 'Complete taxon tree data bundle',
-  };
-  return labels[artifact.name] || '';
-}
+function defaultFolderOpen(path, depth) { return resultReaderBoundary.defaultFolderOpen(path, depth); }
 
-function fileTypeLabel(path) {
-  const name = fileNameFromPath(path);
-  if (!name.includes('.')) return 'file';
-  const extStr = name.split('.').pop().toLowerCase();
-  return extStr ? `.${extStr}` : 'file';
-}
+function folderSortKey(node) { return resultReaderBoundary.folderSortKey(node); }
 
-function fileRowLabel(path) {
-  const normalized = normalizedResultPath(path);
-  const lower = normalized.toLowerCase();
-  const descriptor = resultArtifactDescriptor(path);
-  if (lower === 'downloads/public_results_manifest.tsv') return 'Public results manifest';
-  if (String(descriptor?.filename || '').toLowerCase() === 'clusterweave_evidence_manifest.tsv') return 'Checksummed evidence manifest';
-  if (descriptor?.role === 'staged-genome-genbank') return `${descriptor.genome_label || fileStemFromPath(descriptor.filename)} staged genome GenBank`;
-  if (/^downloads\/[^/]+_public_results\.zip$/i.test(normalized)) return 'Generated public results package';
-  if (isApprovedPhylogenyArtifact(normalized)) return phylogenyArtifactLabel(normalized);
-  if (isFigureAsset(normalized)) return figureCaption(normalized);
-  if (isSummaryArtifact(normalized)) return summaryArtifactLabel(normalized);
-  if (isSyntenyArtifact(normalized)) return syntenyArtifactLabel(normalized);
-  if (isAntiSmashArtifact(normalized)) return `${toolGenomeLabel(normalized, 'antismash')} antiSMASH file`;
-  if (isFunbgcexArtifact(normalized)) return `${toolGenomeLabel(normalized, 'funbgcex')} FunBGCeX file`;
-  if (isBigscapeArtifact(normalized)) return artifactMetaLabel(normalized, 'bigscape');
-  return titleCaseArtifactLabel(fileStemFromPath(normalized), fileNameFromPath(normalized));
-}
+function renderFileRow(jobId, f) { return resultReaderBoundary.renderFileRow(jobId, f); }
 
-function makeFileTreeNode(name, path) {
-  return { name, path, count: 0, folders: new Map(), files: [] };
-}
+function renderFileRows(jobId, files) { return resultReaderBoundary.renderFileRows(jobId, files); }
 
-function buildFileTree(files) {
-  const root = makeFileTreeNode('', '');
-  const index = new Map([['', root]]);
-  files.map(normalizedResultPath).filter(Boolean).sort((a, b) => a.localeCompare(b)).forEach(path => {
-    const parts = path.split('/').filter(Boolean);
-    if (!parts.length) return;
-    let node = root;
-    node.count += 1;
-    parts.slice(0, -1).forEach(part => {
-      const childPath = node.path ? `${node.path}/${part}` : part;
-      if (!node.folders.has(part)) {
-        const child = makeFileTreeNode(part, childPath);
-        node.folders.set(part, child);
-        index.set(childPath, child);
-      }
-      node = node.folders.get(part);
-      node.count += 1;
-    });
-    node.files.push(path);
-  });
-  root.index = index;
-  return root;
-}
+function renderFileFolder(jobId, node, depth = 0) { return resultReaderBoundary.renderFileFolder(jobId, node, depth); }
 
-function defaultFolderOpen(path, depth) {
-  const normalized = normalizedResultPath(path);
-  const category = resultCategoryKey(activeResultCategory);
-  if (normalized === 'downloads') return true;
-  if (/^Data(\/results(\/[^/]+)?)?$/i.test(normalized)) return true;
-  if (category !== 'downloads' && /^data\/results\/[^/]+$/i.test(normalized)) return true;
-  if (/^data\/results\/[^/]+\/figures$/i.test(normalized)) return true;
-  if (/^data\/results\/[^/]+\/figures\/phylogeny$/i.test(normalized)) return true;
-  if (/^data\/results\/[^/]+\/integrated_evidence$/i.test(normalized)) return true;
-  if (category === 'antismash' && isAntiSmashArtifact(normalized)) return true;
-  if (category === 'funbgcex' && isFunbgcexArtifact(normalized)) return true;
-  if (category === 'bigscape' && isBigscapeArtifact(normalized)) return true;
-  if (category === 'summaries' && isSummaryArtifact(normalized)) return true;
-  if (category === 'synteny' && isSyntenyArtifact(normalized)) return true;
-  if (category === 'other' && depth <= 2) return true;
-  return false;
-}
+function renderFileTreeChildren(jobId, node, depth = 0) { return resultReaderBoundary.renderFileTreeChildren(jobId, node, depth); }
 
-function folderSortKey(node) {
-  if (node.path === 'downloads') return '0-downloads';
-  if (node.path === 'Data') return '1-Data';
-  return `2-${node.path.toLowerCase()}`;
-}
+function handleFileFolderToggle(detailsEl) { return resultReaderBoundary.handleFileFolderToggle(detailsEl); }
 
-function renderFileRow(jobId, f) {
-  const descriptor = resultArtifactDescriptor(f);
-  const name = resultArtifactName(f);
-  const label = fileRowLabel(f);
-  const detail = descriptor ? resultCategoryLabel(descriptor.category) : normalizedResultPath(f);
-  const downloadHref = resultHref(jobId, f, { download: true });
-  const jsJobId = escapeJsString(jobId);
-  const jsPath = escapeJsString(f);
-  return `<tr>
-    <td><span class="ext-badge">${escapeHtml(fileTypeLabel(f))}</span></td>
-    <td>
-      <span class="file-row-main">
-        <span class="file-display-name">${escapeHtml(label)}</span>
-        <span class="file-path-link">${escapeHtml(detail)}</span>
-      </span>
-    </td>
-    <td class="file-actions">
-      <div class="file-actions-inner">
-        <a class="btn btn-ghost text-sm" href="${escapeHtml(downloadHref)}" download="${escapeHtml(name)}" onclick="return handleResultLinkClick(event,'${escapeHtml(jsJobId)}','${escapeHtml(jsPath)}',true)">Download</a>
-      </div>
-    </td>
-  </tr>`;
-}
+function figureSortKey(path) { return resultReaderBoundary.figureSortKey(path); }
 
-function renderFileRows(jobId, files) {
-  if (!files.length) return '';
-  return `
-    <table class="file-table file-tree-table">
-      <thead><tr><th>Type</th><th>File / Result</th><th></th></tr></thead>
-      <tbody>${files.map(f => renderFileRow(jobId, f)).join('')}</tbody>
-    </table>`;
-}
+function figureCaption(path) { return resultReaderBoundary.figureCaption(path); }
 
-function renderFileFolder(jobId, node, depth = 0) {
-  const shouldRenderOpen = defaultFolderOpen(node.path, depth);
-  const openAttr = shouldRenderOpen ? ' open' : '';
-  const body = shouldRenderOpen ? renderFileTreeChildren(jobId, node, depth + 1) : '';
-  return `
-    <details class="file-folder" data-folder-path="${escapeHtml(node.path)}" data-depth="${depth}" data-rendered="${shouldRenderOpen ? '1' : '0'}" ontoggle="handleFileFolderToggle(this)"${openAttr}>
-      <summary class="file-folder-summary">
-        <span class="file-folder-name">${escapeHtml(node.path)}</span>
-        <span class="file-folder-count">${node.count} file${node.count === 1 ? '' : 's'}</span>
-      </summary>
-      <div class="file-folder-body">
-        ${body}
-      </div>
-    </details>`;
-}
+function figureZoomKeyFromWrap(wrap) { return resultReaderBoundary.figureZoomKeyFromWrap(wrap); }
 
-function renderFileTreeChildren(jobId, node, depth = 0) {
-  const folders = Array.from(node.folders.values()).sort((a, b) => folderSortKey(a).localeCompare(folderSortKey(b)));
-  return `${folders.map(child => renderFileFolder(jobId, child, depth)).join('')}${renderFileRows(jobId, node.files)}`;
-}
+function figureZoomRecord(wrap) { return resultReaderBoundary.figureZoomRecord(wrap); }
 
-function handleFileFolderToggle(detailsEl) {
-  if (!detailsEl.open || detailsEl.dataset.rendered === '1') return;
-  const node = activeFileTreeIndex.get(detailsEl.dataset.folderPath || '');
-  if (!node || !activeFileTreeJobId) return;
-  const body = Array.from(detailsEl.children).find(child => child.classList && child.classList.contains('file-folder-body'));
-  if (!body) return;
-  const depth = Number(detailsEl.dataset.depth || 0) + 1;
-  body.innerHTML = renderFileTreeChildren(activeFileTreeJobId, node, depth);
-  detailsEl.dataset.rendered = '1';
-}
+function clampNumber(value, min, max) { return resultReaderBoundary.clampNumber(value, min, max); }
 
-function figureSortKey(path) {
-  const name = fileNameFromPath(path).toLowerCase();
-  const preferred = [
-    'fungi_big_scape_multipanel.svg',
-    'fungi_big_scape_multipanel.png',
-    'bacteria_big_scape_multipanel.svg',
-    'bacteria_big_scape_multipanel.png',
-    'bgc_overlap.svg',
-    'bgc_overlap.png',
-    'clusterweave_taxon_tree.svg',
-    'clusterweave_taxon_tree.png',
-    // Historical aliases remain discoverable for completed jobs.
-    'big_scape_multipanel.svg',
-    'big_scape_multipanel.png',
-    'bacterial_multipanel.svg',
-    'bacterial_multipanel.png',
-  ];
-  const idx = preferred.indexOf(name);
-  const priority = idx === -1 ? preferred.length : idx;
-  return `${String(priority).padStart(3, '0')}:${normalizedResultPath(path).toLowerCase()}`;
-}
+function readSvgBaseViewBox(svg) { return resultReaderBoundary.readSvgBaseViewBox(svg); }
 
-function figureCaption(path) {
-  const name = fileNameFromPath(path).toLowerCase();
-  if ([
-    'fungi_big_scape_multipanel.svg',
-    'fungi_big_scape_multipanel.png',
-    'big_scape_multipanel.svg',
-    'big_scape_multipanel.png',
-  ].includes(name)) {
-    return 'Fungal BiG-SCAPE multipanel combining stacked BGC/GCF count bars, cluster context, compound labels, and confidence evidence.';
-  }
-  if (name === 'bgc_overlap.svg' || name === 'bgc_overlap.png') {
-    return 'Shared and tool-specific BGC scaffold overlap between antiSMASH and FunBGCeX by genome.';
-  }
-  if ([
-    'bacteria_big_scape_multipanel.svg',
-    'bacteria_big_scape_multipanel.png',
-    'bacterial_multipanel.svg',
-    'bacterial_multipanel.png',
-  ].includes(name)) {
-    return 'Bacterial BiG-SCAPE multipanel combining stacked antiSMASH BGC/GCF counts, cluster context, compound labels, and confidence evidence.';
-  }
-  if (isTaxonTreeVisualAsset(path)) {
-    return 'Ranked NCBI taxonomy context with BGC-count-scaled composition markers and class-colored GCF-sharing arcs; branch lengths are not inferred.';
-  }
-  return 'Rendered ClusterWeave figure output.';
-}
+function applySvgFigureZoom(wrap, svg, state) { return resultReaderBoundary.applySvgFigureZoom(wrap, svg, state); }
 
-function figureZoomKeyFromWrap(wrap) {
-  return `${wrap.dataset.resultJob || ''}|${wrap.dataset.resultPath || ''}`;
-}
+function applyFigureZoom(wrap) { return resultReaderBoundary.applyFigureZoom(wrap); }
 
-function figureZoomRecord(wrap) {
-  const key = figureZoomKeyFromWrap(wrap);
-  if (!figureZoomState.has(key)) {
-    figureZoomState.set(key, { scale: 1, x: 0, y: 0 });
-  }
-  return figureZoomState.get(key);
-}
+function setFigureZoom(wrap, nextScale, originX, originY) { return resultReaderBoundary.setFigureZoom(wrap, nextScale, originX, originY); }
 
-function clampNumber(value, min, max) {
-  if (max < min) return min;
-  return Math.max(min, Math.min(max, value));
-}
+function zoomFigureAt(wrap, factor, originX = null, originY = null) { return resultReaderBoundary.zoomFigureAt(wrap, factor, originX, originY); }
 
-function readSvgBaseViewBox(svg) {
-  const raw = (svg.getAttribute('viewBox') || '').trim();
-  const values = raw.split(/[\s,]+/).map(Number).filter(Number.isFinite);
-  if (values.length === 4 && values[2] > 0 && values[3] > 0) {
-    return { x: values[0], y: values[1], width: values[2], height: values[3] };
-  }
-  const parseSize = value => {
-    const match = String(value || '').match(/^[\d.]+/);
-    return match ? Number(match[0]) : 0;
-  };
-  let width = parseSize(svg.getAttribute('width'));
-  let height = parseSize(svg.getAttribute('height'));
-  if ((!width || !height) && typeof svg.getBBox === 'function') {
-    try {
-      const box = svg.getBBox();
-      width = width || box.width;
-      height = height || box.height;
-    } catch (e) {}
-  }
-  const base = { x: 0, y: 0, width: width || 1000, height: height || 640 };
-  svg.setAttribute('viewBox', `${base.x} ${base.y} ${base.width} ${base.height}`);
-  return base;
-}
+function handleFigureWheel(event, wrap) { return resultReaderBoundary.handleFigureWheel(event, wrap); }
 
-function applySvgFigureZoom(wrap, svg, state) {
-  const base = wrap._svgBaseViewBox || readSvgBaseViewBox(svg);
-  wrap._svgBaseViewBox = base;
-  const box = svg.getBoundingClientRect();
-  const viewportWidth = Math.max(1, box.width || wrap.getBoundingClientRect().width);
-  const viewportHeight = Math.max(1, box.height || wrap.getBoundingClientRect().height);
-  const visibleWidth = base.width / state.scale;
-  const visibleHeight = base.height / state.scale;
-  const x = clampNumber(
-    base.x + (-state.x * base.width) / (viewportWidth * state.scale),
-    base.x,
-    base.x + base.width - visibleWidth
-  );
-  const y = clampNumber(
-    base.y + (-state.y * base.height) / (viewportHeight * state.scale),
-    base.y,
-    base.y + base.height - visibleHeight
-  );
-  svg.setAttribute('viewBox', `${x} ${y} ${visibleWidth} ${visibleHeight}`);
-  svg.style.transform = '';
-}
+function handleFigurePointerDown(event, wrap) { return resultReaderBoundary.handleFigurePointerDown(event, wrap); }
 
-function applyFigureZoom(wrap) {
-  if (!wrap) return;
-  const preview = wrap.querySelector('.figure-preview');
-  if (!preview) return;
-  const state = figureZoomRecord(wrap);
-  const svg = preview.matches('svg') ? preview : null;
-  if (svg) {
-    applySvgFigureZoom(wrap, svg, state);
-  } else {
-    preview.style.transform = `translate(${state.x.toFixed(1)}px, ${state.y.toFixed(1)}px) scale(${state.scale.toFixed(3)})`;
-  }
-  wrap.classList.toggle('is-zoomed', state.scale > 1.01);
-  const reset = wrap.querySelector('.figure-zoom-reset');
-  if (reset) reset.textContent = `${Math.round(state.scale * 100)}%`;
-}
+function handleFigurePointerMove(event, wrap) { return resultReaderBoundary.handleFigurePointerMove(event, wrap); }
 
-function setFigureZoom(wrap, nextScale, originX, originY) {
-  const state = figureZoomRecord(wrap);
-  const scale = Math.max(1, Math.min(8, nextScale));
-  if (Math.abs(scale - 1) < 0.01) {
-    state.scale = 1;
-    state.x = 0;
-    state.y = 0;
-    applyFigureZoom(wrap);
-    return;
-  }
-  const previous = state.scale || 1;
-  const ratio = scale / previous;
-  state.x = originX - (originX - state.x) * ratio;
-  state.y = originY - (originY - state.y) * ratio;
-  state.scale = scale;
-  applyFigureZoom(wrap);
-}
+function handleFigurePointerEnd(event, wrap) { return resultReaderBoundary.handleFigurePointerEnd(event, wrap); }
 
-function zoomFigureAt(wrap, factor, originX = null, originY = null) {
-  if (!wrap) return;
-  const rect = wrap.getBoundingClientRect();
-  const x = originX === null ? rect.width / 2 : originX;
-  const y = originY === null ? rect.height / 2 : originY;
-  setFigureZoom(wrap, figureZoomRecord(wrap).scale * factor, x, y);
-}
+function zoomFigureControl(event, button, factor) { return resultReaderBoundary.zoomFigureControl(event, button, factor); }
 
-function handleFigureWheel(event, wrap) {
-  event.preventDefault();
-  const rect = wrap.getBoundingClientRect();
-  const factor = Math.exp(-event.deltaY * 0.0015);
-  zoomFigureAt(wrap, factor, event.clientX - rect.left, event.clientY - rect.top);
-}
+function resetFigureZoomControl(event, button) { return resultReaderBoundary.resetFigureZoomControl(event, button); }
 
-function handleFigurePointerDown(event, wrap) {
-  if (event.button !== undefined && event.button !== 0) return;
-  const state = figureZoomRecord(wrap);
-  if (state.scale <= 1.01) return;
-  event.preventDefault();
-  activeFigurePan = {
-    wrap,
-    pointerId: event.pointerId,
-    startX: event.clientX,
-    startY: event.clientY,
-    originX: state.x,
-    originY: state.y,
-  };
-  wrap.classList.add('is-panning');
-  wrap.setPointerCapture?.(event.pointerId);
-}
+function handleFigureZoomKeydown(event, wrap) { return resultReaderBoundary.handleFigureZoomKeydown(event, wrap); }
 
-function handleFigurePointerMove(event, wrap) {
-  if (!activeFigurePan || activeFigurePan.wrap !== wrap || activeFigurePan.pointerId !== event.pointerId) return;
-  const state = figureZoomRecord(wrap);
-  state.x = activeFigurePan.originX + event.clientX - activeFigurePan.startX;
-  state.y = activeFigurePan.originY + event.clientY - activeFigurePan.startY;
-  applyFigureZoom(wrap);
-}
+function initializeFigureZoomCards() { return resultReaderBoundary.initializeFigureZoomCards(); }
 
-function handleFigurePointerEnd(event, wrap) {
-  if (!activeFigurePan || activeFigurePan.wrap !== wrap || activeFigurePan.pointerId !== event.pointerId) return;
-  wrap.classList.remove('is-panning');
-  wrap.releasePointerCapture?.(event.pointerId);
-  activeFigurePan = null;
-}
+function sanitizeInlineSvg(svg) { return resultReaderBoundary.sanitizeInlineSvg(svg); }
 
-function zoomFigureControl(event, button, factor) {
-  event.preventDefault();
-  event.stopPropagation();
-  zoomFigureAt(button.closest('.figure-preview-wrap'), factor);
-}
+function preserveInlineSvgAccessibility(svg, path, index) { return resultReaderBoundary.preserveInlineSvgAccessibility(svg, path, index); }
 
-function resetFigureZoomControl(event, button) {
-  event.preventDefault();
-  event.stopPropagation();
-  const wrap = button.closest('.figure-preview-wrap');
-  const state = figureZoomRecord(wrap);
-  state.scale = 1;
-  state.x = 0;
-  state.y = 0;
-  applyFigureZoom(wrap);
-}
+async function hydrateSvgFigures(jobId) { return resultReaderBoundary.hydrateSvgFigures(jobId); }
 
-function handleFigureZoomKeydown(event, wrap) {
-  if (event.key === '+' || event.key === '=') {
-    event.preventDefault();
-    zoomFigureAt(wrap, 1.2);
-  } else if (event.key === '-' || event.key === '_') {
-    event.preventDefault();
-    zoomFigureAt(wrap, 1 / 1.2);
-  } else if (event.key === '0' || event.key === 'Escape') {
-    event.preventDefault();
-    const state = figureZoomRecord(wrap);
-    state.scale = 1;
-    state.x = 0;
-    state.y = 0;
-    applyFigureZoom(wrap);
-  }
-}
+function figureFolderDefinitions(files) { return resultReaderBoundary.figureFolderDefinitions(files); }
 
-function initializeFigureZoomCards() {
-  document.querySelectorAll('.figure-preview-wrap[data-result-path]').forEach(wrap => applyFigureZoom(wrap));
-}
+function switchFigureView(view) { return resultReaderBoundary.switchFigureView(view); }
 
-function sanitizeInlineSvg(svg) {
-  svg.querySelectorAll('script, foreignObject, foreignobject, iframe, object, embed, link, meta, base').forEach(el => el.remove());
-  [svg, ...svg.querySelectorAll('*')].forEach(el => {
-    Array.from(el.attributes).forEach(attr => {
-      const name = attr.name.toLowerCase();
-      const value = String(attr.value || '').trim().toLowerCase();
-      if (name.startsWith('on')) {
-        el.removeAttribute(attr.name);
-      } else if ((name === 'href' || name === 'src' || name.endsWith(':href')) && /^(javascript:|data:text\/html)/i.test(value)) {
-        el.removeAttribute(attr.name);
-      }
-    });
-  });
-  return svg;
-}
+function renderFigureFolderTabs(folders) { return resultReaderBoundary.renderFigureFolderTabs(folders); }
 
-function preserveInlineSvgAccessibility(svg, path, index) {
-  svg.setAttribute('role', 'img');
-  const title = Array.from(svg.children).find(child => child.localName?.toLowerCase() === 'title');
-  const desc = Array.from(svg.children).find(child => child.localName?.toLowerCase() === 'desc');
-  const idSuffix = `${String(index + 1)}-${fileNameFromPath(path).replace(/[^A-Za-z0-9_-]+/g, '-')}`;
-  if (title && String(title.textContent || '').trim()) {
-    if (!title.id) title.id = `clusterweave-figure-title-${idSuffix}`;
-    if (!svg.hasAttribute('aria-label') && !svg.hasAttribute('aria-labelledby')) {
-      svg.setAttribute('aria-labelledby', title.id);
-    }
-  } else if (!svg.hasAttribute('aria-label') && !svg.hasAttribute('aria-labelledby')) {
-    svg.setAttribute('aria-label', fileNameFromPath(path));
-  }
-  if (desc && String(desc.textContent || '').trim()) {
-    if (!desc.id) desc.id = `clusterweave-figure-desc-${idSuffix}`;
-    if (!svg.hasAttribute('aria-describedby')) svg.setAttribute('aria-describedby', desc.id);
-  }
-  return svg;
-}
+function renderViz(jobId, files) { return resultReaderBoundary.renderViz(jobId, files); }
 
-async function hydrateSvgFigures(jobId) {
-  const stages = Array.from(document.querySelectorAll('.figure-svg-stage'))
-    .filter(stage => stage.dataset.resultJob === jobId);
-  for (const [index, stage] of stages.entries()) {
-    const path = stage.dataset.resultPath || '';
-    if (!path) continue;
-    try {
-      const resp = await resultFetch(jobId, path);
-      if (!resp.ok) throw new Error('SVG unavailable');
-      const text = await resp.text();
-      const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
-      if (doc.querySelector('parsererror')) throw new Error('SVG could not be parsed');
-      const parsed = doc.documentElement;
-      if (!parsed || parsed.nodeName.toLowerCase() !== 'svg') throw new Error('File is not an SVG');
-      const svg = preserveInlineSvgAccessibility(
-        sanitizeInlineSvg(document.importNode(parsed, true)),
-        path,
-        index,
-      );
-      svg.classList.add('figure-preview', 'figure-svg-preview');
-      if (!svg.getAttribute('preserveAspectRatio')) svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-      stage.innerHTML = '';
-      stage.appendChild(svg);
-      const wrap = stage.closest('.figure-preview-wrap');
-      if (wrap) {
-        wrap._svgBaseViewBox = readSvgBaseViewBox(svg);
-        applyFigureZoom(wrap);
-      }
-    } catch (err) {
-      stage.innerHTML = `<div class="viz-placeholder text-sm">${escapeHtml(err.message || 'SVG preview unavailable.')}</div>`;
-    }
-  }
-}
+async function hydrateAuthenticatedFigures(jobId) { return resultReaderBoundary.hydrateAuthenticatedFigures(jobId); }
 
-const FIGURE_FOLDER_VIEWS = Object.freeze([
-  { key: 'fungal_families', label: 'FUNGAL FAMILIES', filename: 'fungi_big_scape_multipanel.svg' },
-  { key: 'bacterial_families', label: 'BACTERIAL FAMILIES', filename: 'bacteria_big_scape_multipanel.svg' },
-  { key: 'fungal_tool_overlap', label: 'FUNGAL TOOL OVERLAP', filename: 'bgc_overlap.svg' },
-  { key: 'tree', label: 'TREE', filename: 'clusterweave_taxon_tree.svg' },
-]);
+function renderResultCategorySummary(category, visibleCount, totalCount) { return resultReaderBoundary.renderResultCategorySummary(category, visibleCount, totalCount); }
 
-function figureFolderDefinitions(files) {
-  return FIGURE_FOLDER_VIEWS.map(folder => ({
-    ...folder,
-    path: (files || []).find(path => fileNameFromPath(path).toLowerCase() === folder.filename) || '',
-  })).filter(folder => folder.path);
-}
-
-function switchFigureView(view) {
-  const folders = figureFolderDefinitions(activeResultFiles);
-  if (!folders.some(folder => folder.key === view)) return;
-  activeFigureView = view;
-  if (activeJobId) renderViz(activeJobId, activeResultFiles);
-}
-
-function renderFigureFolderTabs(folders) {
-  if (!folders.length) return '';
-  return `<div class="summary-subtabs figure-subtabs" role="tablist" aria-label="Figure result folders">${folders.map(folder => {
-    const active = folder.key === activeFigureView;
-    return `<button class="summary-subtab" type="button" role="tab" data-figure-view="${escapeHtml(folder.key)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" onclick="switchFigureView(this.dataset.figureView)">${escapeHtml(folder.label)}</button>`;
-  }).join('')}</div>`;
-}
-
-function renderViz(jobId, files) {
-  const capabilities = activeAnalysisCapabilities();
-  let figureFiles = files
-    .filter(path => isFigureAsset(path) && figureApplicableToAnalysis(path, capabilities))
-    .sort((a, b) => figureSortKey(a).localeCompare(figureSortKey(b)));
-  const figureFolders = figureFolderDefinitions(figureFiles);
-  if (figureReaderJobId !== jobId) {
-    figureReaderJobId = jobId;
-    activeFigureView = figureFolders[0]?.key || '';
-  }
-  if (!figureFolders.some(folder => folder.key === activeFigureView)) {
-    activeFigureView = figureFolders[0]?.key || '';
-  }
-  const selectedFigure = figureFolders.find(folder => folder.key === activeFigureView);
-  if (selectedFigure) figureFiles = [selectedFigure.path];
-  const container = document.getElementById('viz-container');
-  if (!figureFiles.length) {
-    const detail = canUseAdminSurfaces()
-      ? 'Check the figure-stage logs or rerun the Figures stage after Rscript is available.'
-      : 'No figure outputs were found for this run yet.';
-    container.innerHTML = `
-      <div class="viz-placeholder">
-        <span class="viz-placeholder-mark" aria-hidden="true"></span>
-        <div>No figure SVG/PNG outputs were indexed for this run yet.</div>
-        <div class="mt1 text-sm text-muted">${escapeHtml(detail)}</div>
-      </div>`;
-    return;
-  }
-
-  resultObjectUrls.forEach(url => URL.revokeObjectURL(url));
-  resultObjectUrls = [];
-  const cards = figureFiles.map((f, index) => {
-    const name = fileNameFromPath(f);
-    const href = resultHref(jobId, f);
-    const downloadHref = resultHref(jobId, f, { download: true });
-    const jsJobId = escapeJsString(jobId);
-    const jsPath = escapeJsString(f);
-    const isSvg = isSvgFigureAsset(f);
-    const isTaxonTree = isTaxonTreeVisualAsset(f);
-    const treeBundle = treeDataBundleForFigure(f, files);
-    const treeDataAction = treeBundle ? resultDownloadLink(jobId, treeBundle, 'Tree data') : '';
-    const instructionsId = `figure-preview-instructions-${index}`;
-    const accessiblePreviewLabel = `Interactive preview: ${figureCaption(f)}`;
-    const imgSrc = resultNeedsAuth(jobId) ? '' : escapeHtml(href);
-    const preview = isSvg
-      ? `<div class="figure-svg-stage" data-result-path="${escapeHtml(f)}" data-result-job="${escapeHtml(jobId)}"><div class="viz-placeholder text-sm">Loading vector preview...</div></div>`
-      : `<img class="figure-preview" src="${imgSrc}" data-result-path="${escapeHtml(f)}" data-result-job="${escapeHtml(jobId)}" alt="${escapeHtml(name)}" draggable="false" />`;
-    return `
-      <div class="figure-panel${isTaxonTree ? ' is-taxon-tree' : ''}">
-        <div class="figure-panel-head">
-          <div class="figure-copy">
-            <div class="figure-name">${escapeHtml(name)}</div>
-            <div class="figure-caption">${escapeHtml(figureCaption(f))}</div>
-          </div>
-          <div class="figure-actions">
-            <span class="ext-badge">${escapeHtml(fileTypeLabel(f))}</span>
-            <a class="btn btn-ghost text-sm" href="${escapeHtml(href)}" target="_blank" onclick="return handleResultLinkClick(event,'${escapeHtml(jsJobId)}','${escapeHtml(jsPath)}',false)">Open</a>
-            <a class="btn btn-ghost text-sm" href="${escapeHtml(downloadHref)}" download="${escapeHtml(name)}" onclick="return handleResultLinkClick(event,'${escapeHtml(jsJobId)}','${escapeHtml(jsPath)}',true)">Download</a>
-            ${treeDataAction}
-          </div>
-        </div>
-        <span class="sr-only" id="${escapeHtml(instructionsId)}">Use plus and minus to zoom, zero or Escape to reset, and drag to pan after zooming. The preview can also be opened or downloaded with the actions above.</span>
-        <div class="figure-preview-wrap${isTaxonTree ? ' is-taxon-tree' : ''}"
-          data-result-path="${escapeHtml(f)}"
-          data-result-job="${escapeHtml(jobId)}"
-          role="group"
-          tabindex="0"
-          aria-label="${escapeHtml(accessiblePreviewLabel)}"
-          aria-describedby="${escapeHtml(instructionsId)}"
-          aria-keyshortcuts="+ - 0 Escape"
-          onwheel="handleFigureWheel(event,this)"
-          onkeydown="handleFigureZoomKeydown(event,this)"
-          onpointerdown="handleFigurePointerDown(event,this)"
-          onpointermove="handleFigurePointerMove(event,this)"
-          onpointerup="handleFigurePointerEnd(event,this)"
-          onpointercancel="handleFigurePointerEnd(event,this)">
-          ${preview}
-          <div class="figure-zoom-controls" aria-label="Figure zoom controls" onpointerdown="event.stopPropagation()" onwheel="event.stopPropagation()">
-            <button type="button" title="Zoom out" aria-label="Zoom out" onclick="zoomFigureControl(event,this,0.833)">-</button>
-            <button class="figure-zoom-reset" type="button" title="Reset zoom" aria-label="Reset zoom" onclick="resetFigureZoomControl(event,this)">100%</button>
-            <button type="button" title="Zoom in" aria-label="Zoom in" onclick="zoomFigureControl(event,this,1.2)">+</button>
-          </div>
-        </div>
-      </div>`;
-  }).join('');
-  container.innerHTML = `${renderFigureFolderTabs(figureFolders)}<div class="figure-grid">${cards}</div>`;
-  initializeFigureZoomCards();
-  hydrateSvgFigures(jobId);
-  hydrateAuthenticatedFigures(jobId);
-}
-
-async function hydrateAuthenticatedFigures(jobId) {
-  if (!resultNeedsAuth(jobId)) return;
-  const images = Array.from(document.querySelectorAll('img.figure-preview'))
-    .filter(img => img.dataset.resultJob === jobId);
-  for (const img of images) {
-    const path = img.dataset.resultPath || '';
-    if (!path) continue;
-    try {
-      const resp = await resultFetch(jobId, path);
-      if (!resp.ok) throw new Error('Figure unavailable');
-      const blob = await resp.blob();
-      const url = URL.createObjectURL(blob);
-      resultObjectUrls.push(url);
-      img.src = url;
-    } catch (err) {
-      img.replaceWith(Object.assign(document.createElement('div'), {
-        className: 'viz-placeholder',
-        textContent: 'Figure preview requires a valid result access code.',
-      }));
-    }
-  }
-}
-
-function renderResultCategorySummary(category, visibleCount, totalCount) {
-  const key = resultCategoryKey(category);
-  const label = resultCategoryLabel(key);
-  const scope = key === 'downloads'
-    ? `${visibleCount} downloadable ${visibleCount === 1 ? 'file' : 'files'}`
-    : `${visibleCount} shown from ${totalCount} indexed ${totalCount === 1 ? 'file' : 'files'}`;
-  return `
-    <div class="result-category-summary" id="result-category-summary">
-      <div>
-        <div class="result-category-title">${escapeHtml(label)}</div>
-        <div class="result-category-copy">${escapeHtml(resultCategoryCopy(key))}</div>
-      </div>
-      <span class="ext-badge result-scope-badge">${escapeHtml(scope)}</span>
-    </div>`;
-}
-
-function renderFileTable(jobId, files, options = {}) {
-  const container = document.getElementById('files-container');
-  activeResultFiles = (files || []).map(normalizedResultPath).filter(Boolean)
-    .filter(path => !isPackageOnlyResultArtifact(path));
-  const category = resultCategoryKey(options.category || activeResultCategory || 'downloads');
-  const visibleFiles = resultFilesForCategory(category, activeResultFiles);
-  const summary = renderResultCategorySummary(category, visibleFiles.length, activeResultFiles.length);
-  if (!visibleFiles.length) {
-    activeFileTree = null;
-    activeFileTreeIndex = new Map();
-    activeFileTreeJobId = null;
-    const emptyCopy = category === 'downloads'
-      ? 'No result files.'
-      : `No ${resultCategoryLabel(category).toLowerCase()} files were found for this run.`;
-    container.innerHTML = `${summary}<div class="empty-state">${escapeHtml(emptyCopy)}</div>`;
-    return;
-  }
-  const tree = buildFileTree(visibleFiles);
-  if (visibleFiles.every(path => !!resultArtifactDescriptor(path))) {
-    activeFileTree = null;
-    activeFileTreeIndex = new Map();
-    activeFileTreeJobId = null;
-    container.innerHTML = `${summary}<div class="file-tree">${renderFileRows(jobId, visibleFiles)}</div>`;
-    return;
-  }
-  activeFileTree = tree;
-  activeFileTreeIndex = tree.index || new Map();
-  activeFileTreeJobId = jobId;
-  container.innerHTML = `${summary}<div class="file-tree">${renderFileTreeChildren(jobId, tree)}</div>`;
-}
+function renderFileTable(jobId, files, options = {}) { return resultReaderBoundary.renderFileTable(jobId, files, options); }
 
 // ── System Console (Worker Status) ──────────────────────────────────────────
-function startSystemConsolePolling() {
-  if (!canUseAdminSurfaces()) {
-    stopSystemConsolePolling();
-    return;
-  }
-  if (systemPollTimer) return;
-  updateWorkerTelemetryBadge('unknown', 'Monitoring');
-  renderWorkerDrawer(null, null, { status: 'unknown' });
-  appendSystemLog('[System] ClusterWeave initialization complete. Monitoring worker...');
-  systemPollTimer = setInterval(() => {
-    pollSystemStatus();
-  }, 2000);
-  // Initial poll
-  pollSystemStatus();
-}
-
-function stopSystemConsolePolling() {
-  if (systemPollTimer) {
-    clearInterval(systemPollTimer);
-    systemPollTimer = null;
-  }
-}
+function startSystemConsolePolling() { return diagnosticsControllerBoundary.startSystemConsolePolling(...arguments); }
+function stopSystemConsolePolling() { return diagnosticsControllerBoundary.stopSystemConsolePolling(...arguments); }
 
 function startPublicImpactPolling() {
   if (publicImpactPollTimer) return;
@@ -14024,113 +5345,9 @@ function startPublicImpactPolling() {
   }, 15000);
 }
 
-async function pollSystemStatus() {
-  if (!canUseAdminSurfaces()) return;
-  let jobs;
-  let system;
-  try {
-    const [jobsResp, systemPayload] = await Promise.all([
-      apiFetch('api/jobs', {}, { kind: 'admin' }),
-      fetchSystemStatus({ renderRuntime: false, renderWorker: false }),
-    ]);
-    if (!jobsResp.ok) return;
-    jobs = await jobsResp.json();
-    system = systemPayload || {};
-  } catch (err) {
-    updateWorkerTelemetryBadge('unknown', 'No signal');
-    renderWorkerDrawer(null, null, { status: 'unknown' });
-    return;
-  }
-
-  const worker = system.worker || {};
-  const systemState = String(system.state || '').toLowerCase();
-  const activeJobIds = Array.isArray(worker.active_jobs) ? worker.active_jobs.filter(Boolean) : [];
-  const runningFromJobs = jobs.filter(j => ['running', 'processing'].includes(String(j.status || j.state || j.pipeline_state || '').toLowerCase())).length;
-  const pendingFromJobs = jobs.filter(j => String(j.status || j.state || '').toLowerCase() === 'pending').length;
-  const workerActiveCount = Number(worker.active_count || 0);
-  const aggregateRunningCount = Number(system.running_jobs || 0);
-  const aggregateQueuedCount = Number(system.queued_jobs || 0);
-  const systemRunningCount = ['running', 'processing'].includes(systemState) ? Math.max(workerActiveCount, activeJobIds.length, aggregateRunningCount, 1) : 0;
-  const runningCount = Math.max(runningFromJobs, workerActiveCount, activeJobIds.length, aggregateRunningCount, systemRunningCount);
-  const pendingCount = Math.max(pendingFromJobs, aggregateQueuedCount);
-  const rawConcurrency = Number(worker.concurrency || system.concurrency || 0);
-  const activeCount = Math.max(workerActiveCount, activeJobIds.length, runningCount, aggregateRunningCount);
-  const concurrency = rawConcurrency || lastWorkerTelemetry.concurrency || (activeCount > 0 ? Math.max(activeCount, 1) : 0);
-  updateRuntimeStatusPanel(system, { runningJobs: runningCount, queuedJobs: pendingCount });
-  const drawerStatus = systemState === 'error'
-    ? 'error'
-    : runningCount > 0
-      ? 'processing'
-      : pendingCount > 0
-        ? 'ready'
-        : 'idle';
-  lastWorkerTelemetry = { runningCount, pendingCount, activeCount, concurrency, status: drawerStatus };
-  renderWorkerDrawer(system, jobs, lastWorkerTelemetry);
-
-  if (systemState === 'error') {
-    const newStatus = 'error';
-    updateWorkerTelemetryBadge(newStatus, 'Error');
-    if (newStatus !== workerStatus) {
-      workerStatus = newStatus;
-      appendSystemLog(`[Worker] ERROR: ${system.detail || 'Worker reported an error'}`);
-    }
-    return;
-  }
-
-  // Determine worker status based on pending jobs
-  if (runningCount > 0) {
-    const newStatus = 'processing';
-    updateWorkerTelemetryBadge(newStatus, 'Processing');
-    if (newStatus !== workerStatus) {
-      workerStatus = newStatus;
-      appendSystemLog(`[Worker] Processing ${activeCount} job(s); ${pendingCount} queued`);
-    }
-  } else if (pendingCount > 0 && activeJobId === null) {
-    const newStatus = 'ready';
-    updateWorkerTelemetryBadge(newStatus, 'Ready');
-    if (newStatus !== workerStatus) {
-      workerStatus = newStatus;
-      appendSystemLog(`[Worker] Ready - ${pendingCount} queued, concurrency ${concurrency}`);
-    }
-  } else if (pendingCount === 0 && runningCount === 0) {
-    const newStatus = 'idle';
-    updateWorkerTelemetryBadge(newStatus, 'Idle');
-    if (newStatus !== workerStatus) {
-      workerStatus = newStatus;
-      appendSystemLog('[Worker] Idle - waiting for uploads');
-    }
-  }
-}
-
-function updateWorkerTelemetryBadge(status, label) {
-  const badge = document.getElementById('worker-telemetry-badge');
-  updateRuntimeStatusChip(status, label);
-  if (!badge) return;
-  const map = {
-    unknown: ['badge-pending', 'Monitoring'],
-    idle: ['badge-pending', 'Idle'],
-    ready: ['badge-success', 'Ready'],
-    processing: ['badge-running', 'Processing'],
-    error: ['badge-failed', 'Error'],
-  };
-  const [cls, fallback] = map[status] || map.unknown;
-  badge.className = `badge ${cls} ml-auto`;
-  badge.innerHTML = `<span class="badge-dot"></span> ${escapeHtml(label || fallback)}`;
-}
-
-function appendSystemLog(text) {
-  const term = document.getElementById('system-console');
-  if (!term) return;
-  const div = document.createElement('div');
-  div.className = 'log-line';
-  if (/error|failed/i.test(text)) div.classList.add('err');
-  else if (/warn/i.test(text)) div.classList.add('warn');
-  else if (/ready/i.test(text)) div.classList.add('ok');
-  else if (/processing/i.test(text)) div.classList.add('stage');
-  div.textContent = text;
-  term.appendChild(div);
-  term.scrollTop = term.scrollHeight;
-}
+async function pollSystemStatus() { return diagnosticsControllerBoundary.pollSystemStatus(...arguments); }
+function updateWorkerTelemetryBadge(status, label) { return diagnosticsControllerBoundary.updateWorkerTelemetryBadge(...arguments); }
+function appendSystemLog(text) { return diagnosticsControllerBoundary.appendSystemLog(...arguments); }
 
 // ── Bootstrap Management ──────────────────────────────────────────────────────
 let bootstrapComplete = false;
@@ -14191,23 +5408,27 @@ async function fetchSystemStatus(options = {}) {
     const resp = await apiFetch('api/system/status', { cache: 'no-store' }, { kind: 'admin' });
     if (!resp.ok) {
       const transient = resp.status === 429 || resp.status >= 500;
-      if (transient) window.ClusterWeaveGame?.setConnectionState?.('reconnecting');
+      if (transient) {
+        rememberClusterweaveGameConnectionState('reconnecting');
+        window.ClusterWeaveGame?.setConnectionState?.('reconnecting');
+      }
       if (!bootstrapComplete) {
-        document.body.dataset.clusterweaveGameBootstrapEligible = transient ? 'true' : 'false';
+        setClusterweaveGameBootstrapEligible(transient);
       }
       return null;
     }
     const payload = await resp.json();
+    rememberClusterweaveGameConnectionState('connected');
     window.ClusterWeaveGame?.setConnectionState?.('connected');
     if (!bootstrapComplete) {
       const bootstrapEligible = isFullSystemStatus(payload) && payload.ready !== true;
-      document.body.dataset.clusterweaveGameBootstrapEligible = bootstrapEligible ? 'true' : 'false';
+      setClusterweaveGameBootstrapEligible(bootstrapEligible);
     }
     authChecked = true;
     smtpEnabled = !!payload.smtp_enabled;
     if (payload.public_quota && typeof payload.public_quota === 'object') {
       publicQuota = { ...publicQuota, ...payload.public_quota };
-      renderInputChecker();
+      intakeControllerBoundary?.applyPublicQuotaLimits();
     }
     updateEmailNotificationPanel();
     if (isFullSystemStatus(payload)) {
@@ -14223,9 +5444,11 @@ async function fetchSystemStatus(options = {}) {
     if (options.renderWorker !== false) renderWorkerDrawer(payload);
     return payload;
   } catch (e) {
-    window.ClusterWeaveGame?.setConnectionState?.(navigator.onLine === false ? 'browser-offline' : 'reconnecting');
+    const connection = navigator.onLine === false ? 'browser-offline' : 'reconnecting';
+    rememberClusterweaveGameConnectionState(connection);
+    window.ClusterWeaveGame?.setConnectionState?.(connection);
     if (!bootstrapComplete) {
-      document.body.dataset.clusterweaveGameBootstrapEligible = 'true';
+      setClusterweaveGameBootstrapEligible(true);
     }
     return null;
   }
@@ -14325,7 +5548,113 @@ async function waitForWorkerReady() {
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────
+async function bootApiResultBoundary() {
+  const { createApiResultBoundary } = await import(API_RESULT_MODULE_PATH);
+  apiResultBoundary = createApiResultBoundary({
+    currentHref: () => window.location.href,
+    configuredApiBase: () => window.CLUSTERWEAVE_API_BASE || '',
+    fetchImpl: (...args) => window.fetch(...args),
+    HeadersImpl: window.Headers,
+    adminToken,
+    submitToken,
+    readTokenForJob,
+    accessMode: () => accessMode,
+    canUseAdminSurfaces,
+    publicRunIdForJob,
+    resultArtifactId,
+    installResultArtifactDescriptor,
+    resultArtifactDescriptor,
+    resultUrlShouldStayExternal,
+    resultAssetHashSuffix,
+  });
+}
+
+async function bootResultReaderBoundary() {
+  const { createResultReaderBoundary } = await import(RESULT_READER_MODULE_PATH);
+  resultReaderBoundary = createResultReaderBoundary({
+    state: resultReaderState,
+    activeAnalysisCapabilities,
+    analysisCapabilityEnabled,
+    animateResultReaderOpen,
+    animateSummaryReaderDocument,
+    apiFetch,
+    bigscapeViewerFetch,
+    canOpenRichHtmlArtifacts,
+    canUseAdminSurfaces,
+    escapeHtml,
+    escapeJsString,
+    figureApplicableToAnalysis,
+    fmt_size,
+    publicRunIdForJob,
+    rerenderWorkflowSpineForResults,
+    resolveResultArtifact,
+    resultCategoryApplicable,
+    resultFetch,
+    resultHref,
+    resultNeedsAuth,
+    safeGenomeProgressLabel,
+    setResultFocusMode,
+    setStatusBadge,
+  });
+}
+
+async function bootIntakeTaxonBoundary() {
+  const { createIntakeTaxonBoundary, createIntakeControllerBoundary } = await import(INTAKE_TAXON_MODULE_PATH);
+  intakeTaxonBoundary = createIntakeTaxonBoundary({
+    publicGenomeStem,
+    canonicalGenomeInputKey,
+    normalizeTaxonGroup,
+  });
+  intakeControllerBoundary = createIntakeControllerBoundary({
+    state: intakeControllerState,
+    intakeTaxonBoundary,
+    ext,
+    escapeHtml,
+    escapeJsString,
+    fmt_size,
+    boolToFlag,
+    normalizeAnalysisScope,
+    analysisScopeLabel,
+    normalizeTaxonGroup,
+    normalizeTaxonCounts,
+    applyAnalysisCapabilityVisibility,
+    canUseAdminSurfaces,
+    publicWorkflowLocked,
+    effectiveCpuCount,
+    effectiveAnnotationStrategy,
+    effectiveCheckboxValue,
+    collectRunSetupAccessReceipt,
+    rememberOpenedRun,
+    renderSubmissionConfirmation,
+    lockSubmittedIntake,
+    loadJob,
+    refreshJobHistory,
+    apiFetch,
+    updateRunSummary,
+    navigateToSection,
+    publicCanonicalCpus: PUBLIC_CANONICAL_CPUS,
+  });
+}
+
+async function bootJobLifecycleBoundary() {
+  await jobLifecycleBoundaryInstalled;
+}
+
+async function bootDiagnosticsAccessBoundary() {
+  await diagnosticsAccessBoundaryInstalled;
+}
+
+async function bootMotionBoundary() {
+  await motionBoundaryInstalled;
+}
+
 async function initializeApp() {
+  const apiResultBoundaryReady = bootApiResultBoundary();
+  const resultReaderBoundaryReady = bootResultReaderBoundary();
+  const intakeTaxonBoundaryReady = bootIntakeTaxonBoundary();
+  const jobLifecycleBoundaryReady = bootJobLifecycleBoundary();
+  const diagnosticsAccessBoundaryReady = bootDiagnosticsAccessBoundary();
+  const motionBoundaryReady = bootMotionBoundary();
   const initialHashRun = captureInitialResultHash();
   window.addEventListener('hashchange', syncNavFromHash);
   window.addEventListener('resize', () => {
@@ -14334,9 +5663,11 @@ async function initializeApp() {
     if (helix) delete helix.dataset.rendered;
     renderWeaveHelix(activeJobMeta);
     });
+  await Promise.all([jobLifecycleBoundaryReady, motionBoundaryReady]);
   startStageTicker();
   wireClusterweaveGameAdapter();
   wirePanelResizers();
+  await diagnosticsAccessBoundaryReady;
   wireOpsPanelKeyboard();
   syncOpsTabs();
   initializeRetiredMotionControls();
@@ -14358,10 +5689,12 @@ async function initializeApp() {
   updateEmailNotificationPanel();
   renderOpenedRuns();
   wireRunStackDismissal();
+  await intakeTaxonBoundaryReady;
   resetStagedAnalysisState('fungi');
   renderAcceptedAccessions();
   initializeBrutalInputStation();
   switchEntryTab('new');
+  await Promise.all([jobLifecycleBoundaryReady, resultReaderBoundaryReady]);
   showEmptyResults();
   bootBgcWorkflowDna();
   updateBgcWorkflowDnaFromJob(null);
@@ -14369,6 +5702,7 @@ async function initializeApp() {
   syncNavFromHash();
   setUIMode('guided', { preserveDisclosure: true });
   warmGsapMotion();
+  await apiResultBoundaryReady;
 
   // Wait for worker bootstrap to complete
   await waitForWorkerReady();

@@ -252,7 +252,7 @@ class StageClinkerPanelsTests(unittest.TestCase):
                 "NC_010572.1",
             )
 
-    def test_atlas_staging_skips_exact_and_already_covered_targets(self) -> None:
+    def test_targetless_atlas_staging_uses_atlas_rank_and_skips_covered_targets(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project_root = Path(tmp)
             results_root = project_root / "data" / "results" / "demo"
@@ -300,8 +300,8 @@ class StageClinkerPanelsTests(unittest.TestCase):
                         "manual_review_bucket": "atlas_now",
                         "selection_track": "dataset_family_atlas",
                         "atlas_rank": "1",
-                        "rank": "1",
-                        "priority_score": "10",
+                        "rank": "",
+                        "priority_score": "1",
                         "genome": "genome_a",
                         "antismash_region": "region001",
                         "gcf_id": "FAM_A",
@@ -313,8 +313,8 @@ class StageClinkerPanelsTests(unittest.TestCase):
                         "manual_review_bucket": "atlas_now",
                         "selection_track": "dataset_family_atlas",
                         "atlas_rank": "2",
-                        "rank": "2",
-                        "priority_score": "9",
+                        "rank": "",
+                        "priority_score": "2",
                         "genome": "genome_a",
                         "antismash_region": "region001",
                         "gcf_id": "FAM_A",
@@ -326,8 +326,8 @@ class StageClinkerPanelsTests(unittest.TestCase):
                         "manual_review_bucket": "atlas_now",
                         "selection_track": "dataset_family_atlas",
                         "atlas_rank": "3",
-                        "rank": "3",
-                        "priority_score": "8",
+                        "rank": "",
+                        "priority_score": "100",
                         "genome": "genome_b",
                         "antismash_region": "region002",
                         "gcf_id": "FAM_B",
@@ -339,8 +339,8 @@ class StageClinkerPanelsTests(unittest.TestCase):
                         "manual_review_bucket": "atlas_now",
                         "selection_track": "dataset_family_atlas",
                         "atlas_rank": "4",
-                        "rank": "4",
-                        "priority_score": "7",
+                        "rank": "",
+                        "priority_score": "90",
                         "genome": "genome_c",
                         "antismash_region": "region003",
                         "gcf_id": "FAM_C",
@@ -352,8 +352,8 @@ class StageClinkerPanelsTests(unittest.TestCase):
                         "manual_review_bucket": "atlas_now",
                         "selection_track": "dataset_family_atlas",
                         "atlas_rank": "5",
-                        "rank": "5",
-                        "priority_score": "6",
+                        "rank": "",
+                        "priority_score": "80",
                         "genome": "genome_d",
                         "antismash_region": "region004",
                         "gcf_id": "FAM_D",
@@ -462,6 +462,10 @@ class StageClinkerPanelsTests(unittest.TestCase):
             self.assertEqual(
                 [row["target_region"] for row in manifest_rows],
                 ["region001", "region003", "region004"],
+            )
+            self.assertEqual(
+                [row["target_rank"] for row in manifest_rows],
+                ["1", "4", "5"],
             )
             self.assertEqual(
                 [row["target_genome"] for row in manifest_rows],

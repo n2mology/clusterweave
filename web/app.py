@@ -21,6 +21,7 @@ import shutil
 import sys
 import tempfile
 import threading
+from dataclasses import dataclass
 from datetime import datetime
 import urllib.parse
 import urllib.error
@@ -59,6 +60,11 @@ from job_store import (
     write_job,
 )
 from notifications import validate_email
+from legacy_job_results import (
+    legacy_additional_read_token_hashes,
+    legacy_internal_metadata_job_id,
+    legacy_job_result_format,
+)
 from result_attestation import (
     read_result_attestation,
     schedule_result_attestation_backfill,
@@ -67,7 +73,12 @@ from public_results import (
     generate_public_run_id,
     public_run_id_for_job,
 )
-from public_result_backend import artifact_catalog_for_job, resolve_public_job
+from public_result_backend import (
+    PublicResultContext,
+    artifact_catalog_for_job,
+    configure_public_result_context,
+    resolve_public_job as _resolve_public_job,
+)
 from public_result_http import handle_public_result_get, handle_public_result_post
 from result_policy import (
     PUBLIC_RESULTS_MANIFEST_PATH,
@@ -83,7 +94,12 @@ from result_policy import (
     result_is_public_archive,
     result_path_public_shape,
 )
-from resource_policy import ResourceRequest, genome_count_from_input_summary
+from resource_policy import (
+    ResourceRequest,
+    bounded_cpu_limit,
+    build_hosted_resource_plan,
+    genome_count_from_input_summary,
+)
 from runtime_capabilities import unavailable_stage_reason
 from taxon_routing import (
     MAX_ASSIGNMENT_BYTES,
@@ -156,6 +172,7 @@ JOB_TOKEN_SECRET = os.environ.get("CLUSTERWEAVE_JOB_TOKEN_SECRET", "")
 ALLOW_ENV_OVERRIDES = env_bool("CLUSTERWEAVE_ALLOW_ENV_OVERRIDES", False)
 MAX_ACCESSIONS = env_int("CLUSTERWEAVE_MAX_ACCESSIONS", 50, minimum=1)
 MAX_GENOME_FILES = env_int("CLUSTERWEAVE_MAX_GENOME_FILES", 50, minimum=1)
+MAX_JOB_INPUTS = MAX_ACCESSIONS + MAX_GENOME_FILES
 MAX_UPLOAD_FILE_MB = env_int("CLUSTERWEAVE_MAX_UPLOAD_FILE_MB", 500, minimum=1)
 MAX_UPLOAD_TOTAL_MB = env_int("CLUSTERWEAVE_MAX_UPLOAD_TOTAL_MB", 1024, minimum=1)
 MAX_UPLOAD_BODY_OVERHEAD_MB = env_int(
@@ -287,8 +304,15 @@ PUBLIC_GENERATED_ECOLOGY_FIELDS = (
     "ecofun_primary",
     "ecofun_secondary",
 )
-PUBLIC_GENERATED_ECOLOGY_MAX_BYTES = 64 * 1024
 PUBLIC_GENERATED_ECOLOGY_LABEL_MAX_CHARS = 40
+PUBLIC_GENERATED_ECOLOGY_MAX_BYTES = max(64 * 1024, MAX_JOB_INPUTS * 256)
+ACCESSION_UPLOAD_MAX_BYTES = max(64 * 1024, MAX_ACCESSIONS * 32 + 1)
+ACCESSION_VALIDATION_MAX_BYTES = max(64 * 1024, MAX_ACCESSIONS * 64 + 1024)
+TAXON_ASSIGNMENT_MAX_ROWS = max(100, MAX_JOB_INPUTS)
+TAXON_ASSIGNMENT_MAX_BYTES = max(
+    MAX_ASSIGNMENT_BYTES,
+    TAXON_ASSIGNMENT_MAX_ROWS * 160 + 64,
+)
 NCBI_ASSEMBLY_ACCESSION_RE = re.compile(r"^(?:GCA|GCF)_\d{9}\.\d+$", re.IGNORECASE)
 NCBI_ACCESSION_EXAMPLES = "GCA_000011425.1 or GCA_030770425.1"
 NCBI_DATASETS_API_BASE = os.environ.get("CLUSTERWEAVE_NCBI_DATASETS_API_BASE", "https://api.ncbi.nlm.nih.gov/datasets/v2").rstrip("/")
@@ -317,7 +341,7 @@ TAXONOMY_METADATA_FIELDS = (
     "lineage_names",
     "lineage_ids",
 )
-MAX_TAXONOMY_METADATA_ROWS = 200
+MAX_TAXONOMY_METADATA_ROWS = max(200, MAX_JOB_INPUTS)
 MAX_TAXONOMY_NAME_CHARS = 240
 MAX_TAXONOMY_LINEAGE_NAMES = 32
 MAX_TAXONOMY_LINEAGE_CHARS = 2048
@@ -325,7 +349,7 @@ PUBLIC_ACTIVITY_TOKEN_RE = re.compile(r"[^A-Za-z0-9._-]+")
 BYTES_PER_MB = 1024 * 1024
 BYTES_PER_GB = 1024 * 1024 * 1024
 UPLOAD_COPY_CHUNK_BYTES = 1024 * 1024
-MULTIPART_FIELD_MAX_BYTES = 64 * 1024
+MULTIPART_FIELD_MAX_BYTES = max(64 * 1024, TAXON_ASSIGNMENT_MAX_BYTES)
 UPLOAD_STAGING_DIR = Path(
     os.environ.get("CLUSTERWEAVE_UPLOAD_STAGING_DIR", str(DATA_DIR / ".upload_staging"))
 )
@@ -668,9 +692,14 @@ def request_can_read_job(handler: BaseHTTPRequestHandler, job: dict[str, object]
     expected = job.get("read_token_hash")
     if isinstance(expected, str) and expected:
         expected_hashes.append(expected)
-    extra_hashes = job.get("read_token_hashes")
-    if isinstance(extra_hashes, list):
-        expected_hashes.extend([item for item in extra_hashes if isinstance(item, str) and item])
+    if legacy_job_result_format(job):
+        expected_hashes.extend(legacy_additional_read_token_hashes(job))
+    else:
+        extra_hashes = job.get("read_token_hashes")
+        if isinstance(extra_hashes, list):
+            expected_hashes.extend(
+                item for item in extra_hashes if isinstance(item, str) and item
+            )
     if not expected_hashes:
         return False
     return any(
@@ -2579,6 +2608,155 @@ def public_tool_activity_marker(message: str) -> dict[str, str] | None:
         return payload
     return None
 
+@dataclass(frozen=True)
+class PublicProgressEvent:
+    """One normalized structured marker or legacy compatibility event."""
+
+    kind: str
+    observed_at: str
+    message: str
+    values: dict[str, str]
+
+
+def adapt_legacy_public_progress(
+    observed_at: str, message: str
+) -> PublicProgressEvent:
+    """Classify prose emitted before structured progress markers existed."""
+
+    marker_stage = public_activity_stage_from_marker(message)
+    if marker_stage:
+        return PublicProgressEvent("stage", observed_at, message, {"stage": marker_stage})
+
+    match = re.search(
+        r"^(Staged genome input|Staged accession list|Staged ecology metadata):\s+(.+)$",
+        message,
+        re.IGNORECASE,
+    )
+    if match:
+        return PublicProgressEvent(
+            "staged_input", observed_at, message,
+            {"input_kind": match.group(1), "path": match.group(2)},
+        )
+    if re.search(r"Reusing existing staged ClusterWeave layout for rerun", message, re.IGNORECASE):
+        return PublicProgressEvent("staged_rerun", observed_at, message, {})
+
+    match = re.search(r"\[WORK\]\s+((?:GCA|GCF)_\d{9}\.\d+)", message, re.IGNORECASE)
+    if match:
+        return PublicProgressEvent("accession_work", observed_at, message, {"accession": match.group(1)})
+
+    match = re.search(r"Genomes to process\s+\((\d+)\):\s*(.+)$", message, re.IGNORECASE)
+    if match:
+        return PublicProgressEvent(
+            "genomes_queued", observed_at, message,
+            {"total": match.group(1), "genomes": match.group(2)},
+        )
+
+    match = re.search(r"\[(\d+)/(\d+)\]\s+genome=([^\s]+)", message, re.IGNORECASE)
+    if match:
+        return PublicProgressEvent(
+            "genome_started", observed_at, message,
+            {"index": match.group(1), "total": match.group(2), "genome": match.group(3)},
+        )
+
+    match = re.search(r"^([^:\s]+):\s+running antiSMASH\b", message, re.IGNORECASE)
+    if match:
+        return PublicProgressEvent(
+            "tool_started", observed_at, message,
+            {"genome": match.group(1), "tool": "antiSMASH"},
+        )
+    match = re.search(r"^([^:\s]+):\s+running FunBGCeX\b", message, re.IGNORECASE)
+    if match:
+        return PublicProgressEvent(
+            "tool_started", observed_at, message,
+            {"genome": match.group(1), "tool": "FunBGCeX"},
+        )
+    match = re.search(r"^([^:\s]+):\s+(antiSMASH|FunBGCeX)\s+OK\b", message, re.IGNORECASE)
+    if match:
+        return PublicProgressEvent(
+            "tool_finished", observed_at, message,
+            {"genome": match.group(1), "tool": match.group(2)},
+        )
+
+    match = re.search(
+        r"^([^:\s]+):\s+funannotate could not train AUGUSTUS;\s+(.+)$",
+        message, re.IGNORECASE,
+    )
+    if match:
+        return PublicProgressEvent(
+            "annotation_skipped", observed_at, message,
+            {"genome": match.group(1), "detail": match.group(2)},
+        )
+
+    match = re.search(r"Staged region GBKs:\s*(\d+)", message, re.IGNORECASE)
+    if match:
+        return PublicProgressEvent("bigscape_regions", observed_at, message, {"count": match.group(1)})
+    if re.search(r"Running BiG-SCAPE|BiG-SCAPE complete|BiG-SCAPE outputs already exist", message, re.IGNORECASE):
+        complete = bool(re.search(r"complete|already exist", message, re.IGNORECASE))
+        return PublicProgressEvent("bigscape", observed_at, message, {"complete": "1" if complete else "0"})
+    if re.search(
+        r"Wrote (?:scaffold comparison table|BGC comparison table|summary table|.*crosswalk rows|ecology-group .*|GCF ecology distribution|targeted candidate ranking|.*shortlist(?: TSV| Markdown| note)?)",
+        message, re.IGNORECASE,
+    ):
+        return PublicProgressEvent("summary_written", observed_at, message, {})
+    if re.search(
+        r"Refreshing (candidate ranking|dataset-wide family atlas|priority shortlist|BiG-SCAPE shared-family shortlist)|Skipping .*shortlist refresh",
+        message, re.IGNORECASE,
+    ):
+        return PublicProgressEvent("clinker_prepared", observed_at, message, {})
+    match = re.search(r"Staged (\d+) clinker panels", message, re.IGNORECASE)
+    if match:
+        return PublicProgressEvent("clinker_panels", observed_at, message, {"count": match.group(1)})
+    if re.search(
+        r"Running .*clinker panels|run_clinker\.sh complete|Wrote panel manifest|Wrote master run script",
+        message, re.IGNORECASE,
+    ):
+        return PublicProgressEvent("clinker_updated", observed_at, message, {})
+    if re.search(
+        r"\brender(?:ing)?\s+summary\s+figures\b|Rendering BGC overlap figure|Rendering BiG-SCAPE (?:network|multipanel) figure",
+        message, re.IGNORECASE,
+    ):
+        return PublicProgressEvent("figures_started", observed_at, message, {})
+    if re.search(r"Wrote .*\.(?:svg|png|pdf)$|run_figures\.sh complete", message, re.IGNORECASE):
+        return PublicProgressEvent("figures_written", observed_at, message, {})
+    if re.search(r"Wrote .*NPLinker|Wrote .*links to|Wrote .*summary rows to|Seeded BiG-SCAPE data", message, re.IGNORECASE):
+        return PublicProgressEvent("nplinker_written", observed_at, message, {})
+    if re.search(r"\b(FATAL|ERROR|FAILED|failed with exit code)\b", message):
+        return PublicProgressEvent("run_error", observed_at, message, {})
+    return PublicProgressEvent("legacy_ignored", observed_at, message, {})
+
+
+def public_progress_events(lines: list[str]) -> list[PublicProgressEvent]:
+    """Decode the bounded log projection once for all public consumers."""
+
+    events: list[PublicProgressEvent] = []
+    structured_patterns = (
+        ("download", r'^NCBI_DOWNLOAD_PROGRESS\s+accession=(?P<accession>\S+)\s+taxon=(?P<taxon>\S+)\s+status=(?P<status>\S+)\s+percent=(?P<percent>\d+)\s+message="(?P<message>.*)"\s*$'),
+        ("taxon_route", r"^TAXON_ROUTE\s+genome=(?P<genome>\S+)\s+taxon=(?P<taxon>\S+)(?:\s+source=(?P<source>\S+))?"),
+        ("annotation_decision", r'^GENOME_ANNOTATION_DECISION\s+genome=(?P<genome>\S+)\s+required=(?P<required>yes|no)\s+method=(?P<method>\S+)\s+message="(?P<message>.*)"\s*$'),
+        ("antismash_record", r'^ANTISMASH_RECORD_PROGRESS\s+genome=(?P<genome>\S+)\s+record=(?P<record>\S+)\s+ordinal=(?P<ordinal>\d+)/(?P<total>\d+)\s+percent=(?P<percent>\d+)\s+bar=\[[^\]]*\]\s+message="(?P<message>.*)"\s*$'),
+        ("genome_progress", r'^GENOME_PROGRESS\s+genome=(?P<genome>\S+)\s+stage=(?P<stage>\S+)\s+percent=(?P<percent>\d+)\s+bar=\[[^\]]*\]\s+message="(?P<message>.*)"\s*$'),
+    )
+    for line in lines:
+        observed_at, message = public_activity_parts(line)
+        if not message:
+            continue
+        event = None
+        for kind, pattern in structured_patterns:
+            match = re.match(pattern, message, re.IGNORECASE)
+            if match:
+                event = PublicProgressEvent(kind, observed_at, message, match.groupdict())
+                break
+        if event is None:
+            tool_marker = public_tool_activity_marker(message)
+            if tool_marker:
+                event = PublicProgressEvent("tool", observed_at, message, tool_marker)
+            elif re.match(r"^TOOL_", message, re.IGNORECASE):
+                event = PublicProgressEvent("tool_ignored", observed_at, message, {})
+            else:
+                event = adapt_legacy_public_progress(observed_at, message)
+        events.append(event)
+    return events
+
 
 PUBLIC_TOOL_RAW_LINE_RE = re.compile(
     r"^\s*(?:\[\d{2}:\d{2}:\d{2}\]\s*)?(?:(?:\[\d{4}-\d{2}-\d{2}[^\]]*\]|\[(?:INFO|WARN|ERROR|FAIL|OK)\])\s*)*TOOL_RAW(?:\s|$)",
@@ -2718,8 +2896,8 @@ def prune_public_activity_heartbeat(
     )
 
 
-def public_genome_progress(
-    job: dict[str, object], lines: list[str]
+def _public_genome_progress(
+    job: dict[str, object], events: list[PublicProgressEvent]
 ) -> list[dict[str, object]]:
     """Return one sanitized milestone state for every accepted routed genome."""
 
@@ -2898,18 +3076,12 @@ def public_genome_progress(
         if not previous or "exited before producing" in safe_message.lower() or "rejected record" in safe_message.lower():
             state["_warning_message"] = safe_message
 
-    for line in lines:
-        observed_at, message = public_activity_parts(line)
-        if not message:
-            continue
+    for event in events:
+        observed_at = event.observed_at
+        message = event.message
 
-        download_match = re.match(
-            r'^NCBI_DOWNLOAD_PROGRESS\s+accession=(?P<accession>\S+)\s+taxon=(?P<taxon>\S+)\s+status=(?P<status>\S+)\s+percent=(?P<percent>\d+)\s+message="(?P<message>.*)"\s*$',
-            message,
-            re.IGNORECASE,
-        )
-        if download_match:
-            values = download_match.groupdict()
+        if event.kind == "download":
+            values = event.values
             accession = values["accession"].upper()
             genome_id = accession_to_genome.get(accession, accession)
             state = ensure_state(genome_id, values.get("taxon"))
@@ -2960,26 +3132,15 @@ def public_genome_progress(
             )
             continue
 
-        route_match = re.match(
-            r"^TAXON_ROUTE\s+genome=(?P<genome>\S+)\s+taxon=(?P<taxon>\S+)"
-            r"(?:\s+source=(?P<source>\S+))?",
-            message,
-            re.IGNORECASE,
-        )
-        if route_match:
-            values = route_match.groupdict()
+        if event.kind == "taxon_route":
+            values = event.values
             ensure_state(
                 values["genome"], values["taxon"], values.get("source") or ""
             )
             continue
 
-        annotation_decision_match = re.match(
-            r'^GENOME_ANNOTATION_DECISION\s+genome=(?P<genome>\S+)\s+required=(?P<required>yes|no)\s+method=(?P<method>\S+)\s+message="(?P<message>.*)"\s*$',
-            message,
-            re.IGNORECASE,
-        )
-        if annotation_decision_match:
-            values = annotation_decision_match.groupdict()
+        if event.kind == "annotation_decision":
+            values = event.values
             state = ensure_state(values["genome"])
             selected = annotation_method(values.get("method"))
             if values["required"].lower() == "no":
@@ -2988,13 +3149,8 @@ def public_genome_progress(
                 state["annotation_method"] = selected
             continue
 
-        record_progress_match = re.match(
-            r'^ANTISMASH_RECORD_PROGRESS\s+genome=(?P<genome>\S+)\s+record=(?P<record>\S+)\s+ordinal=(?P<ordinal>\d+)/(?P<total>\d+)\s+percent=(?P<percent>\d+)\s+bar=\[[^\]]*\]\s+message="(?P<message>.*)"\s*$',
-            message,
-            re.IGNORECASE,
-        )
-        if record_progress_match:
-            values = record_progress_match.groupdict()
+        if event.kind == "antismash_record":
+            values = event.values
             state = ensure_state(values["genome"])
             if state.get("taxon_group") == "fungi" and not state.get("annotation_method"):
                 state["annotation_method"] = "existing_cds"
@@ -3053,13 +3209,8 @@ def public_genome_progress(
             )
             continue
 
-        progress_match = re.match(
-            r'^GENOME_PROGRESS\s+genome=(?P<genome>\S+)\s+stage=(?P<stage>\S+)\s+percent=(?P<percent>\d+)\s+bar=\[[^\]]*\]\s+message="(?P<message>.*)"\s*$',
-            message,
-            re.IGNORECASE,
-        )
-        if progress_match:
-            values = progress_match.groupdict()
+        if event.kind == "genome_progress":
+            values = event.values
             state = ensure_state(values["genome"])
             percent = min(100, max(0, int(values["percent"])))
             # A rerun appends to the existing job log. Treat its explicit zero
@@ -3185,8 +3336,8 @@ def public_genome_progress(
                 )
             continue
 
-        tool_marker = public_tool_activity_marker(message)
-        if tool_marker:
+        if event.kind == "tool":
+            tool_marker = event.values
             state = ensure_state(tool_marker.get("genome"))
             marker_tool = public_tool_activity_tool_name(tool_marker.get("tool"))
             marker_tool_lower = marker_tool.lower()
@@ -3234,9 +3385,8 @@ def public_genome_progress(
                 remember_tool_failure(state, marker_tool, activity)
             continue
 
-        genomes_match = re.search(r"Genomes to process\s+\(\d+\):\s*(.+)$", message, re.IGNORECASE)
-        if genomes_match:
-            for raw_genome in genomes_match.group(1).split(","):
+        if event.kind == "genomes_queued":
+            for raw_genome in event.values["genomes"].split(","):
                 ensure_state(raw_genome)
 
     terminal_job = str(job.get("status") or "").lower() in {"success", "failed"}
@@ -3290,7 +3440,9 @@ def public_genome_progress(
     return output
 
 
-def public_activity_from_logs(job_id: str, lines: list[str]) -> list[dict[str, str]]:
+def _public_activity_from_events(
+    projection_events: list[PublicProgressEvent],
+) -> list[dict[str, str]]:
     events: list[dict[str, str]] = []
     seen: set[tuple[str, str, str]] = set()
     current_stage = "prep"
@@ -3299,18 +3451,12 @@ def public_activity_from_logs(job_id: str, lines: list[str]) -> list[dict[str, s
     antismash_record_states: dict[str, dict[str, str]] = {}
     antismash_record_totals: dict[str, int] = {}
 
-    for line in lines:
-        observed_at, message = public_activity_parts(line)
-        if not message:
-            continue
+    for event in projection_events:
+        observed_at = event.observed_at
+        message = event.message
 
-        record_progress_match = re.match(
-            r'^ANTISMASH_RECORD_PROGRESS\s+genome=(?P<genome>\S+)\s+record=(?P<record>\S+)\s+ordinal=(?P<ordinal>\d+)/(?P<total>\d+)\s+percent=(?P<percent>\d+)\s+bar=\[[^\]]*\]\s+message="(?P<message>.*)"\s*$',
-            message,
-            re.IGNORECASE,
-        )
-        if record_progress_match:
-            values = record_progress_match.groupdict()
+        if event.kind == "antismash_record":
+            values = event.values
             genome_label = public_activity_label(values.get("genome"))
             record_key = str(values.get("record") or values.get("ordinal") or "record")
             total = max(1, int(values.get("total") or 1))
@@ -3354,8 +3500,8 @@ def public_activity_from_logs(job_id: str, lines: list[str]) -> list[dict[str, s
             )
             continue
 
-        tool_marker = public_tool_activity_marker(message)
-        if tool_marker:
+        if event.kind == "tool":
+            tool_marker = event.values
             tool = public_tool_activity_tool_name(tool_marker.get("tool"))
             genome_label = public_activity_label(tool_marker.get("genome"))
             position = genome_position.get(genome_label)
@@ -3393,11 +3539,11 @@ def public_activity_from_logs(job_id: str, lines: list[str]) -> list[dict[str, s
                 )
             continue
 
-        if re.match(r"^TOOL_", message, re.IGNORECASE):
+        if event.kind == "tool_ignored":
             continue
 
-        marker_stage = public_activity_stage_from_marker(message)
-        if marker_stage:
+        if event.kind == "stage":
+            marker_stage = event.values["stage"]
             current_stage = marker_stage
             title_by_stage = {
                 "prep": "Preparing input workspace",
@@ -3418,10 +3564,9 @@ def public_activity_from_logs(job_id: str, lines: list[str]) -> list[dict[str, s
             )
             continue
 
-        staged_match = re.search(r"^(Staged genome input|Staged accession list|Staged ecology metadata):\s+(.+)$", message, re.IGNORECASE)
-        if staged_match:
-            label = public_activity_label(Path(staged_match.group(2)).name)
-            kind = staged_match.group(1).lower()
+        if event.kind == "staged_input":
+            label = public_activity_label(Path(event.values["path"]).name)
+            kind = event.values["input_kind"].lower()
             if "genome" in kind:
                 title = "Staged genome input"
             elif "ecology" in kind:
@@ -3431,20 +3576,18 @@ def public_activity_from_logs(job_id: str, lines: list[str]) -> list[dict[str, s
             add_public_activity_event(events, seen, "prep", title, label, observed_at)
             continue
 
-        if re.search(r"Reusing existing staged ClusterWeave layout for rerun", message, re.IGNORECASE):
+        if event.kind == "staged_rerun":
             add_public_activity_event(events, seen, "prep", "Reused staged inputs for rerun", "Existing job workspace", observed_at)
             continue
 
-        work_match = re.search(r"\[WORK\]\s+((?:GCA|GCF)_\d{9}\.\d+)", message, re.IGNORECASE)
-        if work_match:
-            accession = public_activity_label(work_match.group(1).upper())
+        if event.kind == "accession_work":
+            accession = public_activity_label(event.values["accession"].upper())
             add_public_activity_event(events, seen, "prep", f"Fetching accession {accession}", "NCBI genome download", observed_at)
             continue
 
-        genomes_match = re.search(r"Genomes to process\s+\((\d+)\):\s*(.+)$", message, re.IGNORECASE)
-        if genomes_match:
-            genome_total = max(0, int(genomes_match.group(1)))
-            labels = [public_activity_label(part) for part in genomes_match.group(2).split(",")]
+        if event.kind == "genomes_queued":
+            genome_total = max(0, int(event.values["total"]))
+            labels = [public_activity_label(part) for part in event.values["genomes"].split(",")]
             labels = [label for label in labels if label]
             shown = ", ".join(labels[:3])
             if len(labels) > 3:
@@ -3459,9 +3602,10 @@ def public_activity_from_logs(job_id: str, lines: list[str]) -> list[dict[str, s
             )
             continue
 
-        genome_match = re.search(r"\[(\d+)/(\d+)\]\s+genome=([^\s]+)", message, re.IGNORECASE)
-        if genome_match:
-            index, total, genome = genome_match.groups()
+        if event.kind == "genome_started":
+            index = event.values["index"]
+            total = event.values["total"]
+            genome = event.values["genome"]
             genome_total = max(genome_total, int(total))
             genome_label = public_activity_label(genome)
             genome_position[genome_label] = f"{index} of {total}"
@@ -3475,9 +3619,8 @@ def public_activity_from_logs(job_id: str, lines: list[str]) -> list[dict[str, s
             )
             continue
 
-        antismash_match = re.search(r"^([^:\s]+):\s+running antiSMASH\b", message, re.IGNORECASE)
-        if antismash_match:
-            genome_label = public_activity_label(antismash_match.group(1))
+        if event.kind == "tool_started" and event.values["tool"] == "antiSMASH":
+            genome_label = public_activity_label(event.values["genome"])
             meta = f"Genome {genome_position[genome_label]}" if genome_label in genome_position else "BGC detection"
             add_public_activity_event(
                 events,
@@ -3489,9 +3632,8 @@ def public_activity_from_logs(job_id: str, lines: list[str]) -> list[dict[str, s
             )
             continue
 
-        funbgcex_match = re.search(r"^([^:\s]+):\s+running FunBGCeX\b", message, re.IGNORECASE)
-        if funbgcex_match:
-            genome_label = public_activity_label(funbgcex_match.group(1))
+        if event.kind == "tool_started" and event.values["tool"] == "FunBGCeX":
+            genome_label = public_activity_label(event.values["genome"])
             meta = f"Genome {genome_position[genome_label]}" if genome_label in genome_position else "BGC detection"
             add_public_activity_event(
                 events,
@@ -3503,10 +3645,9 @@ def public_activity_from_logs(job_id: str, lines: list[str]) -> list[dict[str, s
             )
             continue
 
-        done_match = re.search(r"^([^:\s]+):\s+(antiSMASH|FunBGCeX)\s+OK\b", message, re.IGNORECASE)
-        if done_match:
-            genome_label = public_activity_label(done_match.group(1))
-            tool = "antiSMASH" if done_match.group(2).lower() == "antismash" else "FunBGCeX"
+        if event.kind == "tool_finished":
+            genome_label = public_activity_label(event.values["genome"])
+            tool = "antiSMASH" if event.values["tool"].lower() == "antismash" else "FunBGCeX"
             add_public_activity_event(
                 events,
                 seen,
@@ -3517,14 +3658,9 @@ def public_activity_from_logs(job_id: str, lines: list[str]) -> list[dict[str, s
             )
             continue
 
-        training_match = re.search(
-            r"^([^:\s]+):\s+funannotate could not train AUGUSTUS;\s+(.+)$",
-            message,
-            re.IGNORECASE,
-        )
-        if training_match:
-            genome_label = public_activity_label(training_match.group(1))
-            detail = training_match.group(2)
+        if event.kind == "annotation_skipped":
+            genome_label = public_activity_label(event.values["genome"])
+            detail = event.values["detail"]
             count_match = re.search(
                 r"validated_busco_models=(\d+)\s+required_training_models=(\d+)",
                 detail,
@@ -3543,48 +3679,50 @@ def public_activity_from_logs(job_id: str, lines: list[str]) -> list[dict[str, s
             )
             continue
 
-        bigscape_region_match = re.search(r"Staged region GBKs:\s*(\d+)", message, re.IGNORECASE)
-        if bigscape_region_match:
-            add_public_activity_event(events, seen, "bigscape", "Staged region GBKs", f"{bigscape_region_match.group(1)} regions", observed_at)
+        if event.kind == "bigscape_regions":
+            add_public_activity_event(events, seen, "bigscape", "Staged region GBKs", f"{event.values['count']} regions", observed_at)
             continue
 
-        if re.search(r"Running BiG-SCAPE|BiG-SCAPE complete|BiG-SCAPE outputs already exist", message, re.IGNORECASE):
-            title = "BiG-SCAPE complete" if re.search(r"complete|already exist", message, re.IGNORECASE) else "Running BiG-SCAPE clustering"
+        if event.kind == "bigscape":
+            title = "BiG-SCAPE complete" if event.values["complete"] == "1" else "Running BiG-SCAPE clustering"
             add_public_activity_event(events, seen, "bigscape", title, "Family graph construction", observed_at)
             continue
 
-        summary_written_match = re.search(r"Wrote (?:scaffold comparison table|BGC comparison table|summary table|.*crosswalk rows|ecology-group .*|GCF ecology distribution|targeted candidate ranking|.*shortlist(?: TSV| Markdown| note)?)", message, re.IGNORECASE)
-        if summary_written_match:
+        if event.kind == "summary_written":
             add_public_activity_event(events, seen, "summary", "Updated summary outputs", "Crosswalks and shortlist tables", observed_at)
             continue
 
-        if re.search(r"Refreshing (candidate ranking|dataset-wide family atlas|priority shortlist|BiG-SCAPE shared-family shortlist)|Skipping .*shortlist refresh", message, re.IGNORECASE):
+        if event.kind == "clinker_prepared":
             add_public_activity_event(events, seen, "clinker", "Prepared synteny shortlist inputs", "Panel target selection", observed_at)
             continue
 
-        clinker_panel_match = re.search(r"Staged (\d+) clinker panels", message, re.IGNORECASE)
-        if clinker_panel_match:
-            add_public_activity_event(events, seen, "clinker", "Staged clinker panels", f"{clinker_panel_match.group(1)} panels", observed_at)
+        if event.kind == "clinker_panels":
+            add_public_activity_event(events, seen, "clinker", "Staged clinker panels", f"{event.values['count']} panels", observed_at)
             continue
 
-        if re.search(r"Running .*clinker panels|run_clinker\.sh complete|Wrote panel manifest|Wrote master run script", message, re.IGNORECASE):
+        if event.kind == "clinker_updated":
             add_public_activity_event(events, seen, "clinker", "Updated synteny panel outputs", "clinker staging", observed_at)
             continue
 
-        if re.search(r"\brender(?:ing)?\s+summary\s+figures\b|Rendering BGC overlap figure|Rendering BiG-SCAPE (?:network|multipanel) figure", message, re.IGNORECASE):
+        if event.kind == "figures_started":
             current_stage = "figures"
             add_public_activity_event(events, seen, "figures", "Rendering summary figures", "Visual summaries", observed_at)
             continue
 
-        if re.search(r"Wrote .*\.(?:svg|png|pdf)$|run_figures\.sh complete", message, re.IGNORECASE):
+        if event.kind == "figures_written":
             add_public_activity_event(events, seen, "figures", "Updated figure outputs", "Visual summaries", observed_at)
             continue
 
-        if re.search(r"Wrote .*NPLinker|Wrote .*links to|Wrote .*summary rows to|Seeded BiG-SCAPE data", message, re.IGNORECASE):
+        if event.kind == "nplinker_written":
             add_public_activity_event(events, seen, "nplinker", "Updated NPLinker outputs", "Optional omics follow-up", observed_at)
             continue
 
-        if re.search(r"\b(FATAL|ERROR|FAILED|failed with exit code)\b", message):
+        if event.kind == "run_error" or (
+            event.kind in {
+                "download", "taxon_route", "annotation_decision", "genome_progress"
+            }
+            and re.search(r"\b(FATAL|ERROR|FAILED|failed with exit code)\b", message)
+        ):
             add_public_activity_event(
                 events,
                 seen,
@@ -3595,6 +3733,41 @@ def public_activity_from_logs(job_id: str, lines: list[str]) -> list[dict[str, s
             )
 
     return events[-PUBLIC_ACTIVITY_LIMIT:]
+
+
+@dataclass(frozen=True)
+class PublicProgressProjection:
+    public_events: list[dict[str, str]]
+    genome_progress: list[dict[str, object]]
+
+
+def public_progress_projection(
+    job: dict[str, object], lines: list[str]
+) -> PublicProgressProjection:
+    """Build both public views from one normalized in-memory event sequence."""
+
+    normalized = public_progress_events(lines)
+    return PublicProgressProjection(
+        public_events=_public_activity_from_events(normalized),
+        genome_progress=_public_genome_progress(job, normalized),
+    )
+
+
+def public_activity_from_logs(
+    job_id: str, lines: list[str]
+) -> list[dict[str, str]]:
+    """Compatibility delegate for the established public callable."""
+
+    del job_id
+    return public_progress_projection({}, lines).public_events
+
+
+def public_genome_progress(
+    job: dict[str, object], lines: list[str]
+) -> list[dict[str, object]]:
+    """Compatibility delegate for the established public callable."""
+
+    return public_progress_projection(job, lines).genome_progress
 
 
 
@@ -3767,6 +3940,40 @@ def safe_count_mapping(value: object) -> dict[str, int]:
     return counts
 
 
+
+def public_accession_metadata(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        return []
+    public_records: list[dict[str, object]] = []
+    text_fields = [
+        "organism_name",
+        "taxa",
+        "taxon_group",
+        "order_name",
+        "family_name",
+        "class_name",
+        "order_family",
+    ]
+    for raw_record in value[:MAX_ACCESSIONS]:
+        if not isinstance(raw_record, dict):
+            continue
+        accession = str(raw_record.get("accession") or "").strip().upper()
+        if not NCBI_ASSEMBLY_ACCESSION_RE.fullmatch(accession):
+            continue
+        record: dict[str, object] = {"accession": accession}
+        try:
+            tax_id = int(raw_record.get("tax_id"))
+        except (TypeError, ValueError):
+            tax_id = 0
+        if tax_id > 0:
+            record["tax_id"] = tax_id
+        for key in text_fields:
+            text = str(raw_record.get(key) or "").strip()
+            if text:
+                record[key] = text[:256]
+        public_records.append(record)
+    return public_records
+
 def public_input_summary(value: object) -> dict[str, object]:
     if not isinstance(value, dict):
         return {}
@@ -3795,6 +4002,9 @@ def public_input_summary(value: object) -> dict[str, object]:
     summary["applicability_counts"] = safe_count_mapping(
         value.get("applicability_counts")
     )
+    accession_metadata = public_accession_metadata(value.get("accession_metadata"))
+    if accession_metadata:
+        summary["accession_metadata"] = accession_metadata
     return summary
 
 
@@ -3823,6 +4033,9 @@ def job_summary_payload(job: dict[str, object]) -> dict[str, object]:
         else max(0, parse_int(job.get("result_file_count"), 0))
     )
     payload["analysis_scope"] = saved_job_analysis_scope(job)
+    accession_metadata = public_accession_metadata(job.get("accession_metadata"))
+    if accession_metadata:
+        payload["accession_metadata"] = accession_metadata
     payload["taxon_counts"] = safe_count_mapping(job.get("taxon_counts"))
     payload["applicability_counts"] = safe_count_mapping(
         job.get("applicability_counts")
@@ -3930,10 +4143,9 @@ def job_payload(job: dict[str, object], *, admin: bool, include_public_events: b
             if job_id
             else []
         )
-        payload["public_events"] = public_activity_from_logs(job_id, lines) if job_id else []
-        payload["genome_progress"] = (
-            public_genome_progress(job, lines) if job_id else []
-        )
+        projection = public_progress_projection(job, lines) if job_id else None
+        payload["public_events"] = projection.public_events if projection else []
+        payload["genome_progress"] = projection.genome_progress if projection else []
     return payload
 
 
@@ -3955,16 +4167,18 @@ def running_job_count() -> int:
     return sum(1 for job in list_jobs() if str(job.get("status", "")).lower() == "running")
 
 
-def public_quota_payload() -> dict[str, int]:
+def public_quota_payload(status: dict[str, object] | None = None) -> dict[str, int]:
     return {
         "max_accessions": MAX_ACCESSIONS,
         "max_genome_files": MAX_GENOME_FILES,
         "max_upload_file_mb": MAX_UPLOAD_FILE_MB,
         "max_upload_total_mb": MAX_UPLOAD_TOTAL_MB,
+        "max_cpus_per_job": public_cpu_limit(status),
     }
 
 
 def redacted_system_status() -> dict[str, object]:
+    status = worker_status()
     submissions_open = SUBMISSIONS_OPEN
     return {
         "online": True,
@@ -3975,7 +4189,7 @@ def redacted_system_status() -> dict[str, object]:
         "running_jobs": running_job_count(),
         "queued_jobs": queued_job_count(),
         "smtp_enabled": SMTP_ENABLED,
-        "public_quota": public_quota_payload(),
+        "public_quota": public_quota_payload(status),
     }
 
 
@@ -3997,7 +4211,7 @@ def full_system_status() -> dict[str, object]:
     payload["running_jobs"] = active_count
     payload["queued_jobs"] = queued_job_count()
     payload["smtp_enabled"] = SMTP_ENABLED
-    payload["public_quota"] = public_quota_payload()
+    payload["public_quota"] = public_quota_payload(payload)
     return payload
 
 
@@ -4024,8 +4238,29 @@ def request_public_base_url(handler: BaseHTTPRequestHandler) -> str:
     return f"{proto}://{host}/"
 
 
-def public_cpu_limit() -> int:
-    return min(MAX_CPUS_PER_JOB, os.cpu_count() or MAX_CPUS_PER_JOB)
+def active_worker_cpu_budget(status: dict[str, object] | None = None) -> int | None:
+    current = status if status is not None else worker_status()
+    if not current.get("ready") or current.get("stale"):
+        return None
+    worker = current.get("worker")
+    if not isinstance(worker, dict):
+        return None
+    admission = worker.get("resource_admission")
+    if not isinstance(admission, dict):
+        return None
+    try:
+        budget = int(admission.get("cpu_budget", 0) or 0)
+    except (TypeError, ValueError):
+        return None
+    return budget if budget > 0 else None
+
+
+def public_cpu_limit(status: dict[str, object] | None = None) -> int:
+    return bounded_cpu_limit(
+        MAX_CPUS_PER_JOB,
+        os.cpu_count() or MAX_CPUS_PER_JOB,
+        worker_cpu_budget=active_worker_cpu_budget(status),
+    )
 
 
 def clamp_public_cpus(value: int) -> int:
@@ -4048,21 +4283,15 @@ def hosted_resource_plan(
     bounded whole-job plan.
     """
 
-    return ResourceRequest(
-        job_cpus=cpus,
-        genome_count=genome_count,
-        target_genome_parallelism=PUBLIC_GENOME_PARALLELISM,
-        target_antismash_record_parallelism=PUBLIC_ANTISMASH_RECORD_PARALLELISM,
-        target_antismash_shard_cpus=cpus,
-        target_antismash_legacy_cpus=cpus,
-        target_anno_cpus=PUBLIC_FUNANNOTATE_CPUS_PER_GENOME,
-        target_funbgcex_workers=PUBLIC_FUNBGCEX_WORKERS_PER_GENOME,
-        run_phylogeny=settings_bool(settings, "run_phylogeny"),
-        target_phylogeny_cpus=max(
-            1, parse_int(settings.get("phylogeny_cpus", 1), 1)
-        ),
-        target_phylogeny_parallelism=1,
-    ).bounded_plan()
+    return build_hosted_resource_plan(
+        cpus,
+        genome_count,
+        settings,
+        genome_parallelism=PUBLIC_GENOME_PARALLELISM,
+        antismash_record_parallelism=PUBLIC_ANTISMASH_RECORD_PARALLELISM,
+        funannotate_cpus_per_genome=PUBLIC_FUNANNOTATE_CPUS_PER_GENOME,
+        funbgcex_workers_per_genome=PUBLIC_FUNBGCEX_WORKERS_PER_GENOME,
+    )
 
 
 def submission_disk_error() -> str | None:
@@ -4194,12 +4423,11 @@ def parse_accession_text(filename: str, content: bytes) -> tuple[str | None, int
 def parse_accession_upload(
     filename: str, item: dict[str, object]
 ) -> tuple[str | None, list[str]]:
-    # Twenty-five valid assembly accessions occupy far less than 64 KiB. This
-    # bound prevents an invalid single-line text upload from being materialized
-    # in memory merely to reject it.
+    # Scale the text bound with the configured accession count while retaining
+    # the historical 64 KiB minimum for compatibility.
     with open_upload_binary(item) as handle:
-        content = handle.read(64 * 1024 + 1)
-    if len(content) > 64 * 1024:
+        content = handle.read(ACCESSION_UPLOAD_MAX_BYTES + 1)
+    if len(content) > ACCESSION_UPLOAD_MAX_BYTES:
         return (
             f"Accession list '{filename}' must contain one accession per line and no more than {MAX_ACCESSIONS} accessions",
             [],
@@ -4253,7 +4481,11 @@ def validate_generated_ecology_metadata_upload(
     with open_upload_binary(item) as handle:
         content = handle.read(PUBLIC_GENERATED_ECOLOGY_MAX_BYTES + 1)
     if len(content) > PUBLIC_GENERATED_ECOLOGY_MAX_BYTES:
-        return f"Generated ecology metadata '{filename}' exceeds 64 KiB", False
+        return (
+            f"Generated ecology metadata '{filename}' exceeds "
+            f"{PUBLIC_GENERATED_ECOLOGY_MAX_BYTES} bytes",
+            False,
+        )
     try:
         text = content.decode("utf-8")
     except UnicodeDecodeError:
@@ -4274,7 +4506,7 @@ def validate_generated_ecology_metadata_upload(
     expected_genomes = set(genome_stems)
     seen_accessions: set[str] = set()
     seen_genomes: set[str] = set()
-    maximum_rows = MAX_ACCESSIONS + MAX_GENOME_FILES
+    maximum_rows = MAX_JOB_INPUTS
     data_lines = lines[1:]
     if not data_lines or len(data_lines) > maximum_rows:
         return (
@@ -4856,6 +5088,43 @@ def validate_ncbi_accession_preflight(
     return error
 
 
+def validate_ncbi_accession_batch_details(
+    accessions: list[str],
+    analysis_scope: object = "fungi",
+    *,
+    force: bool = False,
+) -> list[dict[str, object]]:
+    if not NCBI_ACCESSION_PREFLIGHT and not force:
+        return []
+    seen: set[str] = set()
+    results: list[dict[str, object]] = []
+    for accession in accessions:
+        normalized = accession.strip().upper()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        lookup_error, record = ncbi_accession_taxonomy_details(normalized)
+        scope_error = (
+            ncbi_scope_error(normalized, record, analysis_scope)
+            if record is not None and not lookup_error
+            else None
+        )
+        detail = lookup_error or scope_error
+        result: dict[str, object] = {
+            "accession": normalized,
+            "accepted": detail is None,
+        }
+        if detail:
+            result["detail"] = detail
+        if record is not None:
+            result["organism_name"] = bounded_taxonomy_name(
+                record.get("organism_name")
+            )
+            result["taxon_group"] = str(record.get("taxon_group") or "")
+        results.append(result)
+    return results
+
+
 def public_genome_stem(filename: str) -> str:
     return Path(filename).stem.strip()
 
@@ -5186,9 +5455,13 @@ def read_taxon_assignment_sidecar(
     if not matches:
         return None, {}
     with open_upload_binary(matches[0]) as handle:
-        content = handle.read(MAX_ASSIGNMENT_BYTES + 1)
+        content = handle.read(TAXON_ASSIGNMENT_MAX_BYTES + 1)
     try:
-        return None, parse_assignment_tsv(content)
+        return None, parse_assignment_tsv(
+            content,
+            max_bytes=TAXON_ASSIGNMENT_MAX_BYTES,
+            max_rows=TAXON_ASSIGNMENT_MAX_ROWS,
+        )
     except TaxonRoutingError as exc:
         return str(exc), {}
 
@@ -5308,7 +5581,11 @@ def build_submission_taxon_routing(
 ) -> tuple[str | None, dict[str, object]]:
     try:
         scope = normalize_analysis_scope(analysis_scope)
-        json_assignments = parse_assignment_json(assignment_json)
+        json_assignments = parse_assignment_json(
+            assignment_json,
+            max_bytes=TAXON_ASSIGNMENT_MAX_BYTES,
+            max_rows=TAXON_ASSIGNMENT_MAX_ROWS,
+        )
     except TaxonRoutingError as exc:
         return str(exc), {}
 
@@ -5586,7 +5863,101 @@ def parse_multipart_form_data(
     return fields, files
 
 
+def resolve_public_job(public_id: object) -> dict[str, object] | None:
+    """Preserve the app-level lookup while supplying explicit dependencies."""
+
+    return _resolve_public_job(public_id, PUBLIC_RESULT_CONTEXT)
+
+
+class _PublicResultApi:
+    @property
+    def PUBLIC_BIGSCAPE_VIEWER_DATABASE_FILENAME(self) -> str:
+        return PUBLIC_BIGSCAPE_VIEWER_DATABASE_FILENAME
+
+    @staticmethod
+    def artifact_catalog_for_job(*args, **kwargs):
+        return artifact_catalog_for_job(*args, **kwargs)
+
+    @staticmethod
+    def authorize_bigscape_viewer_database(*args, **kwargs):
+        return authorize_bigscape_viewer_database(*args, **kwargs)
+
+    @staticmethod
+    def authorize_direct_result_file(*args, **kwargs):
+        return authorize_direct_result_file(*args, **kwargs)
+
+    @staticmethod
+    def authorize_prebuilt_public_archive(*args, **kwargs):
+        return authorize_prebuilt_public_archive(*args, **kwargs)
+
+    @staticmethod
+    def build_public_archive(*args, **kwargs):
+        return build_public_archive(*args, **kwargs)
+
+    @staticmethod
+    def content_disposition(*args, **kwargs):
+        return content_disposition(*args, **kwargs)
+
+    @staticmethod
+    def job_dir(*args, **kwargs):
+        return job_dir(*args, **kwargs)
+
+    @staticmethod
+    def job_payload(*args, **kwargs):
+        return job_payload(*args, **kwargs)
+
+    @staticmethod
+    def parse_int(*args, **kwargs):
+        return parse_int(*args, **kwargs)
+
+    @staticmethod
+    def public_activity_from_logs(*args, **kwargs):
+        return public_activity_from_logs(*args, **kwargs)
+
+    @staticmethod
+    def public_activity_projection_lines(*args, **kwargs):
+        return public_activity_projection_lines(*args, **kwargs)
+
+    @staticmethod
+    def public_genome_progress(*args, **kwargs):
+        return public_genome_progress(*args, **kwargs)
+
+    @staticmethod
+    def public_progress_projection(*args, **kwargs):
+        return public_progress_projection(*args, **kwargs)
+
+    @staticmethod
+    def read_json_body(*args, **kwargs):
+        return read_json_body(*args, **kwargs)
+
+    @staticmethod
+    def request_can_read_job(*args, **kwargs):
+        return request_can_read_job(*args, **kwargs)
+
+    @staticmethod
+    def resolve_public_job(*args, **kwargs):
+        return resolve_public_job(*args, **kwargs)
+
+    @staticmethod
+    def result_file_is_publicly_servable(*args, **kwargs):
+        return result_file_is_publicly_servable(*args, **kwargs)
+
+    @staticmethod
+    def result_file_mime(*args, **kwargs):
+        return result_file_mime(*args, **kwargs)
+
+
+PUBLIC_RESULT_CONTEXT = PublicResultContext(
+    api=_PublicResultApi(),
+    read_job=read_job,
+    list_job_summaries=list_job_summaries,
+)
+configure_public_result_context(PUBLIC_RESULT_CONTEXT)
+
+
 class Handler(BaseHTTPRequestHandler):
+    public_result_context = PUBLIC_RESULT_CONTEXT
+
     def log_message(self, format: str, *args: object) -> None:
         safe_args = tuple(sanitize_access_log_text(arg) for arg in args)
         try:
@@ -5706,29 +6077,56 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self) -> None:  # noqa: N802
+        self._handle_get()
+
+    def _handle_get(self) -> None:
         route, query = parse_path(self.path)
-        if handle_public_result_get(self, route, query):
+        if self._handle_public_result_get(route, query):
             return
+        if self._handle_static_get(route):
+            return
+        if self._handle_jobs_get(route, query):
+            return
+        if self._handle_access_get(route):
+            return
+        self._not_found()
 
+    def _handle_public_result_get(
+        self,
+        route: str,
+        query: dict[str, list[str]],
+    ) -> bool:
+        return handle_public_result_get(
+            self,
+            route,
+            query,
+            PUBLIC_RESULT_CONTEXT,
+        )
 
+    def _handle_static_get(self, route: str) -> bool:
+        if not (
+            route in {"/", "/favicon.ico"}
+            or route.startswith("/assets/")
+            or route.startswith("/vendor/")
+        ):
+            return False
         if route == "/":
             index = STATIC_DIR / "index.html"
             if not index.exists():
                 self._not_found("Frontend not found")
-                return
+                return True
             self._send_text(
                 HTTPStatus.OK,
                 "text/html; charset=utf-8",
                 index.read_bytes(),
                 {"Cache-Control": "no-store"},
             )
-            return
-
+            return True
         if route == "/favicon.ico":
             favicon = STATIC_DIR / "favicon.ico"
             if not favicon.exists():
                 self._not_found("Favicon not found")
-                return
+                return True
             self._send_file(
                 HTTPStatus.OK,
                 favicon,
@@ -5738,8 +6136,7 @@ class Handler(BaseHTTPRequestHandler):
                     "X-Content-Type-Options": "nosniff",
                 },
             )
-            return
-
+            return True
         if route.startswith("/assets/"):
             asset_root = STATIC_ASSET_DIR.resolve()
             rel_path = urllib.parse.unquote(route.removeprefix("/assets/"))
@@ -5748,10 +6145,10 @@ class Handler(BaseHTTPRequestHandler):
                 full.relative_to(asset_root)
             except ValueError:
                 self._bad_request("Invalid asset path")
-                return
+                return True
             if not full.exists() or not full.is_file():
                 self._not_found("Asset not found")
-                return
+                return True
             self._send_text(
                 HTTPStatus.OK,
                 result_file_mime(full),
@@ -5761,8 +6158,7 @@ class Handler(BaseHTTPRequestHandler):
                     "X-Content-Type-Options": "nosniff",
                 },
             )
-            return
-
+            return True
         if route.startswith("/vendor/"):
             vendor_root = STATIC_VENDOR_DIR.resolve()
             rel_path = urllib.parse.unquote(route.removeprefix("/vendor/"))
@@ -5771,10 +6167,10 @@ class Handler(BaseHTTPRequestHandler):
                 full.relative_to(vendor_root)
             except ValueError:
                 self._bad_request("Invalid vendor path")
-                return
+                return True
             if not full.exists() or not full.is_file():
                 self._not_found("Vendor asset not found")
-                return
+                return True
             self._send_text(
                 HTTPStatus.OK,
                 result_file_mime(full),
@@ -5784,54 +6180,37 @@ class Handler(BaseHTTPRequestHandler):
                     "X-Content-Type-Options": "nosniff",
                 },
             )
-            return
+            return True
+        return False
 
+    def _handle_jobs_get(
+        self,
+        route: str,
+        query: dict[str, list[str]],
+    ) -> bool:
+        if route != "/api/jobs" and not route.startswith("/api/jobs/"):
+            return False
         if route == "/api/jobs":
             if not request_is_admin(self):
                 self._auth_failed("Admin token required")
-                return
+                return True
             self._send_json(
                 HTTPStatus.OK,
                 [job_summary_payload(job) for job in list_job_summaries()],
             )
-            return
-
-        if route == "/api/access/validate":
-            if not request_has_any_token(self):
-                self._auth_failed("Access code required")
-                return
-            is_admin = request_is_admin(self)
-            submit_configured = token_credential_configured(SUBMIT_TOKEN, SUBMIT_TOKEN_SHA256)
-            is_submit_token = submit_configured and request_has_token(self, SUBMIT_TOKEN, SUBMIT_TOKEN_SHA256)
-            can_submit = is_admin or is_submit_token
-            if not (is_admin or is_submit_token):
-                self._auth_failed("Access code was not accepted")
-                return
-            self._send_json(HTTPStatus.OK, {"accepted": True, "admin": is_admin, "submit": can_submit})
-            return
-
-        if route == "/api/system/status":
-            if PUBLIC_MODE and not request_is_admin(self):
-                if request_has_any_token(self):
-                    self._auth_failed("Admin token required for diagnostics")
-                    return
-                self._send_json(HTTPStatus.OK, redacted_system_status())
-                return
-            self._send_json(HTTPStatus.OK, full_system_status())
-            return
-
+            return True
         if route.startswith("/api/jobs/"):
             parts = route.split("/")
             if len(parts) < 4:
                 self._not_found()
-                return
+                return True
             if (
                 PUBLIC_MODE
                 and len(parts) >= 5
                 and not request_is_admin(self)
             ):
                 self._not_found("Result not found")
-                return
+                return True
             job_id = parts[3]
             job = read_job(job_id)
             if job is None:
@@ -5839,7 +6218,15 @@ class Handler(BaseHTTPRequestHandler):
                     self._not_found("Result not found")
                 else:
                     self._not_found(f"Job '{job_id}' not found")
-                return
+                return True
+            is_admin = request_is_admin(self)
+            if (
+                PUBLIC_MODE
+                and not is_admin
+                and not legacy_internal_metadata_job_id(route, job)
+            ):
+                self._not_found("Result not found")
+                return True
             if not request_can_read_job(self, job):
                 if PUBLIC_MODE:
                     # Keep legacy internal IDs non-enumerable. A valid read
@@ -5847,19 +6234,16 @@ class Handler(BaseHTTPRequestHandler):
                     # old bookmark to the opaque public result URL; every
                     # failed public read looks identical to an unknown job.
                     self._not_found("Result not found")
-                    return
+                    return True
                 self._auth_failed("Job read token or admin token required")
-                return
-            is_admin = request_is_admin(self)
-
+                return True
             if len(parts) == 4:
                 self._send_json(HTTPStatus.OK, job_payload(job, admin=is_admin, include_public_events=True, include_results=not parse_bool(query.get("compact", ["0"])[0], False)))
-                return
-
+                return True
             if len(parts) == 5 and parts[4] == "bigscape-viewer-database":
                 if PUBLIC_MODE and not is_admin:
                     self._not_found("Result not found")
-                    return
+                    return True
                 authorized_viewer = authorize_bigscape_viewer_database(
                     job,
                     job_dir(job_id).resolve(),
@@ -5868,7 +6252,7 @@ class Handler(BaseHTTPRequestHandler):
                     self._auth_failed(
                         "BiG-SCAPE viewer database is not available for this run"
                     )
-                    return
+                    return True
                 full, expected_identity = authorized_viewer
                 self._send_file(
                     HTTPStatus.OK,
@@ -5883,12 +6267,11 @@ class Handler(BaseHTTPRequestHandler):
                     },
                     expected_identity=expected_identity,
                 )
-                return
-
+                return True
             if len(parts) >= 5 and parts[4] == "logs":
                 if PUBLIC_MODE and not is_admin:
                     self._auth_failed("Admin token required for raw logs")
-                    return
+                    return True
                 known_log_count = max(0, parse_int(job.get("log_count"), 0))
                 if "tail" in query or "before" in query:
                     tail_value = parse_int(query.get("tail", ["500"])[0], 500)
@@ -5919,8 +6302,7 @@ class Handler(BaseHTTPRequestHandler):
                             "has_earlier": window.start > 0,
                         },
                     )
-                    return
-
+                    return True
                 since = max(0, parse_int(query.get("since", ["0"])[0], 0))
                 snapshot = read_log_slice(job_id, since, known_log_count)
                 self._send_json(
@@ -5931,12 +6313,11 @@ class Handler(BaseHTTPRequestHandler):
                         "generation": snapshot.generation,
                     },
                 )
-                return
-
+                return True
             if len(parts) == 5 and parts[4] == "archive":
                 if PUBLIC_MODE and not is_admin:
                     self._not_found("Result not found")
-                    return
+                    return True
                 base_dir = job_dir(job_id).resolve()
                 safe_job_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", job_id).strip("._") or "clusterweave"
                 authorized_archive = authorize_prebuilt_public_archive(job, base_dir)
@@ -5957,7 +6338,7 @@ class Handler(BaseHTTPRequestHandler):
                                 )
                             },
                         )
-                        return
+                        return True
                 try:
                     self._send_file(
                         HTTPStatus.OK,
@@ -5976,17 +6357,16 @@ class Handler(BaseHTTPRequestHandler):
                 finally:
                     if temporary_archive:
                         archive_path.unlink(missing_ok=True)
-                return
-
+                return True
             if len(parts) >= 5 and parts[4] == "files":
                 if PUBLIC_MODE and not is_admin:
                     self._not_found("Result not found")
-                    return
+                    return True
                 base_dir = job_dir(job_id).resolve()
                 if len(parts) == 5:
                     if PUBLIC_MODE and not is_admin:
                         self._not_found("Result not found")
-                        return
+                        return True
                     allowed_files = result_file_allowlist(job, base_dir=base_dir)
                     payload = {"files": allowed_files}
                     viewer_path = advertised_bigscape_viewer_database_path(job, base_dir, public_files=allowed_files)
@@ -5994,17 +6374,16 @@ class Handler(BaseHTTPRequestHandler):
                         payload["bigscape_viewer_database"] = viewer_path
                     payload.update(result_index_metadata(job, base_dir))
                     self._send_json(HTTPStatus.OK, payload)
-                    return
-
+                    return True
                 requested_path = urllib.parse.unquote("/".join(parts[5:]))
                 rel_path = normalized_job_result_path(requested_path)
                 if not rel_path or rel_path != requested_path:
                     self._bad_request("Invalid path")
-                    return
+                    return True
                 authorized_file = authorize_direct_result_file(job, base_dir, rel_path)
                 if authorized_file is None:
                     self._auth_failed("Result file is not available through the public manifest")
-                    return
+                    return True
                 full, expected_identity = authorized_file
 
                 disposition = "attachment" if parse_bool(query.get("download", ["0"])[0], False) else "inline"
@@ -6030,15 +6409,42 @@ class Handler(BaseHTTPRequestHandler):
                     headers,
                     expected_identity=expected_identity,
                 )
-                return
-
+                return True
         self._not_found()
+        return True
+
+    def _handle_access_get(self, route: str) -> bool:
+        if route not in {"/api/access/validate", "/api/system/status"}:
+            return False
+        if route == "/api/access/validate":
+            if not request_has_any_token(self):
+                self._auth_failed("Access code required")
+                return True
+            is_admin = request_is_admin(self)
+            submit_configured = token_credential_configured(SUBMIT_TOKEN, SUBMIT_TOKEN_SHA256)
+            is_submit_token = submit_configured and request_has_token(self, SUBMIT_TOKEN, SUBMIT_TOKEN_SHA256)
+            can_submit = is_admin or is_submit_token
+            if not (is_admin or is_submit_token):
+                self._auth_failed("Access code was not accepted")
+                return True
+            self._send_json(HTTPStatus.OK, {"accepted": True, "admin": is_admin, "submit": can_submit})
+            return True
+        if route == "/api/system/status":
+            if PUBLIC_MODE and not request_is_admin(self):
+                if request_has_any_token(self):
+                    self._auth_failed("Admin token required for diagnostics")
+                    return True
+                self._send_json(HTTPStatus.OK, redacted_system_status())
+                return True
+            self._send_json(HTTPStatus.OK, full_system_status())
+            return True
+        return False
 
     def do_POST(self) -> None:  # noqa: N802
         self._request_staged_uploads: list[dict[str, object]] = []
         route, _ = parse_path(self.path)
         upload_slot = False
-        if route == "/api/jobs":
+        if route in {"/api/jobs", "/api/inputs/validate"}:
             upload_slot = UPLOAD_SEMAPHORE.acquire(blocking=False)
             if not upload_slot:
                 self._send_json(
@@ -6059,31 +6465,111 @@ class Handler(BaseHTTPRequestHandler):
                 UPLOAD_SEMAPHORE.release()
 
     def _handle_post(self) -> None:
-        route, _ = parse_path(self.path)
-        if handle_public_result_post(self, route):
-            return
+        self._dispatch_post()
 
+    def _dispatch_post(self) -> None:
+        route, _ = parse_path(self.path)
+        if self._handle_public_result_post(route):
+            return
+        if self._handle_job_rerun_post(route):
+            return
+        if self._handle_input_validation_post(route):
+            return
+        if route != "/api/jobs":
+            self._not_found()
+            return
+        self._handle_job_submission_post()
+
+    def _handle_input_validation_post(self, route: str) -> bool:
+        if route != "/api/inputs/validate":
+            return False
+        if not request_can_submit(self):
+            self._auth_failed("Submission access code required")
+            return True
+        if "application/json" not in self.headers.get("Content-Type", ""):
+            self._bad_request("Expected application/json")
+            return True
+        content_length = parse_int(self.headers.get("Content-Length", "0"), 0)
+        if content_length <= 0 or content_length > ACCESSION_VALIDATION_MAX_BYTES:
+            self._bad_request("Input validation request must be a bounded JSON object")
+            return True
+        payload = read_json_body(self)
+        if payload is None:
+            self._bad_request("Expected JSON object")
+            return True
+        raw_accessions = payload.get("accessions")
+        if not isinstance(raw_accessions, list) or not raw_accessions:
+            self._bad_request("Provide an accessions array")
+            return True
+        if len(raw_accessions) > MAX_ACCESSIONS:
+            self._bad_request(
+                f"Input validation accepts at most {MAX_ACCESSIONS} accessions"
+            )
+            return True
+        accessions: list[str] = []
+        seen: set[str] = set()
+        for raw_accession in raw_accessions:
+            if not isinstance(raw_accession, str):
+                self._bad_request("Each accession must be a string")
+                return True
+            accession = raw_accession.strip().upper()
+            if not NCBI_ASSEMBLY_ACCESSION_RE.fullmatch(accession):
+                self._bad_request(
+                    f"Invalid NCBI assembly accession '{accession}'"
+                )
+                return True
+            if accession not in seen:
+                seen.add(accession)
+                accessions.append(accession)
+        try:
+            analysis_scope = normalize_analysis_scope(
+                payload.get("analysis_scope", "fungi")
+            )
+        except TaxonRoutingError as exc:
+            self._bad_request(str(exc))
+            return True
+        results = validate_ncbi_accession_batch_details(
+            accessions,
+            analysis_scope,
+            force=True,
+        )
+        self._send_json(
+            HTTPStatus.OK,
+            {
+                "valid": all(bool(result.get("accepted")) for result in results),
+                "results": results,
+            },
+        )
+        return True
+
+    def _handle_public_result_post(self, route: str) -> bool:
+        return handle_public_result_post(
+            self,
+            route,
+            PUBLIC_RESULT_CONTEXT,
+        )
+
+    def _handle_job_rerun_post(self, route: str) -> bool:
         if route.startswith("/api/jobs/") and route.endswith("/rerun"):
             if not request_is_admin(self):
                 self._auth_failed("Admin token required")
-                return
+                return True
             parts = route.split("/")
             if len(parts) != 5:
                 self._not_found()
-                return
+                return True
             job_id = parts[3]
             job = read_job(job_id)
             if job is None:
                 self._not_found(f"Job '{job_id}' not found")
-                return
+                return True
             if job.get("status") in {"pending", "running"}:
                 self._send_json(HTTPStatus.CONFLICT, {"detail": "Job is already queued or running"})
-                return
-
+                return True
             payload = read_json_body(self)
             if payload is None:
                 self._bad_request("Expected JSON object")
-                return
+                return True
             mutation_fields = sorted(
                 key for key in payload if key in ROUTING_MUTATION_FIELDS
             )
@@ -6092,8 +6578,7 @@ class Handler(BaseHTTPRequestHandler):
                     "Taxon routing is immutable after submission; remove rerun field(s): "
                     + ", ".join(mutation_fields)
                 )
-                return
-
+                return True
             base_settings = base_job_settings(job)
             settings = rerun_settings(base_settings, payload)
             if not any(
@@ -6101,12 +6586,11 @@ class Handler(BaseHTTPRequestHandler):
                 for key in ["run_genome_prep", "run_annotation", "run_bigscape", "run_summary", "run_clinker", "run_figures", "run_nplinker", "run_phylogeny", "run_cross_kingdom_evidence"]
             ):
                 self._bad_request("Select at least one stage to rerun")
-                return
+                return True
             runtime_error = validate_runtime_request(settings, worker_status())
             if runtime_error:
                 self._send_json(HTTPStatus.CONFLICT, {"detail": runtime_error})
-                return
-
+                return True
             cpus = clamp_public_cpus(parse_int(str(payload.get("cpus", job.get("cpus", 4))), 4))
             if PUBLIC_MODE:
                 rerun_plan = ResourceRequest.from_settings(
@@ -6135,12 +6619,10 @@ class Handler(BaseHTTPRequestHandler):
             write_job(job)
             enqueue_job(job_id, cpus, settings)
             self._send_json(HTTPStatus.ACCEPTED, {"job_id": job_id, "status": "pending", "message": "Rerun queued"})
-            return
+            return True
+        return False
 
-        if route != "/api/jobs":
-            self._not_found()
-            return
-
+    def _handle_job_submission_post(self) -> None:
         if not request_can_submit(self):
             self._auth_failed("Submission access code required")
             return

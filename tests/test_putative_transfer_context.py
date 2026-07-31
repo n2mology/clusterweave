@@ -567,7 +567,7 @@ class CrossKingdomContextTests(unittest.TestCase):
         bin_dir = str(REPO_ROOT / "bin")
         if bin_dir not in sys.path:
             sys.path.insert(0, bin_dir)
-        context_module = importlib.import_module("enrich_putative_transfer_context")
+        context_module = importlib.import_module("enrich_cross_kingdom_context")
 
         root = self.workspace()
         clinker = root / "clinker"

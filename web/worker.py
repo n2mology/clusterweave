@@ -33,7 +33,12 @@ try:
     )
     from canonical_pipeline import Job, JobStatus, run_pipeline
     from notifications import maybe_send_terminal_notification
-    from resource_policy import MemoryFormula, estimate_job_resources, genome_count_from_input_summary
+    from resource_policy import (
+        MemoryFormula,
+        bounded_cpu_limit,
+        estimate_job_resources,
+        genome_count_from_input_summary,
+    )
     from runtime_capabilities import runtime_health
 except ImportError:  # pragma: no cover - package-style imports in local tests
     from .job_store import (
@@ -53,7 +58,12 @@ except ImportError:  # pragma: no cover - package-style imports in local tests
     )
     from .canonical_pipeline import Job, JobStatus, run_pipeline
     from .notifications import maybe_send_terminal_notification
-    from .resource_policy import MemoryFormula, estimate_job_resources, genome_count_from_input_summary
+    from .resource_policy import (
+        MemoryFormula,
+        bounded_cpu_limit,
+        estimate_job_resources,
+        genome_count_from_input_summary,
+    )
     from .runtime_capabilities import runtime_health
 
 POLL_SECONDS = float(os.environ.get("WORKER_POLL_SECONDS", "1.0"))
@@ -167,9 +177,9 @@ def _memory_safety_factor(default: float) -> float:
 
 _EFFECTIVE_CPU_COUNT = effective_cpu_count()
 _EFFECTIVE_MEMORY_LIMIT_MB = effective_memory_limit_mb()
-WORKER_CPU_BUDGET = min(
-    _EFFECTIVE_CPU_COUNT,
+WORKER_CPU_BUDGET = bounded_cpu_limit(
     _budget_from_env("WORKER_CPU_BUDGET", _EFFECTIVE_CPU_COUNT),
+    _EFFECTIVE_CPU_COUNT,
 )
 # Leave 20% of the effective memory ceiling for the worker, engine, and bursty
 # subprocess overhead unless an operator supplies an explicit hard budget.

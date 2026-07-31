@@ -7,8 +7,8 @@ queue metadata, one worker/admission layer claims a job, and
 Python helpers transform or render declared outputs. The shipped runtime does
 not contain a second scientific implementation.
 
-Project-hosted access is **coming soon**. Version 1.0.1 can be run locally or
-through a separately administered institutional deployment.
+Project-hosted access is coming soon. ClusterWeave v1.0.2 is currently
+available only for local use through the trusted single-user profile.
 
 ## Shipped execution profiles
 
@@ -32,6 +32,22 @@ upper bound rather than a promise to start that many jobs: aggregate admission
 also reserves CPU and estimated memory for every active job and can hold queued
 work until capacity returns. Each job has an isolated `/data/jobs/<job-id>`
 workspace, while `/data/software` and the database volumes are shared caches.
+
+After building the local images, run `docker compose run --rm --no-deps worker
+prepare-runtime` once to acquire every supported runtime asset. Run the same
+command again or use `check-runtime` to verify the warm state; a complete warm
+state performs no pull, download, build, installation, or manifest rewrite.
+Normal worker startup delegates its established startup subset to this same
+boundary and continues to publish the existing bootstrap phases. Canonical jobs
+never pull or build images, download runtime databases or executables, or create
+Python environments. Historical `AUTO_*`, `INSTALL_*`, `FORCE_PULL_*`, and
+`*_BOOTSTRAP*` settings remain accepted compatibility inputs, but they only
+select already-prepared assets or produce an actionable failure. If a local job
+reports a missing runtime, run `prepare-runtime` and then `check-runtime`; an
+external executor must pre-provision the configured site-managed SIFs and tools
+before its check-only preflight can pass. Scientific input acquisition such as
+requested NCBI genomes or PODP data remains part of the declared analysis and is
+not runtime installation.
 
 The initialized profile gives the worker 4 CPUs and 16 GiB. It also writes
 `CLUSTERWEAVE_MAX_CPUS_PER_JOB=4`, so the local web service cannot accept a
@@ -67,7 +83,10 @@ claims the same filesystem queue records, writes an sbatch script under the job
 workspace, submits with `sbatch --parsable`, records scheduler metadata, polls
 `squeue` and `sacct`, and uses `scancel` for an administrator cancellation. A
 compute node runs one job with `web/worker.py --once`, which invokes the same
-canonical pipeline and shell stages. The current environment, shared-storage,
+canonical pipeline and shell stages. In this socket-free profile,
+`prepare-runtime` is deliberately check-only: it verifies the scheduler,
+Rscript, NCBI CLI, shared helpers, and configured SIFs without calling Docker or
+acquiring site-managed assets. The current environment, shared-storage,
 Apptainer/Singularity, and preflight contract is documented in
 [CADES_SLURM_BACKEND.md](CADES_SLURM_BACKEND.md).
 
@@ -198,9 +217,9 @@ internal-ID file, archive, and viewer routes are administrator-only.
 A read token is a bearer capability delivered in the initial URL fragment,
 removed from browser history, and retained only in session storage. Generated
 antiSMASH and FunBGCeX HTML is fetched through opaque artifact routes and runs
-only in the existing scripts-only opaque-origin sandbox. HTTPS is required for a
-hosted deployment to protect tokens and result bytes in transit; TLS termination
-is outside this application-layer runtime.
+only in the existing scripts-only opaque-origin sandbox. HTTPS is required for
+any externally accessible deployment to protect tokens and result bytes in
+transit; TLS termination is outside this application-layer runtime.
 
 ## Evidence workbench package
 
@@ -256,12 +275,25 @@ link according to the sensitivity of the submitted genomes.
   GenBank genomes, and the UI-generated normalized ecology table when that mode
   is enabled. Generic archives, arbitrary environment overrides, and public
   NPLinker settings are rejected.
-- Canonical quotas include 50 NCBI accessions and 50 uploaded genome files.
-  `CLUSTERWEAVE_MAX_CPUS_PER_JOB` clamps all CPU-related request fields; in the
+- Shipped profile defaults are 50 NCBI accessions and 50 uploaded genome
+  files. Trusted local operators can set the positive integers
+  `CLUSTERWEAVE_MAX_ACCESSIONS` and `CLUSTERWEAVE_MAX_GENOME_FILES`; `0` is
+  invalid and does not mean uncapped.
+- `/api/system/status` reports the effective values in `public_quota`, and the
+  browser hydrates its accession rows and file guidance from that response.
+  Routing assignments, ecology metadata, taxonomy metadata, accession-list
+  reads, and accession-validation requests derive their related bounds from the
+  configured input counts. Upload-size, queue, disk, CPU, and worker safeguards
+  remain independent.
+- Higher configured counts increase processing time, storage use, and figure
+  complexity. Configuration support is not a performance or scientific-scale
+  guarantee. Synthetic acceptance and figure checks cover 75 genomes; they do
+  not replace an operator capacity review.
+- `CLUSTERWEAVE_MAX_CPUS_PER_JOB` clamps all CPU-related request fields; in the
   initialized local profile its value is 4.
 - Terminal jobs receive a retention deadline (30 days by default). Optional
   completion email is enabled only through the SMTP settings and sends a private
-  fragment result link. Hosted links require a reviewed HTTPS base URL.
+  fragment result link. Externally served links require a reviewed HTTPS base URL.
 - `python3 web/maintenance.py sweep-expired-jobs` removes expired terminal job
   data and retains only aggregate deletion counters. A never-expire policy
   requires the explicit allow setting and operator documentation.

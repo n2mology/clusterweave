@@ -7,6 +7,101 @@ import unittest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+def run_sharded_fixture(root: Path, scenario: str) -> tuple[subprocess.CompletedProcess[str], Path]:
+    pipeline = (REPO_ROOT / "run_annotation_and_detection.sh").read_text(
+        encoding="utf-8"
+    )
+    function = "run_antismash_sharded() {" + pipeline.split(
+        "run_antismash_sharded() {", 1
+    )[1].split(
+        "\n}\n\n###############################################################################\n"
+        "# Per-genome logging sync + manifest",
+        1,
+    )[0] + "\n}\n"
+    completion_functions = "antismash_outputs_valid() {" + pipeline.split(
+        "antismash_outputs_valid() {", 1
+    )[1].split("\n\nfunbgcex_outputs_valid()", 1)[0]
+    record_ids = root / "record_ids.txt"
+    record_ids.write_text("recordA\nrecordB\n", encoding="utf-8")
+    ant_input = root / "Fungus_fixture.gbk"
+    ant_input.write_text("fixture\n", encoding="utf-8")
+    ant_out = root / "antismash" / "Fungus_fixture"
+    ant_out.mkdir(parents=True)
+    shard_root = root / "work" / "shards"
+    stdout = root / "work" / "aggregate.stdout.log"
+    stderr = root / "work" / "aggregate.stderr.log"
+
+    shell = (
+        "set -euo pipefail\n"
+        f"WORK_ROOT={str(root / 'work')!r}\n"
+        f"SCENARIO={scenario!r}\n"
+        "ANTISMASH_RECORD_PARALLELISM=2\n"
+        "mkdir -p \"${WORK_ROOT}/logs\"\n"
+        "ANTISMASH_INPUT_PREPARER=/fake/prepare_antismash_input.py\n"
+        "antismash_input_python_exec(){\n"
+        "  while IFS=$'\\t' read -r record_id output; do\n"
+        "    mkdir -p \"$(dirname \"$output\")\"\n"
+        "    cp -f \"$3\" \"$output\"\n"
+        "  done < \"$4\"\n"
+        "}\n"
+        "log(){ :; }\n"
+        "warn(){ printf '%s\\n' \"$*\" >&2; }\n"
+        "safe_antismash_record_id(){ printf '%s\\n' \"$1\"; }\n"
+        "wait_for_antismash_shard_job(){ local rc=0; set +e; wait -n; rc=$?; set -e; [[ $rc -eq 0 || $rc -eq 127 ]]; }\n"
+        "cleanup_antismash_assembled_outputs(){\n"
+        "  find \"$1\" -maxdepth 1 -type f -name '*region*.gbk' -delete || true\n"
+        "  rm -f \"$2\" \"${2}.tmp\" \"$1/index.html\" \"$1/.done\"\n"
+        "}\n"
+        "merge_antismash_shard_jsons(){\n"
+        "  printf '{\"records\":[],\"timings\":{}}\\n' > \"$1\"\n"
+        "}\n"
+        "render_antismash_shard_web_bundle(){ return 99; }\n"
+        "write_antismash_shard_index(){\n"
+        "  printf '<html>records=%s regions=%s</html>\\n' \"$3\" \"$4\" > \"$2/index.html\"\n"
+        "}\n"
+        "run_antismash_record_shard(){\n"
+        "  local record_id=$3 safe_id=$4 shard_dir=$7 row_file=$8\n"
+        "  mkdir -p \"$shard_dir\"\n"
+        "  printf '{\"records\":[{\"id\":\"%s\"}],\"timings\":{}}\\n' \"$record_id\" > \"$shard_dir/$safe_id.json\"\n"
+        "  if [[ \"$SCENARIO\" == failure && \"$record_id\" == recordB ]]; then\n"
+        "    printf '%s\\t%s\\tfailed\\t0\\t0\\n' \"$record_id\" \"$shard_dir\" > \"$row_file\"\n"
+        "    return 1\n"
+        "  fi\n"
+        "  local count=0\n"
+        "  if [[ \"$SCENARIO\" == failure ]]; then\n"
+        "    printf 'partial region\\n' > \"$shard_dir/$safe_id.region001.gbk\"\n"
+        "    count=1\n"
+        "  fi\n"
+        "  printf '%s\\t%s\\tok\\t0\\t%s\\n' \"$record_id\" \"$shard_dir\" \"$count\" > \"$row_file\"\n"
+        "}\n"
+        + completion_functions
+        + "\n"
+        + function
+        + "\nrun_antismash_sharded \"$@\" && mark_antismash_done \"$3\"\n"
+    )
+    completed = subprocess.run(
+        [
+            "bash",
+            "-c",
+            shell,
+            "fungal-shard-fixture",
+            "Fungus_fixture",
+            str(ant_input),
+            str(ant_out),
+            str(record_ids),
+            str(shard_root),
+            str(stdout),
+            str(stderr),
+        ],
+        cwd=REPO_ROOT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=30,
+    )
+    return completed, ant_out
+
+
 class FungalShardRegionParityTests(unittest.TestCase):
     def test_real_shard_runner_passes_matching_minlength_to_antismash(self) -> None:
         pipeline = (REPO_ROOT / "run_annotation_and_detection.sh").read_text(
@@ -112,6 +207,9 @@ class FungalShardRegionParityTests(unittest.TestCase):
             "# Per-genome logging sync + manifest",
             1,
         )[0] + "\n}\n"
+        completion_functions = "antismash_outputs_valid() {" + pipeline.split(
+            "antismash_outputs_valid() {", 1
+        )[1].split("\n\nfunbgcex_outputs_valid()", 1)[0]
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -136,10 +234,14 @@ class FungalShardRegionParityTests(unittest.TestCase):
             (fake_bio / "SeqIO.py").write_text(
                 "from types import SimpleNamespace\n"
                 "def parse(path, format_name):\n"
-                "    with open(path, encoding='utf-8') as handle:\n"
+                "    handle = path if hasattr(path, 'read') else open(path, encoding='utf-8')\n"
+                "    try:\n"
                 "        for line in handle:\n"
                 "            record_id, length = line.rstrip('\\n').split('\\t')\n"
-                "            yield SimpleNamespace(id=record_id, name=record_id, seq='N' * int(length))\n",
+                "            yield SimpleNamespace(id=record_id, name=record_id, seq='N' * int(length))\n"
+                "    finally:\n"
+                "        if handle is not path:\n"
+                "            handle.close()\n",
                 encoding="utf-8",
             )
             ant_out = root / "antismash" / "Fungus_fixture"
@@ -152,6 +254,7 @@ class FungalShardRegionParityTests(unittest.TestCase):
                 "set -euo pipefail\n"
                 f"WORK_ROOT={str(root / 'work')!r}\n"
                 f"FAKE_BIO_ROOT={str(root / 'fake_bio')!r}\n"
+                f"ANNOTATION_GENBANK_HELPER={str(REPO_ROOT / 'bin' / 'annotation_genbank.py')!r}\n"
                 "ANTISMASH_MIN_RECORD_BP=1000\n"
                 "ANTISMASH_RECORD_PARALLELISM=2\n"
                 "mkdir -p \"${WORK_ROOT}/logs\"\n"
@@ -166,7 +269,8 @@ class FungalShardRegionParityTests(unittest.TestCase):
                 "  fi\n"
                 "  PYTHONPATH=\"${FAKE_BIO_ROOT}\" python3 \"$@\"\n"
                 "}\n"
-                "antismash_input_python_exec(){ funbgcex_python_exec \"$@\"; }\n"
+                "repository_helper_python_exec(){ funbgcex_python_exec \"$@\"; }\n"
+                "antismash_input_python_exec(){ repository_helper_python_exec \"$@\"; }\n"
                 "log(){ :; }\n"
                 "warn(){ printf '%s\\n' \"$*\" >&2; }\n"
                 "safe_antismash_record_id(){ printf '%s\\n' \"$1\"; }\n"
@@ -208,9 +312,11 @@ class FungalShardRegionParityTests(unittest.TestCase):
                 "  printf '%s\\t%s\\tok\\t0\\t%s\\n' \"$record_id\" \"$shard_dir\" \"$count\" > \"$row_file\"\n"
                 "}\n"
                 + record_list_function
+                + completion_functions
+                + "\n"
                 + function
                 + "\nlist_genbank_record_ids \"$2\" \"${ANTISMASH_MIN_RECORD_BP}\" > \"$4\"\n"
-                + "run_antismash_sharded \"$@\"\n"
+                + "run_antismash_sharded \"$@\" && mark_antismash_done \"$3\"\n"
             )
             completed = subprocess.run(
                 [
@@ -248,6 +354,26 @@ class FungalShardRegionParityTests(unittest.TestCase):
             self.assertEqual(len(rows), 3)
             self.assertNotIn("shortRecord", "\n".join(rows))
             self.assertEqual(sum(int(row.split("\t")[4]) for row in rows[1:]), 3)
+
+    def test_failed_shard_removes_partial_assembled_outputs_and_marker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            completed, ant_out = run_sharded_fixture(Path(tmp), "failure")
+
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertEqual(list(ant_out.glob("*region*.gbk")), [])
+            self.assertFalse((ant_out / "Fungus_fixture.antismash.json").exists())
+            self.assertFalse((ant_out / "index.html").exists())
+            self.assertFalse((ant_out / ".done").exists())
+
+    def test_zero_region_shards_publish_browseable_complete_result(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            completed, ant_out = run_sharded_fixture(Path(tmp), "zero")
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertEqual(list(ant_out.glob("*region*.gbk")), [])
+            self.assertTrue((ant_out / "Fungus_fixture.antismash.json").is_file())
+            self.assertTrue((ant_out / "index.html").is_file())
+            self.assertTrue((ant_out / ".done").is_file())
 
 
 if __name__ == "__main__":

@@ -72,6 +72,17 @@ def _bgc_source(genomic_obj):
     return "Local"
 
 
+def _is_mibig_only(genomic_obj):
+    if hasattr(genomic_obj, "has_mibig_only"):
+        try:
+            return bool(genomic_obj.has_mibig_only())
+        except Exception:
+            return False
+    strains = _obj_strains(genomic_obj)
+    target = os.environ.get("TARGET_STRAIN", "").strip()
+    return "BGC" in strains and (not target or target not in strains)
+
+
 def _pretty_bgc_label(genomic_obj):
     genomic_id = _obj_id(genomic_obj)
     strains = _obj_strains(genomic_obj)
@@ -104,8 +115,10 @@ def main():
     load_retries = int(os.environ.get("NPLINKER_LOAD_RETRIES", "3"))
     retry_sleep = int(os.environ.get("NPLINKER_RETRY_SLEEP", "20"))
     filter_target_only = os.environ.get("FILTER_TARGET_ONLY", "0").strip().lower() in {"1", "true", "yes", "on"}
-    allow_filter_fallback = os.environ.get("ALLOW_FILTER_FALLBACK", "1").strip().lower() in {"1", "true", "yes", "on"}
+    allow_filter_fallback = os.environ.get("ALLOW_FILTER_FALLBACK", "0").strip().lower() in {"1", "true", "yes", "on"}
     metcalf_standardised = os.environ.get("METCALF_STANDARDISED", "1").strip().lower() in {"1", "true", "yes", "on"}
+    export_prefer_local = os.environ.get("EXPORT_PREFER_LOCAL", "1").strip().lower() in {"1", "true", "yes", "on"}
+    summary_exclude_mibig_only = os.environ.get("SUMMARY_EXCLUDE_MIBIG_ONLY", "1").strip().lower() in {"1", "true", "yes", "on"}
 
     out_table.parent.mkdir(parents=True, exist_ok=True)
     summary_table.parent.mkdir(parents=True, exist_ok=True)
@@ -160,6 +173,7 @@ def main():
             "right_type": _obj_type(right),
             "right_id": _obj_id(right),
             "right_strains": _obj_strains(right),
+            "_is_mibig_only": _is_mibig_only(right if _is_genomic(right) else left),
         }
         for method in methods:
             row[f"{method}_score"] = _score_value(data.get(method, None)) if hasattr(data, "get") else ""
@@ -173,9 +187,14 @@ def main():
         rows = rows_all
 
     score_key = f"{methods[0]}_score" if methods else "metcalf_score"
-    rows.sort(key=lambda r: _as_float(r.get(score_key, 0.0) or 0.0), reverse=True)
+    if export_prefer_local:
+        rows.sort(key=lambda r: (1 if r.get("_is_mibig_only") else 0, -_as_float(r.get(score_key, 0.0) or 0.0), str(r.get("right_id", "")), str(r.get("left_id", ""))))
+    else:
+        rows.sort(key=lambda r: _as_float(r.get(score_key, 0.0) or 0.0), reverse=True)
     if max_pairs > 0:
         rows = rows[:max_pairs]
+    for row in rows:
+        row.pop("_is_mibig_only", None)
 
     fields = [
         "left_type",
@@ -198,6 +217,8 @@ def main():
         left, right = pair[0], pair[1]
         genomic_obj = left if _is_genomic(left) else right
         metabolomic_obj = right if _is_genomic(left) else left
+        if summary_exclude_mibig_only and _is_mibig_only(genomic_obj):
+            continue
         if target and not (_has_target(left, target) or _has_target(right, target)):
             if filter_target_only and not allow_filter_fallback:
                 continue

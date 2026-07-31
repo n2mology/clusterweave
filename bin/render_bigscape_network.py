@@ -34,6 +34,10 @@ MIBIG_BLUE = "#1F77B4"
 DEFAULT_CANVAS_WIDTH = 1200
 PRODUCT_LABEL_FONT_SIZE = 13
 PRODUCT_SCORE_FONT_SIZE = 11
+PRODUCT_LABEL_LINE_HEIGHT = 19.0
+PRODUCT_LABEL_NODE_GAP = 8.0
+PRODUCT_LABEL_TEXT_DESCENT = 4.0
+PRODUCT_LABEL_CELL_TOP_PADDING = 4.0
 FONT_SIZE_INCREMENT = 2
 
 
@@ -1114,9 +1118,16 @@ def build_layout(
             comp_set = set(comp)
             local_edges = component_edges(comp_set, edges)
             local_pos, box_w, box_h = local_component_layout(comp, local_edges, layout_iterations)
+            label_lines = component_product_label_lines(comp, nodes)
             label_width = max(
-                (estimated_svg_text_width(line, PRODUCT_LABEL_FONT_SIZE, "700") for line in component_product_label_lines(comp, nodes)),
+                (
+                    estimated_svg_text_width(line, PRODUCT_LABEL_FONT_SIZE, "700")
+                    for line in label_lines
+                ),
                 default=0.0,
+            )
+            label_top_padding = component_label_top_padding(
+                comp, nodes, local_pos, label_lines
             )
             packed_width = max(box_w, label_width + 12.0)
             if x + packed_width > margin + pack_network_width and x > margin:
@@ -1124,10 +1135,11 @@ def build_layout(
                 row_height = 0.0
                 x = row_left_for(y_cursor)
             component_x = x + (packed_width - box_w) / 2.0
+            component_y = y_cursor + label_top_padding
             for node_id, (local_x, local_y) in local_pos.items():
-                positions[node_id] = (component_x + local_x, y_cursor + local_y)
+                positions[node_id] = (component_x + local_x, component_y + local_y)
             x += packed_width + gap
-            row_height = max(row_height, box_h)
+            row_height = max(row_height, box_h + label_top_padding)
         return y_cursor + row_height + row_gap
 
     def pack_doubletons(layer: list[list[str]], start_y: float) -> float:
@@ -1330,6 +1342,48 @@ def component_product_label_lines(component: list[str], nodes: dict[str, NodeRec
     return product_lines + ([score_text] if score_text else [])
 
 
+def component_label_first_baseline(
+    component: list[str],
+    nodes: dict[str, NodeRecord],
+    positions: dict[str, tuple[float, float]],
+    line_count: int,
+) -> float:
+    base_radius = node_radius(len(nodes))
+    show_ecology = has_ecology_signal(nodes)
+    node_top = min(
+        visible_node_top(
+            nodes[node_id],
+            positions[node_id][1],
+            base_radius,
+            show_ecology,
+        )
+        for node_id in component
+        if node_id in positions
+    )
+    last_baseline = (
+        node_top - PRODUCT_LABEL_NODE_GAP - PRODUCT_LABEL_TEXT_DESCENT
+    )
+    return last_baseline - (line_count - 1) * PRODUCT_LABEL_LINE_HEIGHT
+
+
+def component_label_top_padding(
+    component: list[str],
+    nodes: dict[str, NodeRecord],
+    positions: dict[str, tuple[float, float]],
+    label_lines: list[str],
+) -> float:
+    if not label_lines:
+        return 0.0
+    first_baseline = component_label_first_baseline(
+        component, nodes, positions, len(label_lines)
+    )
+    first_line_ascent = (
+        display_font_size(PRODUCT_LABEL_FONT_SIZE) - PRODUCT_LABEL_TEXT_DESCENT
+    )
+    first_line_top = first_baseline - first_line_ascent
+    return max(0.0, PRODUCT_LABEL_CELL_TOP_PADDING - first_line_top)
+
+
 def component_label_entries(
     nodes: dict[str, NodeRecord],
     edges: list[EdgeRecord],
@@ -1347,7 +1401,9 @@ def component_label_entries(
         if not xs or not ys:
             continue
         x = (min(xs) + max(xs)) / 2.0
-        y = max(18.0, min(ys) - 44.0)
+        y = component_label_first_baseline(
+            component, nodes, positions, len(label_lines)
+        )
         entries.append((x, y, label_lines))
     return entries
 
@@ -1362,6 +1418,19 @@ def visible_node_radius(node: NodeRecord, base_radius: float, show_ecology: bool
     if show_ecology and not is_unknown_ecology(node.ecology_category):
         return base_radius + 2.5
     return base_radius
+
+
+def visible_node_top(
+    node: NodeRecord,
+    center_y: float,
+    base_radius: float,
+    show_ecology: bool,
+) -> float:
+    top = center_y - visible_node_radius(node, base_radius, show_ecology)
+    if node.has_mibig_annotation and not node.is_mibig:
+        marker_radius = max(2.8, base_radius * 0.34)
+        top = min(top, center_y - base_radius * 0.78 - marker_radius)
+    return top
 
 
 def trimmed_edge_endpoints(
@@ -1462,13 +1531,12 @@ def render_svg(
         )
 
     for x, y, label_lines in component_label_entries(nodes, edges, layout.positions):
-        line_height = 14.0
         for index, line in enumerate(label_lines):
             size = PRODUCT_SCORE_FONT_SIZE if index == len(label_lines) - 1 and line.endswith("%") else PRODUCT_LABEL_FONT_SIZE
             weight = "400" if size == PRODUCT_SCORE_FONT_SIZE else "700"
             fill = "#444444" if size == PRODUCT_SCORE_FONT_SIZE else "#222222"
             lines.append(
-                f'<text x="{x:.1f}" y="{y + 7.0 + index * line_height:.1f}" '
+                f'<text x="{x:.1f}" y="{y + index * PRODUCT_LABEL_LINE_HEIGHT:.1f}" '
                 f'font-family="Arial, Helvetica, sans-serif" font-size="{display_font_size(size):g}" font-weight="{weight}" '
                 f'text-anchor="middle" fill="{fill}">{escape(line)}</text>'
             )

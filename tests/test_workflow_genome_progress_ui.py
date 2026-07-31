@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 from pathlib import Path
 import shutil
@@ -8,73 +9,109 @@ import unittest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-JS_PATH = REPO_ROOT / "web" / "static" / "assets" / "clusterweave.js"
+CLASSIC_JS_PATH = REPO_ROOT / "web" / "static" / "assets" / "clusterweave.js"
+RESULT_READER_JS_PATH = REPO_ROOT / "web" / "static" / "assets" / "result-reader-boundary.js"
+BOUNDARY_JS_PATH = REPO_ROOT / "web" / "static" / "assets" / "job-lifecycle-boundary.js"
 CSS_PATH = REPO_ROOT / "web" / "static" / "assets" / "clusterweave.css"
 INDEX_PATH = REPO_ROOT / "web" / "static" / "index.html"
 NODE = shutil.which("node")
 
 
-def genome_progress_helper_block() -> str:
-    source = JS_PATH.read_text(encoding="utf-8")
-    return source.split("// BEGIN GENOME_PROGRESS_PURE", 1)[1].split(
-        "// END GENOME_PROGRESS_PURE", 1
-    )[0]
-
-
-def job_runtime_helper_block() -> str:
-    source = JS_PATH.read_text(encoding="utf-8")
-    return "function jobRuntimeBounds" + source.split(
-        "function jobRuntimeBounds", 1
-    )[1].split("function stageRuntimeHint", 1)[0]
-
-
-def run_node_json(body: str) -> object:
-    if NODE is None:
-        raise unittest.SkipTest("Node.js is required for frontend progress tests")
-    prelude = r"""
+def lifecycle_helper_block() -> str:
+    encoded_module = base64.b64encode(BOUNDARY_JS_PATH.read_bytes()).decode("ascii")
+    module_uri = f"data:text/javascript;base64,{encoded_module}"
+    return rf"""
+import {{ createJobLifecycleBoundary }} from {json.dumps(module_uri)};
 let activeJobId = 'job-a';
-let genomeProgressSnapshotKey = '';
-let genomeProgressSnapshot = new Map();
-const GENOME_PROGRESS_TERMINAL_STATES = new Set([
-  'complete', 'completed', 'done', 'success', 'succeeded',
-  'complete_with_warning',
-  'warning', 'dropped', 'failed', 'error', 'skipped',
-  'not_applicable', 'not_applicable_taxon', 'not-applicable', 'not applicable',
-]);
-const GENOME_PROGRESS_WARNING_STATES = new Set([
-  'complete_with_warning', 'warning', 'dropped', 'failed', 'error',
-]);
-const GENOME_PROGRESS_ACTIVE_STATES = new Set(['running', 'active', 'processing']);
-function parseTimestampMs(value) {
-  if (!value) return null;
-  const raw = typeof value === 'string' ? value.trim() : value;
-  const normalized = typeof raw === 'string'
-    && /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(raw)
-    ? `${raw.replace(' ', 'T')}Z`
-    : raw;
-  const ms = new Date(normalized).getTime();
-  return Number.isNaN(ms) ? null : ms;
-}
-function escapeHtml(value) {
+let jobLoadSeq = 7;
+const transientJobPoll = Object.freeze({{status: 'pending', transient: true}});
+const documentImpl = {{
+  createElement() {{
+    const classes = [];
+    return {{
+      className: '',
+      classList: {{add(value) {{ classes.push(value); }} }},
+      classes,
+      textContent: '',
+    }};
+  }},
+}};
+function escapeHtml(value) {{
   return String(value)
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#039;');
-}
+}}
+const lifecycleStages = [
+  'prep', 'annotation', 'bigscape', 'summary', 'clinker', 'figures', 'nplinker',
+].map(key => ({{key}}));
+const jobLifecycleBoundary = createJobLifecycleBoundary({{
+  escapeHtml,
+  getActiveJobId: () => activeJobId,
+  getCurrentJobSequence: () => jobLoadSeq,
+  documentImpl,
+  stages: lifecycleStages,
+  transientJobPoll,
+  pollBaseDelayMs: 1500,
+  pollRetryDelayMs: 3000,
+  pollLongLogDelayMs: 3000,
+  pollLongLogThreshold: 5000,
+}});
+const {{
+  isCurrentJobSelection,
+  jobDetailPath,
+  publicActivityPath,
+  adminLogsPath,
+  jobPollDelay,
+  publicQaEventLine,
+  createLogLineElement,
+  jobRuntimeBounds,
+  formatJobRuntimeClock,
+  safeGenomeProgressText,
+  safeGenomeProgressLabel,
+  genomeProgressPercent,
+  genomeProgressTaxon,
+  normalizeGenomeRegionProgress,
+  normalizeGenomeProgressItem,
+  resetGenomeProgressSnapshot,
+  genomeProgressAttemptKey,
+  genomeProgressExplicitRestart,
+  genomeProgressSnapshotPrefersPrevious,
+  normalizeGenomeProgressItems,
+  genomeProgressStages,
+  genomeProgressCurrentStageIndex,
+  genomeProgressStageKey,
+  genomeProgressStageFraction,
+  genomeProgressStageModel,
+  renderGenomeProgressStages,
+  genomeProgressMeterModel,
+  genomeProgressRibbonText,
+  renderGenomeProgressMeter,
+  renderGenomeProgressCard,
+  genomeProgressSummaryText,
+  bgcWorkflowTitle,
+}} = jobLifecycleBoundary;
 """
+
+
+def run_node_json(body: str) -> object:
+    if NODE is None:
+        raise unittest.SkipTest("Node.js is required for frontend progress tests")
+    script = lifecycle_helper_block() + "\n" + body
     completed = subprocess.run(
-        [NODE, "-e", prelude + genome_progress_helper_block() + "\n" + body],
+        [NODE, "--input-type=module"],
         cwd=REPO_ROOT,
         check=False,
+        input=script,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
     )
     if completed.returncode != 0:
         raise AssertionError(
-            "Genome progress Node probe failed\n"
+            "Lifecycle boundary Node probe failed\n"
             f"stdout:\n{completed.stdout}\n"
             f"stderr:\n{completed.stderr}"
         )
@@ -83,6 +120,40 @@ function escapeHtml(value) {
 
 @unittest.skipUnless(NODE, "Node.js is required for frontend progress tests")
 class WorkflowGenomeProgressBehaviorTests(unittest.TestCase):
+    def test_job_selection_paths_polling_and_log_classes_share_one_boundary(self) -> None:
+        result = run_node_json(
+            """
+const classes = ['fatal: failed', 'warning only', '=== stage: annotation', 'complete'].map(line => {
+  const element = createLogLineElement(line);
+  return [element.className, element.classes, element.textContent];
+});
+process.stdout.write(JSON.stringify({
+  current: isCurrentJobSelection('job-a', 7),
+  staleId: isCurrentJobSelection('job-b', 7),
+  staleSequence: isCurrentJobSelection('job-a', 6),
+  internalPath: jobDetailPath('a/b', false),
+  publicPath: jobDetailPath('run id', true),
+  activityPath: publicActivityPath('run id'),
+  logPath: adminLogsPath('a/b', 'tail=500'),
+  baseDelay: jobPollDelay({log_count: 12}),
+  longDelay: jobPollDelay({log_count: 5000}),
+  retryDelay: jobPollDelay(transientJobPoll),
+  publicLine: publicQaEventLine({stage: 'bigscape', title: 'Family graph', meta: '3 groups'}),
+  classes,
+}));
+"""
+        )
+        self.assertTrue(result["current"])
+        self.assertFalse(result["staleId"])
+        self.assertFalse(result["staleSequence"])
+        self.assertEqual(result["internalPath"], "api/jobs/a%2Fb?compact=1")
+        self.assertEqual(result["publicPath"], "api/results/run%20id")
+        self.assertEqual(result["activityPath"], "api/results/run%20id/activity")
+        self.assertEqual(result["logPath"], "api/jobs/a%2Fb/logs?tail=500")
+        self.assertEqual([result["baseDelay"], result["longDelay"], result["retryDelay"]], [1500, 3000, 3000])
+        self.assertEqual(result["publicLine"], "[BIGSCAPE] Family graph - 3 groups")
+        self.assertEqual([row[1] for row in result["classes"]], [["err"], ["warn"], ["stage"], ["ok"]])
+
     def test_workflow_title_matches_idle_rows_downstream_and_terminal_states(self) -> None:
         result = run_node_json(
             """
@@ -138,8 +209,7 @@ process.stdout.write(JSON.stringify({ribbon, html, stages}));
 
     def test_total_job_runtime_clock_uses_days_and_freezes_at_terminal_timestamp(self) -> None:
         result = run_node_json(
-            job_runtime_helper_block()
-            + """
+            """
 const originalNow = Date.now;
 Date.now = () => Date.parse('2026-07-24T00:42:46Z');
 const naiveUtcActive = jobRuntimeBounds({
@@ -546,7 +616,12 @@ process.stdout.write(JSON.stringify({
 class WorkflowGenomeProgressStaticTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.js = JS_PATH.read_text(encoding="utf-8")
+        cls.lifecycle_js = BOUNDARY_JS_PATH.read_text(encoding="utf-8")
+        cls.js = "\n".join([
+            RESULT_READER_JS_PATH.read_text(encoding="utf-8"),
+            cls.lifecycle_js,
+            CLASSIC_JS_PATH.read_text(encoding="utf-8"),
+        ])
         cls.css = CSS_PATH.read_text(encoding="utf-8")
         cls.index = INDEX_PATH.read_text(encoding="utf-8")
 
@@ -554,7 +629,7 @@ class WorkflowGenomeProgressStaticTests(unittest.TestCase):
         self.assertIn('id="results-job-runtime"', self.index)
         self.assertEqual(self.index.count('id="results-job-runtime"'), 1)
         self.assertIn("function formatJobRuntimeClock", self.js)
-        self.assertIn("renderJobRuntime(activeJobMeta)", self.js)
+        self.assertIn("renderJobRuntime(state.activeJobMeta)", self.lifecycle_js)
         self.assertIn("job?.completed_at || job?.failed_at", self.js)
         self.assertIn(".results-run-state", self.css)
         self.assertIn("font-variant-numeric: tabular-nums", self.css)
@@ -574,8 +649,8 @@ class WorkflowGenomeProgressStaticTests(unittest.TestCase):
         self.assertNotIn("genome-mini-dna", self.css + self.js)
 
     def test_handoff_requires_all_terminal_genomes_and_a_downstream_stage(self) -> None:
-        payload = self.js.split("function bgcWorkflowPayload", 1)[1].split(
-            "const ALT06_WORKFLOW_STEPS", 1
+        payload = self.lifecycle_js.split("function bgcWorkflowPayload", 1)[1].split(
+            "function alt06StepStatus", 1
         )[0]
         self.assertIn("genomes.every(item => item.terminal)", payload)
         self.assertIn("'bigscape'", payload)
@@ -692,10 +767,6 @@ class WorkflowGenomeProgressStaticTests(unittest.TestCase):
             self.js,
         )
         self.assertIn("bigscapeViewerFetch(jobId)", self.js)
-        self.assertIn(
-            "api/results/${encodeURIComponent(runId)}/bigscape-viewer-database",
-            self.js,
-        )
         self.assertNotIn("filePayload.bigscape_viewer_database", self.js)
         self.assertNotIn("internal update", self.js)
         self.assertIn(

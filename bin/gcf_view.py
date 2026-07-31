@@ -21,6 +21,23 @@ GCF_PROVENANCE_FIELDS = (
     "gcf_selected_id",
     "gcf_selected_status",
 )
+PREFERRED_FAMILY_CATEGORIES = (
+    "NRPS.PKS.other.terpene",
+    "NRPS.PKS.other",
+    "NRPS.PKS.terpene",
+    "PKS.other.terpene",
+    "NRPS.PKS",
+    "PKS.terpene",
+    "NRPS.terpene",
+    "NRPS.other",
+    "PKS.other",
+    "other.terpene",
+    "NRPS",
+    "PKS",
+    "terpene",
+    "RiPP",
+    "other",
+)
 
 
 def clean(value: object) -> str:
@@ -28,6 +45,48 @@ def clean(value: object) -> str:
         return ""
     text = str(value).strip()
     return "" if text.casefold() in {"", "na", "n/a", "none", "-"} else text
+
+
+def ecology_group(primary_label: object) -> str:
+    return clean(primary_label) or "UNLABELED"
+
+
+def matches_focus_ecology(ecology_value: object, focus_label: object) -> bool:
+    focus = clean(focus_label)
+    return bool(focus) and clean(ecology_value).casefold() == focus.casefold()
+
+
+def ecology_pattern(focus_count: int, other_count: int, focus_label: object) -> str:
+    if focus_count and other_count:
+        return "mixed"
+    if not clean(focus_label):
+        return "present"
+    if focus_count:
+        return "focus_only"
+    if other_count:
+        return "nonfocus_only"
+    return "unlabeled"
+
+
+def preferred_family_source(
+    families_by_category: Mapping[str, set[str]],
+) -> tuple[str, list[str]]:
+    if families_by_category.get("mix"):
+        return "mix", sorted(families_by_category["mix"])
+
+    for category in PREFERRED_FAMILY_CATEGORIES:
+        if families_by_category.get(category):
+            return category, sorted(families_by_category[category])
+
+    candidates = [
+        (len(families), category, sorted(families))
+        for category, families in families_by_category.items()
+        if families
+    ]
+    if not candidates:
+        return "", []
+    _, category, families = sorted(candidates)[0]
+    return category, families
 
 
 def canonical_gcf_category(value: object) -> str:

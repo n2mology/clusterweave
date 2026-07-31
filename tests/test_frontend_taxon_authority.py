@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 from pathlib import Path
 import shutil
@@ -10,7 +11,7 @@ import unittest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WEB_DIR = REPO_ROOT / "web"
-JS_PATH = WEB_DIR / "static" / "assets" / "clusterweave.js"
+JS_PATH = WEB_DIR / "static" / "assets" / "intake-taxon-boundary.js"
 
 if str(WEB_DIR) not in sys.path:
     sys.path.insert(0, str(WEB_DIR))
@@ -19,10 +20,27 @@ from taxon_routing import TaxonRoutingError, parse_genbank_taxonomy  # noqa: E40
 
 
 def pure_helper_block() -> str:
-    source = JS_PATH.read_text(encoding="utf-8")
-    return source.split("// BEGIN CLIENT_GENBANK_TAXONOMY_PURE", 1)[1].split(
-        "// END CLIENT_GENBANK_TAXONOMY_PURE", 1
-    )[0]
+    encoded_module = base64.b64encode(JS_PATH.read_bytes()).decode("ascii")
+    module_uri = f"data:text/javascript;base64,{encoded_module}"
+    return f"""
+import {{ createIntakeTaxonBoundary }} from {json.dumps(module_uri)};
+const intakeTaxonBoundary = createIntakeTaxonBoundary({{
+  publicGenomeStem: value => String(value || "").replace(/\\.(gbk|gb|gbff|fasta|fa|fna|fsa)$/i, "").trim(),
+  canonicalGenomeInputKey: value => String(value || "").replace(/\\.(gbk|gb|gbff|fasta|fa|fna|fsa)$/i, "").trim().toLowerCase(),
+  normalizeTaxonGroup: value => ["fungi", "bacteria"].includes(String(value || "").trim().toLowerCase())
+    ? String(value).trim().toLowerCase()
+    : "",
+  publicGenomeStemPattern: /^[A-Za-z0-9._-]{{1,120}}$/,
+  maxTaxonAssignments: 500,
+}});
+const {{
+  parseClientGenbankTaxonomy,
+  mergeClientGenbankAuthorities,
+  clientTaxonAssignmentDecision,
+  parseTaxonAssignmentSidecarText,
+  ecologyMetadataText,
+}} = intakeTaxonBoundary;
+"""
 
 
 def server_status(text: str) -> tuple[str, str]:
@@ -41,9 +59,10 @@ class FrontendTaxonAuthorityTests(unittest.TestCase):
     def run_node(self, body: str) -> object:
         script = pure_helper_block() + "\n" + body
         completed = subprocess.run(
-            ["node", "-e", script],
+            ["node", "--input-type=module"],
             cwd=REPO_ROOT,
             check=False,
+            input=script,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -94,6 +113,25 @@ class FrontendTaxonAuthorityTests(unittest.TestCase):
         self.assertTrue(result["raw"]["requiresAssignment"])
         self.assertFalse(result["unsupported"]["requiresAssignment"])
         self.assertIn("unsupported lineage", result["unsupported"]["issue"])
+
+    def test_sidecar_and_ecology_serialization_preserve_intake_contracts(self) -> None:
+        result = self.run_node(
+            "const sidecar = parseTaxonAssignmentSidecarText('input_key\\ttaxon_group\\nDemo.fna\\tbacteria\\n');\n"
+            "const metadata = ecologyMetadataText(true, [{input:'Demo', accession:'', primary:'soil', secondary:''}]);\n"
+            "process.stdout.write(JSON.stringify({\n"
+            "  assignments: Object.fromEntries(sidecar.assignments),\n"
+            "  issues: sidecar.issues,\n"
+            "  metadata,\n"
+            "}));\n"
+        )
+        self.assertEqual(result["assignments"], {"demo": "bacteria"})
+        self.assertEqual(result["issues"], [])
+        self.assertEqual(
+            result["metadata"],
+            "accession\tgenome_id_current\ttaxonomy_id\tgenome_size_mb\t"
+            "genome_id_original_if_different\tecofun_primary\tecofun_secondary\n"
+            "\tDemo\t\t\t\tsoil\t\n",
+        )
 
 
 if __name__ == "__main__":

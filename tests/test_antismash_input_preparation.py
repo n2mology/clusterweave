@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 from pathlib import Path
 import tempfile
 import unittest
@@ -18,12 +20,20 @@ else:
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MODULE_PATH = REPO_ROOT / "bin" / "prepare_antismash_input.py"
+ANNOTATION_MODULE_PATH = REPO_ROOT / "bin" / "annotation_genbank.py"
 MODULE = None
+ANNOTATION_MODULE = None
 if BIO_AVAILABLE:
     SPEC = importlib.util.spec_from_file_location("prepare_antismash_input", MODULE_PATH)
     assert SPEC and SPEC.loader
     MODULE = importlib.util.module_from_spec(SPEC)
     SPEC.loader.exec_module(MODULE)
+    ANNOTATION_SPEC = importlib.util.spec_from_file_location(
+        "annotation_genbank", ANNOTATION_MODULE_PATH
+    )
+    assert ANNOTATION_SPEC and ANNOTATION_SPEC.loader
+    ANNOTATION_MODULE = importlib.util.module_from_spec(ANNOTATION_SPEC)
+    ANNOTATION_SPEC.loader.exec_module(ANNOTATION_MODULE)
 
 
 @unittest.skipUnless(BIO_AVAILABLE, "Biopython is required for antiSMASH input tests")
@@ -62,6 +72,7 @@ class AntiSmashInputPreparationTests(unittest.TestCase):
             self.assertEqual(summary["dropped_duplicate_cds"], 1)
             self.assertEqual([feature.type for feature in result.features], ["CDS"])
             self.assertEqual(result.features[0].qualifiers["locus_tag"], ["TEST_1"])
+        self._assert_annotation_transformations_preserve_records_and_summary_contracts()
 
     def test_sanitize_removes_only_unsafe_compound_codon_start_from_antismash_copy(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -157,6 +168,103 @@ class AntiSmashInputPreparationTests(unittest.TestCase):
             self.assertEqual(
                 [[record.id for record in SeqIO.parse(path, "genbank")] for path in outputs],
                 [["recordA"], ["recordB"]],
+            )
+        self._assert_annotation_record_listing_and_hash_remap_preserve_order_and_ids()
+
+    def _assert_annotation_transformations_preserve_records_and_summary_contracts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source.gbk"
+            backfilled = root / "backfilled.gbk"
+            normalized = root / "normalized.gbk"
+            filtered = root / "filtered.gbk"
+            coding = SeqRecord(
+                Seq("ATGAAAACCTAA"), id="NC_TEST.1", name="NC_TEST.1"
+            )
+            coding.annotations["molecule_type"] = "DNA"
+            coding.features = [
+                SeqFeature(FeatureLocation(0, 12), type="CDS", qualifiers={})
+            ]
+            gene_less = SeqRecord(Seq("A" * 20), id="NO_GENE.1", name="NO_GENE.1")
+            gene_less.annotations["molecule_type"] = "DNA"
+            SeqIO.write([coding, gene_less], source, "genbank")
+
+            ANNOTATION_MODULE.backfill_translations(source, backfilled)
+            translated = list(SeqIO.parse(backfilled, "genbank"))
+            self.assertEqual(
+                translated[0].features[0].qualifiers["translation"], ["MKT"]
+            )
+            self.assertEqual(translated[1].features, [])
+
+            record_count, changed = ANNOTATION_MODULE.normalize_headers(
+                backfilled, normalized
+            )
+            self.assertEqual(record_count, 2)
+            self.assertGreaterEqual(changed, 2)
+            normalized_records = list(SeqIO.parse(normalized, "genbank"))
+            self.assertEqual(normalized_records[0].name, "NC_TEST")
+            self.assertEqual(normalized_records[0].annotations["accessions"], ["NC_TEST"])
+
+            kept, dropped = ANNOTATION_MODULE.drop_gene_less_records(
+                normalized, filtered
+            )
+            self.assertEqual((kept, dropped), (1, 1))
+            self.assertEqual(
+                [record.id for record in SeqIO.parse(filtered, "genbank")],
+                ["NC_TEST.1"],
+            )
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                ANNOTATION_MODULE.diagnose(filtered, "fixture")
+            self.assertIn(
+                "fixture: records=1 cds=1 cds_with_nonempty_translation=1 "
+                "cds_missing_or_empty_translation=0",
+                output.getvalue(),
+            )
+
+    def _assert_annotation_record_listing_and_hash_remap_preserve_order_and_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source.gbk"
+            records = []
+            for record_id, length in (("recordA", 1200), ("short", 999), ("recordB", 1000)):
+                record = SeqRecord(Seq("A" * length), id=record_id, name=record_id)
+                record.annotations["molecule_type"] = "DNA"
+                records.append(record)
+            SeqIO.write(records, source, "genbank")
+            self.assertEqual(
+                ANNOTATION_MODULE.list_record_ids(source, 1000),
+                ["recordA", "recordB"],
+            )
+
+            duplicate = root / "duplicate.gbk"
+            SeqIO.write([records[0], records[0]], duplicate, "genbank")
+            with self.assertRaisesRegex(RuntimeError, "Duplicate GenBank record ID"):
+                ANNOTATION_MODULE.list_record_ids(duplicate, 1)
+
+            original_fasta = root / "original.fna"
+            renamed_fasta = root / "renamed.fna"
+            original_fasta.write_text(">originalA\nACGTACGT\n", encoding="utf-8")
+            renamed_fasta.write_text(">renamedA\nACGTACGT\n", encoding="utf-8")
+            renamed_gbk = root / "renamed.gbk"
+            remapped_gbk = root / "remapped.gbk"
+            record_map = root / "record_map.tsv"
+            renamed_record = SeqRecord(Seq("ACGTACGT"), id="renamedA", name="renamedA")
+            renamed_record.annotations["molecule_type"] = "DNA"
+            SeqIO.write([renamed_record], renamed_gbk, "genbank")
+
+            summary = ANNOTATION_MODULE.remap_ids(
+                original_fasta,
+                renamed_fasta,
+                renamed_gbk,
+                remapped_gbk,
+                record_map,
+            )
+            self.assertEqual(summary, (1, 1, 1))
+            self.assertEqual(SeqIO.read(remapped_gbk, "genbank").id, "originalA")
+            self.assertEqual(
+                record_map.read_text(encoding="utf-8"),
+                "renamed_id\toriginal_id\nrenamedA\toriginalA\n",
             )
 
 

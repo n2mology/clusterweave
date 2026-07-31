@@ -5,7 +5,7 @@ const baseUrl = 'http://127.0.0.1:4173';
 
 test('ALL BGC defaults to All and scrolls without stealing search focus', async ({ page }) => {
   await page.goto(baseUrl);
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     document.body.innerHTML = '<main style="width:420px"><div class="result-focus-panel"><div class="result-reader-surface"><div id="files-container"><div class="summary-reader-doc" id="summary-reader-doc"></div></div></div></div></main>';
     const rows = [
       {
@@ -58,16 +58,33 @@ test('ALL BGC defaults to All and scrolls without stealing search focus', async 
         antismash_knowncluster_product: 'peptide',
       });
     }
-    allBgcTableState = {
-      path: 'all_tools_bgc_comparison.csv',
-      rows,
-      query: '',
-      taxon: '',
-      genome: '',
-      sortKey: 'genome',
-      sortDir: 'asc',
-    };
-    renderAllBgcTable();
+    const headers = Array.from(new Set(rows.flatMap(row => Object.keys(row))));
+    const csv = [headers.join(','), ...rows.map(row => (
+      headers.map(header => String(row[header] || '').replaceAll('"', '""'))
+        .map(value => `"${value}"`).join(',')
+    ))].join('\n');
+    activeJobId = 'allbgcsfixture';
+    activePublicRunId = 'AAAAAAAAAAAAAAAAAAAAAA';
+    const artifactKey = installResultArtifactDescriptor({
+      id: 'BBBBBBBBBBBBBBBBBBBBBB',
+      category: 'summary',
+      kind: 'csv',
+      role: 'all-bgcs',
+      mime: 'text/csv; charset=utf-8',
+      filename: 'all_tools_bgc_comparison.csv',
+      previewable: true,
+      downloadable: true,
+    });
+    const originalFetch = window.fetch;
+    window.fetch = async () => new Response(csv, {
+      status: 200,
+      headers: { 'Content-Type': 'text/csv; charset=utf-8' },
+    });
+    try {
+      await loadAllBgcReaderFile(artifactKey);
+    } finally {
+      window.fetch = originalFetch;
+    }
   });
 
   const organism = page.getByRole('combobox', { name: 'Organism', exact: true });

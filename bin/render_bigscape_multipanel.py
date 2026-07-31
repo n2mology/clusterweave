@@ -263,6 +263,8 @@ def chart_lines(
     max_total = max(sum(matrix[key].get(category, 0.0) for category in CHART_CLASSES) for key in bar_keys)
     tick_step = nice_tick_step(max_total)
     x_max = max(tick_step, math.ceil(max_total / tick_step) * tick_step)
+    if taxon_group == "bacteria" and x_max <= max_total:
+        x_max += tick_step
     tick_count = int(round(x_max / tick_step))
 
     lines.append(f'<line x1="{plot_x:.1f}" y1="{plot_y:.1f}" x2="{plot_x:.1f}" y2="{axis_y:.1f}" stroke="#222222" stroke-width="1"/>')

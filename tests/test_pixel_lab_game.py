@@ -80,6 +80,8 @@ class PixelLabStaticContractTests(unittest.TestCase):
         launcher = index[launcher_start:launcher_end]
         self.assertEqual(len(re.findall(r"<button\b", launcher)), 1, "the launcher has one game action")
         self.assertIn('id="clusterweave-game-start"', launcher)
+        self.assertIn('class="clusterweave-game-wait-prompt"', launcher)
+        self.assertRegex(launcher, r"PLAY WHILE</span><span>YOU WAIT")
 
         launcher_button = re.search(
             r'<button\b[^>]*id="clusterweave-game-start"[^>]*>(.*?)</button>',
@@ -90,6 +92,10 @@ class PixelLabStaticContractTests(unittest.TestCase):
         launcher_label = re.sub(r"<[^>]+>", "", launcher_button.group(1)).strip()
         self.assertEqual(launcher_label, "", "the launcher is icon-only")
         self.assertIn('aria-label="Play"', launcher_button.group(0))
+        game_css = (ASSET_DIR / "clusterweave-game.css").read_text(encoding="utf-8")
+        self.assertIn(".clusterweave-game-wait-prompt", game_css)
+        self.assertIn("justify-items: center", game_css)
+        self.assertIn("font-size: clamp(.48rem, 1.25vw, .61rem)", game_css)
 
         for removed_chrome in [
             'class="clusterweave-game-head"',
@@ -404,6 +410,8 @@ class PixelLabStaticContractTests(unittest.TestCase):
 
     def test_polling_handoffs_and_mobile_dna_suspension_remain_integrated(self) -> None:
         main = (ASSET_DIR / "clusterweave.js").read_text(encoding="utf-8")
+        lifecycle = (ASSET_DIR / "job-lifecycle-boundary.js").read_text(encoding="utf-8")
+        frontend = f"{lifecycle}\n{main}"
         controller = (ASSET_DIR / "clusterweave-game.js").read_text(encoding="utf-8")
         dna = (ASSET_DIR / "workflow-dna-progress.js").read_text(encoding="utf-8")
 
@@ -422,26 +430,26 @@ class PixelLabStaticContractTests(unittest.TestCase):
             "clusterweave:game-workflow-focus",
             "Results ready.",
         ]:
-            self.assertIn(token, main)
+            self.assertIn(token, frontend)
 
-        schedule_start = main.index("function scheduleJobPoll(")
-        schedule_end = main.index("function stopPolling(", schedule_start)
-        schedule_body = main[schedule_start:schedule_end]
+        schedule_start = frontend.index("function scheduleJobPoll(")
+        schedule_end = frontend.index("function stopPolling(", schedule_start)
+        schedule_body = frontend[schedule_start:schedule_end]
         self.assertIn("scheduleJobPoll(", schedule_body[schedule_body.index("{") :])
         self.assertNotIn("setInterval(", schedule_body)
 
-        self.assertIn("const JOB_POLL_TIMEOUT_MS = 12000;", main)
-        self.assertIn("const JOB_INITIAL_LOAD_TIMEOUT_MS = 45000;", main)
-        load_start = main.index("async function loadJob(")
-        load_end = main.index("async function pollJobFinal(", load_start)
-        load_body = main[load_start:load_end]
+        self.assertIn("const JOB_POLL_TIMEOUT_MS = 12000;", frontend)
+        self.assertIn("const JOB_INITIAL_LOAD_TIMEOUT_MS = 45000;", frontend)
+        load_start = frontend.index("async function loadJob(")
+        load_end = frontend.index("async function pollJobFinal(", load_start)
+        load_body = frontend[load_start:load_end]
         self.assertIn(
             "pollJobFinal(jobId, autoScroll, seq, JOB_INITIAL_LOAD_TIMEOUT_MS)",
             load_body,
         )
         poll_start = load_end
-        poll_end = main.index("function jobPollDelay(", poll_start)
-        poll_body = main[poll_start:poll_end]
+        poll_end = frontend.index("function scheduleJobPoll(", poll_start)
+        poll_body = frontend[poll_start:poll_end]
         self.assertIn("timeoutMs = JOB_POLL_TIMEOUT_MS", poll_body)
         self.assertIn("setTimeout(() => abortController.abort(), timeoutMs)", poll_body)
         self.assertNotIn("JOB_INITIAL_LOAD_TIMEOUT_MS", poll_body)

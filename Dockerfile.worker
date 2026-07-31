@@ -25,6 +25,7 @@ COPY web/bigscape_public_db.py /app/bigscape_public_db.py
 COPY web/canonical_pipeline.py /app/canonical_pipeline.py
 COPY web/genbank_readiness.py /app/genbank_readiness.py
 COPY web/job_store.py /app/job_store.py
+COPY web/legacy_job_results.py /app/legacy_job_results.py
 COPY web/notifications.py /app/notifications.py
 COPY web/public_results.py /app/public_results.py
 COPY web/result_policy.py /app/result_policy.py
@@ -42,6 +43,8 @@ COPY *.sh /clusterweave/
 COPY bin/ /clusterweave/bin/
 COPY config/ /clusterweave/config/
 COPY scripts/ /clusterweave/scripts/
+COPY web/resource_policy.py /clusterweave/web/resource_policy.py
+COPY web/static/assets/progress-tree-contract.json /clusterweave/web/static/assets/progress-tree-contract.json
 COPY software/funbgcex/ /clusterweave/software/funbgcex/
 COPY software/funannotate/ /clusterweave/software/funannotate/
 COPY software/phylogeny/ /clusterweave/software/phylogeny/

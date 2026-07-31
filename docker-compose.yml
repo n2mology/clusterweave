@@ -2,11 +2,13 @@
 # docker-compose.yml — ClusterWeave Web
 #
 # Usage:
-#   ./bin/init_local_instance.sh       # one-time local secrets/configuration
-#   docker compose up --build -d       # first run (builds image, downloads DBs)
-#   docker compose up -d               # subsequent runs (detached)
-#   docker compose down                # stop
-#   docker compose logs -f web         # tail logs
+#   ./bin/init_local_instance.sh
+#   docker compose build
+#   docker compose run --rm --no-deps worker prepare-runtime
+#   docker compose run --rm --no-deps worker check-runtime
+#   docker compose up -d
+#   docker compose down
+#   docker compose logs -f web
 #
 # The web UI is available at http://127.0.0.1:8080 by default.
 #
@@ -14,10 +16,9 @@
 # socket so the worker can launch pinned sibling tool containers. Keep it bound
 # to loopback and do not expose it as an unaudited public service.
 #
-# On first startup the container downloads:
-#   - antiSMASH databases (~5 GB) to the `antismash_db` volume
-#   - Pfam-A.hmm (~1 GB) to the `pfam_db` volume
-# Both are cached in named Docker volumes and reused on subsequent starts.
+# Runtime acquisition is explicit through prepare-runtime; check-runtime
+# verifies the same private volumes without changing them.
+# Normal service startup reuses the prepared assets and does not acquire them.
 # ─────────────────────────────────────────────────────────────────────────────
 services:
   web:

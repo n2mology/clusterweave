@@ -1,18 +1,18 @@
 """HTTP routing for opaque, capability-protected public result artifacts.
 
-The app module imports this router, while this module resolves the active app
-module lazily at request time.  That keeps the route implementation testable
-without weakening the existing file-policy and stable-streaming checks.
+The app module supplies one explicit context at request time. That keeps the
+route implementation testable without weakening the existing file-policy and
+stable-streaming checks.
 """
 
 from __future__ import annotations
 
 from http import HTTPStatus
-import importlib
 import re
 import urllib.parse
 import zipfile
 
+from public_result_backend import PublicResultContext
 from public_results import (
     bundle_reference_candidate,
     resolve_bundle_reference,
@@ -44,16 +44,26 @@ _OPTIONAL_BUNDLE_SUFFIXES = {
 }
 
 
-def _api(handler: object):
-    return importlib.import_module(handler.__class__.__module__)
+def _api(
+    handler: object,
+    context: PublicResultContext | None,
+) -> object:
+    active = context or getattr(handler, "public_result_context", None)
+    if active is None or active.api is None:
+        raise RuntimeError("public result HTTP context is not configured")
+    return active.api
 
 
 def _generic_not_found(handler: object) -> None:
     handler._not_found("Result not found")
 
 
-def _authorized_context(handler: object, public_id: str):
-    api = _api(handler)
+def _authorized_context(
+    handler: object,
+    public_id: str,
+    context: PublicResultContext | None,
+):
+    api = _api(handler, context)
     job = api.resolve_public_job(public_id)
     if job is None or not api.request_can_read_job(handler, job):
         _generic_not_found(handler)
@@ -98,7 +108,12 @@ def _catalog_payload(public_id: str, catalog: object | None) -> dict[str, object
     }
 
 
-def handle_public_result_get(handler: object, route: str, query: dict[str, list[str]]) -> bool:
+def handle_public_result_get(
+    handler: object,
+    route: str,
+    query: dict[str, list[str]],
+    context: PublicResultContext | None = None,
+) -> bool:
     """Handle a clean GET route, returning False only for unrelated routes."""
 
     if not route.startswith("/api/results/"):
@@ -108,10 +123,10 @@ def handle_public_result_get(handler: object, route: str, query: dict[str, list[
         _generic_not_found(handler)
         return True
     public_id = urllib.parse.unquote(parts[3])
-    context = _authorized_context(handler, public_id)
-    if context is None:
+    authorized = _authorized_context(handler, public_id, context)
+    if authorized is None:
         return True
-    api, job, base = context
+    api, job, base = authorized
 
     if len(parts) == 4:
         payload = api.job_payload(
@@ -136,15 +151,14 @@ def handle_public_result_get(handler: object, route: str, query: dict[str, list[
         internal_id = str(job.get("id") or "")
         known_log_count = max(0, api.parse_int(job.get("log_count"), 0))
         lines = api.public_activity_projection_lines(internal_id, known_log_count)
+        projection = api.public_progress_projection(job, lines)
         handler._send_json(
             HTTPStatus.OK,
             {
                 "run_id": public_id,
                 "public_run_id": public_id,
-                "public_events": api.public_activity_from_logs(internal_id, lines),
-                "genome_progress": api.public_genome_progress(
-                    job, lines
-                ),
+                "public_events": projection.public_events,
+                "genome_progress": projection.genome_progress,
             },
         )
         return True
@@ -264,7 +278,11 @@ def handle_public_result_get(handler: object, route: str, query: dict[str, list[
     return True
 
 
-def handle_public_result_post(handler: object, route: str) -> bool:
+def handle_public_result_post(
+    handler: object,
+    route: str,
+    context: PublicResultContext | None = None,
+) -> bool:
     """Resolve a generated bundle reference without accepting a storage path."""
 
     if not route.startswith("/api/results/"):
@@ -274,10 +292,10 @@ def handle_public_result_post(handler: object, route: str) -> bool:
         _generic_not_found(handler)
         return True
     public_id = urllib.parse.unquote(parts[3])
-    context = _authorized_context(handler, public_id)
-    if context is None:
+    authorized = _authorized_context(handler, public_id, context)
+    if authorized is None:
         return True
-    api, job, base = context
+    api, job, base = authorized
     try:
         content_length = int(handler.headers.get("Content-Length", "0"))
     except (TypeError, ValueError):

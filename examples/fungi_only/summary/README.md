@@ -10,7 +10,7 @@ small tabular artifacts for downstream documentation or tests.
   - normalized per-BGC comparison of antiSMASH and FunBGCeX calls, including
     overlap coordinates, class labels, annotation hints, and product matches
 - `all_tools_shared_unshared_summary.csv`
-  - aggregate shared and unshared caller/GCF counts by genome, tool, entity
+  - aggregate shared and unshared BGC/GCF counts by genome, tool, entity
     type, and normalized class
 - `family_atlas_shortlist.md`
   - shortlist of dataset-wide family atlas candidates with

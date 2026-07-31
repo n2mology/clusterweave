@@ -27,7 +27,15 @@ When you run:
 bash run_clusterweave.sh
 ```
 
-the wrapper writes:
+When standard output is attached to a compatible terminal, the wrapper shows an
+interactive stage tree for input preparation, annotation and BGC detection,
+BiG-SCAPE, summary, clinker, figures, and the result package. Redirected or
+piped output, CI, and `TERM=dumb` retain the canonical raw lines. Use
+`bash run_clusterweave.sh --raw` when exact raw output is needed in an
+interactive terminal. The display honors `NO_COLOR` and uses an ASCII tree when
+the terminal locale cannot represent Unicode.
+
+The wrapper writes:
 
 - `data/results/<project-name>/reproducibility/run_clusterweave_manifest.tsv`
 - `data/results/<project-name>/reproducibility/run_clusterweave_context.env`

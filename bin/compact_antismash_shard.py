@@ -212,17 +212,101 @@ def compact_shard(
         raise
 
 
+def merge_shards(
+    output_path: Path, record_and_paths: list[tuple[str, Path]]
+) -> None:
+    if not record_and_paths:
+        raise CompactionError("no antiSMASH shard JSON documents were provided")
+    merged: dict[str, Any] | None = None
+    merged_records = []
+    merged_timings: dict[str, Any] = {}
+    for expected_record_id, input_path in record_and_paths:
+        try:
+            with input_path.open(encoding="utf-8") as handle:
+                document = json.load(handle)
+        except (OSError, json.JSONDecodeError) as exc:
+            raise CompactionError(
+                f"cannot read antiSMASH shard JSON {input_path}: {exc}"
+            ) from exc
+        if not isinstance(document, dict):
+            raise CompactionError(
+                f"antiSMASH shard JSON is not an object: {input_path}"
+            )
+        merged_records.append(_target_record(document, expected_record_id))
+        timings = document.get("timings", {})
+        if not isinstance(timings, dict):
+            raise CompactionError(
+                f"antiSMASH shard JSON timings is not an object: {input_path}"
+            )
+        if merged is None:
+            merged = document
+        merged_timings.update(timings)
+
+    if merged is None:
+        raise CompactionError("no antiSMASH shard JSON documents were provided")
+    merged["records"] = merged_records
+    merged["timings"] = merged_timings
+    temporary_path = Path(str(output_path) + ".tmp")
+    try:
+        with temporary_path.open("w", encoding="utf-8") as handle:
+            json.dump(merged, handle, ensure_ascii=False, separators=(",", ":"))
+            handle.write("\n")
+        os.replace(temporary_path, output_path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--shard-dir", required=True, type=Path)
-    parser.add_argument("--record-id", required=True)
-    parser.add_argument("--json-name", required=True)
+    parser.add_argument("--shard-dir", type=Path)
+    parser.add_argument("--record-id")
+    parser.add_argument("--json-name")
     parser.add_argument("--retain", choices=("0", "1"), default="0")
-    return parser.parse_args()
+    parser.add_argument("--merge-output", type=Path)
+    parser.add_argument(
+        "--record-json-pair", action="append", nargs=2, metavar=("RECORD_ID", "JSON")
+    )
+    args = parser.parse_args()
+    merge_mode = args.merge_output is not None or args.record_json_pair is not None
+    if merge_mode:
+        if args.merge_output is None or not args.record_json_pair:
+            parser.error("merge mode requires --merge-output and --record-json-pair")
+        if (
+            args.shard_dir is not None
+            or args.record_id is not None
+            or args.json_name is not None
+        ):
+            parser.error("merge mode cannot include shard compaction arguments")
+    else:
+        missing = [
+            option
+            for option, value in (
+                ("--shard-dir", args.shard_dir),
+                ("--record-id", args.record_id),
+                ("--json-name", args.json_name),
+            )
+            if value is None
+        ]
+        if missing:
+            parser.error("the following arguments are required: " + ", ".join(missing))
+    return args
 
 
 def main() -> int:
     args = _parse_args()
+    if args.merge_output is not None:
+        try:
+            merge_shards(
+                args.merge_output,
+                [
+                    (record_id, Path(json_path))
+                    for record_id, json_path in args.record_json_pair
+                ],
+            )
+        except (CompactionError, OSError) as exc:
+            print(f"antiSMASH shard merge failed: {exc}", file=os.sys.stderr)
+            return 1
+        return 0
     try:
         compact_shard(
             args.shard_dir,

@@ -8,10 +8,10 @@
 
 # ClusterWeave
 
-ClusterWeave is a genome-mining workbench for studying biosynthetic gene
+A genome-mining workbench for studying biosynthetic gene
 clusters (BGCs), the neighboring genes that may contribute to a natural-product
-pathway. It prepares fungal and bacterial genomes, runs the applicable
-annotation and BGC callers, groups related BGCs into gene cluster families
+pathway. It prepares fungal and bacterial genomes, runs the applicable protein-coding
+annotation and BGC detection tools, groups related BGCs into gene cluster families
 (GCFs), and produces tables, synteny views, and taxon-aware figures that can be
 reviewed together.
 
@@ -22,10 +22,12 @@ protein features or funannotate when annotation is needed; bacterial genomes use
 feature-free sequence with Prodigal gene finding. antiSMASH and BiG-SCAPE apply
 to both domains, while FunBGCeX applies only to fungi.
 
-> Web-hosted access: **Coming soon.** ClusterWeave v1.0.1 is available for
-> local use through the Docker interface described below.
+> Web-hosted access: **Coming soon.** ClusterWeave v1.0.2 is currently
+> available only for local use through the Docker interface described below.
 
-Version 1.0.1 is the current public ClusterWeave release.
+Version 1.0.2 is the current public ClusterWeave release.
+
+[Watch the ClusterWeave fungal demo on YouTube](https://youtu.be/pCHNmzbBZ0Y).
 
 ## What the results can and cannot say
 
@@ -40,13 +42,12 @@ The results depend on the submitted assemblies, upstream reference data, tool
 versions, and selected settings. Zero predicted BGCs can be a valid result.
 Similarly, a missing FunBGCeX value for a bacterium means that the fungal-only
 tool was not applicable; it should not be interpreted as a failed bacterial
-call. Experimental validation and subject-matter review remain necessary.
+report. Experimental validation and subject-matter review remain necessary.
 
 ## Run a job
 
-Web-hosted access is coming soon. The local interface uses the same basic job
-path planned for hosted access. After starting a local instance, open
-[http://127.0.0.1:8080](http://127.0.0.1:8080) and follow these steps:
+Version 1.0.2 runs through the local interface. After starting a local instance,
+open [http://127.0.0.1:8080](http://127.0.0.1:8080) and follow these steps:
 
 1. In **INPUT STATION**, keep **New run** selected and choose **Fungi**,
    **Bacteria**, or **Both**. The scope describes which domains the run accepts;
@@ -56,9 +57,9 @@ path planned for hosted access. After starting a local instance, open
    genome files. The interface shows the active accession, file-size, upload,
    and queue limits.
 3. Enter a required project name. A target genome and ecology labels are
-   optional, and an intial run can leave both unset.
-4. Select **Submit run**. ClusterWeave validates the input before it publishes a
-   job to the filesystem queue.
+   optional, and an initial run can leave both unset.
+4. Select **Validate**, then **Submit run**. ClusterWeave validates the input
+   before it publishes a job to the filesystem queue.
 5. In **Save your result access**, save the private result link. You may instead
    save the job ID together with its separate result access code. The link and
    code are bearer credentials, so do not publish either one.
@@ -106,8 +107,8 @@ the submitted genomes are not public.
 
 To return later, open **New run / Existing results** and paste either the full
 private result link or the job ID plus result access code. The browser keeps the
-read token in session storage after reading it from the URL fragment; treat a
-saved result link with the same care as the underlying code.
+result access code in session storage after reading it from the URL fragment;
+treat a saved result link with the same care as the underlying code.
 
 ## Local Docker start
 
@@ -126,6 +127,8 @@ git clone https://github.com/n2mology/clusterweave.git
 cd clusterweave
 ./bin/init_local_instance.sh
 docker compose build
+docker compose run --rm --no-deps worker prepare-runtime
+docker compose run --rm --no-deps worker check-runtime
 docker compose up -d
 docker compose ps
 curl --fail http://127.0.0.1:8080/
@@ -137,11 +140,60 @@ and 16 GiB, and `CLUSTERWEAVE_MAX_CPUS_PER_JOB=4` ensures that a public job
 accepted by the local web service cannot request more than the worker's default
 `CLUSTERWEAVE_WORKER_CPU_LIMIT=4`.
 
-The browser can open while the worker prepares its runtime. On an initial start,
-the worker downloads the antiSMASH and Pfam data, installs the NCBI Datasets
-command-line tools, pulls the BiG-SCAPE and clinker images, and builds or reuses
-the FunBGCeX image. Follow the real progress rather than assuming the worker is
-ready:
+### Change local web job input limits
+
+New `.env` files contain `CLUSTERWEAVE_MAX_ACCESSIONS=50` and
+`CLUSTERWEAVE_MAX_GENOME_FILES=50`. These positive integers control the maximum
+NCBI assembly accessions and uploaded genome files accepted by one web job.
+
+For a first start, edit `.env` at the repository root after running the
+initializer and before starting services. For example:
+
+```dotenv
+CLUSTERWEAVE_MAX_ACCESSIONS=75
+CLUSTERWEAVE_MAX_GENOME_FILES=75
+```
+
+Use only positive integers. `0` is invalid and does not select an uncapped
+mode. Existing `.env` files remain unchanged until the local operator edits
+them.
+
+From the repository root, inspect the resolved Compose configuration:
+
+```bash
+docker compose config --quiet
+docker compose config | grep -E 'CLUSTERWEAVE_MAX_ACCESSIONS|CLUSTERWEAVE_MAX_GENOME_FILES'
+```
+
+The first command succeeds without an error, and the second prints both values
+under the web service. This confirms what Compose will pass to ClusterWeave.
+
+If the local instance is already running, edit `.env`, then recreate only the
+web service and inspect its public status from the repository root:
+
+```bash
+docker compose up -d --no-deps web
+curl --fail http://127.0.0.1:8080/api/system/status
+```
+
+A successful update reports the selected values in `public_quota`, and the
+browser shows the same accession and genome-file limits. Next, open the local
+web interface and prepare the intended inputs.
+
+Increasing either count can increase processing time, storage use, and figure
+complexity. Configurable acceptance is not a performance or scientific-scale
+guarantee; the synthetic coverage extends to 75 genomes.
+
+`prepare-runtime` acquires every supported local runtime asset, including the
+antiSMASH and Pfam data, NCBI Datasets tools, pinned third-party images,
+FunBGCeX and BUSCO-baked funannotate images, FastTree, MiBIG, and the shared
+NPLinker environment. It records image identities and file checksums in the
+private software volume. `check-runtime` verifies the same state without
+pulling, downloading, building, installing, or rewriting its manifest.
+
+The worker still runs the same startup subset for compatibility when services
+start, publishes the established bootstrap phases, and reuses every prepared
+asset. Follow the real progress rather than assuming the worker is ready:
 
 ```bash
 docker compose logs -f worker
@@ -183,8 +235,9 @@ guides provide the full command and explain the archive/source-update choices.
 ## Inputs and privacy
 
 Public-mode accession submissions accept up to 50 NCBI assemblies by default.
-The local interface also accepts bounded `.fasta`, `.fa`, `.fna`, `.fsa`, `.gb`,
-`.gbk`, and `.gbff` uploads; current live limits appear before file selection.
+Uploaded genome files also default to 50 per web job. The local interface accepts
+bounded `.fasta`, `.fa`, `.fna`, `.fsa`, `.gb`, `.gbk`, and `.gbff` uploads;
+the configured live limits appear before file selection.
 A user-generated ecology table is accepted only through the corresponding UI
 path. Generic archives and unrecognized auxiliary files are rejected.
 
@@ -226,29 +279,28 @@ later version with its own provenance.
 | [`THIRD_PARTY.md`](THIRD_PARTY.md) | Upstream tools, licenses, citations, and redistribution limits |
 | [`docs/DATA_SOURCES.md`](docs/DATA_SOURCES.md) | Input, reference-data, and public-example provenance |
 | [`CHANGELOG.md`](CHANGELOG.md) | Version history |
-| [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md) | Release validation procedure |
 
 The canonical scientific stages remain shell-first. `run_clusterweave.sh` calls
 the annotation/BGC, BiG-SCAPE, summary, clinker, figure, and optional follow-up
 entrypoints, while focused Python helpers transform and render declared outputs.
-The web layer stages the same workflow rather than maintaining a second
+The web/browser layer stages the same workflow rather than maintaining a second
 scientific implementation.
 
-## Manuscript, authorship, and provenance
+## Manuscript, authorship, and conceptualization
 
 ClusterWeave began as the reusable software workflow for the companion manuscript
 *ClusterWeave organizes genome-mining analyses into Integrated Evidence Profiles*.
-The authors named in the public metadata are Julian B. Cosner,
+The authors and maintainers of the project are Julian B. Cosner,
 Stanton Martin, and Tomás A. Rush. Keywords: genome mining, biosynthetic gene
 clusters, gene cluster families, evidence integration, candidate prioritization.
 The repository preserves the reusable source,
-build recipes, tests, documentation, and public-safe examples; it does not
-publish manuscript drafts or private run evidence.
+build recipes, tests, documentation, and public-safe examples.
 
-The project is intended to make the manuscript's computational preparation and
-build path inspectable and repeatable. That purpose does not turn predictions
-into experimental conclusions, and it does not remove the need to cite the
-upstream tools and data resources listed in [THIRD_PARTY.md](THIRD_PARTY.md).
+The project is intended to lower the barrier to entry in computational biology and
+make the manuscript's computational preparation and build path inspectable and repeatable.
+That purpose does not turn predictions into experimental conclusions, and it
+does not remove the need to cite the upstream tools and data resources
+listed in [THIRD_PARTY.md](THIRD_PARTY.md).
 
 ## Funding, citation, and license
 
@@ -262,7 +314,7 @@ DE-AC05-00OR22725.
 Citation metadata is in [`CITATION.cff`](CITATION.cff). The companion software
 record resolves at
 [doi:10.11578/PMI/dc.20260608.2](https://doi.org/10.11578/PMI/dc.20260608.2).
-Version 1.0.1 is the current public release.
+Version 1.0.2 is the current public release.
 
 ClusterWeave's own source is available under the
 [BSD 3-Clause License](LICENSE). Downloaded tools, containers, databases, and

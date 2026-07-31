@@ -5,7 +5,7 @@ IFS=$' \n\t'
 ###############################################################################
 # run_nplinker.sh
 # - Runs NPLinker for a configured target strain
-# - Pulls/uses a Singularity/Apptainer image (same pattern as other project scripts)
+# - Uses an explicitly prepared Docker or Singularity/Apptainer runtime
 # - Exports a ranked TSV table of predicted links
 ###############################################################################
 
@@ -95,7 +95,8 @@ NPLINKER_LOAD_RETRIES="${NPLINKER_LOAD_RETRIES:-3}"
 NPLINKER_RETRY_SLEEP="${NPLINKER_RETRY_SLEEP:-20}"
 GNPS_VERSION="${GNPS_VERSION:-2}"
 FILTER_TARGET_ONLY="${FILTER_TARGET_ONLY:-0}"
-ALLOW_FILTER_FALLBACK="${ALLOW_FILTER_FALLBACK:-1}"
+# Target-only runs are strict unless an operator explicitly requests legacy fallback.
+ALLOW_FILTER_FALLBACK="${ALLOW_FILTER_FALLBACK:-0}"
 METCALF_STANDARDISED="${METCALF_STANDARDISED:-1}"
 EXPORT_PREFER_LOCAL="${EXPORT_PREFER_LOCAL:-1}"
 SUMMARY_EXCLUDE_MIBIG_ONLY="${SUMMARY_EXCLUDE_MIBIG_ONLY:-1}"
@@ -109,6 +110,12 @@ warn(){ echo "[$(ts)] [WARN] $*" | tee -a "${LOGFILE}" >&2; }
 err(){ echo "[$(ts)] [ERROR] $*" | tee -a "${LOGFILE}" >&2; }
 die(){ err "$*"; exit 1; }
 have(){ command -v "$1" >/dev/null 2>&1; }
+runtime_preparation_hint() {
+  warn "Runtime acquisition is disabled during canonical jobs."
+  warn "Prepare local assets with: docker compose run --rm --no-deps worker prepare-runtime"
+  warn "Verify them with: docker compose run --rm --no-deps worker check-runtime"
+  warn "External executors must pre-provision the configured site-managed runtime."
+}
 
 normalize_positive_integer() {
   local name="$1"
@@ -333,7 +340,7 @@ fi
 ###############################################################################
 # Directories
 ###############################################################################
-mkdir -p "${LOGDIR}" "${SOFTWARE_ROOT}" "${PIP_CACHE}" "${NPLINKER_ROOT}" "${WINDOWS_NPLINKER_ROOT}" "${RUN_DIR}" "${WORK_ROOT}" "${PROJECT_DIR}/bin"
+mkdir -p "${LOGDIR}" "${NPLINKER_ROOT}" "${WINDOWS_NPLINKER_ROOT}" "${RUN_DIR}" "${WORK_ROOT}"
 
 log "ENGINE=${ENGINE}"
 log "RUN_MODE=${RUN_MODE}"
@@ -344,6 +351,7 @@ log "TARGET_STRAIN=${TARGET_STRAIN}"
 log "GNPS_VERSION=${GNPS_VERSION}"
 log "USE_LOCAL_GENOMICS_ONLY=${USE_LOCAL_GENOMICS_ONLY}"
 log "FILTER_TARGET_ONLY=${FILTER_TARGET_ONLY}"
+log "ALLOW_FILTER_FALLBACK=${ALLOW_FILTER_FALLBACK}"
 log "METCALF_STANDARDISED=${METCALF_STANDARDISED}"
 log "EXPORT_PREFER_LOCAL=${EXPORT_PREFER_LOCAL}"
 log "SUMMARY_EXCLUDE_MIBIG_ONLY=${SUMMARY_EXCLUDE_MIBIG_ONLY}"
@@ -352,20 +360,23 @@ log "MIRROR_RUN_DIR=${MIRROR_RUN_DIR}"
 log "LOGFILE=${LOGFILE}"
 
 ###############################################################################
-# Pull container
+# Verify explicitly prepared container runtime
 ###############################################################################
 if [[ "${ENGINE}" == "docker" ]]; then
   if docker image inspect "${NPLINKER_DOCKER_IMAGE}" >/dev/null 2>&1; then
     log "NPLinker Docker base image already present: ${NPLINKER_DOCKER_IMAGE}"
   else
-    [[ "${AUTO_PULL_NPLINKER_SIF}" == "1" ]] || die "NPLinker Docker image missing: ${NPLINKER_DOCKER_IMAGE}. Set AUTO_PULL_NPLINKER_SIF=1 to fetch it."
-    log "Pulling NPLinker Docker base image: ${NPLINKER_DOCKER_IMAGE}"
-    docker pull "${NPLINKER_DOCKER_IMAGE}" 2>&1 | tee -a "${LOGFILE}" || die "Docker image pull failed"
+    warn "NPLinker Docker image missing: ${NPLINKER_DOCKER_IMAGE}"
+    warn "AUTO_PULL_NPLINKER_SIF=${AUTO_PULL_NPLINKER_SIF} is accepted for compatibility; canonical jobs do not pull images."
+    runtime_preparation_hint
+    exit 1
   fi
 elif [[ ! -s "${SIF_PATH}" ]]; then
-  [[ "${AUTO_PULL_NPLINKER_SIF}" == "1" ]] || die "NPLinker base image missing: ${SIF_PATH}. Set AUTO_PULL_NPLINKER_SIF=1 to fetch it."
-  log "Pulling NPLinker base image: ${SIF_SOURCE} -> ${SIF_PATH}"
-  "${ENGINE}" pull "${SIF_PATH}" "${SIF_SOURCE}" 2>&1 | tee -a "${LOGFILE}" || die "Container pull failed"
+  warn "NPLinker base image missing: ${SIF_PATH}"
+  warn "Configured image source: ${SIF_SOURCE}"
+  warn "AUTO_PULL_NPLINKER_SIF=${AUTO_PULL_NPLINKER_SIF} is accepted for compatibility; canonical jobs do not pull images."
+  runtime_preparation_hint
+  exit 1
 else
   log "Container SIF already present: ${SIF_PATH}"
 fi
@@ -428,275 +439,16 @@ cexec() {
 ###############################################################################
 # Runner/exporter script (host-side, executed inside container)
 ###############################################################################
+TRACKED_RUNNER_PY="${PROJECT_DIR}/bin/nplinker_run_and_export.py"
+[[ -s "${TRACKED_RUNNER_PY}" ]] || die "Tracked NPLinker runner missing: ${TRACKED_RUNNER_PY}"
 if [[ "${ENGINE}" == "docker" && -n "${NPLINKER_DOCKER_DATA_VOLUME}" ]]; then
   RUNNER_PY="${RUNNER_PY:-${RUN_DIR}/nplinker_run_and_export.py}"
 else
-  RUNNER_PY="${RUNNER_PY:-${PROJECT_DIR}/bin/nplinker_run_and_export.py}"
+  RUNNER_PY="${RUNNER_PY:-${TRACKED_RUNNER_PY}}"
 fi
-if [[ ! -s "${RUNNER_PY}" ]]; then
-mkdir -p "$(dirname "${RUNNER_PY}")"
-cat > "${RUNNER_PY}" <<'PY'
-#!/usr/bin/env python3
-from __future__ import annotations
-
-import csv
-import os
-import time
-from pathlib import Path
-
-import httpx
-from nplinker import NPLinker
-
-
-def _obj_id(obj):
-    for attr in ("id", "name", "spectrum_id", "gcf_id", "bgc_id"):
-        if hasattr(obj, attr):
-            val = getattr(obj, attr)
-            if val is not None:
-                return str(val)
-    return str(obj)
-
-
-def _obj_type(obj):
-    return obj.__class__.__name__
-
-
-def _obj_strains(obj):
-    out = []
-    strains = getattr(obj, "strains", None)
-    if strains:
-        for s in strains:
-            sid = getattr(s, "id", None)
-            out.append(str(sid) if sid is not None else str(s))
-    strain = getattr(obj, "strain", None)
-    if strain is not None:
-        sid = getattr(strain, "id", None)
-        out.append(str(sid) if sid is not None else str(strain))
-    seen = []
-    for x in out:
-        if x not in seen:
-            seen.append(x)
-    return ";".join(seen)
-
-
-def _score_value(score_obj):
-    if score_obj is None:
-        return ""
-    for attr in ("value", "score"):
-        if hasattr(score_obj, attr):
-            v = getattr(score_obj, attr)
-            if v is not None:
-                return v
-    return score_obj
-
-
-def _as_float(value):
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def _is_genomic(obj):
-    return _obj_type(obj) == "GCF"
-
-
-def _bgc_source(genomic_obj):
-    strains = _obj_strains(genomic_obj)
-    if "BGC" in strains:
-        return "MiBIG"
-    if strains:
-        return strains
-    return "Local"
-
-
-def _is_mibig_only(genomic_obj):
-    if hasattr(genomic_obj, "has_mibig_only"):
-        try:
-            return bool(genomic_obj.has_mibig_only())
-        except Exception:
-            return False
-    strains = _obj_strains(genomic_obj)
-    target = os.environ.get("TARGET_STRAIN", "").strip()
-    return "BGC" in strains and (not target or target not in strains)
-
-
-def _pretty_bgc_label(genomic_obj):
-    genomic_id = _obj_id(genomic_obj)
-    strains = _obj_strains(genomic_obj)
-    aliases = [x.strip() for x in strains.split(";") if x.strip()]
-    mibig_aliases = [x for x in aliases if x.startswith("BGC")]
-    if mibig_aliases:
-        return f"{mibig_aliases[0]} (MiBIG)"
-    return f"GCF:{genomic_id}"
-
-
-def _has_target(obj, target):
-    target_l = target.lower()
-    if target_l in _obj_id(obj).lower():
-        return True
-    strains = _obj_strains(obj).lower()
-    if target_l and target_l in strains:
-        return True
-    return False
-
-
-def main():
-    config_file = Path(os.environ["NPLINKER_CONFIG"])
-    out_table = Path(os.environ["OUT_TABLE"])
-    summary_table = Path(os.environ["SUMMARY_TABLE"])
-    target = os.environ.get("TARGET_STRAIN", "").strip()
-    methods = [x.strip() for x in os.environ.get("NPLINKER_METHODS", "metcalf").split(",") if x.strip()]
-    primary_method = methods[0] if methods else "metcalf"
-    max_pairs = int(os.environ.get("MAX_LINKS", "5000"))
-    http_timeout = float(os.environ.get("NPLINKER_HTTP_TIMEOUT", "180"))
-    load_retries = int(os.environ.get("NPLINKER_LOAD_RETRIES", "3"))
-    retry_sleep = int(os.environ.get("NPLINKER_RETRY_SLEEP", "20"))
-    filter_target_only = os.environ.get("FILTER_TARGET_ONLY", "0").strip().lower() in {"1", "true", "yes", "on"}
-    allow_filter_fallback = os.environ.get("ALLOW_FILTER_FALLBACK", "1").strip().lower() in {"1", "true", "yes", "on"}
-    metcalf_standardised = os.environ.get("METCALF_STANDARDISED", "1").strip().lower() in {"1", "true", "yes", "on"}
-    export_prefer_local = os.environ.get("EXPORT_PREFER_LOCAL", "1").strip().lower() in {"1", "true", "yes", "on"}
-    summary_exclude_mibig_only = os.environ.get("SUMMARY_EXCLUDE_MIBIG_ONLY", "1").strip().lower() in {"1", "true", "yes", "on"}
-
-    out_table.parent.mkdir(parents=True, exist_ok=True)
-    summary_table.parent.mkdir(parents=True, exist_ok=True)
-
-    # NPLinker internals call httpx.get() without an explicit timeout in some paths.
-    # Patch the default timeout to reduce transient GNPS/PODP timeout failures.
-    _orig_httpx_get = httpx.get
-    def _patched_httpx_get(*args, **kwargs):
-        if "timeout" not in kwargs or kwargs["timeout"] is None:
-            kwargs["timeout"] = http_timeout
-        return _orig_httpx_get(*args, **kwargs)
-    httpx.get = _patched_httpx_get
-
-    npl = NPLinker(str(config_file))
-    last_exc = None
-    for attempt in range(1, load_retries + 1):
-        try:
-            npl.load_data()
-            last_exc = None
-            break
-        except Exception as exc:  # noqa: BLE001
-            last_exc = exc
-            if attempt < load_retries:
-                print(f"[WARN] npl.load_data() failed on attempt {attempt}/{load_retries}: {type(exc).__name__}: {exc}")
-                print(f"[WARN] sleeping {retry_sleep}s before retry")
-                time.sleep(retry_sleep)
-    if last_exc is not None:
-        raise last_exc
-
-    sources = npl.gcfs
-    scoring_params = {}
-    if primary_method == "metcalf":
-        scoring_params["standardised"] = metcalf_standardised
-    link_graph = npl.get_links(sources, primary_method, **scoring_params)
-    if primary_method == "metcalf" and metcalf_standardised and len(link_graph.links) == 0:
-        print("[WARN] standardised Metcalf produced 0 links; falling back to raw Metcalf")
-        link_graph = npl.get_links(sources, primary_method, standardised=False)
-    pairs = list(link_graph.links)
-
-    rows_all = []
-    rows_target = []
-    for pair in pairs:
-        if len(pair) < 2:
-            continue
-        left, right = pair[0], pair[1]
-        is_target_pair = bool(target) and (_has_target(left, target) or _has_target(right, target))
-        data = link_graph.get_link_data(left, right)
-        row = {
-            "left_type": _obj_type(left),
-            "left_id": _obj_id(left),
-            "left_strains": _obj_strains(left),
-            "right_type": _obj_type(right),
-            "right_id": _obj_id(right),
-            "right_strains": _obj_strains(right),
-            "_is_mibig_only": _is_mibig_only(right if _is_genomic(right) else left),
-        }
-        for method in methods:
-            row[f"{method}_score"] = _score_value(data.get(method, None)) if hasattr(data, "get") else ""
-        rows_all.append(row)
-        if is_target_pair:
-            rows_target.append(row)
-
-    rows = rows_target if filter_target_only else rows_all
-    if filter_target_only and len(rows) == 0 and allow_filter_fallback:
-        print("[WARN] target-only filtering produced 0 links; falling back to unfiltered links")
-        rows = rows_all
-
-    score_key = f"{methods[0]}_score" if methods else "metcalf_score"
-    if export_prefer_local:
-        rows.sort(key=lambda r: (1 if r.get("_is_mibig_only") else 0, -_as_float(r.get(score_key, 0.0) or 0.0), str(r.get("right_id", "")), str(r.get("left_id", ""))))
-    else:
-        rows.sort(key=lambda r: _as_float(r.get(score_key, 0.0) or 0.0), reverse=True)
-    if max_pairs > 0:
-        rows = rows[:max_pairs]
-
-    fields = [
-        "left_type",
-        "left_id",
-        "left_strains",
-        "right_type",
-        "right_id",
-        "right_strains",
-    ] + [f"{m}_score" for m in methods]
-
-    with out_table.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields, delimiter="\t")
-        writer.writeheader()
-        writer.writerows(rows)
-
-    summary_rows = []
-    for pair in pairs:
-        if len(pair) < 2:
-            continue
-        left, right = pair[0], pair[1]
-        genomic_obj = left if _is_genomic(left) else right
-        metabolomic_obj = right if _is_genomic(left) else left
-        if summary_exclude_mibig_only and _is_mibig_only(genomic_obj):
-            continue
-        if target and not (_has_target(left, target) or _has_target(right, target)):
-            if filter_target_only and not allow_filter_fallback:
-                continue
-        data = link_graph.get_link_data(left, right)
-        metcalf_value = _score_value(data.get(primary_method, None)) if hasattr(data, "get") else ""
-        summary_rows.append(
-            {
-                "Class": "",
-                "SM": f"{_obj_type(metabolomic_obj)}:{_obj_id(metabolomic_obj)}",
-                "BGC": _pretty_bgc_label(genomic_obj),
-                "Metcalf score": metcalf_value,
-                "BGC source": _bgc_source(genomic_obj),
-                "Bioactivity": "",
-                "Status": "putative",
-            }
-        )
-
-    deduped_summary = {}
-    for row in summary_rows:
-        key = (row["SM"], row["BGC"])
-        existing = deduped_summary.get(key)
-        if existing is None or _as_float(row["Metcalf score"]) > _as_float(existing["Metcalf score"]):
-            deduped_summary[key] = row
-
-    summary_rows = list(deduped_summary.values())
-    summary_rows.sort(key=lambda r: _as_float(r.get("Metcalf score", 0.0) or 0.0), reverse=True)
-    if max_pairs > 0:
-        summary_rows = summary_rows[:max_pairs]
-
-    summary_fields = ["Class", "SM", "BGC", "Metcalf score", "BGC source", "Bioactivity", "Status"]
-    with summary_table.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=summary_fields, delimiter="\t")
-        writer.writeheader()
-        writer.writerows(summary_rows)
-
-    print(f"Wrote {len(rows)} links to {out_table}")
-    print(f"Wrote {len(summary_rows)} summary rows to {summary_table}")
-
-
-if __name__ == "__main__":
-    main()
-PY
+if [[ "${RUNNER_PY}" != "${TRACKED_RUNNER_PY}" ]]; then
+  mkdir -p "$(dirname "${RUNNER_PY}")"
+  cp -f "${TRACKED_RUNNER_PY}" "${RUNNER_PY}"
 fi
 chmod +x "${RUNNER_PY}"
 
@@ -835,24 +587,15 @@ if [[ "${FORCE}" == "1" ]]; then
 fi
 
 ###############################################################################
-# Bootstrap NPLinker inside container env
+# Verify explicitly prepared NPLinker environment
 ###############################################################################
-if [[ "${NPLINKER_BOOTSTRAP_ENV}" == "1" ]]; then
-  log "Bootstrapping NPLinker environment in ${VENV_DIR}"
-  cexec bash -lc "
-  set -euo pipefail
-  python -m venv '${VENV_DIR}'
-  source '${VENV_DIR}/bin/activate'
-  python -m pip install --cache-dir '${PIP_CACHE}' -U pip setuptools wheel
-  python -m pip install --cache-dir '${PIP_CACHE}' 'nplinker==${NPLINKER_VERSION}'
-  if [[ '${NPLINKER_INSTALL_DEPS}' == '1' ]] && command -v install-nplinker-deps >/dev/null 2>&1; then
-    install-nplinker-deps || true
-  fi
-  "
-else
-  log "NPLinker bootstrap is disabled by default"
-  [[ -f "${VENV_DIR}/bin/activate" ]] || die "NPLinker environment missing: ${VENV_DIR}. Set NPLINKER_BOOTSTRAP_ENV=1 to create it."
+if [[ ! -f "${VENV_DIR}/bin/activate" ]]; then
+  warn "NPLinker environment missing: ${VENV_DIR}"
+  warn "NPLINKER_BOOTSTRAP_ENV=${NPLINKER_BOOTSTRAP_ENV} and NPLINKER_INSTALL_DEPS=${NPLINKER_INSTALL_DEPS} are accepted compatibility inputs; canonical jobs do not create or install environments."
+  runtime_preparation_hint
+  exit 1
 fi
+log "Using prepared NPLinker environment: ${VENV_DIR}"
 
 ###############################################################################
 # Run + export table
@@ -876,13 +619,15 @@ export NPLINKER_RETRY_SLEEP='${NPLINKER_RETRY_SLEEP}'
 export FILTER_TARGET_ONLY='${FILTER_TARGET_ONLY}'
 export ALLOW_FILTER_FALLBACK='${ALLOW_FILTER_FALLBACK}'
 export METCALF_STANDARDISED='${METCALF_STANDARDISED}'
+export EXPORT_PREFER_LOCAL='${EXPORT_PREFER_LOCAL}'
+export SUMMARY_EXCLUDE_MIBIG_ONLY='${SUMMARY_EXCLUDE_MIBIG_ONLY}'
 python '${RUNNER_PY}'
 " 2>&1 | tee -a "${LOGFILE}" || {
   warn "NPLinker run failed."
   warn "Troubleshooting:"
   warn "  1) If using PODP mode, ensure PODP_ID is a valid Paired Omics project ID and not only an MSV ID."
   warn "  2) For local mode, set LOCAL_GNPS_DIR and LOCAL_STRAIN_MAPPING."
-  warn "  3) Optional deps installer is off by default; enable with NPLINKER_INSTALL_DEPS=1."
+  warn "  3) Verify the prepared runtime with the worker check-runtime command."
   die "NPLinker execution did not complete."
 }
 

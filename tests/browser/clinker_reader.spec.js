@@ -99,7 +99,7 @@ test('clinker reader separates fungal and bacterial panels in a styled table', a
 
   await page.goto(baseUrl);
   await page.evaluate(() => openOpsPanel({ tab: 'jobs', focusPanel: false }));
-  await page.locator(`.diagnostic-job-card[data-job-id="${internalJobId}"]`).click();
+  await page.locator(`.diagnostic-job-card[data-job-id="${internalJobId}"]`).press('Enter');
   await page.evaluate(() => closeOpsPanel({ returnFocus: false }));
   await page.getByRole('tab', { name: 'CLINKER' }).click();
 

@@ -24,14 +24,33 @@ from job_store import (  # noqa: E402
     job_summary_path,
     list_jobs,
 )
-from result_attestation import write_result_attestation  # noqa: E402
+from result_attestation import read_result_attestation, write_result_attestation  # noqa: E402
 from result_policy import PUBLIC_RESULTS_MANIFEST_PATH  # noqa: E402
 
 
-def main() -> int:
+def _write_summary_if_changed(job: dict[str, object]) -> bool:
+    job_id = str(job.get("id") or "")
+    target = job_summary_path(job_id)
+    desired = json.dumps(
+        compact_job_summary(job),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    try:
+        if target.read_text(encoding="utf-8") == desired:
+            return False
+    except (OSError, UnicodeError):
+        pass
+    atomic_write_text(target, desired)
+    return True
+
+
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("job_ids", nargs="*", help="specific job IDs; default is all terminal jobs")
-    args = parser.parse_args()
+    parser.add_argument(
+        "job_ids", nargs="*", help="specific job IDs; default is all terminal jobs"
+    )
+    args = parser.parse_args(argv)
     selected = set(args.job_ids)
     built = 0
     summaries = 0
@@ -41,15 +60,8 @@ def main() -> int:
         if selected and job_id not in selected:
             continue
         try:
-            atomic_write_text(
-                job_summary_path(job_id),
-                json.dumps(
-                    compact_job_summary(job),
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                ),
-            )
-            summaries += 1
+            if _write_summary_if_changed(job):
+                summaries += 1
         except (OSError, TypeError, ValueError) as exc:
             print(f"{job_id}\tSUMMARY_FAILED\t{type(exc).__name__}", file=sys.stderr)
             failed += 1
@@ -59,6 +71,9 @@ def main() -> int:
         if not (base / PUBLIC_RESULTS_MANIFEST_PATH).is_file():
             continue
         try:
+            attestation = read_result_attestation(base, job_id)
+            if attestation is not None:
+                continue
             attestation = write_result_attestation(
                 base,
                 job_id,

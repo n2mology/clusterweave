@@ -10,8 +10,17 @@ import unittest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-CROSSWALK_BUILDER = REPO_ROOT / "bin" / "build_bgc_gcf_crosswalk.py"
-TREE_RENDERER = REPO_ROOT / "bin" / "render_phylo_taxon_profile.py"
+BIN_DIR = REPO_ROOT / "bin"
+if str(BIN_DIR) not in sys.path:
+    sys.path.insert(0, str(BIN_DIR))
+
+import build_candidate_tables
+import export_dataset_family_atlas
+import export_shared_family_shortlist
+import gcf_view
+
+CROSSWALK_BUILDER = BIN_DIR / "build_bgc_gcf_crosswalk.py"
+TREE_RENDERER = BIN_DIR / "render_phylo_taxon_profile.py"
 
 
 def write_table(
@@ -29,6 +38,64 @@ def write_table(
 
 
 class GcfViewSemanticsTests(unittest.TestCase):
+    def test_report_policy_adapters_preserve_scientific_rules(self) -> None:
+        ecology_modules = (
+            build_candidate_tables,
+            export_dataset_family_atlas,
+            export_shared_family_shortlist,
+        )
+        ecology_values = (
+            ("", "UNLABELED"),
+            (" n/a ", "UNLABELED"),
+            (" Soil ", "Soil"),
+        )
+        focus_values = (
+            (" Soil ", "soil", True),
+            ("soil", "", False),
+            ("UNLABELED", "n/a", False),
+            ("leaf", "soil", False),
+        )
+        for module in ecology_modules:
+            for value, expected in ecology_values:
+                self.assertEqual(module.ecology_group(value), expected)
+                self.assertEqual(module.ecology_group(value), gcf_view.ecology_group(value))
+            for ecology, focus, expected in focus_values:
+                self.assertEqual(module.matches_focus_ecology(ecology, focus), expected)
+                self.assertEqual(
+                    module.matches_focus_ecology(ecology, focus),
+                    gcf_view.matches_focus_ecology(ecology, focus),
+                )
+
+        pattern_values = (
+            (1, 1, "soil", "mixed"),
+            (1, 0, "", "present"),
+            (1, 0, "soil", "focus_only"),
+            (0, 1, "soil", "nonfocus_only"),
+            (0, 0, "soil", "unlabeled"),
+            (0, 0, "", "present"),
+        )
+        family_values = (
+            ({"mix": {"M2", "M1"}, "NRPS": {"N1"}}, ("mix", ["M1", "M2"])),
+            ({"NRPS": {"N2", "N1"}, "other": {"O1"}}, ("NRPS", ["N1", "N2"])),
+            ({"zeta": {"Z2", "Z1"}, "alpha": {"A1"}}, ("alpha", ["A1"])),
+            ({}, ("", [])),
+        )
+        for module in (export_dataset_family_atlas, export_shared_family_shortlist):
+            for focus_count, other_count, focus, expected in pattern_values:
+                self.assertEqual(module.ecology_pattern(focus_count, other_count, focus), expected)
+                self.assertEqual(
+                    module.ecology_pattern(focus_count, other_count, focus),
+                    gcf_view.ecology_pattern(focus_count, other_count, focus),
+                )
+            for families, expected in family_values:
+                self.assertEqual(module.preferred_family_source(families), expected)
+                self.assertEqual(
+                    module.preferred_family_source(families),
+                    gcf_view.preferred_family_source(families),
+                )
+
+        self.assertEqual(build_candidate_tables.gcf_ecology_pattern(0, 0, "soil"), "no_gcf")
+
     def test_crosswalk_preserves_every_view_and_selects_mix_c03(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

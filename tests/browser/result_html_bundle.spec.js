@@ -12,6 +12,7 @@ const ids = Object.freeze({
   bacterialRoot: 'BBBBBBBBBBBBBBBBBBBBBB',
   bacterialRegion: 'FFFFFFFFFFFFFFFFFFFFFF',
   funbgcexRoot: 'CCCCCCCCCCCCCCCCCCCCCC',
+  funbgcexAllBgcs: 'LLLLLLLLLLLLLLLLLLLLLL',
   funbgcexRegion: 'DDDDDDDDDDDDDDDDDDDDDD',
   fungalRuntime: 'GGGGGGGGGGGGGGGGGGGGGG',
   fungalImage: 'HHHHHHHHHHHHHHHHHHHHHH',
@@ -42,6 +43,7 @@ const descriptors = Object.freeze([
   descriptor(ids.fungalRoot, 'index.html', 'antismash', 'index', 'fungalBundleOpaque001x'),
   descriptor(ids.bacterialRoot, 'index.html', 'antismash', 'index', 'bacteriaBundleOpaque01x'),
   descriptor(ids.funbgcexRoot, 'results.html', 'funbgcex', 'index', 'funbgcexBundleOpaque01x'),
+  descriptor(ids.funbgcexAllBgcs, 'allBGCs.html', 'funbgcex', 'index', 'funbgcexBundleOpaque01x'),
 ]);
 
 const children = new Map([
@@ -96,7 +98,7 @@ for (let index = 0; index < 80; index += 1) {
 }
 
 const fixtures = new Map([
-  [ids.fungalRoot, '<!doctype html><html><body><h1>Fungal antiSMASH</h1><a href="knownclusterblast/region1/hit.html">Region 1</a><a href="region001.gbk">GBK download</a><a href="result.json">JSON download</a><a href="bundle.zip">ZIP download</a><div id="runtime-links"></div><script defer src="regions.js"></script></body></html>'],
+  [ids.fungalRoot, '<!doctype html><html><body><h1>Fungal antiSMASH</h1><a id="root-region-fragment" href="#r1c1">Region control</a><section id="r1c1">Region 1.1 body</section><a href="knownclusterblast/region1/hit.html">Region 1</a><a href="region001.gbk">GBK download</a><a href="result.json">JSON download</a><a href="bundle.zip">ZIP download</a><div id="runtime-links"></div><script defer src="regions.js"></script></body></html>'],
   [ids.fungalRegion, '<!doctype html><html><head><link rel="stylesheet" href="../../css/missing.css"></head><body><h1>Fungal region detail</h1></body></html>'],
   [ids.bacterialRoot, '<!doctype html><html><body><h1>Bacterial antiSMASH</h1><a href="knownclusterblast/region1/hit.html">Region 1</a></body></html>'],
   [ids.bacterialRegion, '<!doctype html><html><body><h1>Bacterial region detail</h1></body></html>'],
@@ -145,6 +147,7 @@ test.describe('authenticated generated HTML bundles', () => {
       consoleErrors: [],
       pageErrors: [],
       resolverDelayMs: 0,
+      initialResponseDelayMs: 0,
       activeResolvers: 0,
       maxActiveResolvers: 0,
     };
@@ -223,6 +226,9 @@ test.describe('authenticated generated HTML bundles', () => {
       const item = descriptors.find(candidate => candidate.id === id)
         || [...children.values()].find(candidate => candidate.id === id);
       const bodyBytes = Buffer.isBuffer(body) ? body : Buffer.from(body);
+      if (state.initialResponseDelayMs > 0) {
+        await new Promise(resolve => setTimeout(resolve, state.initialResponseDelayMs));
+      }
       await route.fulfill({
         status: 200,
         contentType: item.mime,
@@ -235,6 +241,9 @@ test.describe('authenticated generated HTML bundles', () => {
       });
     });
     await page.goto(baseUrl);
+    await expect(page.locator('#results-render-switch, #results-render-workbench, #results-render-molecular, #molecular-renderer-panel, #molecular-canvas-host')).toHaveCount(0);
+    await expect(page.locator('.results-render-control, .render-mode-button, .molecular-renderer-canvas, .molecular-stage-chip, .molecular-output-button')).toHaveCount(0);
+    await expect(page.locator('[data-results-render-mode="molecular"]')).toHaveCount(0);
     await page.evaluate(({ publicRunId, readToken, artifactDescriptors }) => {
       accessMode = 'public';
       activeJobId = publicRunId;
@@ -262,14 +271,19 @@ test.describe('authenticated generated HTML bundles', () => {
     await expect.poll(() => popup.frames().length).toBe(2);
     const frame = popup.frames()[1];
     await frame.waitForLoadState('domcontentloaded');
+    expect(popup.url()).toMatch(/^blob:/);
+    expect(popup.url()).not.toContain(token);
     expect(await popup.evaluate(() => window.opener)).toBeNull();
     return { popup, frame };
   }
 
   async function expectNestedNavigation(bundle, linkText, childId, expectedTitle, expectedBody) {
     const link = bundle.frame.getByRole('link', { name: linkText });
-    await expect.poll(async () => new URL(await link.getAttribute('href')).pathname)
-      .toBe(artifactEndpoint(childId));
+    await expect(link).not.toHaveAttribute('href');
+    await expect(link).toHaveAttribute('data-clusterweave-result-pending', '');
+    await link.hover();
+    await expect(link).toHaveAttribute('data-clusterweave-result-artifact', childId);
+    await expect(link).toHaveAttribute('href', new RegExp(`${artifactEndpoint(childId)}$`));
     const href = await link.getAttribute('href');
     expect(href).not.toContain(internalJobId);
     expect(href).not.toContain('data/results');
@@ -281,8 +295,34 @@ test.describe('authenticated generated HTML bundles', () => {
   }
 
   test('fungal and bacterial antiSMASH plus FunBGCeX links stay inside the opaque preview', async ({ page }) => {
+    const funbgcexViews = await page.evaluate(() => {
+      const views = uniqueToolHtmlArtifacts(Object.values(window.__bundleKeys), 'funbgcex');
+      renderToolHtmlReader(activeJobId, 'funbgcex', views);
+      return views.map(item => item.label);
+    });
+    expect(funbgcexViews).toEqual([
+      'FunBGCeX fixture · All BGCs',
+      'FunBGCeX fixture · Results',
+    ]);
+    await expect(page.locator('#files-container .result-tool-row')).toHaveCount(2);
+    await expect(page.locator('#files-container')).toContainText('FunBGCeX fixture · All BGCs');
+    await expect(page.locator('#files-container')).toContainText('FunBGCeX fixture · Results');
+
     const fungal = await openBundle(page, ids.fungalRoot);
     await expect(fungal.frame.locator('body')).toContainText('Fungal antiSMASH');
+    const regionControl = fungal.frame.locator('#root-region-fragment');
+    await expect(regionControl).toHaveAttribute('href', '#r1c1');
+    await expect(regionControl).toHaveAttribute('data-clusterweave-result-fragment', '#r1c1');
+    const beforeRegionClicks = page.__bundleState.resolverReferences.length;
+    for (let index = 0; index < 24; index += 1) {
+      await regionControl.click();
+    }
+    await expect(fungal.frame.locator('#r1c1')).toBeVisible();
+    expect(new URL(fungal.frame.url()).hash).toBe('');
+    expect(page.__bundleState.resolverReferences).toHaveLength(beforeRegionClicks);
+    expect(fungal.frame.url()).not.toContain(token);
+    expect(fungal.frame.url()).not.toContain(internalJobId);
+    expect(fungal.frame.url()).not.toContain('data/results');
     for (const linkName of ['GBK download', 'JSON download', 'ZIP download']) {
       const disabled = fungal.frame.getByText(linkName, { exact: true });
       await expect(disabled).not.toHaveAttribute('href');
@@ -309,7 +349,7 @@ test.describe('authenticated generated HTML bundles', () => {
     await expect(htmlLink).toHaveAttribute('data-clusterweave-result-pending', '');
     const initialHtmlResolves = page.__bundleState.resolverReferences
       .filter(reference => reference === 'knownclusterblast/region1/hit.html').length;
-    expect(initialHtmlResolves).toBe(1);
+    expect(initialHtmlResolves).toBe(0);
     expect(page.__bundleState.resolverReferences).not.toContain('smcogs/tree.png');
 
     const rootEnvelope = await htmlBundle.frame.locator(
@@ -524,6 +564,30 @@ test.describe('authenticated generated HTML bundles', () => {
     await external.click();
     expect(page.context().pages()).toHaveLength(openPageCount);
     await bundle.popup.close();
+  });
+
+  test('closing a loading result popup suppresses a stale relay notification', async ({ page }) => {
+    page.__bundleState.initialResponseDelayMs = 250;
+    const dialogs = [];
+    page.on('dialog', async dialog => {
+      dialogs.push(dialog.message());
+      await dialog.dismiss();
+    });
+
+    const popupPromise = page.waitForEvent('popup');
+    const openPromise = page.evaluate(({ publicRunId, id }) => openHtmlResultWithAssets(
+      null,
+      publicRunId,
+      window.__bundleKeys[id],
+    ), {
+      publicRunId: runId,
+      id: ids.fungalRoot,
+    });
+    const popup = await popupPromise;
+    await popup.close();
+    await openPromise;
+
+    expect(dialogs).toEqual([]);
   });
 
   test.afterEach(async ({ page }) => {

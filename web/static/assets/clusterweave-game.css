@@ -41,6 +41,7 @@ body[data-clusterweave-game-bootstrap="true"] #bootstrap-splash {
 
 .clusterweave-results-heading {
   display: flex;
+  min-width: 0;
   align-items: center;
   justify-content: space-between;
   gap: .5rem;
@@ -48,12 +49,15 @@ body[data-clusterweave-game-bootstrap="true"] #bootstrap-splash {
 }
 
 .clusterweave-results-heading #results-title {
+  flex: 1 1 auto;
+  min-width: 0;
   margin: 0;
 }
 
 .clusterweave-game-launcher {
   display: inline-flex;
   flex: 0 0 auto;
+  max-width: 100%;
   margin: 0;
   padding: 0;
   border: 0;
@@ -63,6 +67,27 @@ body[data-clusterweave-game-bootstrap="true"] #bootstrap-splash {
 
 .clusterweave-game-launcher-actions {
   display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: .35rem;
+}
+
+.clusterweave-game-wait-prompt {
+  display: grid;
+  flex: 0 0 auto;
+  justify-items: center;
+  font-family: var(--mono);
+  font-size: clamp(.48rem, 1.25vw, .61rem);
+  font-weight: 950;
+  letter-spacing: -.035em;
+  line-height: 1;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.clusterweave-game-wait-prompt span {
+  display: block;
+  white-space: nowrap;
 }
 
 .clusterweave-game-overlay-actions button,
@@ -779,6 +804,7 @@ body[data-clusterweave-game-view="fullscreen"] .clusterweave-game-guide-body {
 }
 
 @media (max-width: 760px) {
+  .clusterweave-game-wait-prompt { font-size: clamp(.42rem, 2vw, .54rem); }
   .clusterweave-game-head { grid-template-columns: minmax(0, 1fr) auto; }
   .clusterweave-game-marquee { padding: .4rem .5rem; }
   .clusterweave-game-marquee strong { font-size: .9rem; }

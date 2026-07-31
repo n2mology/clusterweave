@@ -10,7 +10,7 @@ applicability semantics while remaining suitable for documentation and tests.
   - normalized per-BGC comparison of antiSMASH and FunBGCeX calls, including
     taxon group, overlap coordinates, class labels, and annotation hints
 - `all_tools_shared_unshared_summary.csv`
-  - aggregate shared, unshared, and not-applicable caller/GCF counts by genome,
+  - aggregate shared, unshared, and not-applicable BGC/GCF counts by genome,
     tool, entity type, and normalized class
 - `family_atlas_shortlist.md`
   - review-oriented dataset-wide family candidates with conservative

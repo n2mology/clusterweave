@@ -2,6 +2,24 @@
 set -euo pipefail
 IFS=$' \n\t'
 
+CLUSTERWEAVE_RAW_OUTPUT=0
+for argument in "$@"; do
+  case "${argument}" in
+    --raw)
+      CLUSTERWEAVE_RAW_OUTPUT=1
+      ;;
+    --help|-h)
+      printf '%s\n' "Usage: bash run_clusterweave.sh [--raw]"
+      exit 0
+      ;;
+    *)
+      printf '%s\n' "Unknown run_clusterweave.sh option: ${argument}" >&2
+      printf '%s\n' "Usage: bash run_clusterweave.sh [--raw]" >&2
+      exit 2
+      ;;
+  esac
+done
+
 ###############################################################################
 # Canonical stage wrapper for the ClusterWeave workflow
 #
@@ -68,6 +86,20 @@ resolve_python_cmd() {
   fi
   warn "Neither python3 nor python is available."
   return 1
+}
+start_interactive_tree_if_supported() {
+  local renderer="${SCRIPT_DIR}/bin/render_progress_tree.py"
+  local python_cmd=""
+  if [[ "${CLUSTERWEAVE_RAW_OUTPUT}" == "1" || ! -t 1 || "${TERM:-}" == "dumb" ]]; then
+    return 0
+  fi
+  if [[ ! -f "${renderer}" ]]; then
+    return 0
+  fi
+  python_cmd="$(resolve_python_cmd)" || return 0
+  exec "${python_cmd}" "${renderer}" \
+    --project "${PROJECT_NAME}" \
+    -- bash "${BASH_SOURCE[0]}" --raw
 }
 git_value() {
   local args=("$@")
@@ -199,6 +231,8 @@ require_annotation_stage_outputs() {
   fi
 }
 
+start_interactive_tree_if_supported
+
 [[ -x "${RUN_ANNOTATION_STAGE}" ]] || die "Missing executable stage runner: ${RUN_ANNOTATION_STAGE}"
 [[ -x "${RUN_BIGSCAPE}" ]] || die "Missing executable stage runner: ${RUN_BIGSCAPE}"
 [[ -x "${RUN_SUMMARY}" ]] || die "Missing executable stage runner: ${RUN_SUMMARY}"
@@ -237,6 +271,7 @@ if [[ "${RUN_STAGE_ANNOTATION}" == "1" ]]; then
   log "Stage 1/4: running run_annotation_and_detection.sh"
   bash "${RUN_ANNOTATION_STAGE}"
   require_annotation_stage_outputs
+  log "Stage 1/4: complete"
 else
   log "Stage 1/4: skipped"
 fi
@@ -244,6 +279,7 @@ fi
 if [[ "${RUN_STAGE_BIGSCAPE}" == "1" ]]; then
   log "Stage 2/4: running run_bigscape.sh"
   bash "${RUN_BIGSCAPE}"
+  log "Stage 2/4: complete"
 else
   log "Stage 2/4: skipped"
 fi
@@ -251,6 +287,7 @@ fi
 if [[ "${RUN_STAGE_SUMMARY}" == "1" ]]; then
   log "Stage 3/4: running summarize_clusterweave.sh"
   bash "${RUN_SUMMARY}"
+  log "Stage 3/4: complete"
 else
   log "Stage 3/4: skipped"
 fi
@@ -258,6 +295,7 @@ fi
 if [[ "${SHOULD_RUN_CLINKER}" == "1" ]]; then
   log "Stage 4/4: running run_clinker.sh"
   bash "${RUN_CLINKER_STAGE}"
+  log "Stage 4/4: complete"
 else
   log "Stage 4/4: skipped"
 fi

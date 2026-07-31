@@ -6,8 +6,8 @@ IFS=$' \n\t'
 # run_bigscape.sh
 # - Runs BiG-SCAPE on antiSMASH outputs for the active ClusterWeave project
 # - Uses the shared BiG-SCAPE software/resources area by default
-# - Reuses a prepopulated MiBIG cache when present
-# - Falls back to extracting a local MiBIG archive or downloading one archive
+# - Reuses explicitly prepared runtime assets and a MiBIG cache when present
+# - Never acquires or installs runtime assets during a canonical job
 ###############################################################################
 
 ###############################################################################
@@ -84,6 +84,12 @@ warn(){ echo "[$(ts)] [WARN] $*" | tee -a "${LOGFILE}" >&2; }
 err(){ echo "[$(ts)] [ERROR] $*" | tee -a "${LOGFILE}" >&2; }
 die(){ err "$*"; exit 1; }
 have(){ command -v "$1" >/dev/null 2>&1; }
+runtime_preparation_hint() {
+  warn "Runtime acquisition is disabled during canonical jobs."
+  warn "Prepare local assets with: docker compose run --rm --no-deps worker prepare-runtime"
+  warn "Verify them with: docker compose run --rm --no-deps worker check-runtime"
+  warn "External executors must pre-provision the configured site-managed runtime."
+}
 
 file_sha256() {
   local path="$1"
@@ -147,6 +153,8 @@ mibig_cache_has_gbks() {
   find "${version_dir}" -type f \( -name "*.gbk" -o -name "*.gb" \) -print -quit 2>/dev/null | grep -q .
 }
 
+# Retained as a direct-call compatibility boundary. Explicit preparation owns
+# this normalization; canonical jobs never invoke it.
 normalize_mibig_version_dir() {
   local cache="$1"
   local ver="$2"
@@ -175,76 +183,6 @@ mibig_archive_candidates() {
   done
 }
 
-extract_mibig_archive() {
-  local archive="$1"
-  local cache="$2"
-
-  [[ -s "${archive}" ]] || return 1
-  mkdir -p "${cache}"
-
-  case "${archive}" in
-    *.tar.gz|*.tgz)
-      tar -xzf "${archive}" -C "${cache}" 2>&1 | tee -a "${LOGFILE}" || return 1
-      ;;
-    *.tar.bz2|*.tbz2)
-      tar -xjf "${archive}" -C "${cache}" 2>&1 | tee -a "${LOGFILE}" || return 1
-      ;;
-    *)
-      return 1
-      ;;
-  esac
-}
-
-ensure_mibig_cache() {
-  local cache="$1"
-  local ver="$2"
-  local archive=""
-  local url=""
-
-  mkdir -p "${cache}"
-  normalize_mibig_version_dir "${cache}" "${ver}" || true
-  mibig_cache_has_gbks "${cache}" "${ver}" && return 0
-
-  while IFS= read -r candidate; do
-    if [[ -s "${candidate}" ]]; then
-      archive="${candidate}"
-      break
-    fi
-  done < <(mibig_archive_candidates "${cache}" "${ver}")
-
-  if [[ -n "${archive}" ]]; then
-    log "MiBIG cache empty; extracting local archive ${archive}"
-    extract_mibig_archive "${archive}" "${cache}" || die "Failed to extract MiBIG archive ${archive}"
-    normalize_mibig_version_dir "${cache}" "${ver}" || true
-    mibig_cache_has_gbks "${cache}" "${ver}" || die "BiG-SCAPE-ready MiBIG archive extracted but no GBKs were found under ${cache}/mibig_antismash_${ver}_gbk"
-    echo "${ver}" > "${cache}/.mibig_version" 2>/dev/null || true
-    return 0
-  fi
-
-  [[ "${MIBIG_AUTO_DOWNLOAD}" == "1" ]] || return 1
-  have curl || die "curl not found (needed to auto-download MiBIG GBKs)"
-  have tar  || die "tar not found (needed to extract MiBIG GBKs)"
-
-  if [[ -n "${MIBIG_GBK_URL}" ]]; then
-    url="${MIBIG_GBK_URL}"
-  elif [[ "${ver}" == "4.0" ]]; then
-    url="${MIBIG_URL_BASE}/mibig_antismash_${ver}_gbk_as8b1.tar.bz2"
-  else
-    url="${MIBIG_URL_BASE}/mibig_antismash_${ver}_gbk.tar.bz2"
-  fi
-
-  log "BiG-SCAPE-ready MiBIG cache empty; downloading archive from ${url}"
-  archive="$(mktemp -t mibig_antismash_${ver}.XXXXXX.tar.bz2)"
-  curl -L --fail -o "${archive}" "${url}" 2>&1 | tee -a "${LOGFILE}" \
-    || die "Failed to download MiBIG GBKs from ${url}"
-  extract_mibig_archive "${archive}" "${cache}" || die "Failed to extract downloaded MiBIG archive"
-  rm -f "${archive}" || true
-
-  normalize_mibig_version_dir "${cache}" "${ver}" || true
-  mibig_cache_has_gbks "${cache}" "${ver}" || die "BiG-SCAPE-ready MiBIG GBKs not detected after extraction into ${cache}/mibig_antismash_${ver}_gbk"
-  echo "${ver}" > "${cache}/.mibig_version" 2>/dev/null || true
-  log "MiBIG GBKs ready under ${cache}"
-}
 
 ###############################################################################
 # Detect container engine
@@ -301,74 +239,54 @@ if [[ "${FORCE}" != "1" ]] && [[ -d "${BIGSCAPE_OUT}" ]] && \
   exit 0
 fi
 
-mkdir -p "${BIGSCAPE_SOFTDIR}" "${PFAM_DIR}" "${MIBIG_CACHE}" "${BIGSCAPE_OUT}"
+mkdir -p "${BIGSCAPE_OUT}"
 
 ###############################################################################
-# Ensure container image present
+# Verify explicitly prepared runtime assets
 ###############################################################################
 if [[ "${ENGINE}" == "docker" ]]; then
   if docker image inspect "${BIGSCAPE_DOCKER_IMAGE}" >/dev/null 2>&1; then
     log "BiG-SCAPE Docker image already present: ${BIGSCAPE_DOCKER_IMAGE}"
   else
-    [[ "${AUTO_PULL_BIGSCAPE_SIF}" == "1" ]] || die "BiG-SCAPE Docker image missing: ${BIGSCAPE_DOCKER_IMAGE}. Set AUTO_PULL_BIGSCAPE_SIF=1 to fetch it."
-    log "Pulling BiG-SCAPE Docker image: ${BIGSCAPE_DOCKER_IMAGE}"
-    docker pull "${BIGSCAPE_DOCKER_IMAGE}" 2>&1 | tee -a "${LOGFILE}" || die "Docker image pull failed"
+    warn "BiG-SCAPE Docker image missing: ${BIGSCAPE_DOCKER_IMAGE}"
+    warn "AUTO_PULL_BIGSCAPE_SIF=${AUTO_PULL_BIGSCAPE_SIF} is accepted for compatibility; canonical jobs do not pull images."
+    runtime_preparation_hint
+    exit 1
   fi
 elif [[ ! -s "${SIF_PATH}" ]]; then
-  [[ "${AUTO_PULL_BIGSCAPE_SIF}" == "1" ]] || die "BiG-SCAPE SIF missing: ${SIF_PATH}. Set AUTO_PULL_BIGSCAPE_SIF=1 to fetch it."
-  log "Pulling BiG-SCAPE container: ${SIF_SOURCE} -> ${SIF_PATH}"
-  "${ENGINE}" pull "${SIF_PATH}" "${SIF_SOURCE}" 2>&1 | tee -a "${LOGFILE}" || die "Container pull failed"
+  warn "BiG-SCAPE SIF missing: ${SIF_PATH}"
+  warn "Configured image source: ${SIF_SOURCE}"
+  warn "AUTO_PULL_BIGSCAPE_SIF=${AUTO_PULL_BIGSCAPE_SIF} is accepted for compatibility; canonical jobs do not pull images."
+  runtime_preparation_hint
+  exit 1
 else
   log "Container SIF already present: ${SIF_PATH}"
 fi
 
-###############################################################################
-# Ensure Pfam present
-###############################################################################
 if [[ ! -s "${PFAM_HMM}" ]]; then
-  [[ "${AUTO_DOWNLOAD_PFAM}" == "1" ]] || die "Pfam-A.hmm missing: ${PFAM_HMM}. Set AUTO_DOWNLOAD_PFAM=1 to fetch it."
-  log "Pfam-A.hmm missing; downloading to ${PFAM_GZ}"
-  have curl || die "curl not found (needed to download Pfam)"
-  curl -L --fail -o "${PFAM_GZ}" "${PFAM_URL}" 2>&1 | tee -a "${LOGFILE}" || die "Failed to download Pfam-A.hmm.gz"
-  gunzip -f "${PFAM_GZ}" 2>&1 | tee -a "${LOGFILE}" || die "Failed to gunzip Pfam-A.hmm.gz"
-  [[ -s "${PFAM_HMM}" ]] || die "Pfam-A.hmm still missing after download"
-else
-  log "Pfam already present: ${PFAM_HMM}"
+  warn "Pfam-A.hmm missing: ${PFAM_HMM}"
+  warn "AUTO_DOWNLOAD_PFAM=${AUTO_DOWNLOAD_PFAM} is accepted for compatibility; canonical jobs do not download databases."
+  runtime_preparation_hint
+  exit 1
 fi
+log "Pfam already present: ${PFAM_HMM}"
 
-###############################################################################
-# MiBIG: prefer the shared cache; extract/download only if genuinely missing
-###############################################################################
 MIBIG_VERSION=""
-if ! mibig_cache_has_gbks "${MIBIG_CACHE}" "${MIBIG_VERSION_DEFAULT}"; then
-  ensure_mibig_cache "${MIBIG_CACHE}" "${MIBIG_VERSION_DEFAULT}" || true
-fi
-
 if mibig_cache_has_gbks "${MIBIG_CACHE}" "${MIBIG_VERSION_DEFAULT}"; then
   MIBIG_VERSION="${MIBIG_VERSION_DEFAULT}"
   log "MiBIG cache detected; enabling --mibig-version ${MIBIG_VERSION}"
 else
   warn "MiBIG cache is empty at ${MIBIG_CACHE}; running without MiBIG integration"
+  warn "MIBIG_AUTO_DOWNLOAD=${MIBIG_AUTO_DOWNLOAD} is accepted for compatibility; canonical jobs do not acquire the optional cache."
 fi
 
-###############################################################################
-# Ensure FastTree exists
-###############################################################################
-mkdir -p "${LOCAL_BIN}"
 if [[ ! -x "${FASTTREE_HOST}" ]]; then
-  [[ "${AUTO_DOWNLOAD_FASTTREE}" == "1" ]] || die "FastTree missing: ${FASTTREE_HOST}. Set AUTO_DOWNLOAD_FASTTREE=1 to fetch it."
-  log "FastTree missing at ${FASTTREE_HOST}; downloading pinned v${FASTTREE_VERSION} Linux executable"
-  have curl || die "curl not found (needed to download FastTree)"
-  fasttree_download_tmp="$(mktemp "${FASTTREE_HOST}.download.XXXXXX")" || die "Failed to create a temporary FastTree download"
-  trap 'rm -f -- "${fasttree_download_tmp}"' EXIT
-  curl -L --fail -o "${fasttree_download_tmp}" "${FASTTREE_URL}" 2>&1 | tee -a "${LOGFILE}" || die "Failed to download FastTree"
-  verify_fasttree_checksum "${fasttree_download_tmp}"
-  chmod +x "${fasttree_download_tmp}" || die "Failed to chmod +x downloaded FastTree"
-  mv -f -- "${fasttree_download_tmp}" "${FASTTREE_HOST}" || die "Failed to install FastTree"
-  trap - EXIT
-else
-  log "FastTree already present: ${FASTTREE_HOST}"
+  warn "FastTree missing: ${FASTTREE_HOST}"
+  warn "AUTO_DOWNLOAD_FASTTREE=${AUTO_DOWNLOAD_FASTTREE} is accepted for compatibility; canonical jobs do not download executables."
+  runtime_preparation_hint
+  exit 1
 fi
+log "FastTree already present: ${FASTTREE_HOST}"
 verify_fasttree_checksum "${FASTTREE_HOST}"
 
 ###############################################################################

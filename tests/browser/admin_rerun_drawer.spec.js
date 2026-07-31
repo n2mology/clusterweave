@@ -1,6 +1,9 @@
 const { test, expect } = require('@playwright/test');
+const fs = require('fs');
+const path = require('path');
 
 const baseUrl = 'http://127.0.0.1:4173';
+const evidenceDir = process.env.CLUSTERWEAVE_R12D_EVIDENCE_DIR || '';
 
 function completedJob(id, projectName) {
   return {
@@ -109,6 +112,7 @@ test('rerun opens as one normal-flow job disclosure and uses original stage elig
   });
 
   await page.goto(baseUrl);
+  await expect.poll(() => page.evaluate(() => bootstrapComplete)).toBe(true);
   await page.evaluate(() => openOpsPanel({ tab: 'jobs', focusPanel: false }));
 
   const firstItem = page.locator('[data-diagnostic-job-item][data-job-id="synthetic-fixture-job"]');
@@ -144,6 +148,15 @@ test('rerun opens as one normal-flow job disclosure and uses original stage elig
   expect(boxes.disclosurePosition).toBe('static');
   expect(boxes.disclosureTop).toBeGreaterThanOrEqual(boxes.cardBottom);
   expect(boxes.neighborTop).toBeGreaterThanOrEqual(boxes.disclosureBottom);
+  if (evidenceDir) {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    fs.mkdirSync(evidenceDir, { recursive: true });
+    const phase = process.env.CLUSTERWEAVE_R12D_PHASE || 'capture';
+    await firstItem.screenshot({ path: path.join(evidenceDir, `${phase}-rerun-desktop.png`) });
+    await page.setViewportSize({ width: 390, height: 900 });
+    await firstItem.screenshot({ path: path.join(evidenceDir, `${phase}-rerun-mobile.png`) });
+    await page.setViewportSize({ width: 1280, height: 900 });
+  }
 
   const queueButton = firstDisclosure.getByRole('button', { name: 'Queue selected stages' });
   expect(reloadRequests).toHaveLength(0);

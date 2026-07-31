@@ -150,7 +150,7 @@ class JobStoreAtomicWriteTests(unittest.TestCase):
         self.assertNotIn("target_genome", serialized)
         self.assertNotIn("submission_settings", serialized)
 
-    def test_legacy_summary_sidecar_self_heals_safe_rerun_mask(self) -> None:
+    def test_legacy_summary_sidecar_projects_safe_rerun_mask_without_mutation(self) -> None:
         created = self.job_store.now_iso()
         job = {
             "id": "legacyrerun",
@@ -180,7 +180,7 @@ class JobStoreAtomicWriteTests(unittest.TestCase):
             {"run_annotation": True, "run_figures": True},
             summary["rerun_stage_settings"],
         )
-        self.assertEqual(summary["rerun_stage_settings"], refreshed["rerun_stage_settings"])
+        self.assertNotIn("rerun_stage_settings", refreshed)
         self.assertNotIn("env_overrides", json.dumps(refreshed))
         self.assertNotIn("submission_settings", refreshed)
 

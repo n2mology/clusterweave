@@ -3,8 +3,7 @@
 .github/
 .gitignore
 
-# Dependencies and tooling caches.
-node_modules/
+# Tooling caches.
 **/__pycache__/
 **/*.pyc
 **/*.pyo
@@ -33,9 +32,6 @@ known_hosts
 authorized_keys
 
 # Generated reports and runtime data.
-test-results/
-playwright-report/
-blob-report/
 coverage/
 htmlcov/
 .coverage

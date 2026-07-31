@@ -160,6 +160,12 @@ log(){ echo "[$(ts)] [INFO] $*"; }
 warn(){ echo "[$(ts)] [WARN] $*" >&2; }
 die(){ echo "[$(ts)] [ERROR] $*" >&2; exit 1; }
 have(){ command -v "$1" >/dev/null 2>&1; }
+runtime_preparation_hint() {
+  warn "Runtime acquisition is disabled during canonical jobs."
+  warn "Prepare local assets with: docker compose run --rm --no-deps worker prepare-runtime"
+  warn "Verify them with: docker compose run --rm --no-deps worker check-runtime"
+  warn "External executors must pre-provision the configured site-managed runtime."
+}
 
 normalize_positive_integer() {
   local name="$1"
@@ -237,14 +243,18 @@ detect_engine() {
 }
 ensure_clinker_sif() {
   detect_engine || die "singularity/apptainer not found in PATH and clinker is not installed locally"
-  mkdir -p "${CLINKER_SOFTDIR}"
-  if [[ "${FORCE_PULL_CLINKER_SIF}" != "1" && -s "${CLINKER_SIF_PATH}" ]]; then
+  if [[ -s "${CLINKER_SIF_PATH}" ]]; then
     log "Using existing clinker SIF: ${CLINKER_SIF_PATH}"
+    if [[ "${FORCE_PULL_CLINKER_SIF}" == "1" ]]; then
+      warn "FORCE_PULL_CLINKER_SIF=1 is accepted for compatibility; canonical jobs reuse the prepared SIF."
+    fi
     return 0
   fi
-  [[ "${INSTALL_CLINKER_SIF}" == "1" ]] || die "Clinker SIF missing and INSTALL_CLINKER_SIF=0"
-  log "Pulling clinker container: ${CLINKER_SIF_SOURCE} -> ${CLINKER_SIF_PATH}"
-  "${ENGINE}" pull "${CLINKER_SIF_PATH}" "${CLINKER_SIF_SOURCE}" || die "Failed to pull clinker container"
+  warn "Clinker SIF missing: ${CLINKER_SIF_PATH}"
+  warn "Configured image source: ${CLINKER_SIF_SOURCE}"
+  warn "INSTALL_CLINKER_SIF=${INSTALL_CLINKER_SIF} and FORCE_PULL_CLINKER_SIF=${FORCE_PULL_CLINKER_SIF} are accepted compatibility inputs; canonical jobs do not pull images."
+  runtime_preparation_hint
+  return 1
 }
 
 ensure_clinker_docker_image() {
@@ -253,8 +263,9 @@ ensure_clinker_docker_image() {
     log "Using existing clinker Docker image: ${CLINKER_DOCKER_IMAGE}"
     return 0
   fi
-  log "Pulling clinker Docker image: ${CLINKER_DOCKER_IMAGE}"
-  docker pull "${CLINKER_DOCKER_IMAGE}" || die "Failed to pull clinker Docker image"
+  warn "Clinker Docker image missing: ${CLINKER_DOCKER_IMAGE}"
+  runtime_preparation_hint
+  return 1
 }
 
 ensure_metadata_tsv() {
@@ -801,7 +812,7 @@ if [[ "${RUN_CLINKER}" == "1" ]]; then
   if command -v clinker >/dev/null 2>&1 && [[ "${PREFER_CLINKER_CONTAINER}" != "1" ]]; then
     log "Using local clinker from PATH"
   elif [[ "${CLINKER_USE_DOCKER_IMAGE}" == "1" ]]; then
-    ensure_clinker_docker_image
+    ensure_clinker_docker_image || die "Clinker Docker runtime is not prepared."
     export CLINKER_DOCKER_IMAGE
     export CLINKER_DOCKER_DATA_VOLUME
     export CLINKER_DOCKER_CPUS
@@ -829,7 +840,7 @@ if [[ "${RUN_CLINKER}" == "1" ]]; then
     docker run "${clinker_docker_args[@]}" "${CLINKER_DOCKER_IMAGE}" clinker --help >/dev/null 2>&1 \
       || die "Clinker Docker image sanity check failed"
   else
-    ensure_clinker_sif
+    ensure_clinker_sif || die "Clinker SIF runtime is not prepared."
     export CLINKER_ENGINE="${ENGINE}"
     export CLINKER_SIF_PATH="${CLINKER_SIF_PATH}"
     export PREFER_CLINKER_CONTAINER=1

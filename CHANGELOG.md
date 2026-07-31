@@ -1,5 +1,37 @@
 # Changelog
 
+## 1.0.2 - 2026-07-31
+
+Patch release:
+
+- Added `CLUSTERWEAVE_MAX_ACCESSIONS=50` and
+  `CLUSTERWEAVE_MAX_GENOME_FILES=50` to newly generated local configuration.
+- Hydrated browser accession rows and file guidance from `public_quota`, with 50
+  retained only as the disconnected fallback.
+- Made accession-list imports atomic and derived related routing, ecology,
+  taxonomy, accession-list, and accession-validation bounds from the configured
+  input counts.
+- Added synthetic acceptance and figure scaling coverage at 75 genomes without
+  changing shipped profile defaults or claiming unrestricted scale.
+- Consolidated duplicated annotation, NCBI renaming, summarization, runtime
+  preparation, and browser-controller implementations behind one supported
+  implementation for each responsibility.
+- Added a shared hierarchical progress-tree contract for the browser and
+  interactive CLI while preserving exact raw logs for automation and review.
+- Preserved generated antiSMASH and FunBGCeX HTML navigation inside a
+  scripts-only opaque-origin reader. Same-document region links stay local,
+  while attested nested HTML resolves on trusted interaction without exposing a
+  result access code or private worker path.
+- Added generation-bound opaque result and artifact routes, signed result
+  attestations, and bounded public projections for progress, accepted inputs,
+  figures, result readers, and downloads.
+- Improved mixed fungal and bacterial figure layout, BiG-SCAPE panel spacing,
+  intrinsic TREE preview sizing, zoom and pan behavior, and taxon-aware result
+  presentation.
+- Refined result-access, run restoration, citation, upstream-credit, input
+  validation, resource-limit, diagnostics, and waiting-game interfaces across
+  desktop, narrow, keyboard, and reduced-motion layouts.
+
 ## 1.0.1 — 2026-07-23
 
 Patch release:

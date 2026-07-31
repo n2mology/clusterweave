@@ -4,7 +4,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
-
+import xml.etree.ElementTree as ET
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MODULE_PATH = REPO_ROOT / "bin" / "render_bigscape_network.py"
@@ -476,6 +476,92 @@ class BigscapeNetworkRenderingTests(unittest.TestCase):
             warnings = (output_dir / "no_ecology_signal_warnings.txt").read_text(encoding="utf-8")
             self.assertNotIn("Ecology Border", svg_text)
             self.assertIn("No non-unknown ecology categories", warnings)
+
+    def test_compound_and_confidence_labels_clear_nodes_for_both_taxa(self) -> None:
+        namespace = "{http://www.w3.org/2000/svg}"
+        product = "prolipyrone B, gibepyrone D"
+        edges = [
+            self.module.EdgeRecord("record_1", "record_2", distance=0.15),
+            self.module.EdgeRecord("record_1", "record_3", distance=0.15),
+        ]
+        for taxon_group in ("fungi", "bacteria"):
+            with self.subTest(taxon_group=taxon_group), tempfile.TemporaryDirectory() as tmpdir:
+                nodes = {
+                    f"record_{index}": self.module.NodeRecord(
+                        record=f"record_{index}",
+                        sample_id=f"{taxon_group}_fixture",
+                        label_number=str(index),
+                        bgc_class="PKS",
+                        taxon_group=taxon_group,
+                        putative_products=(product,),
+                        putative_product_scores={
+                            product: {"ClusterCompare": ("75%",)}
+                        },
+                        fill_color=self.module.CLASS_COLORS["PKS"],
+                    )
+                    for index in range(1, 4)
+                }
+                layout = self.module.build_layout(
+                    nodes,
+                    edges,
+                    1400,
+                    0,
+                    combine_connected_components=True,
+                    top_margin=78.0,
+                )
+                root_path = Path(tmpdir)
+                inputs = self.module.BigscapeInputs(
+                    output_root=root_path,
+                    run_dir=root_path,
+                    category="mix",
+                    clustering_path=root_path / "mix.tsv",
+                    network_path=None,
+                    annotations_path=None,
+                )
+                svg_path = root_path / f"{taxon_group}_multipanel_panel_b.svg"
+                self.module.render_svg(svg_path, nodes, edges, layout, inputs)
+
+                root = ET.parse(svg_path).getroot()
+                text_by_value = {
+                    "".join(element.itertext()): element
+                    for element in root.iter(f"{namespace}text")
+                }
+                label_values = ["prolipyrone B,", "gibepyrone D", "75%"]
+                baselines = [
+                    float(text_by_value[value].attrib["y"]) for value in label_values
+                ]
+                self.assertTrue(
+                    all(
+                        right - left >= self.module.PRODUCT_LABEL_LINE_HEIGHT
+                        for left, right in zip(baselines, baselines[1:])
+                    )
+                )
+                first_line_ascent = (
+                    self.module.display_font_size(
+                        self.module.PRODUCT_LABEL_FONT_SIZE
+                    )
+                    - self.module.PRODUCT_LABEL_TEXT_DESCENT
+                )
+                label_top = baselines[0] - first_line_ascent
+                packed_row_top = layout.section_y["medium_small"] + 18.0
+                self.assertGreaterEqual(
+                    label_top,
+                    packed_row_top + self.module.PRODUCT_LABEL_CELL_TOP_PADDING,
+                )
+                node_tops = [
+                    float(element.attrib["cy"]) - float(element.attrib["r"])
+                    for element in root.iter(f"{namespace}circle")
+                    if element.attrib.get("stroke") == "#333333"
+                    and float(element.attrib["cx"]) < layout.legend_x
+                ]
+                self.assertEqual(len(node_tops), 3)
+                label_bottom = (
+                    baselines[-1] + self.module.PRODUCT_LABEL_TEXT_DESCENT
+                )
+                self.assertLessEqual(
+                    label_bottom + self.module.PRODUCT_LABEL_NODE_GAP,
+                    min(node_tops),
+                )
 
     def test_component_packing_reserves_compound_label_width(self) -> None:
         products = {

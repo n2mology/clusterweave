@@ -138,7 +138,7 @@ class PhyloTaxonRenderingTests(unittest.TestCase):
 
     def test_fungi_bacteria_both_one_and_layout_sizes_are_deterministic(self) -> None:
         namespace = "{http://www.w3.org/2000/svg}"
-        for fungi, bacteria in [(1, 0), (0, 1), (2, 1), (8, 7), (13, 12), (25, 25)]:
+        for fungi, bacteria in [(1, 0), (0, 1), (2, 1), (8, 7), (13, 12), (25, 25), (38, 37)]:
             with self.subTest(fungi=fungi, bacteria=bacteria):
                 output, temp = self.render_fixture(fungi, bacteria)
                 self.addCleanup(temp.cleanup)

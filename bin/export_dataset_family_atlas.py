@@ -18,7 +18,11 @@ from gcf_view import (
     canonical_gcf_category,
     canonical_gcf_threshold,
     clustering_view,
+    ecology_group as report_ecology_group,
+    ecology_pattern as report_ecology_pattern,
+    matches_focus_ecology as report_matches_focus_ecology,
     materialized_gcf_provenance,
+    preferred_family_source as report_preferred_family_source,
 )
 
 
@@ -56,11 +60,11 @@ def write_tsv(path: Path, fieldnames: list[str], rows: list[dict[str, object]]) 
 
 
 def ecology_group(primary_label: str) -> str:
-    return clean(primary_label) or "UNLABELED"
+    return report_ecology_group(primary_label)
 
 
 def matches_focus_ecology(ecology_value: str, focus_label: str) -> bool:
-    return bool(clean(focus_label)) and clean(ecology_value).casefold() == clean(focus_label).casefold()
+    return report_matches_focus_ecology(ecology_value, focus_label)
 
 
 def region_from_gbk(gbk: str) -> str:
@@ -128,51 +132,11 @@ def join_sorted(values: set[str]) -> str:
 
 
 def ecology_pattern(focus_count: int, other_count: int, focus_label: str) -> str:
-    if focus_count and other_count:
-        return "mixed"
-    if not clean(focus_label):
-        return "present"
-    if focus_count:
-        return "focus_only"
-    if other_count:
-        return "nonfocus_only"
-    return "unlabeled"
+    return report_ecology_pattern(focus_count, other_count, focus_label)
 
 
 def preferred_family_source(families_by_category: dict[str, set[str]]) -> tuple[str, list[str]]:
-    if "mix" in families_by_category and families_by_category["mix"]:
-        return "mix", sorted(families_by_category["mix"])
-
-    preferred_order = [
-        "NRPS.PKS.other.terpene",
-        "NRPS.PKS.other",
-        "NRPS.PKS.terpene",
-        "PKS.other.terpene",
-        "NRPS.PKS",
-        "PKS.terpene",
-        "NRPS.terpene",
-        "NRPS.other",
-        "PKS.other",
-        "other.terpene",
-        "NRPS",
-        "PKS",
-        "terpene",
-        "RiPP",
-        "other",
-    ]
-    for category in preferred_order:
-        if category in families_by_category and families_by_category[category]:
-            return category, sorted(families_by_category[category])
-
-    candidates = [
-        (len(families), category, sorted(families))
-        for category, families in families_by_category.items()
-        if families
-    ]
-    if not candidates:
-        return "", []
-    _, category, families = sorted(candidates)[0]
-    return category, families
+    return report_preferred_family_source(families_by_category)
 
 
 def atlas_candidate_sort_key(row: dict[str, str]) -> tuple[object, ...]:

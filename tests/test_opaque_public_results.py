@@ -558,6 +558,29 @@ class OpaquePublicResultTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(legacy_body, self.first["files"][legacy_path])
 
+    def test_canonical_job_does_not_enter_internal_id_bookmark_adapter(self) -> None:
+        job = self.job_store.read_job(str(self.first["internal_id"]))
+        self.assertIsNotNone(job)
+        assert job is not None
+        job["public_run_id"] = self.app.generate_public_run_id()
+        self.job_store.write_job(job)
+
+        status, canonical, _ = self._request(
+            "GET",
+            f"/api/results/{job['public_run_id']}",
+            token=str(self.first["read_token"]),
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(canonical["public_run_id"], job["public_run_id"])
+
+        status, legacy_error, _ = self._request(
+            "GET",
+            f"/api/jobs/{self.first['internal_id']}?compact=1",
+            token=str(self.first["read_token"]),
+        )
+        self.assertEqual(status, 404)
+        self.assertEqual(legacy_error, {"detail": "Result not found"})
+
     def test_nested_bundle_resolution_is_family_bounded_and_attested(self) -> None:
         public_id, _, artifacts = self._artifacts(self.first)
         fungal = self._find_artifact(

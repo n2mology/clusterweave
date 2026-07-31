@@ -2,9 +2,10 @@
 # clusterweave.yml — external-executor/operator profile
 #
 # Usage:
-#   docker compose -f clusterweave.yml up -d      # start services
-#   docker compose -f clusterweave.yml down       # stop services
-#   docker compose -f clusterweave.yml logs -f    # tail logs
+#   docker compose -f clusterweave.yml run --rm --no-deps worker check-runtime
+#   docker compose -f clusterweave.yml up -d
+#   docker compose -f clusterweave.yml down
+#   docker compose -f clusterweave.yml logs -f
 #
 # The web UI is available at http://127.0.0.1:8080 by default.
 #
@@ -12,10 +13,9 @@
 # tool containers by itself. It is for operators wiring an external executor
 # (for example Slurm), not the normal single-machine laptop workflow.
 #
-# On first startup the container downloads:
-#   - antiSMASH databases (~5 GB) to the `antismash_db` volume
-#   - Pfam-A.hmm (~1 GB) to the `pfam_db` volume
-# Both are cached in named Docker volumes and reused on subsequent starts.
+# Runtime preparation is check-only in this profile; site-managed assets must be pre-provisioned.
+# Normal service startup does not pull, download, build, install, or rewrite a
+# runtime manifest.
 # ─────────────────────────────────────────────────────────────────────────────
 services:
   web:

@@ -72,19 +72,53 @@ class LocalProfileCpuCompositionTests(unittest.TestCase):
                 text=True,
             )
             composition = json.loads(rendered.stdout)
+            override_environment = {
+                **compose_environment,
+                "CLUSTERWEAVE_MAX_ACCESSIONS": "75",
+                "CLUSTERWEAVE_MAX_GENOME_FILES": "75",
+            }
+            rendered_override = subprocess.run(
+                [
+                    "docker",
+                    "compose",
+                    "--env-file",
+                    str(generated_env),
+                    "-f",
+                    str(COMPOSE_FILE),
+                    "config",
+                    "--format",
+                    "json",
+                ],
+                cwd=REPO_ROOT,
+                env=override_environment,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            override_composition = json.loads(rendered_override.stdout)
 
         web_environment = composition["services"]["web"]["environment"]
+        override_web_environment = override_composition["services"]["web"]["environment"]
         worker_service = composition["services"]["worker"]
         worker_environment = worker_service["environment"]
         worker_cpu_limit = int(worker_service["cpus"])
         worker_memory_limit_mb = int(worker_service["mem_limit"]) // (1024 * 1024)
 
         local_template = read_dotenv(REPO_ROOT / "config" / "local.env.template")
+        self.assertEqual(local_template["CLUSTERWEAVE_MAX_ACCESSIONS"], "50")
+        self.assertEqual(local_template["CLUSTERWEAVE_MAX_GENOME_FILES"], "50")
         self.assertEqual(local_template["CLUSTERWEAVE_MAX_CPUS_PER_JOB"], "4")
         self.assertEqual(local_template["CLUSTERWEAVE_WORKER_CPU_LIMIT"], "4")
 
+        self.assertEqual(initialized["CLUSTERWEAVE_MAX_ACCESSIONS"], "50")
+        self.assertEqual(initialized["CLUSTERWEAVE_MAX_GENOME_FILES"], "50")
         self.assertEqual(initialized["CLUSTERWEAVE_MAX_CPUS_PER_JOB"], "4")
         self.assertEqual(initialized["CLUSTERWEAVE_WORKER_CPU_LIMIT"], "4")
+        self.assertEqual(web_environment["CLUSTERWEAVE_MAX_ACCESSIONS"], "50")
+        self.assertEqual(web_environment["CLUSTERWEAVE_MAX_GENOME_FILES"], "50")
+        self.assertEqual(override_web_environment["CLUSTERWEAVE_MAX_ACCESSIONS"], "75")
+        self.assertEqual(override_web_environment["CLUSTERWEAVE_MAX_GENOME_FILES"], "75")
         self.assertEqual(web_environment["CLUSTERWEAVE_MAX_CPUS_PER_JOB"], "4")
         self.assertEqual(worker_cpu_limit, 4)
         self.assertEqual(worker_environment["PIPELINE_CPUS"], "4")
@@ -92,6 +126,8 @@ class LocalProfileCpuCompositionTests(unittest.TestCase):
         defaults = (REPO_ROOT / "config" / "defaults.env").read_text(
             encoding="utf-8"
         )
+        self.assertIn("# CLUSTERWEAVE_MAX_ACCESSIONS=50", defaults)
+        self.assertIn("# CLUSTERWEAVE_MAX_GENOME_FILES=50", defaults)
         self.assertIn("# CLUSTERWEAVE_MAX_CPUS_PER_JOB=4", defaults)
         self.assertIn("# CLUSTERWEAVE_WORKER_CPU_LIMIT=4", defaults)
         self.assertIn(

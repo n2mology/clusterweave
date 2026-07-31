@@ -7,8 +7,12 @@
 <meta name="robots" content="index, follow" />
 <title>ClusterWeave</title>
 <link rel="icon" href="/favicon.ico?v=20260722-ui-colors" type="image/x-icon" sizes="16x16 32x32 48x48 64x64 128x128 256x256">
-<link rel="stylesheet" href="assets/clusterweave.css?v=20260723-timer-utc1">
-<link rel="stylesheet" href="assets/clusterweave-game.css?v=20260721-play-centered2">
+<link rel="stylesheet" href="assets/clusterweave.css?v=20260723-timer-utc1-citation-align1">
+<link rel="stylesheet" href="assets/progress-tree.css?v=20260730-stage-tree1">
+<meta name="clusterweave-game-asset" content="assets/clusterweave-game.css?v=20260721-play-centered2" data-kind="style">
+<meta name="clusterweave-game-asset" content="assets/clusterweave-game-content.js?v=20260714-runner6" data-kind="script">
+<meta name="clusterweave-game-asset" content="assets/clusterweave-game-core.js?v=20260714-runner6" data-kind="script">
+<meta name="clusterweave-game-asset" content="assets/clusterweave-game.js?v=20260721-play-centered3" data-kind="script">
 </head>
 <body data-ui-mode="guided" data-access="public" data-workflow-state="idle" data-job-state="idle" data-results-available="false" data-results-dashboard="closed" data-result-focus="overview" data-entry-mode="new" data-existing-run-loaded="false" data-management-view="closed" data-ops-panel="collapsed" data-ops-tab="jobs" data-results-panel="collapsed">
 
@@ -87,9 +91,12 @@
               <div><dt>Jobs · queued</dt><dd id="public-impact-queued">0</dd></div>
               <div><dt>Jobs · completed</dt><dd id="public-impact-completed">0</dd></div>
             </dl>
-            <p class="summary">If you have found ClusterWeave useful, <a href="https://github.com/n2mology/clusterweave" target="_blank" rel="noopener" data-citation-link>cite us</a>.</p>
+            <div class="citation-card-row">
+              <p class="summary"><span>IF YOU HAVE FOUND CLUSTERWEAVE USEFUL, <a href="https://github.com/n2mology/clusterweave" target="_blank" rel="noopener" data-citation-link>CITE US</a>.</span></p>
+              <button class="tool-credit-card" id="tool-credit-open" type="button" aria-haspopup="dialog" aria-controls="tool-credit-overlay">Credit</button>
+            </div>
           </div>
-          <button class="tool-credit-card" id="tool-credit-open" type="button" aria-haspopup="dialog" aria-controls="tool-credit-overlay">Upstream Tool Credit</button><span id="docs" hidden inert aria-hidden="true"></span>
+          <span id="docs" hidden inert aria-hidden="true"></span>
         </div>
       </section>
 
@@ -117,7 +124,7 @@
               <div class="intake-top-grid">
                 <section class="accession-card brutal-accession-card" id="brutal-accession-card" aria-label="NCBI accession input">
                   <div class="accession-card-head"><label for="brutal-accession-rows">NCBI GenBank assembly accessions</label><a class="ncbi-link accession-ncbi-link is-small" href="https://www.ncbi.nlm.nih.gov/datasets/genome/" target="_blank" rel="noopener" aria-label="Open NCBI Datasets genome search in a new tab">NCBI genomes</a></div>
-                  <div class="brutal-accession-rows accession-list" id="brutal-accession-rows" data-max-accessions="50" aria-label="Sequential accession list"></div>
+                  <div class="brutal-accession-rows accession-list" id="brutal-accession-rows" aria-label="Sequential accession list"></div>
                   <textarea id="manual-accessions" class="manual-accessions-shadow" tabindex="-1" aria-hidden="true" aria-label="Manual accession compatibility input"></textarea>
                   <div class="eco-picker brutal-eco-picker" id="brutal-eco-picker" role="dialog" aria-label="Select ecology label" hidden>
                     <div class="eco-picker-title" id="brutal-eco-picker-title">Select ecology</div>
@@ -131,7 +138,7 @@
                 <section class="upload-card" id="genome-upload-card" aria-label="Genome upload">
                   <input class="file-input-hidden" type="file" id="file-input" multiple accept=".gbk,.gb,.gbff,.fasta,.fa,.fna,.fsa,.txt,.tsv" aria-label="Upload genome, accession, or taxon assignment files" />
                   <div class="dropbox upload-zone" id="drop-zone" tabindex="0" role="button" aria-label="Upload genome or accession files">GBK / FASTA / TXT / taxon_assignments.tsv</div>
-                  <div class="upload-limit-note" id="upload-limit-note" role="note">Limits: 50 genome files or 50 NCBI accessions · 500 MB/file · 1 GB/run. <a href="https://github.com/n2mology/clusterweave#web-portal-faq" target="_blank" rel="noopener">FAQ / local workflow</a></div>
+                  <div class="upload-limit-note" id="upload-limit-note" role="note">Loading this service's input limits. <a href="https://github.com/n2mology/clusterweave#web-portal-faq" target="_blank" rel="noopener">FAQ / local workflow</a></div>
                   <div class="data-use-ack" id="data-use-ack-panel" hidden inert aria-hidden="true">
                     <label><input type="checkbox" id="data-use-ack" onchange="renderFileList()" /> <span><b>PUBLIC DATA ONLY</b></span></label>
                   </div>
@@ -212,7 +219,20 @@
                 <div class="access-card"><small>Project</small><b id="run-setup-project">Not submitted</b></div>
                 <div class="access-card"><small>Analysis scope</small><b id="run-setup-analysis-scope">Fungi</b></div>
                 <div class="access-card"><small>Target genome</small><b id="run-setup-target">Not selected</b></div>
-                <div class="access-card"><small>Result access</small><a id="run-setup-result-link" onclick="openRunSetupResultAccess(event)">Pending</a></div>
+                <div class="access-card run-setup-credentials-card" id="run-setup-credentials-card">
+                  <div class="run-setup-credential-head">
+                    <small>Result access</small>
+                    <div class="run-setup-credential-copy">
+                      <button class="brutal-button run-setup-copy-button" id="copy-run-setup-credentials" type="button" onclick="copyRunSetupCredentials()" disabled>COPY</button>
+                    </div>
+                  </div>
+                  <dl class="run-setup-credential-list">
+                    <div class="run-setup-credential-row"><dt>Private link</dt><dd><a id="run-setup-result-link" onclick="openRunSetupResultAccess(event)">Pending</a></dd></div>
+                    <div class="run-setup-credential-row"><dt>Access code</dt><dd><code id="run-setup-access-code">Pending</code></dd></div>
+                    <div class="run-setup-credential-row"><dt>Run ID</dt><dd><code id="run-setup-public-id">Pending</code></dd></div>
+                  </dl>
+                  <p class="run-setup-credential-note">SAVE/COPY YOUR JOB CREDENTIALS. ANYONE WITH THESE CAN READ THE RESULTS.</p>
+                </div>
                 <div class="access-card run-setup-job-card" hidden inert aria-hidden="true"><small>Job <span id="run-setup-job-state">queued</span></small><code id="run-setup-job-id">Pending</code><small id="run-setup-expiration"></small></div>
               </div>
             </div>
@@ -309,6 +329,7 @@
             <section class="clusterweave-game-launcher hidden" id="clusterweave-game-launcher" hidden inert aria-hidden="true" aria-label="Game">
               <div class="sr-only"><strong>Game unavailable</strong><p>The workflow is unaffected.</p></div>
               <div class="clusterweave-game-launcher-actions">
+                <span class="clusterweave-game-wait-prompt" aria-hidden="true"><span>PLAY WHILE</span><span>YOU WAIT</span></span>
                 <button class="clusterweave-game-start-icon" id="clusterweave-game-start" type="button" aria-label="Play"></button>
               </div>
               <span class="sr-only" id="clusterweave-game-best">Session best · 0</span>
@@ -417,10 +438,16 @@
     <div class="tool-credit-overlay-head"><strong>Upstream Tool Credit</strong><button class="tool-credit-close" id="tool-credit-close" type="button" aria-label="Close upstream tool credit">x</button></div>
     <div class="tool-credit-list" aria-label="Upstream tool credit links">
       <div class="tool-credit-tabs" role="tablist" aria-label="Tool credit scope">
-        <button class="tool-credit-tab" id="tool-credit-web-tab" type="button" role="tab" aria-controls="tool-credit-web-panel" aria-selected="true" onclick="switchToolCreditTab('web')" onkeydown="handleToolCreditTabKeydown(event)">Web workflow</button>
-        <button class="tool-credit-tab" id="tool-credit-local-tab" type="button" role="tab" aria-controls="tool-credit-local-panel" aria-selected="false" tabindex="-1" onclick="switchToolCreditTab('local')" onkeydown="handleToolCreditTabKeydown(event)">Local options</button>
+        <button class="tool-credit-tab" id="tool-credit-support-tab" data-tool-credit-tab="support" type="button" role="tab" aria-controls="tool-credit-support-panel" aria-selected="true" onclick="switchToolCreditTab('support')" onkeydown="handleToolCreditTabKeydown(event)">Support</button>
+        <button class="tool-credit-tab" id="tool-credit-web-tab" data-tool-credit-tab="web" type="button" role="tab" aria-controls="tool-credit-web-panel" aria-selected="false" tabindex="-1" onclick="switchToolCreditTab('web')" onkeydown="handleToolCreditTabKeydown(event)">Web workflow</button>
+        <button class="tool-credit-tab" id="tool-credit-local-tab" data-tool-credit-tab="local" type="button" role="tab" aria-controls="tool-credit-local-panel" aria-selected="false" tabindex="-1" onclick="switchToolCreditTab('local')" onkeydown="handleToolCreditTabKeydown(event)">Local options</button>
       </div>
-      <section class="tool-credit-group" id="tool-credit-web-panel" role="tabpanel" aria-labelledby="tool-credit-web-tab">
+      <section class="tool-credit-group tool-credit-support" id="tool-credit-support-panel" role="tabpanel" aria-labelledby="tool-credit-support-tab">
+        <a class="pmi-support-link" href="https://pmiweb.ornl.gov/" target="_blank" rel="noopener">
+          <img class="pmi-support-logo" src="assets/pmi-logo.png" alt="Plant Microbe Interfaces (PMI)" width="2079" height="1017" decoding="async" />
+        </a>
+      </section>
+      <section class="tool-credit-group" id="tool-credit-web-panel" role="tabpanel" aria-labelledby="tool-credit-web-tab" hidden>
         <div class="tool-credit-grid">
           <a class="tool-credit-link" href="https://github.com/ncbi/datasets" target="_blank" rel="noopener">NCBI Datasets + Dataformat<sup>PUBLIC DOMAIN</sup></a>
           <a class="tool-credit-link" href="https://www.ncbi.nlm.nih.gov/datasets/genome/" target="_blank" rel="noopener">NCBI GenBank + RefSeq<sup>DATA POLICY</sup></a>
@@ -503,6 +530,10 @@
             <div><b>State</b><code id="qa-job-state">Idle</code><span id="qa-job-stage">No active workflow stage.</span></div>
           </div>
           <div class="lab-console-body qa-console-log-shell">
+            <div class="qa-log-toolbar" role="group" aria-label="QA console presentation">
+              <button class="qa-log-view-button is-selected" type="button" data-qa-log-view="tree" aria-pressed="true" onclick="setQaLogView('tree')" onkeydown="handleQaLogViewKeydown(event)">Tree</button>
+              <button class="qa-log-view-button" type="button" data-qa-log-view="raw" aria-pressed="false" tabindex="-1" onclick="setQaLogView('raw')" onkeydown="handleQaLogViewKeydown(event)">Raw</button>
+            </div>
             <button class="load-earlier-logs" id="load-earlier-logs" type="button" onclick="loadEarlierLogs()" hidden>Load earlier 500 lines</button>
             <div class="terminal-run"><div class="log-terminal" id="log-terminal" role="log" aria-live="polite" aria-relevant="additions text" aria-atomic="false" aria-label="Selected run log" tabindex="0"></div></div>
           </div>
@@ -523,9 +554,6 @@
   <div class="archive-download-detail" id="archive-download-detail">Preparing the full result package.</div>
 </aside>
 
-<script src="assets/clusterweave-game-content.js?v=20260714-runner6"></script>
-<script src="assets/clusterweave-game-core.js?v=20260714-runner6"></script>
-<script src="assets/clusterweave-game.js?v=20260721-play-centered3"></script>
-<script src="assets/clusterweave.js?v=20260723-timer-utc1"></script>
+<script src="assets/clusterweave.js?v=20260723-timer-utc1-r13a1-r12h1-stage-tree2-ui-copy1"></script>
 </body>
 </html>

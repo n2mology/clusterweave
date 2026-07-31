@@ -3,6 +3,7 @@ const path = require('path');
 
 module.exports = defineConfig({
   testDir: __dirname,
+  testIgnore: 'real-server/**',
   timeout: 30_000,
   retries: 0,
   workers: 1,

@@ -12,6 +12,15 @@ const ids = Object.freeze({
   funbgcexRegion: 'DDDDDDDDDDDDDDDDDDDDDD',
 });
 
+const receiptMetadata = Object.freeze([
+  { accession: 'GCA_000011425.1', organism_name: 'Fixture fungus one', tax_id: 101, taxa: 'NCBI taxon 101 / fungi', taxon_group: 'fungi', order_name: 'Fixture order A', family_name: 'Fixture family A', class_name: 'Fixture class A', order_family: 'Fixture order A:Fixture family A' },
+  { accession: 'GCA_000146045.2', organism_name: 'Fixture fungus two', tax_id: 102, taxa: 'NCBI taxon 102 / fungi', taxon_group: 'fungi', order_name: 'Fixture order B', family_name: 'Fixture family B', class_name: 'Fixture class B', order_family: 'Fixture order B:Fixture family B' },
+  { accession: 'GCA_000009045.1', organism_name: 'Fixture bacterium one', tax_id: 201, taxa: 'NCBI taxon 201 / bacteria', taxon_group: 'bacteria', order_name: 'Fixture order C', family_name: 'Fixture family C', class_name: 'Fixture class C', order_family: 'Fixture order C:Fixture family C' },
+  { accession: 'GCA_000006765.1', organism_name: 'Fixture bacterium two', tax_id: 202, taxa: 'NCBI taxon 202 / bacteria', taxon_group: 'bacteria', order_name: 'Fixture order D', family_name: 'Fixture family D', class_name: 'Fixture class D', order_family: 'Fixture order D:Fixture family D' },
+  { accession: 'GCA_000195955.2', organism_name: 'Fixture bacterium three', tax_id: 203, taxa: 'NCBI taxon 203 / bacteria', taxon_group: 'bacteria', order_name: 'Fixture order E', family_name: 'Fixture family E', class_name: 'Fixture class E', order_family: 'Fixture order E:Fixture family E' },
+  { accession: 'GCA_000013425.1', organism_name: 'Fixture bacterium four', tax_id: 204, taxa: 'NCBI taxon 204 / bacteria', taxon_group: 'bacteria', order_name: 'Fixture order F', family_name: 'Fixture family F', class_name: 'Fixture class F', order_family: 'Fixture order F:Fixture family F' },
+]);
+
 const descriptors = Object.freeze([
   {
     id: ids.fungal,
@@ -170,6 +179,12 @@ test.describe('opaque public result URLs and sandboxed bundle navigation', () =>
           stage: 'complete',
           name: 'Opaque fixture',
           log_count: 0,
+          input_summary: {
+            accession_count: receiptMetadata.length,
+            analysis_scope: 'both',
+            taxon_counts: { fungi: 2, bacteria: 4, total: 6 },
+            accession_metadata: receiptMetadata,
+          },
         }),
       });
     });
@@ -251,6 +266,7 @@ test.describe('opaque public result URLs and sandboxed bundle navigation', () =>
         status: 'success',
         name: 'Opaque fixture',
       };
+      sessionSet(STORAGE_KEYS.adminToken, 'fixture-stale-admin-token');
       rememberOpenedRun(publicRunId, readToken, activeJobMeta);
       const keys = installResultArtifactDescriptors(artifactDescriptors);
       window.__opaqueResultKeys = Object.fromEntries(
@@ -309,9 +325,7 @@ test.describe('opaque public result URLs and sandboxed bundle navigation', () =>
         ['#region-row-link', '2'],
       ]) {
         const link = bundle.frame.locator(selector);
-        const hoverUrl = new URL(await link.getAttribute('href'));
-        expect(hoverUrl.pathname).toBe(artifactEndpoint(artifactId));
-        expect(hoverUrl.hash).toBe('#r1c1');
+        await expect(link).toHaveAttribute('href', '#r1c1');
         await expect(link).toHaveAttribute('data-clusterweave-result-fragment', '#r1c1');
         await link.click();
         await expect(bundle.frame.locator('#r1c1')).toHaveAttribute('data-active', 'true');
@@ -324,9 +338,13 @@ test.describe('opaque public result URLs and sandboxed bundle navigation', () =>
     }
   });
 
-  test('FunBGCeX resolves one attested child to a clean hover URL and keeps its fragment', async ({ page }) => {
+  test('FunBGCeX resolves one attested child on trusted hover and keeps its fragment', async ({ page }) => {
     const bundle = await openBundle(page, ids.funbgcex);
     const link = bundle.frame.locator('#bgc-link');
+    await expect(link).not.toHaveAttribute('href', /./);
+    await expect(link).toHaveAttribute('data-clusterweave-result-pending', '');
+    await link.hover();
+    await expect(link).toHaveAttribute('href', new RegExp(`${artifactEndpoint(ids.funbgcexRegion)}#top$`));
     const href = await link.getAttribute('href');
     const cleanUrl = new URL(href);
     expect(cleanUrl.pathname).toBe(artifactEndpoint(ids.funbgcexRegion));
@@ -350,9 +368,20 @@ test.describe('opaque public result URLs and sandboxed bundle navigation', () =>
     await page.goto(`${baseUrl}/#/results/${runId}/${token}`);
     await expect.poll(() => page.url()).toBe(`${baseUrl}/#/results/${runId}`);
     await expect(page.locator('body')).toHaveAttribute('data-existing-run-loaded', 'true');
+    const acceptedRows = page.locator('#run-setup-input-list .receipt-row');
+    await expect(acceptedRows).toHaveCount(receiptMetadata.length);
+    await expect(page.locator('#run-setup-input-list')).toContainText('Fixture fungus one');
+    await expect(page.locator('#run-setup-input-list')).toContainText('NCBI taxon 204');
+    await expect(page.locator('#run-setup-input-list')).not.toContainText('stored run input');
+    expect(page.__opaqueResultState.consoleErrors).toEqual([]);
+    expect(page.__opaqueResultState.pageErrors).toEqual([]);
 
-    const serialized = await page.locator('html').evaluate(node => node.outerHTML);
-    const hrefs = await page.locator('[href]').evaluateAll(nodes => nodes.map(node => node.getAttribute('href') || ''));
+    const serialized = await page.locator('html').evaluate(node => {
+      const clone = node.cloneNode(true);
+      clone.querySelector('#run-setup-credentials-card')?.remove();
+      return clone.outerHTML;
+    });
+    const hrefs = await page.locator('[href]:not(#run-setup-result-link)').evaluateAll(nodes => nodes.map(node => node.getAttribute('href') || ''));
     for (const value of [serialized, ...hrefs]) {
       expect(value).not.toContain(token);
       expect(value).not.toContain(internalJobId);
@@ -360,6 +389,32 @@ test.describe('opaque public result URLs and sandboxed bundle navigation', () =>
     }
     expect(page.__opaqueResultState.apiRequests.some(request => request === `GET /api/results/${runId}`)).toBeTruthy();
     expect(page.__opaqueResultState.apiRequests.some(request => request === `GET /api/results/${runId}/artifacts`)).toBeTruthy();
+  });
+
+  test('configured API base preserves job-token precedence through a prefixed proxy', async ({ page }) => {
+    let observedAuthorization = '';
+    await page.route('**/prefixed/api/probe', async route => {
+      observedAuthorization = route.request().headers().authorization || '';
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true }),
+      });
+    });
+
+    const observed = await page.evaluate(async ({ publicRunId }) => {
+      window.CLUSTERWEAVE_API_BASE = '/prefixed/';
+      try {
+        const response = await apiFetch('api/probe', {}, { kind: 'job', jobId: publicRunId });
+        return { url: apiUrl('api/probe'), payload: await response.json() };
+      } finally {
+        delete window.CLUSTERWEAVE_API_BASE;
+      }
+    }, { publicRunId: runId });
+
+    expect(new URL(observed.url).pathname).toBe('/prefixed/api/probe');
+    expect(observed.payload).toEqual({ ok: true });
+    expect(observedAuthorization).toBe(`Bearer ${token}`);
   });
 
   test.afterEach(async ({ page }) => {

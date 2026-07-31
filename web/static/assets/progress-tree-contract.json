@@ -1,0 +1,422 @@
+{
+  "schema": "clusterweave.progress-tree.v1",
+  "workflow": [
+    {
+      "key": "prep",
+      "label": "Input preparation",
+      "optional": false
+    },
+    {
+      "key": "annotation",
+      "label": "Annotation and BGC detection",
+      "optional": false
+    },
+    {
+      "key": "bigscape",
+      "label": "BiG-SCAPE",
+      "optional": false
+    },
+    {
+      "key": "summary",
+      "label": "Summary",
+      "optional": false
+    },
+    {
+      "key": "clinker",
+      "label": "clinker",
+      "optional": false
+    },
+    {
+      "key": "figures",
+      "label": "Figures",
+      "optional": false
+    },
+    {
+      "key": "package",
+      "label": "Results package",
+      "optional": false
+    },
+    {
+      "key": "phylogeny",
+      "label": "Sequence phylogeny follow-up",
+      "optional": true
+    },
+    {
+      "key": "nplinker",
+      "label": "NPLinker follow-up",
+      "optional": true
+    },
+    {
+      "key": "cross_kingdom_evidence",
+      "label": "Cross-kingdom evidence follow-up",
+      "optional": true
+    }
+  ],
+  "records": [
+    {
+      "kind": "download",
+      "pattern": "^NCBI_DOWNLOAD_PROGRESS\\s+accession=(\\S+)\\s+taxon=(\\S+)\\s+status=(\\S+)\\s+percent=(\\d+)\\s+message=\"(.*)\"\\s*$",
+      "fields": ["genome", "taxon", "record_state", "percentage", "display_message"],
+      "workflow_stage": "prep",
+      "node_level": "tool",
+      "tool": "NCBI Datasets",
+      "state_field": "record_state",
+      "terminal_on_percent": true
+    },
+    {
+      "kind": "taxon_route",
+      "pattern": "^TAXON_ROUTE\\s+genome=(\\S+)\\s+taxon=(\\S+)(?:\\s+source=(\\S+))?(?:\\s+status=(\\S+))?(?:\\s+message=\"(.*)\")?\\s*$",
+      "fields": ["genome", "taxon", "source", "record_state", "display_message"],
+      "workflow_stage": "annotation",
+      "node_level": "genome",
+      "state": "running"
+    },
+    {
+      "kind": "annotation_decision",
+      "pattern": "^GENOME_ANNOTATION_DECISION\\s+genome=(\\S+)\\s+required=(yes|no)\\s+method=(\\S+)\\s+message=\"(.*)\"\\s*$",
+      "fields": ["genome", "required", "tool", "display_message"],
+      "workflow_stage": "annotation",
+      "node_level": "tool",
+      "state": "running"
+    },
+    {
+      "kind": "antismash_record",
+      "pattern": "^ANTISMASH_RECORD_PROGRESS\\s+genome=(\\S+)\\s+record=(\\S+)\\s+ordinal=(\\d+)/(\\d+)\\s+percent=(\\d+)\\s+bar=\\[[^\\]]*\\]\\s+message=\"(.*)\"\\s*$",
+      "fields": ["genome", "record", "ordinal", "total", "percentage", "display_message"],
+      "workflow_stage": "annotation",
+      "node_level": "tool",
+      "tool": "antiSMASH",
+      "state": "running"
+    },
+    {
+      "kind": "genome_progress",
+      "pattern": "^GENOME_PROGRESS\\s+genome=(\\S+)\\s+stage=(\\S+)\\s+percent=(\\d+)\\s+bar=\\[[^\\]]*\\]\\s+message=\"(.*)\"\\s*$",
+      "fields": ["genome", "record_stage", "percentage", "display_message"],
+      "workflow_stage": "annotation",
+      "node_level": "genome",
+      "tool_from_field": "record_stage",
+      "tool_map": {
+        "annotation": "",
+        "funannotate": "funannotate",
+        "antismash": "antiSMASH",
+        "funbgcex": "FunBGCeX"
+      },
+      "terminal_on_percent": true
+    },
+    {
+      "kind": "tool_progress",
+      "pattern": "^TOOL_PROGRESS\\s+genome=(\\S+)\\s+tool=(\\S+)\\s+phase=(\\S+)\\s+message=\"(.*)\"\\s*$",
+      "fields": ["genome", "tool", "phase", "display_message"],
+      "workflow_stage": "annotation",
+      "node_level": "tool",
+      "state": "running"
+    },
+    {
+      "kind": "tool_heartbeat",
+      "pattern": "^TOOL_HEARTBEAT\\s+genome=(\\S+)\\s+tool=(\\S+)\\s+phase=(\\S+)\\s+elapsed=(\\d+)s\\s*$",
+      "fields": ["genome", "tool", "phase", "elapsed_activity"],
+      "workflow_stage": "annotation",
+      "node_level": "tool",
+      "state": "running",
+      "heartbeat": true
+    }
+  ],
+  "stage_markers": [
+    {
+      "pattern": "^Stage 1/4:\\s+(running|skipped)\\b",
+      "workflow_stage": "annotation"
+    },
+    {
+      "pattern": "^Stage 1/4:\\s+complete\\s*$",
+      "workflow_stage": "annotation",
+      "state": "complete"
+    },
+    {
+      "pattern": "^Stage 2/4:\\s+(running|skipped)\\b",
+      "workflow_stage": "bigscape"
+    },
+    {
+      "pattern": "^Stage 2/4:\\s+complete\\s*$",
+      "workflow_stage": "bigscape",
+      "state": "complete"
+    },
+    {
+      "pattern": "^Stage 3/4:\\s+(running|skipped)\\b",
+      "workflow_stage": "summary"
+    },
+    {
+      "pattern": "^Stage 3/4:\\s+complete\\s*$",
+      "workflow_stage": "summary",
+      "state": "complete"
+    },
+    {
+      "pattern": "^Stage 4/4:\\s+(running|skipped)\\b",
+      "workflow_stage": "clinker"
+    },
+    {
+      "pattern": "^Stage 4/4:\\s+complete\\s*$",
+      "workflow_stage": "clinker",
+      "state": "complete"
+    },
+    {
+      "pattern": "^=== Stage: (?:Preparing ClusterWeave project layout|Installing NCBI CLI|Preparing genomes from accessions) ===$",
+      "workflow_stage": "prep",
+      "state": "running"
+    },
+    {
+      "pattern": "^Input preparation complete\\.$",
+      "workflow_stage": "prep",
+      "state": "complete"
+    },
+    {
+      "pattern": "^=== Stage: Rendering summary figures ===$",
+      "workflow_stage": "figures",
+      "state": "running"
+    },
+    {
+      "pattern": "^Skipping summary figures because run_figures=0\\.$",
+      "workflow_stage": "figures",
+      "state": "skipped"
+    },
+    {
+      "pattern": "^=== Stage: Running (?:optional|required) sequence phylogeny ===$",
+      "workflow_stage": "phylogeny",
+      "state": "running"
+    },
+    {
+      "pattern": "^Sequence phylogeny follow-up complete\\.$",
+      "workflow_stage": "phylogeny",
+      "state": "complete"
+    },
+    {
+      "pattern": "^Sequence phylogeny follow-up complete with warning\\.$",
+      "workflow_stage": "phylogeny",
+      "state": "warning_terminal"
+    },
+    {
+      "pattern": "^=== Stage: Running optional NPLinker follow-up ===$",
+      "workflow_stage": "nplinker",
+      "state": "running"
+    },
+    {
+      "pattern": "^NPLinker follow-up complete\\.$",
+      "workflow_stage": "nplinker",
+      "state": "complete"
+    },
+    {
+      "pattern": "^=== Stage: Running optional cross-kingdom evidence ===$",
+      "workflow_stage": "cross_kingdom_evidence",
+      "state": "running"
+    },
+    {
+      "pattern": "^Cross-kingdom evidence follow-up complete\\.$",
+      "workflow_stage": "cross_kingdom_evidence",
+      "state": "complete"
+    },
+    {
+      "pattern": "^Cross-kingdom evidence follow-up complete with warning\\.$",
+      "workflow_stage": "cross_kingdom_evidence",
+      "state": "warning_terminal"
+    },
+    {
+      "pattern": "^=== Stage: Collecting result files ===$",
+      "workflow_stage": "package",
+      "state": "running"
+    }
+  ],
+  "legacy_records": [
+    {
+      "kind": "genome_started",
+      "pattern": "^\\[(\\d+)/(\\d+)\\]\\s+genome=(\\S+)",
+      "fields": ["ordinal", "total", "genome"],
+      "workflow_stage": "annotation",
+      "node_level": "genome",
+      "state": "running",
+      "message": "Preparing genome"
+    },
+    {
+      "kind": "tool_started",
+      "pattern": "^(\\S+):\\s+running\\s+(antiSMASH|FunBGCeX)\\b",
+      "fields": ["genome", "tool"],
+      "workflow_stage": "annotation",
+      "node_level": "tool",
+      "state": "running",
+      "message": "Running"
+    },
+    {
+      "kind": "tool_finished",
+      "pattern": "^(\\S+):\\s+(antiSMASH|FunBGCeX)\\s+(?:OK|complete|finished)\\b",
+      "fields": ["genome", "tool"],
+      "workflow_stage": "annotation",
+      "node_level": "tool",
+      "state": "complete",
+      "message": "Complete",
+      "permanent": true
+    },
+    {
+      "kind": "bigscape_started",
+      "pattern": "\\bRunning BiG-SCAPE\\b",
+      "fields": [],
+      "workflow_stage": "bigscape",
+      "node_level": "stage",
+      "state": "running",
+      "message": "Running BiG-SCAPE"
+    },
+    {
+      "kind": "bigscape_complete",
+      "pattern": "\\bBiG-SCAPE complete\\b",
+      "fields": [],
+      "workflow_stage": "bigscape",
+      "node_level": "stage",
+      "state": "complete",
+      "message": "Complete",
+      "permanent": true
+    },
+    {
+      "kind": "summary_update",
+      "pattern": "\\bWrote (?:summary|crosswalk|shortlist)|summarize_clusterweave\\.(?:sh|py) complete\\b",
+      "fields": [],
+      "workflow_stage": "summary",
+      "node_level": "stage",
+      "state": "running",
+      "message": "Updating summary outputs"
+    },
+    {
+      "kind": "clinker_update",
+      "pattern": "\\b(?:Running .*clinker panels|Wrote panel manifest|Wrote master run script)\\b",
+      "fields": [],
+      "workflow_stage": "clinker",
+      "node_level": "stage",
+      "state": "running",
+      "message": "Updating clinker panels"
+    },
+    {
+      "kind": "clinker_complete",
+      "pattern": "\\brun_clinker\\.sh complete\\b",
+      "fields": [],
+      "workflow_stage": "clinker",
+      "node_level": "stage",
+      "state": "complete",
+      "message": "Complete",
+      "permanent": true
+    },
+    {
+      "kind": "figures_started",
+      "pattern": "\\b(?:Rendering summary figures|Rendering BGC overlap figure|Rendering BiG-SCAPE (?:network|multipanel) figure)\\b",
+      "fields": [],
+      "workflow_stage": "figures",
+      "node_level": "stage",
+      "state": "running",
+      "message": "Rendering figures"
+    },
+    {
+      "kind": "figures_complete",
+      "pattern": "\\brun_figures\\.sh complete\\b",
+      "fields": [],
+      "workflow_stage": "figures",
+      "node_level": "stage",
+      "state": "complete",
+      "message": "Complete",
+      "permanent": true
+    },
+    {
+      "kind": "package_started",
+      "pattern": "\\bCollecting result files\\b",
+      "fields": [],
+      "workflow_stage": "package",
+      "node_level": "stage",
+      "state": "running",
+      "message": "Preparing results package"
+    },
+    {
+      "kind": "package_complete",
+      "pattern": "\\bCanonical ClusterWeave workflow finished successfully\\b",
+      "fields": [],
+      "workflow_stage": "package",
+      "node_level": "stage",
+      "state": "complete",
+      "message": "Complete",
+      "permanent": true
+    },
+    {
+      "kind": "figures_warning_terminal",
+      "pattern": "^WARN: optional stage 'Rendering summary figures' failed with exit code\\b",
+      "fields": [],
+      "workflow_stage": "figures",
+      "node_level": "stage",
+      "state": "warning_terminal",
+      "message": "Complete with warning",
+      "permanent": true
+    },
+    {
+      "kind": "phylogeny_warning_terminal",
+      "pattern": "^WARN: optional stage 'Running optional sequence phylogeny' failed with exit code\\b",
+      "fields": [],
+      "workflow_stage": "phylogeny",
+      "node_level": "stage",
+      "state": "warning_terminal",
+      "message": "Complete with warning",
+      "permanent": true
+    },
+    {
+      "kind": "cross_kingdom_warning_terminal",
+      "pattern": "^WARN: optional stage 'Running optional cross-kingdom evidence' failed with exit code\\b",
+      "fields": [],
+      "workflow_stage": "cross_kingdom_evidence",
+      "node_level": "stage",
+      "state": "warning_terminal",
+      "message": "Complete with warning",
+      "permanent": true
+    },
+    {
+      "kind": "stage_failed",
+      "pattern": "^FATAL:\\s+",
+      "fields": [],
+      "node_level": "stage",
+      "state": "failed",
+      "message": "Failed",
+      "permanent": true
+    },
+    {
+      "kind": "nplinker_update",
+      "pattern": "\\b(?:NPLinker|GNPS|MassIVE)\\b",
+      "fields": [],
+      "workflow_stage": "nplinker",
+      "node_level": "stage",
+      "state": "running",
+      "message": "Running optional follow-up"
+    }
+  ],
+  "state_patterns": [
+    {
+      "state": "rerun",
+      "pattern": "\\b(?:rerun|retry|restarting|restart attempt|new attempt)\\b",
+      "permanent": true
+    },
+    {
+      "state": "warning_terminal",
+      "pattern": "\\b(?:complete(?:d)? with warning|warning-terminal|dropped)\\b",
+      "permanent": true
+    },
+    {
+      "state": "failed",
+      "pattern": "\\b(?:FATAL|ERROR|FAILED|failed with exit code)\\b",
+      "permanent": true
+    },
+    {
+      "state": "skipped",
+      "pattern": "\\b(?:SKIP:|skipped|not applicable|not_applicable)\\b",
+      "permanent": true
+    },
+    {
+      "state": "complete",
+      "pattern": "\\b(?:complete|completed|success|succeeded|finished)\\b",
+      "permanent": true
+    },
+    {
+      "state": "warning",
+      "pattern": "\\b(?:WARN|WARNING)\\b",
+      "permanent": true
+    }
+  ]
+}

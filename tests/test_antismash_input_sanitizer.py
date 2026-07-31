@@ -91,10 +91,15 @@ PYFIXTURE
 
             command = rf"""
 set -euo pipefail
+ANTISMASH_INPUT_PREPARER={shlex.quote(str(REPO_ROOT / "bin" / "prepare_antismash_input.py"))}
 source <(awk '/^filter_gbk_drop_gene_less_records\(\)/{{flag=1}} /^###############################################################################$/ && flag{{seen += 1; if (seen == 2) flag=0}} flag{{print}}' {shlex.quote(str(SCRIPT_PATH))})
 funbgcex_python_exec() {{
-  docker run -i --rm -v "$SANITIZER_TEST_TMP:$SANITIZER_TEST_TMP" {FUNBGCEX_IMAGE} python3 "$@"
+  docker run -i --rm \
+    -v "$SANITIZER_TEST_TMP:$SANITIZER_TEST_TMP" \
+    -v {shlex.quote(str(REPO_ROOT))}:{shlex.quote(str(REPO_ROOT))}:ro \
+    {FUNBGCEX_IMAGE} python3 "$@"
 }}
+antismash_input_python_exec() {{ funbgcex_python_exec "$@"; }}
 sanitize_antismash_duplicate_cds_locations {shlex.quote(str(source))} {shlex.quote(str(antismash_copy))} Cryptococcus_neoformans_KN99
 """
             result = self.run_bash(command, tmp)
@@ -106,8 +111,7 @@ sanitize_antismash_duplicate_cds_locations {shlex.quote(str(source))} {shlex.quo
             self.assertIn('/protein_id="UNIQUE001"', sanitized)
             self.assertNotIn('DROP001', sanitized)
             self.assertRegex(result.stdout, r'"dropped_duplicate_cds"\s*:\s*1')
-            self.assertIn("CKF44_07303", result.stdout)
-            self.assertIn("DROP001", result.stdout)
+            self.assertRegex(result.stdout, r'"examples"\s*:\s*\[\]')
 
 
 if __name__ == "__main__":

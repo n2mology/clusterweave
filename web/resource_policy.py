@@ -30,6 +30,23 @@ def _enabled(value: object) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def bounded_cpu_limit(
+    configured_max: object,
+    effective_cpus: object,
+    *,
+    worker_cpu_budget: object | None = None,
+) -> int:
+    """Return the narrowest positive CPU ceiling shared by web and worker."""
+
+    limits = [
+        _positive_int(configured_max),
+        _positive_int(effective_cpus),
+    ]
+    if worker_cpu_budget is not None:
+        limits.append(_positive_int(worker_cpu_budget))
+    return min(limits)
+
+
 @dataclass(frozen=True)
 class ResourceRequest:
     """Requested per-job execution shape before CPU-budget clamping."""
@@ -296,6 +313,35 @@ def bounded_resource_plan(request: ResourceRequest) -> ResourcePlan:
         phylogeny_cpus=phylogeny_cpus,
         phylogeny_parallelism=phylogeny_parallelism,
     )
+
+
+def build_hosted_resource_plan(
+    job_cpus: int,
+    genome_count: int,
+    settings: Mapping[str, object],
+    *,
+    genome_parallelism: int,
+    antismash_record_parallelism: int,
+    funannotate_cpus_per_genome: int,
+    funbgcex_workers_per_genome: int,
+) -> ResourcePlan:
+    """Build the bounded operator-selected shape used by hosted jobs."""
+
+    cpus = _positive_int(job_cpus)
+    return ResourceRequest(
+        job_cpus=cpus,
+        genome_count=genome_count,
+        target_genome_parallelism=genome_parallelism,
+        target_antismash_record_parallelism=antismash_record_parallelism,
+        target_antismash_shard_cpus=cpus,
+        target_antismash_legacy_cpus=cpus,
+        target_anno_cpus=funannotate_cpus_per_genome,
+        target_funbgcex_workers=funbgcex_workers_per_genome,
+        run_phylogeny=_enabled(settings.get("run_phylogeny", False)),
+        target_phylogeny_cpus=_positive_int(settings.get("phylogeny_cpus", 1)),
+        # The current family runner is serial; preserve that execution contract.
+        target_phylogeny_parallelism=1,
+    ).bounded_plan()
 
 
 def estimate_resource_request(

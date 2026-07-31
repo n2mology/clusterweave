@@ -15,6 +15,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterator
 
+from legacy_job_results import legacy_job_result_format, read_legacy_job_summary
+
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 JOBS_DIR = DATA_DIR / "jobs"
 QUEUE_DIR = DATA_DIR / "queue"
@@ -396,23 +398,17 @@ def list_job_summaries() -> list[dict[str, Any]]:
             value = json.loads(source_path.read_text(encoding="utf-8"))
             if not isinstance(value, dict):
                 continue
-            if source_path != summary_path:
-                value = compact_job_summary(value)
-            elif "rerun_stage_settings" not in value:
-                legacy_job_path = directory / "job.json"
-                legacy_job = json.loads(legacy_job_path.read_text(encoding="utf-8"))
-                legacy_job_id = (
-                    str(legacy_job.get("id") or "")
-                    if isinstance(legacy_job, dict)
-                    else ""
+            if source_path != summary_path or (
+                "rerun_stage_settings" not in value
+                and legacy_job_result_format(value)
+            ):
+                value = read_legacy_job_summary(
+                    directory,
+                    compact=compact_job_summary,
+                    valid_job_id=valid_job_id,
                 )
-                if legacy_job_id != directory.name or not valid_job_id(legacy_job_id):
-                    continue
-                value = compact_job_summary(legacy_job)
-                atomic_write_text(
-                    summary_path,
-                    json.dumps(value, ensure_ascii=False, separators=(",", ":")),
-                )
+            if not isinstance(value, dict):
+                continue
             job_id = str(value.get("id") or "")
             if job_id != directory.name or not valid_job_id(job_id):
                 continue

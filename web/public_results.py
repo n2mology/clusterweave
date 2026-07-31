@@ -16,6 +16,8 @@ from functools import cached_property
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+import legacy_job_results
+
 from result_attestation import ResultAttestation
 from result_policy import (
     PUBLIC_RESULTS_MANIFEST_PATH,
@@ -98,10 +100,10 @@ def generate_public_run_id() -> str:
 def legacy_public_run_id(internal_job_id: object) -> str:
     """Return a stable opaque alias for a job created before public IDs existed."""
 
-    job_id = str(internal_job_id or "")
-    if not job_id:
-        return ""
-    return _opaque_hmac(b"clusterweave-public-run-legacy-v1", job_id)
+    return legacy_job_results.legacy_public_run_id(
+        internal_job_id,
+        opaque_hmac=_opaque_hmac,
+    )
 
 
 def public_run_id_for_job(job: dict[str, Any]) -> str:
