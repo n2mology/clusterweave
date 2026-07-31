@@ -604,7 +604,12 @@ class WebApiAuthTests(unittest.TestCase):
         self.write_job("queuedone", "read-queued", status="pending")
         self.write_job("runningone", "read-running", status="running")
 
-        status, payload, headers = self.request("GET", "/api/system/status", headers={"Origin": "https://example.invalid"})
+        with mock.patch.object(self.app.os, "cpu_count", return_value=16):
+            status, payload, headers = self.request(
+                "GET",
+                "/api/system/status",
+                headers={"Origin": "https://example.invalid"},
+            )
         self.assertEqual(status, 200)
         self.assertEqual(
             set(payload),
