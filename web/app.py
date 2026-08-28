@@ -11,6 +11,7 @@ with warnings.catch_warnings():
 import json
 import hashlib
 import hmac
+import math
 from collections import OrderedDict
 import mimetypes
 import os
@@ -81,6 +82,7 @@ from public_result_backend import (
 )
 from public_result_http import handle_public_result_get, handle_public_result_post
 from result_policy import (
+    PUBLIC_RESULT_INDEX_MAX_BYTES,
     PUBLIC_RESULTS_MANIFEST_PATH,
     PUBLIC_BIGSCAPE_VIEWER_DATABASE_FILENAME,
     PUBLIC_BIGSCAPE_EXPORT_TABLE,
@@ -899,7 +901,6 @@ _PUBLIC_MANIFEST_VALIDATION_CACHE: OrderedDict[
     tuple[tuple[str, tuple[int, int, int, int, int]], ...],
 ] = OrderedDict()
 _PUBLIC_MANIFEST_VALIDATION_CACHE_LOCK = threading.RLock()
-_PUBLIC_MANIFEST_MAX_BYTES = 32 * 1024 * 1024
 _PUBLIC_MANIFEST_SHA256_RE = re.compile(r"[0-9a-f]{64}")
 _PUBLIC_FILE_SHA256_CACHE_MAX = 128
 _PUBLIC_FILE_SHA256_CACHE: OrderedDict[tuple[object, ...], str] = OrderedDict()
@@ -1257,6 +1258,35 @@ def _viewer_typed_query_digest(cursor: sqlite3.Cursor) -> tuple[int, str]:
     return count, digest.hexdigest()
 
 
+def _create_viewer_network_cutoffs(connection: sqlite3.Connection) -> None:
+    """Install the independently parsed cutoff contract used by viewer queries."""
+
+    rows = list(connection.execute("SELECT id, cutoffs FROM run ORDER BY id"))
+    if not rows:
+        raise ValueError("BiG-SCAPE viewer source has no run cutoff contract")
+    cutoffs: set[float] = set()
+    for _run_id, raw_cutoffs in rows:
+        value = str(raw_cutoffs or "").strip()
+        tokens = value.split(",") if value else []
+        if not tokens or any(not token.strip() for token in tokens):
+            raise ValueError("BiG-SCAPE viewer run cutoffs are malformed")
+        for token in tokens:
+            cutoff = float(token.strip())
+            if not math.isfinite(cutoff) or cutoff < 0.0 or cutoff > 1.0:
+                raise ValueError("BiG-SCAPE viewer run cutoff is unsupported")
+            cutoffs.add(cutoff)
+    if not cutoffs:
+        raise ValueError("BiG-SCAPE viewer source has no run cutoff contract")
+    connection.execute(
+        "CREATE TEMP TABLE clusterweave_viewer_network_cutoffs "
+        "(cutoff REAL PRIMARY KEY)"
+    )
+    connection.executemany(
+        "INSERT INTO clusterweave_viewer_network_cutoffs(cutoff) VALUES(?)",
+        ((cutoff,) for cutoff in sorted(cutoffs)),
+    )
+
+
 def _viewer_projection_specs() -> tuple[tuple[str, str, str, str], ...]:
     def columns(table: str) -> str:
         return ", ".join(f'"{column}"' for column in _PUBLIC_BIGSCAPE_EXPECTED_COLUMNS[table])
@@ -1320,7 +1350,16 @@ def _viewer_projection_specs() -> tuple[tuple[str, str, str, str], ...]:
     specs.append((
         "distance", selected,
         f"record_a_id IN (SELECT record_id FROM {reachable}) AND "
-        f"record_b_id IN (SELECT record_id FROM {reachable})",
+        f"record_b_id IN (SELECT record_id FROM {reachable}) AND "
+        "(distance < (SELECT MAX(cutoff) FROM "
+        "clusterweave_viewer_network_cutoffs) OR EXISTS ("
+        "SELECT 1 FROM family AS viewer_family "
+        "INNER JOIN bgc_record_family AS viewer_member "
+        "ON viewer_member.family_id=viewer_family.id WHERE "
+        "(distance.record_a_id=viewer_member.record_id "
+        "AND distance.record_b_id=viewer_family.center_id) OR "
+        "(distance.record_b_id=viewer_member.record_id "
+        "AND distance.record_a_id=viewer_family.center_id)))",
         "record_a_id, record_b_id, edge_param_id",
     ))
     return tuple(specs)
@@ -1590,6 +1629,7 @@ def _public_bigscape_viewer_database_export_valid_uncached(path: Path) -> bool:
                 "UNION SELECT record_id FROM connected_component WHERE record_id IS NOT NULL "
                 "UNION SELECT center_id FROM family WHERE center_id IS NOT NULL"
             )
+            _create_viewer_network_cutoffs(source_connection)
             missing = int(source_connection.execute(
                 "SELECT COUNT(*) FROM clusterweave_reachable_records AS reachable "
                 "LEFT JOIN bgc_record ON bgc_record.id=reachable.record_id "
@@ -1801,11 +1841,11 @@ def _stable_public_manifest_bytes(
         manifest = manifest_path.resolve()
         manifest.relative_to(base)
         identity = _public_file_identity(manifest)
-        if identity[2] > _PUBLIC_MANIFEST_MAX_BYTES:
+        if identity[2] > PUBLIC_RESULT_INDEX_MAX_BYTES:
             return None
         with _open_stable_public_file(manifest, identity) as handle:
-            raw_manifest = handle.read(_PUBLIC_MANIFEST_MAX_BYTES + 1)
-            if len(raw_manifest) > _PUBLIC_MANIFEST_MAX_BYTES:
+            raw_manifest = handle.read(PUBLIC_RESULT_INDEX_MAX_BYTES + 1)
+            if len(raw_manifest) > PUBLIC_RESULT_INDEX_MAX_BYTES:
                 return None
             if _stat_identity(os.fstat(handle.fileno())) != identity:
                 return None
@@ -1824,11 +1864,11 @@ def public_manifest_result_records(
     manifest = (base_dir / PUBLIC_RESULTS_MANIFEST_PATH).resolve()
     try:
         manifest_identity = _public_file_identity(manifest)
-        if manifest_identity[2] > _PUBLIC_MANIFEST_MAX_BYTES:
+        if manifest_identity[2] > PUBLIC_RESULT_INDEX_MAX_BYTES:
             return []
         with _open_stable_public_file(manifest, manifest_identity) as handle:
-            raw_manifest = handle.read(_PUBLIC_MANIFEST_MAX_BYTES + 1)
-            if len(raw_manifest) > _PUBLIC_MANIFEST_MAX_BYTES:
+            raw_manifest = handle.read(PUBLIC_RESULT_INDEX_MAX_BYTES + 1)
+            if len(raw_manifest) > PUBLIC_RESULT_INDEX_MAX_BYTES:
                 return []
             if _stat_identity(os.fstat(handle.fileno())) != manifest_identity:
                 return []
@@ -1919,11 +1959,11 @@ def public_manifest_is_fully_valid(base_dir: Path) -> bool:
     manifest = (base_dir / PUBLIC_RESULTS_MANIFEST_PATH).resolve()
     try:
         identity = _public_file_identity(manifest)
-        if identity[2] > _PUBLIC_MANIFEST_MAX_BYTES:
+        if identity[2] > PUBLIC_RESULT_INDEX_MAX_BYTES:
             return False
         with _open_stable_public_file(manifest, identity) as handle:
-            raw_manifest = handle.read(_PUBLIC_MANIFEST_MAX_BYTES + 1)
-            if len(raw_manifest) > _PUBLIC_MANIFEST_MAX_BYTES:
+            raw_manifest = handle.read(PUBLIC_RESULT_INDEX_MAX_BYTES + 1)
+            if len(raw_manifest) > PUBLIC_RESULT_INDEX_MAX_BYTES:
                 return False
             if _stat_identity(os.fstat(handle.fileno())) != identity:
                 return False

@@ -1,0 +1,59 @@
+assembly_accession	genome	component	applicability	analysis_state	feature_count	interpretation
+GCA_009176365.1	Aspergillus_alliaceus_CBS_536.65	antiSMASH	applicable	completed_with_detection	94	applicable component completed and reported at least one feature
+GCA_009176365.1	Aspergillus_alliaceus_CBS_536.65	FunBGCeX	applicable	completed_with_detection	105	applicable component completed and reported at least one feature
+GCA_009176365.1	Aspergillus_alliaceus_CBS_536.65	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	94	applicable component completed and reported at least one feature
+GCA_009193605.1	Aspergillus_alliaceus_IBT_14317	antiSMASH	applicable	completed_with_detection	99	applicable component completed and reported at least one feature
+GCA_009193605.1	Aspergillus_alliaceus_IBT_14317	FunBGCeX	applicable	completed_with_detection	109	applicable component completed and reported at least one feature
+GCA_009193605.1	Aspergillus_alliaceus_IBT_14317	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	99	applicable component completed and reported at least one feature
+GCA_009193545.1	Aspergillus_arachidicola_CBS_117612	antiSMASH	applicable	completed_with_detection	84	applicable component completed and reported at least one feature
+GCA_009193545.1	Aspergillus_arachidicola_CBS_117612	FunBGCeX	applicable	completed_with_detection	100	applicable component completed and reported at least one feature
+GCA_009193545.1	Aspergillus_arachidicola_CBS_117612	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	84	applicable component completed and reported at least one feature
+GCA_009193465.1	Aspergillus_avenaceus_IBT_18842	antiSMASH	applicable	completed_with_detection	79	applicable component completed and reported at least one feature
+GCA_009193465.1	Aspergillus_avenaceus_IBT_18842	FunBGCeX	applicable	completed_with_detection	91	applicable component completed and reported at least one feature
+GCA_009193465.1	Aspergillus_avenaceus_IBT_18842	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	79	applicable component completed and reported at least one feature
+GCA_009193595.1	Aspergillus_bertholletiae_IBT_29228	antiSMASH	applicable	completed_with_detection	80	applicable component completed and reported at least one feature
+GCA_009193595.1	Aspergillus_bertholletiae_IBT_29228	FunBGCeX	applicable	completed_with_detection	93	applicable component completed and reported at least one feature
+GCA_009193595.1	Aspergillus_bertholletiae_IBT_29228	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	80	applicable component completed and reported at least one feature
+GCA_009193585.1	Aspergillus_caelatus_CBS_763.97	antiSMASH	applicable	completed_with_detection	104	applicable component completed and reported at least one feature
+GCA_009193585.1	Aspergillus_caelatus_CBS_763.97	FunBGCeX	applicable	completed_with_detection	114	applicable component completed and reported at least one feature
+GCA_009193585.1	Aspergillus_caelatus_CBS_763.97	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	104	applicable component completed and reported at least one feature
+GCA_009193565.1	Aspergillus_coremiiformis_CBS_553.77	antiSMASH	applicable	completed_with_detection	52	applicable component completed and reported at least one feature
+GCA_009193565.1	Aspergillus_coremiiformis_CBS_553.77	FunBGCeX	applicable	completed_with_detection	52	applicable component completed and reported at least one feature
+GCA_009193565.1	Aspergillus_coremiiformis_CBS_553.77	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	52	applicable component completed and reported at least one feature
+GCA_009176375.1	Aspergillus_flavus_CBS_121.62	antiSMASH	applicable	completed_with_detection	83	applicable component completed and reported at least one feature
+GCA_009176375.1	Aspergillus_flavus_CBS_121.62	FunBGCeX	applicable	completed_with_detection	100	applicable component completed and reported at least one feature
+GCA_009176375.1	Aspergillus_flavus_CBS_121.62	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	83	applicable component completed and reported at least one feature
+GCA_009176345.1	Aspergillus_leporis_CBS_151.66	antiSMASH	applicable	completed_with_detection	101	applicable component completed and reported at least one feature
+GCA_009176345.1	Aspergillus_leporis_CBS_151.66	FunBGCeX	applicable	completed_with_detection	109	applicable component completed and reported at least one feature
+GCA_009176345.1	Aspergillus_leporis_CBS_151.66	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	101	applicable component completed and reported at least one feature
+GCA_009176455.1	Aspergillus_minisclerotigenes_CBS_117635	antiSMASH	applicable	completed_with_detection	93	applicable component completed and reported at least one feature
+GCA_009176455.1	Aspergillus_minisclerotigenes_CBS_117635	FunBGCeX	applicable	completed_with_detection	110	applicable component completed and reported at least one feature
+GCA_009176455.1	Aspergillus_minisclerotigenes_CBS_117635	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	93	applicable component completed and reported at least one feature
+GCA_009176405.1	Aspergillus_novoparasiticus_CBS_126849	antiSMASH	applicable	completed_with_detection	90	applicable component completed and reported at least one feature
+GCA_009176405.1	Aspergillus_novoparasiticus_CBS_126849	FunBGCeX	applicable	completed_with_detection	106	applicable component completed and reported at least one feature
+GCA_009176405.1	Aspergillus_novoparasiticus_CBS_126849	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	90	applicable component completed and reported at least one feature
+GCA_009176385.1	Aspergillus_parasiticus_CBS_117618	antiSMASH	applicable	completed_with_detection	99	applicable component completed and reported at least one feature
+GCA_009176385.1	Aspergillus_parasiticus_CBS_117618	FunBGCeX	applicable	completed_with_detection	125	applicable component completed and reported at least one feature
+GCA_009176385.1	Aspergillus_parasiticus_CBS_117618	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	99	applicable component completed and reported at least one feature
+GCA_009193665.1	Aspergillus_pseudocaelatus_CBS_117616	antiSMASH	applicable	completed_with_detection	96	applicable component completed and reported at least one feature
+GCA_009193665.1	Aspergillus_pseudocaelatus_CBS_117616	FunBGCeX	applicable	completed_with_detection	103	applicable component completed and reported at least one feature
+GCA_009193665.1	Aspergillus_pseudocaelatus_CBS_117616	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	96	applicable component completed and reported at least one feature
+GCA_009193645.1	Aspergillus_pseudonomiae_CBS_119388	antiSMASH	applicable	completed_with_detection	93	applicable component completed and reported at least one feature
+GCA_009193645.1	Aspergillus_pseudonomiae_CBS_119388	FunBGCeX	applicable	completed_with_detection	102	applicable component completed and reported at least one feature
+GCA_009193645.1	Aspergillus_pseudonomiae_CBS_119388	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	93	applicable component completed and reported at least one feature
+GCA_009176395.1	Aspergillus_pseudonomiae_IBT_12657	antiSMASH	applicable	completed_with_detection	90	applicable component completed and reported at least one feature
+GCA_009176395.1	Aspergillus_pseudonomiae_IBT_12657	FunBGCeX	applicable	completed_with_detection	103	applicable component completed and reported at least one feature
+GCA_009176395.1	Aspergillus_pseudonomiae_IBT_12657	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	90	applicable component completed and reported at least one feature
+GCA_009193445.1	Aspergillus_pseudotamarii_CBS_117625	antiSMASH	applicable	completed_with_detection	98	applicable component completed and reported at least one feature
+GCA_009193445.1	Aspergillus_pseudotamarii_CBS_117625	FunBGCeX	applicable	completed_with_detection	110	applicable component completed and reported at least one feature
+GCA_009193445.1	Aspergillus_pseudotamarii_CBS_117625	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	98	applicable component completed and reported at least one feature
+GCA_009193525.1	Aspergillus_sergii_CBS_130017	antiSMASH	applicable	completed_with_detection	96	applicable component completed and reported at least one feature
+GCA_009193525.1	Aspergillus_sergii_CBS_130017	FunBGCeX	applicable	completed_with_detection	115	applicable component completed and reported at least one feature
+GCA_009193525.1	Aspergillus_sergii_CBS_130017	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	96	applicable component completed and reported at least one feature
+GCA_009193485.1	Aspergillus_tamarii_CBS_117626	antiSMASH	applicable	completed_with_detection	103	applicable component completed and reported at least one feature
+GCA_009193485.1	Aspergillus_tamarii_CBS_117626	FunBGCeX	applicable	completed_with_detection	110	applicable component completed and reported at least one feature
+GCA_009193485.1	Aspergillus_tamarii_CBS_117626	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	103	applicable component completed and reported at least one feature
+GCA_009193505.1	Aspergillus_transmontanensis_CBS_130015	antiSMASH	applicable	completed_with_detection	95	applicable component completed and reported at least one feature
+GCA_009193505.1	Aspergillus_transmontanensis_CBS_130015	FunBGCeX	applicable	completed_with_detection	118	applicable component completed and reported at least one feature
+GCA_009193505.1	Aspergillus_transmontanensis_CBS_130015	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	95	applicable component completed and reported at least one feature
+	panel	NPLinker	optional	not_generated_or_unavailable	0	artifact was not requested, generated, retained, or available

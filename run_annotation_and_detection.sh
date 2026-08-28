@@ -2043,8 +2043,21 @@ run_antismash_record_shard() {
     fi
   else
     rc=$?
-    status="failed"
-    antismash_record_progress "${genome_id}" "${record_id}" "${ordinal}" "${total_records}" "${end_percent}" "antiSMASH record shard failed"
+    if [[ -s "${stderr_log}" ]] \
+        && grep -Eqi 'No CDS features found in record' "${stderr_log}" \
+        && grep -Eqi 'No genes found, skipping record' "${stderr_log}" \
+        && grep -Eqi '(^|[[:space:]])all records skipped([[:space:]]|$)' "${stderr_log}" \
+        && [[ -z "$(find "${shard_dir}" -mindepth 1 -print -quit 2>/dev/null)" ]]; then
+      # A one-record shard with no CDS and no predicted genes has no scientific
+      # antiSMASH result to merge.  Preserve it explicitly as empty only when
+      # antiSMASH emitted the complete diagnostic and no partial output exists.
+      rc=0
+      status="empty"
+      antismash_record_progress "${genome_id}" "${record_id}" "${ordinal}" "${total_records}" "${end_percent}" "antiSMASH record shard empty (no genes)"
+    else
+      status="failed"
+      antismash_record_progress "${genome_id}" "${record_id}" "${ordinal}" "${total_records}" "${end_percent}" "antiSMASH record shard failed"
+    fi
   fi
 
   finished_at="$(date +%s)"
@@ -2190,7 +2203,7 @@ run_antismash_sharded() {
   local shard_root="$5"
   local aggregate_stdout="$6"
   local aggregate_stderr="$7"
-  local total_records active_jobs shard_failure assembled_count
+  local total_records active_jobs shard_failure assembled_count successful_shards empty_shards
   local index ordinal record_id base_safe safe_record_id suffix shard_input shard_dir row_file split_manifest
   local shard_stdout shard_stderr row_status row_elapsed row_regions row_record row_dir
   local region_file source_name destination_name destination collision expected_json canonical_json
@@ -2293,6 +2306,8 @@ run_antismash_sharded() {
   done
 
   assembled_count=0
+  successful_shards=0
+  empty_shards=0
   for index in "${!record_ids[@]}"; do
     row_record=""
     row_dir=""
@@ -2300,10 +2315,19 @@ run_antismash_sharded() {
     row_elapsed="0"
     row_regions="0"
     IFS=$'\t' read -r row_record row_dir row_status row_elapsed row_regions < "${row_files[${index}]}" || true
-    if [[ "${row_status}" != "ok" ]]; then
-      shard_failure=1
-      continue
-    fi
+    case "${row_status}" in
+      empty)
+        empty_shards=$((empty_shards + 1))
+        continue
+        ;;
+      ok)
+        successful_shards=$((successful_shards + 1))
+        ;;
+      *)
+        shard_failure=1
+        continue
+        ;;
+    esac
     expected_json="${shard_dirs[${index}]}/${safe_record_ids[${index}]}.json"
     if [[ ! -s "${expected_json}" ]]; then
       fallback_json_files=()
@@ -2344,6 +2368,10 @@ run_antismash_sharded() {
     done < <(find "${shard_dirs[${index}]}" -type f -name '*region*.gbk' -print0 2>/dev/null)
   done
 
+  if [[ "${successful_shards}" -eq 0 ]]; then
+    warn "${genome_id}: every antiSMASH record shard was empty; no sibling result is available to assemble"
+    shard_failure=1
+  fi
   if [[ "${shard_failure}" -eq 0 ]]; then
     if ! merge_antismash_shard_jsons "${canonical_json}" "${shard_json_args[@]}" 2>> "${aggregate_stderr}"; then
       warn "${genome_id}: failed to merge antiSMASH shard JSON into ${canonical_json}"
@@ -2353,6 +2381,9 @@ run_antismash_sharded() {
   if [[ "${shard_failure}" -ne 0 ]]; then
     cleanup_antismash_assembled_outputs "${ant_out}" "${canonical_json}"
     return 1
+  fi
+  if [[ "${empty_shards}" -gt 0 ]]; then
+    log "${genome_id}: retained ${empty_shards} antiSMASH record shard(s) as empty after no-gene diagnostics"
   fi
   if [[ "${assembled_count}" -gt 0 ]]; then
     if ! render_antismash_shard_web_bundle \

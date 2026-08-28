@@ -14,6 +14,10 @@ from legacy_job_results import legacy_result_path_public_shape
 
 PUBLIC_RESULTS_MANIFEST_PATH = "downloads/public_results_manifest.tsv"
 PUBLIC_EVIDENCE_MANIFEST_PATH = "evidence/clusterweave_evidence_manifest.tsv"
+# Persisted manifests and their signed indexes use one bounded read/write
+# envelope.  Keep this shared with the web reader so publication cannot create
+# an index that the supported result routes reject.
+PUBLIC_RESULT_INDEX_MAX_BYTES = 32 * 1024 * 1024
 
 _ANTISMASH_REGION_GBK_RE = re.compile(r"(?:^|[._-])region[0-9]+\.gbk$")
 
@@ -436,6 +440,7 @@ __all__ = [
     "PUBLIC_INTEGRATED_EVIDENCE_FILENAMES",
     "LEGACY_PUBLIC_INTEGRATED_EVIDENCE_FILENAMES",
     "PUBLIC_EVIDENCE_MANIFEST_PATH",
+    "PUBLIC_RESULT_INDEX_MAX_BYTES",
     "PUBLIC_RESULTS_MANIFEST_PATH",
     "PUBLIC_SUMMARY_FILENAMES",
     "PUBLIC_SUMMARY_TABLE_FILENAMES",

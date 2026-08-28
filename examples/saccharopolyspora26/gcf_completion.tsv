@@ -1,0 +1,2 @@
+panel	candidate_rows	antismash_candidate_rows	non_antismash_candidate_rows	staged_antismash_region_rows	candidate_keys_missing_from_staging	staged_keys_missing_from_candidates	assigned_applicable_rows	non_applicable_unassigned_rows	applicable_unassigned_rows	assemblies_with_candidates	assemblies_with_assignments	distinct_selected_family_count	assignment_status	interpretation_boundary
+saccharopolyspora26	816	816	0	816	0	0	816	0	0	26	26	411	complete	complete configured selected-view assignment; family identifiers are omitted and family correctness is not asserted

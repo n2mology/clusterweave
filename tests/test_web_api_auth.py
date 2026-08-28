@@ -497,6 +497,38 @@ class WebApiAuthTests(unittest.TestCase):
         import bigscape_public_db
 
         self.write_bigscape_public_export(public_path)
+        with sqlite3.connect(public_path) as connection:
+            connection.execute(
+                "UPDATE run SET cutoffs='0.3' "
+                "WHERE cutoffs IS NULL OR trim(cutoffs)=''"
+            )
+            connection.execute(
+                "INSERT INTO edge_params(id,weights,alignment_mode,extend_strategy) "
+                "VALUES(1,'mix','GLOBAL','LEGACY')"
+            )
+            connection.execute(
+                "INSERT INTO family(id,center_id,newick,cutoff,bin_label,run_id) "
+                "VALUES(1,1,'(1,3);',0.3,'mix',1)"
+            )
+            connection.executemany(
+                "INSERT INTO bgc_record_family(record_id,family_id) VALUES(?,1)",
+                [(1,), (3,)],
+            )
+            connection.executemany(
+                "INSERT INTO connected_component(id,record_id,cutoff,bin_label,run_id) "
+                "VALUES(?,?,0.3,'mix',1)",
+                [(1, 1), (2, 2), (3, 3)],
+            )
+            distance_tail = (1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 1, 0, 1)
+            connection.executemany(
+                "INSERT INTO distance VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                [
+                    (1, 2, 0.2, 0.8, 0.7, 0.6, *distance_tail),
+                    (1, 3, 0.8, 0.2, 0.2, 0.2, *distance_tail),
+                    (2, 3, 0.9, 0.1, 0.1, 0.1, *distance_tail),
+                ],
+            )
+            connection.commit()
         tool_root = public_path.parent.parent
         index_path = tool_root / "index.html"
         script_path = tool_root / "html_content" / "js" / "bigscape.js"
@@ -1936,6 +1968,13 @@ ORIGIN
         script = "data/results/demo/big_scape/html_content/js/bigscape.js"
         viewer_path = self.write_bigscape_viewer_export(root / public)
         self.assertEqual(viewer_path, root / viewer)
+        with sqlite3.connect(viewer_path) as compact:
+            self.assertEqual(
+                list(compact.execute(
+                    "SELECT record_a_id,record_b_id,distance FROM distance ORDER BY 1,2"
+                )),
+                [(1, 2, 0.2), (1, 3, 0.8)],
+            )
         viewer_bytes = viewer_path.read_bytes()
         self.write_public_manifest_job(
             job_id,
@@ -2098,6 +2137,14 @@ ORIGIN
             )
             self.assertEqual(status, 404)
             self.assertEqual(payload["detail"], "Result not found")
+
+    def test_web_viewer_cutoff_contract_rejects_malformed_values(self) -> None:
+        for value in (None, "", "0.3,", "0.3,,0.4", "NaN", "inf", "-0.1", "1.1"):
+            with self.subTest(value=value), sqlite3.connect(":memory:") as connection:
+                connection.execute("CREATE TABLE run(id INTEGER, cutoffs TEXT)")
+                connection.execute("INSERT INTO run(id,cutoffs) VALUES(1,?)", (value,))
+                with self.assertRaises(ValueError):
+                    self.app._create_viewer_network_cutoffs(connection)
 
     def test_tampered_legacy_package_cannot_substitute_raw_sqlite(self) -> None:
         job_id = "tamperedpackage"

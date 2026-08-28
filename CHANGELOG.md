@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.0.3 - 2026-08-28
+
+Patch release:
+
+- Unified persisted public-result manifests and signed indexes under one 32 MiB
+  read/write bound, with explicit rejection above that limit.
+- Accepted only the exact antiSMASH no-CDS, no-gene, all-records-skipped shard
+  outcome as empty when a successful sibling shard is available; other nonzero
+  shard outcomes remain fatal.
+- Added a bounded query-complete BiG-SCAPE browser database that retains the
+  shipped network and family-alignment query domains without copying unrelated
+  distance rows.
+- Restored signed generated-result downloads, sequence copying, and safe
+  external links through the authenticated parent while retaining opaque
+  origins, bundle isolation, and the existing sandbox restrictions.
+- Prevented generated BiG-SCAPE family controls from navigating away from the
+  result and assigned finite SVG coordinates to singleton family trees.
+- Replaced the broad generated examples with accession-defined section *Flavi*
+  and *Saccharopolyspora* evidence bundles that omit genomes, private execution
+  records, and run-local family identifiers.
+- Made the process-cancellation and anonymous resource-policy tests
+  deterministic across the public CI runner's shell timing and CPU count.
+
 ## 1.0.2 - 2026-07-31
 
 Patch release:

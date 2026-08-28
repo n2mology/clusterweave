@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import secrets
@@ -36,9 +37,11 @@ PUBLIC_PATH_POLICY = PUBLIC_BIGSCAPE_PATH_POLICY
 PUBLIC_EXPORT_TABLE = PUBLIC_BIGSCAPE_EXPORT_TABLE
 SIDECAR_FILENAME = f".{PUBLIC_BIGSCAPE_DATABASE_FILENAME}.source.json"
 PUBLIC_BIGSCAPE_VIEWER_EXPORT_TABLE = "clusterweave_viewer_export"
-PUBLIC_BIGSCAPE_VIEWER_EXPORT_VERSION = 1
+PUBLIC_BIGSCAPE_VIEWER_EXPORT_VERSION = 2
 PUBLIC_BIGSCAPE_VIEWER_QUERY_CONTRACT = "bigscape-2.0.0-clusterweave-v1"
-PUBLIC_BIGSCAPE_VIEWER_PATH_POLICY = "portable-redacted-bigscape-viewer-v1"
+PUBLIC_BIGSCAPE_VIEWER_PATH_POLICY = (
+    "portable-redacted-bigscape-query-complete-viewer-v2"
+)
 VIEWER_SIDECAR_FILENAME = f".{PUBLIC_BIGSCAPE_VIEWER_DATABASE_FILENAME}.source.json"
 DEFAULT_MAX_SOURCE_BYTES = 2 * 1024 * 1024 * 1024
 DEFAULT_MAX_VIEWER_BYTES = 64 * 1024 * 1024
@@ -220,6 +223,7 @@ class PublicBigscapeDatabase:
     query_paths: int
     viewer_path: Path | None = None
     viewer_bytes: int = 0
+    viewer_error: str = ""
 
 
 @dataclass(frozen=True)
@@ -328,7 +332,16 @@ _VIEWER_PROJECTIONS = (
         "distance",
         source_where=(
             "record_a_id IN (SELECT record_id FROM clusterweave_reachable_records) "
-            "AND record_b_id IN (SELECT record_id FROM clusterweave_reachable_records)"
+            "AND record_b_id IN (SELECT record_id FROM clusterweave_reachable_records) "
+            "AND (distance < (SELECT MAX(cutoff) FROM "
+            "clusterweave_viewer_network_cutoffs) OR EXISTS ("
+            "SELECT 1 FROM family AS viewer_family "
+            "INNER JOIN bgc_record_family AS viewer_member "
+            "ON viewer_member.family_id=viewer_family.id WHERE "
+            "(distance.record_a_id=viewer_member.record_id "
+            "AND distance.record_b_id=viewer_family.center_id) OR "
+            "(distance.record_b_id=viewer_member.record_id "
+            "AND distance.record_a_id=viewer_family.center_id)))"
         ),
         order_by=("record_a_id", "record_b_id", "edge_param_id"),
     ),
@@ -1192,6 +1205,54 @@ def _create_reachable_records(connection: sqlite3.Connection) -> int:
     ).fetchone()[0])
 
 
+def _viewer_network_cutoffs(
+    connection: sqlite3.Connection,
+) -> tuple[float, ...]:
+    rows = list(connection.execute("SELECT id, cutoffs FROM run ORDER BY id"))
+    if not rows:
+        raise BigscapePublicDatabaseError(
+            "BiG-SCAPE viewer source has no run cutoff contract"
+        )
+    cutoffs: set[float] = set()
+    for _run_id, raw_cutoffs in rows:
+        text = str(raw_cutoffs or "").strip()
+        tokens = text.split(",") if text else []
+        if not tokens or any(not token.strip() for token in tokens):
+            raise BigscapePublicDatabaseError(
+                "BiG-SCAPE viewer run cutoffs are missing or malformed"
+            )
+        for token in tokens:
+            try:
+                cutoff = float(token.strip())
+            except (TypeError, ValueError) as exc:
+                raise BigscapePublicDatabaseError(
+                    "BiG-SCAPE viewer run cutoffs are missing or malformed"
+                ) from exc
+            if not math.isfinite(cutoff) or cutoff < 0.0 or cutoff > 1.0:
+                raise BigscapePublicDatabaseError(
+                    "BiG-SCAPE viewer run cutoff is outside the supported range"
+                )
+            cutoffs.add(cutoff)
+    if not cutoffs:
+        raise BigscapePublicDatabaseError(
+            "BiG-SCAPE viewer source has no run cutoff contract"
+        )
+    return tuple(sorted(cutoffs))
+
+
+def _create_viewer_network_cutoffs(connection: sqlite3.Connection) -> float:
+    cutoffs = _viewer_network_cutoffs(connection)
+    connection.execute(
+        "CREATE TEMP TABLE clusterweave_viewer_network_cutoffs "
+        "(cutoff REAL PRIMARY KEY)"
+    )
+    connection.executemany(
+        "INSERT INTO clusterweave_viewer_network_cutoffs(cutoff) VALUES(?)",
+        ((cutoff,) for cutoff in cutoffs),
+    )
+    return cutoffs[-1]
+
+
 def _projection_sql(projection: _ViewerProjection, *, source: bool) -> str:
     selected = projection.source_select if source else projection.viewer_select
     query = f"SELECT {selected} FROM {_quote_identifier(projection.table)}"
@@ -1529,6 +1590,7 @@ def _validate_viewer_candidate(
             )
 
         reachable_records = _create_reachable_records(source)
+        _create_viewer_network_cutoffs(source)
         counts: dict[str, int] = {}
         for projection in _VIEWER_PROJECTIONS:
             expected = _typed_query_digest(
@@ -1694,6 +1756,7 @@ def create_public_bigscape_viewer_database(
             target.executescript(_VIEWER_SCHEMA_SQL)
             target.execute(f"PRAGMA user_version={int(baseline.user_version)}")
             reachable_records = _create_reachable_records(source)
+            _create_viewer_network_cutoffs(source)
             target.execute("BEGIN IMMEDIATE")
             copied = {
                 projection.table: _copy_viewer_projection(
@@ -1755,15 +1818,19 @@ def _prepare_optional_bigscape_viewer(
     *,
     max_viewer_bytes: int,
     force: bool,
-) -> tuple[Path | None, int]:
+) -> tuple[Path | None, int, str]:
     try:
         prepared = create_public_bigscape_viewer_database(
             public_database,
             max_viewer_bytes=max_viewer_bytes,
             force=force,
         )
-        return (prepared[0], prepared[2]) if prepared is not None else (None, 0)
-    except (BigscapePublicDatabaseError, OSError, sqlite3.Error):
+        return (
+            (prepared[0], prepared[2], "")
+            if prepared is not None
+            else (None, 0, "")
+        )
+    except (BigscapePublicDatabaseError, OSError, sqlite3.Error) as exc:
         # Remove only the attestation sidecar. Any stale viewer file is then
         # impossible to advertise or serve, while remaining available for
         # operator diagnosis.
@@ -1773,7 +1840,11 @@ def _prepare_optional_bigscape_viewer(
                 sidecar.unlink()
         except OSError:
             pass
-        return None, 0
+        if isinstance(exc, BigscapePublicDatabaseError):
+            reason = " ".join(str(exc).split())[:240]
+        else:
+            reason = type(exc).__name__
+        return None, 0, reason or type(exc).__name__
 
 
 def sanitize_bigscape_database(
@@ -1825,20 +1896,20 @@ def sanitize_bigscape_database(
             f"Could not inspect raw BiG-SCAPE database: {type(exc).__name__}"
         ) from exc
 
-    if (
-        not force
-        and output.is_file()
-        and _read_sidecar(sidecar) == fingerprint
-    ):
+    if output.is_file() and _read_sidecar(sidecar) == fingerprint:
         try:
             dataset, reference, query = _validate_public_database(
                 output,
                 baseline,
                 binary_markers=baseline.path_markers,
             )
-            viewer_path, viewer_bytes = _prepare_optional_bigscape_viewer(
+            viewer_path, viewer_bytes, viewer_error = _prepare_optional_bigscape_viewer(
                 output,
                 max_viewer_bytes=max_viewer_bytes,
+                # A forced backfill refreshes only the bounded viewer when
+                # the signed full export remains valid. Replacing an
+                # identical full database would needlessly change ZIP
+                # metadata and defeat viewer-only archive preservation.
                 force=force,
             )
             return PublicBigscapeDatabase(
@@ -1852,6 +1923,7 @@ def sanitize_bigscape_database(
                 query,
                 viewer_path,
                 viewer_bytes,
+                viewer_error,
             )
         except BigscapePublicDatabaseError:
             pass
@@ -1910,7 +1982,7 @@ def sanitize_bigscape_database(
             os.fsync(handle.fileno())
         os.replace(vacuumed, output)
         _write_sidecar(sidecar, fingerprint)
-        viewer_path, viewer_bytes = _prepare_optional_bigscape_viewer(
+        viewer_path, viewer_bytes, viewer_error = _prepare_optional_bigscape_viewer(
             output,
             max_viewer_bytes=max_viewer_bytes,
             force=force,
@@ -1926,6 +1998,7 @@ def sanitize_bigscape_database(
             query,
             viewer_path,
             viewer_bytes,
+            viewer_error,
         )
     except Exception as exc:
         if isinstance(exc, BigscapePublicDatabaseError):

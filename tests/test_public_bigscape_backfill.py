@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import hashlib
 import importlib.util
 import io
 import sys
@@ -84,6 +85,7 @@ class PublicBigscapeBackfillTests(unittest.TestCase):
         *,
         reused: bool = False,
         viewer: bool = True,
+        viewer_error: str = "",
     ):
         public_path = (
             results_root
@@ -100,6 +102,7 @@ class PublicBigscapeBackfillTests(unittest.TestCase):
                     public_bytes=4096,
                     viewer_path=viewer_path if viewer else None,
                     viewer_bytes=1024 if viewer else 0,
+                    viewer_error=viewer_error,
                     reused=reused,
                 ),
             ),
@@ -156,7 +159,9 @@ class PublicBigscapeBackfillTests(unittest.TestCase):
             mock.patch.object(backfill, "prepare_public_bigscape_databases", prepare)
         )
         self.stack.enter_context(mock.patch.object(backfill, "_collect_result_files", side_effect=collect))
-        self.stack.enter_context(mock.patch.object(backfill, "append_log_lines"))
+        append_logs = self.stack.enter_context(
+            mock.patch.object(backfill, "append_log_lines")
+        )
         self.stack.enter_context(mock.patch.object(backfill, "read_logs", return_value=[]))
         self.stack.enter_context(mock.patch.object(backfill, "write_job", write_job))
         self.stack.enter_context(mock.patch.object(backfill, "now_iso", return_value="2026-01-03T00:00:00+00:00"))
@@ -253,12 +258,139 @@ class PublicBigscapeBackfillTests(unittest.TestCase):
         self.stack.enter_context(
             mock.patch.object(backfill, "_collect_result_files", side_effect=collect)
         )
-        self.stack.enter_context(mock.patch.object(backfill, "append_log_lines"))
+        append_logs = self.stack.enter_context(
+            mock.patch.object(backfill, "append_log_lines")
+        )
         self.stack.enter_context(mock.patch.object(backfill, "read_logs", return_value=[]))
         self.stack.enter_context(mock.patch.object(backfill, "write_job", write_job))
 
         self.assertEqual(backfill.backfill_one(self.job_id), "ok: created")
         self.assertEqual(write_job.call_args.args[0]["bigscape_viewer_database"], "")
+        logged = "\n".join(append_logs.call_args.args[1])
+        self.assertNotIn("compact BiG-SCAPE web viewer unavailable", logged)
+
+    def test_signed_viewer_only_backfill_preserves_existing_archive(self) -> None:
+        meta = self.metadata("demo")
+        results_root = self.job_dir / str(meta["result_root"])
+        public_path = (
+            results_root / "big_scape" / "public" / "clusterweave_public.sqlite"
+        )
+        public_path.parent.mkdir(parents=True)
+        public_path.write_bytes(b"signed-public-database")
+        viewer_path = public_path.with_name("clusterweave_viewer.sqlite")
+        viewer_path.write_bytes(b"bounded-viewer")
+        public_rel = public_path.relative_to(self.job_dir).as_posix()
+        archive_rel = "downloads/demo_public_results.zip"
+        meta["result_files"] = [
+            archive_rel,
+            "downloads/public_results_manifest.tsv",
+            public_rel,
+        ]
+        attestation = SimpleNamespace(
+            files=((
+                public_rel,
+                public_path.stat().st_size,
+                hashlib.sha256(public_path.read_bytes()).hexdigest(),
+            ),),
+            archive_path=archive_rel,
+        )
+        collect = mock.Mock()
+        sign = mock.Mock()
+        write_job = mock.Mock()
+        self.stack.enter_context(
+            mock.patch.object(backfill, "read_job", return_value=copy.deepcopy(meta))
+        )
+        self.stack.enter_context(
+            mock.patch.object(
+                backfill,
+                "find_raw_bigscape_databases",
+                return_value=[results_root / "big_scape" / "big_scape.db"],
+            )
+        )
+        self.stack.enter_context(
+            mock.patch.object(
+                backfill,
+                "prepare_public_bigscape_databases",
+                return_value=self.public_preparation(results_root, reused=True),
+            )
+        )
+        self.stack.enter_context(
+            mock.patch.object(backfill, "read_result_attestation", return_value=attestation)
+        )
+        self.stack.enter_context(
+            mock.patch.object(backfill, "write_result_attestation", sign)
+        )
+        self.stack.enter_context(
+            mock.patch.object(backfill, "_collect_result_files", collect)
+        )
+        self.stack.enter_context(mock.patch.object(backfill, "append_log_lines"))
+        self.stack.enter_context(mock.patch.object(backfill, "read_logs", return_value=[]))
+        self.stack.enter_context(mock.patch.object(backfill, "write_job", write_job))
+
+        self.assertEqual(backfill.backfill_one(self.job_id, force=True), "ok: reused")
+        collect.assert_not_called()
+        sign.assert_called_once_with(
+            self.job_dir,
+            self.job_id,
+            verify_hashes=False,
+            viewer_path=(
+                "data/results/demo/big_scape/public/clusterweave_viewer.sqlite"
+            ),
+            archive_path=archive_rel,
+        )
+        self.assertEqual(write_job.call_args.args[0]["result_files"], meta["result_files"])
+
+    def test_backfill_logs_bounded_compact_viewer_failure_reason(self) -> None:
+        meta = self.metadata("demo")
+        results_root = self.job_dir / str(meta["result_root"])
+        results_root.mkdir(parents=True)
+
+        def collect(job, _job_dir, _layout, **kwargs) -> None:
+            kwargs["before_publish"]()
+            job.result_files = [
+                "downloads/demo_public_results.zip",
+                "downloads/public_results_manifest.tsv",
+                "data/results/demo/big_scape/public/clusterweave_public.sqlite",
+            ]
+
+        append_logs = mock.Mock()
+        self.stack.enter_context(
+            mock.patch.object(backfill, "read_job", return_value=copy.deepcopy(meta))
+        )
+        self.stack.enter_context(
+            mock.patch.object(
+                backfill,
+                "find_raw_bigscape_databases",
+                return_value=[results_root / "big_scape" / "big_scape.db"],
+            )
+        )
+        self.stack.enter_context(
+            mock.patch.object(
+                backfill,
+                "prepare_public_bigscape_databases",
+                return_value=self.public_preparation(
+                    results_root,
+                    viewer=False,
+                    viewer_error="Viewer database exceeds the strict size limit",
+                ),
+            )
+        )
+        self.stack.enter_context(
+            mock.patch.object(backfill, "_collect_result_files", side_effect=collect)
+        )
+        self.stack.enter_context(
+            mock.patch.object(backfill, "append_log_lines", append_logs)
+        )
+        self.stack.enter_context(mock.patch.object(backfill, "read_logs", return_value=[]))
+        self.stack.enter_context(mock.patch.object(backfill, "write_job"))
+
+        self.assertEqual(backfill.backfill_one(self.job_id), "ok: created")
+        logged = "\n".join(append_logs.call_args.args[1])
+        self.assertIn(
+            "WARN: compact BiG-SCAPE web viewer unavailable "
+            "(Viewer database exceeds the strict size limit).",
+            logged,
+        )
 
     def test_main_continues_after_one_corrupt_job_and_returns_failure(self) -> None:
         calls: list[str] = []

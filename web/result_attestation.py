@@ -15,6 +15,7 @@ from typing import Callable, Iterable
 import uuid
 
 from result_policy import (
+    PUBLIC_RESULT_INDEX_MAX_BYTES,
     PUBLIC_RESULTS_MANIFEST_PATH,
     normalized_job_result_path,
     result_is_public_archive,
@@ -24,8 +25,6 @@ from result_policy import (
 
 RESULT_ATTESTATION_PATH = "downloads/.clusterweave_result_index.v1.json"
 RESULT_ATTESTATION_SCHEMA = 1
-MAX_ATTESTATION_BYTES = 4 * 1024 * 1024
-MAX_MANIFEST_BYTES = 4 * 1024 * 1024
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _BACKFILL_LOCK = threading.Lock()
 _BACKFILLS: set[str] = set()
@@ -194,7 +193,7 @@ def write_result_attestation(
     base = base_dir.resolve()
     manifest_path = (base / PUBLIC_RESULTS_MANIFEST_PATH).resolve()
     manifest_path.relative_to(base)
-    raw_manifest = _stable_bytes(manifest_path, MAX_MANIFEST_BYTES)
+    raw_manifest = _stable_bytes(manifest_path, PUBLIC_RESULT_INDEX_MAX_BYTES)
     rows = _manifest_rows(raw_manifest)
     _validate_files(
         base,
@@ -250,11 +249,14 @@ def write_result_attestation(
         }
     payload = dict(unsigned)
     payload["signature"] = _signature(unsigned)
+    encoded = _canonical_bytes(payload) + b"\n"
+    if len(encoded) > PUBLIC_RESULT_INDEX_MAX_BYTES:
+        raise OSError("result attestation exceeds the bounded size")
     target = base / RESULT_ATTESTATION_PATH
     target.parent.mkdir(parents=True, exist_ok=True)
     temp = target.with_name(f".{target.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
     try:
-        temp.write_bytes(_canonical_bytes(payload) + b"\n")
+        temp.write_bytes(encoded)
         os.replace(temp, target)
     finally:
         temp.unlink(missing_ok=True)
@@ -275,7 +277,7 @@ def read_result_attestation(base_dir: Path, job_id: str) -> ResultAttestation | 
     base = base_dir.resolve()
     target = base / RESULT_ATTESTATION_PATH
     try:
-        raw = _stable_bytes(target, MAX_ATTESTATION_BYTES)
+        raw = _stable_bytes(target, PUBLIC_RESULT_INDEX_MAX_BYTES)
         payload = json.loads(raw)
         if not isinstance(payload, dict):
             return None
@@ -298,7 +300,7 @@ def read_result_attestation(base_dir: Path, job_id: str) -> ResultAttestation | 
             return None
         manifest_path = (base / PUBLIC_RESULTS_MANIFEST_PATH).resolve()
         manifest_path.relative_to(base)
-        raw_manifest = _stable_bytes(manifest_path, MAX_MANIFEST_BYTES)
+        raw_manifest = _stable_bytes(manifest_path, PUBLIC_RESULT_INDEX_MAX_BYTES)
         manifest_sha256 = hashlib.sha256(raw_manifest).hexdigest()
         if (
             int(manifest.get("bytes", -1)) != len(raw_manifest)

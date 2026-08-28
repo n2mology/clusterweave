@@ -517,8 +517,8 @@ class RepoLayoutTests(unittest.TestCase):
             "docs/INSTALL.md",
             "docs/WEB_RUNTIME.md",
             "examples/README.md",
-            "examples/fungi_only/README.md",
-            "examples/mixed/README.md",
+            "examples/flavi19/README.md",
+            "examples/saccharopolyspora26/README.md",
         ]
         texts = {
             rel: (REPO_ROOT / rel).read_text(encoding="utf-8").casefold()
@@ -643,99 +643,59 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertTrue((REPO_ROOT / "profiles" / "example_project.env").exists())
         for rel in [
             "examples/README.md",
-            "examples/fungi_only/README.md",
-            "examples/fungi_only/accessions.txt",
-            "examples/fungi_only/accessions_fungusID_taxonomyID.txt",
-            "examples/fungi_only/summary/README.md",
-            "examples/fungi_only/summary/family_atlas_shortlist.md",
-            "examples/fungi_only/figures/fungi_big_scape_multipanel.svg",
-            "examples/fungi_only/figures/bgc_overlap.svg",
-            "examples/mixed/README.md",
-            "examples/mixed/accessions.txt",
-            "examples/mixed/accessions_fungusID_taxonomyID.txt",
-            "examples/mixed/accessions_bacteriaID_taxonomyID.txt",
-            "examples/mixed/figures/fungi_big_scape_multipanel.svg",
-            "examples/mixed/figures/bacteria_big_scape_multipanel.svg",
-            "examples/mixed/figures/bgc_overlap.svg",
-            "examples/mixed/figures/clusterweave_taxon_tree.svg",
-            "examples/mixed/summary/README.md",
-            "examples/mixed/summary/all_tools_bgc_comparison.csv",
-            "examples/mixed/summary/all_tools_shared_unshared_summary.csv",
-            "examples/mixed/summary/family_atlas_shortlist.md",
-            "examples/mixed/summary/family_atlas_shortlist.tsv",
+            "examples/DATA_DICTIONARY.md",
+            "examples/state_definitions.tsv",
+            "examples/summary.tsv",
+            "examples/flavi19/README.md",
+            "examples/flavi19/COMMANDS.md",
+            "examples/flavi19/accession_manifest.tsv",
+            "examples/flavi19/analysis_states.tsv",
+            "examples/flavi19/candidate_reconciliation.tsv",
+            "examples/flavi19/candidates.tsv",
+            "examples/flavi19/gcf_completion.tsv",
+            "examples/flavi19/parameters.tsv",
+            "examples/flavi19/tool_versions.tsv",
+            "examples/flavi19/focal_locus_aspirochlorine/README.md",
+            "examples/flavi19/focal_locus_aspirochlorine/focal_locus.tsv",
+            "examples/flavi19/focal_locus_aspirochlorine/records.tsv",
+            "examples/flavi19/focal_locus_aspirochlorine/genes.tsv",
+            "examples/flavi19/focal_locus_aspirochlorine/funbgcex_genes.tsv",
+            "examples/flavi19/focal_locus_aspirochlorine/alignments.tsv",
+            "examples/flavi19/focal_locus_aspirochlorine/focal_locus_aspirochlorine_gene_context.svg",
+            "examples/saccharopolyspora26/README.md",
+            "examples/saccharopolyspora26/COMMANDS.md",
+            "examples/saccharopolyspora26/accession_manifest.tsv",
+            "examples/saccharopolyspora26/analysis_states.tsv",
+            "examples/saccharopolyspora26/candidate_reconciliation.tsv",
+            "examples/saccharopolyspora26/candidates.tsv",
+            "examples/saccharopolyspora26/gcf_completion.tsv",
+            "examples/saccharopolyspora26/parameters.tsv",
+            "examples/saccharopolyspora26/tool_versions.tsv",
         ]:
             self.assertTrue((REPO_ROOT / rel).exists(), rel)
 
-        self.assertFalse((REPO_ROOT / "examples/mixed/accession_validation.tsv").exists())
-        self.assertFalse((REPO_ROOT / "examples/mixed/figures/README.md").exists())
+        with (REPO_ROOT / "examples/flavi19/accession_manifest.tsv").open(
+            newline="", encoding="utf-8"
+        ) as handle:
+            fungal_manifest = list(csv.DictReader(handle, delimiter="\t"))
+        with (REPO_ROOT / "examples/saccharopolyspora26/accession_manifest.tsv").open(
+            newline="", encoding="utf-8"
+        ) as handle:
+            bacterial_manifest = list(csv.DictReader(handle, delimiter="\t"))
+        for manifest, expected_count in ((fungal_manifest, 19), (bacterial_manifest, 26)):
+            accessions = [row["assembly_accession"] for row in manifest]
+            self.assertEqual(expected_count, len(accessions))
+            self.assertEqual(expected_count, len(set(accessions)))
+            self.assertTrue(all(re.fullmatch(r"GC[AF]_\d+\.\d+", value) for value in accessions))
 
-        mixed_accessions = (
-            REPO_ROOT / "examples/mixed/accessions.txt"
+        fungal_candidates = (
+            REPO_ROOT / "examples/flavi19/candidates.tsv"
         ).read_text(encoding="utf-8").splitlines()
-        fungal_accessions = {
-            row.split("\t", 1)[0]
-            for row in (
-                REPO_ROOT
-                / "examples/mixed/accessions_fungusID_taxonomyID.txt"
-            ).read_text(encoding="utf-8").splitlines()
-            if row
-        }
-        bacterial_accessions = {
-            row.split("\t", 1)[0]
-            for row in (
-                REPO_ROOT
-                / "examples/mixed/accessions_bacteriaID_taxonomyID.txt"
-            ).read_text(encoding="utf-8").splitlines()
-            if row
-        }
-        self.assertEqual(40, len(mixed_accessions))
-        self.assertEqual(40, len(set(mixed_accessions)))
-        self.assertEqual(20, len(bacterial_accessions))
-        self.assertEqual(20, len(fungal_accessions))
-        self.assertEqual(set(mixed_accessions[:20]), bacterial_accessions)
-        self.assertEqual(set(mixed_accessions[20:]), fungal_accessions)
-
-        fungi_only_accessions = (
-            REPO_ROOT / "examples/fungi_only/accessions.txt"
+        bacterial_candidates = (
+            REPO_ROOT / "examples/saccharopolyspora26/candidates.tsv"
         ).read_text(encoding="utf-8").splitlines()
-        fungi_only_mapping = {
-            row.split("\t", 1)[0]
-            for row in (
-                REPO_ROOT / "examples/fungi_only/accessions_fungusID_taxonomyID.txt"
-            ).read_text(encoding="utf-8").splitlines()
-            if row
-        }
-        self.assertEqual(len(fungi_only_accessions), 50)
-        self.assertEqual(len(set(fungi_only_accessions)), 50)
-        self.assertEqual(set(fungi_only_accessions), fungi_only_mapping)
-        example_index = " ".join(
-            (REPO_ROOT / "examples/README.md").read_text(encoding="utf-8").split()
-        )
-        self.assertIn(
-            "The canonical Both run completed on 2026-07-22 without substitutions.",
-            example_index,
-        )
-
-        bacterial_mapping_rows = [
-            row.split("\t")
-            for row in (
-                REPO_ROOT
-                / "examples/mixed/accessions_bacteriaID_taxonomyID.txt"
-            ).read_text(encoding="utf-8").splitlines()
-            if row
-        ]
-        self.assertTrue(all(len(row) >= 3 for row in bacterial_mapping_rows))
-        self.assertTrue(
-            all(not row[1].casefold().startswith("bacteria_") for row in bacterial_mapping_rows)
-        )
-        for relative in (
-            "figures/clusterweave_taxon_tree.svg",
-            "summary/all_tools_shared_unshared_summary.csv",
-            "summary/family_atlas_shortlist.md",
-            "summary/family_atlas_shortlist.tsv",
-        ):
-            text = (REPO_ROOT / "examples/mixed" / relative).read_text(encoding="utf-8")
-            self.assertNotRegex(text, r"bacteria_[A-Z][A-Za-z0-9._-]*")
+        self.assertEqual(2121, len(fungal_candidates))
+        self.assertEqual(817, len(bacterial_candidates))
 
     def test_lowercase_runtime_roots_exist(self) -> None:
         for rel in [
@@ -951,16 +911,14 @@ class RepoLayoutTests(unittest.TestCase):
             "visuals/ClusterWeave_workflow.svg",
             "visuals/logo_black.svg",
             "examples/README.md",
-            "examples/fungi_only/accessions.txt",
-            "examples/fungi_only/accessions_fungusID_taxonomyID.txt",
-            "examples/fungi_only/summary/README.md",
-            "examples/fungi_only/summary/family_atlas_shortlist.md",
-            "examples/mixed/accessions.txt",
-            "examples/mixed/accessions_fungusID_taxonomyID.txt",
-            "examples/mixed/accessions_bacteriaID_taxonomyID.txt",
-            "examples/mixed/README.md",
-            "examples/mixed/summary/README.md",
-            "examples/mixed/summary/family_atlas_shortlist.md",
+            "examples/DATA_DICTIONARY.md",
+            "examples/flavi19/accession_manifest.tsv",
+            "examples/flavi19/README.md",
+            "examples/flavi19/COMMANDS.md",
+            "examples/flavi19/focal_locus_aspirochlorine/README.md",
+            "examples/saccharopolyspora26/accession_manifest.tsv",
+            "examples/saccharopolyspora26/README.md",
+            "examples/saccharopolyspora26/COMMANDS.md",
             "docker-compose.yml",
             "clusterweave.yml",
         ]
@@ -994,6 +952,9 @@ class RepoLayoutTests(unittest.TestCase):
                 self.assertIsNone(private_job_path.search(text))
                 self.assertNotIn("/".join(("", "home", "cloud")), text)
                 self.assertNotIn("/data/jobs/", text)
+                self.assertNotIn("FAM_", text)
+                self.assertNotRegex(text, r"\b(?:job|run|database)[_-]?id\b")
+                self.assertNotRegex(text, r"\b[0-9a-f]{64}\b")
 
     def test_frontend_static_assets_are_extracted_without_new_dependencies(self) -> None:
         static_dir = REPO_ROOT / "web" / "static"
@@ -1011,7 +972,7 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn('href="/favicon.ico', index_text)
         self.assertTrue((static_dir / "favicon.ico").exists())
         self.assertIn('href="assets/clusterweave.css?v=20260723-timer-utc1-citation-align1"', index_text)
-        self.assertIn('src="assets/clusterweave.js?v=20260723-timer-utc1-r13a1-r12h1-stage-tree2-ui-copy1"', index_text)
+        self.assertIn('src="assets/clusterweave.js?v=20260827-bigscape-family1"', index_text)
         self.assertEqual(index_text.count('name="clusterweave-game-asset"'), 4)
         self.assertNotIn('<link rel="stylesheet" href="assets/clusterweave-game.css', index_text)
         self.assertNotIn('<script src="assets/clusterweave-game', index_text)
@@ -1610,7 +1571,7 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("inlineToolResultScripts", rewrite_block)
         self.assertIn("rewriteToolResultScriptForSandbox", js_text)
         self.assertIn("TOOL_RESULT_PREVIEW_CSP", rewrite_block)
-        self.assertIn("allowToolBundleScripts && value.startsWith('#')", rewrite_block)
+        self.assertIn("interactivePreview && value.startsWith('#')", rewrite_block)
         self.assertIn("querySelectorAll('[autofocus]')", rewrite_block)
         self.assertIn("? 'iframe,object,embed,base'", rewrite_block)
         self.assertNotIn("script:not([src]),iframe,object,embed,base", rewrite_block)
@@ -1638,7 +1599,7 @@ class RepoLayoutTests(unittest.TestCase):
             sandbox_block,
         )
         self.assertNotIn("frame.srcdoc", sandbox_block)
-        self.assertIn("const TOOL_RESULT_PREVIEW_SANDBOX = 'allow-scripts';", js_text)
+        self.assertIn("const TOOL_RESULT_PREVIEW_SANDBOX = 'allow-scripts allow-downloads';", js_text)
         self.assertNotIn("allow-same-origin", sandbox_block)
         self.assertNotIn("Authorization", navigator_block + sandbox_block)
         self.assertNotIn("readToken", navigator_block + sandbox_block)
@@ -1668,7 +1629,7 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("object-src 'none'", js_text)
         self.assertIn("form-action 'none'", js_text)
         self.assertIn("base-uri 'none'", js_text)
-        self.assertIn("const CLINKER_PREVIEW_SANDBOX = 'allow-scripts';", js_text)
+        self.assertIn("const CLINKER_PREVIEW_SANDBOX = 'allow-scripts allow-downloads';", js_text)
         self.assertIn("frame.setAttribute('sandbox', CLINKER_PREVIEW_SANDBOX);", sandbox_block)
         self.assertIn("frame.setAttribute('referrerpolicy', 'no-referrer');", sandbox_block)
         self.assertIn("frame.srcdoc = htmlText;", sandbox_block)
@@ -1677,7 +1638,7 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertNotIn("allow-forms", sandbox_block)
         self.assertNotIn("allow-top-navigation", sandbox_block)
         self.assertIn("if (isExactPublicClinkerPanelHtml(relPath))", open_block)
-        self.assertIn("renderSandboxedClinkerPreview(targetWindow, relPath, rewrittenHtml);", open_block)
+        self.assertIn("renderSandboxedClinkerPreview(targetWindow, relPath, rewrittenHtml, channel, owner);", open_block)
 
     def test_frontend_clinker_panel_script_allowlist_rejects_nearby_paths(self) -> None:
         js_text = (REPO_ROOT / "web" / "static" / "assets" / "result-reader-boundary.js").read_text(encoding="utf-8")
@@ -1983,7 +1944,7 @@ process.stdout.write(JSON.stringify({{
         self.assertIn("inlineBigscapeResultScripts(doc, jobId, htmlPath, assetOptions)", rewrite_block)
         self.assertNotIn("...(allowBigscapeScripts ? [['script[src]', 'src']] : [])", rewrite_block)
         self.assertIn("? BIGSCAPE_RESULT_PREVIEW_CSP", rewrite_block)
-        self.assertIn("const BIGSCAPE_PREVIEW_SANDBOX = 'allow-scripts';", js_text)
+        self.assertIn("const BIGSCAPE_PREVIEW_SANDBOX = 'allow-scripts allow-downloads';", js_text)
         self.assertIn(
             "const BIGSCAPE_RESULT_PREVIEW_CSP = \"default-src 'none'; "
             "script-src 'unsafe-inline'; img-src data: blob:; "
@@ -2005,7 +1966,7 @@ process.stdout.write(JSON.stringify({{
         self.assertIn("transferTimeout = window.setTimeout(cleanupTransfer, 120000);", sandbox_block)
         self.assertIn("const installTransfer = targetWindow.CLUSTERWEAVE_BIGSCAPE_INSTALL_TRANSFER;", sandbox_block)
         self.assertIn("installTransfer(databaseBuffer, channel, frame.id);", sandbox_block)
-        self.assertNotIn("targetWindow.addEventListener", sandbox_block)
+        self.assertIn("targetWindow.addEventListener('pagehide', cleanupActions", sandbox_block)
         self.assertIn("databaseBuffer = null;", sandbox_block)
         self.assertIn(
             "Object.prototype.toString.call(buffer) === '[object ArrayBuffer]'",
@@ -2023,7 +1984,7 @@ process.stdout.write(JSON.stringify({{
         self.assertIn("}, '*', [buffer]);", sandbox_block)
         self.assertIn("frame.srcdoc = htmlText;", sandbox_block)
         self.assertIn("connect-src 'none'", sandbox_block)
-        for permission in ["allow-same-origin", "allow-popups", "allow-forms", "allow-top-navigation", "allow-downloads"]:
+        for permission in ["allow-same-origin", "allow-popups", "allow-forms", "allow-top-navigation"]:
             self.assertNotIn(permission, sandbox_block)
         self.assertIn("function receiveBuffer()", contract_block)
         self.assertIn("event.source !== window.parent", contract_block)
@@ -2072,7 +2033,7 @@ process.stdout.write(JSON.stringify({{
 const vm = require('node:vm');
 function fileNameFromPath() { return 'index.html'; }
 function escapeHtml(value) { return String(value); }
-const BIGSCAPE_PREVIEW_SANDBOX = 'allow-scripts';
+const BIGSCAPE_PREVIEW_SANDBOX = 'allow-scripts allow-downloads';
 const renderSandboxedBigscapePreview = eval('(' + %s + ')');
 
 function harness(databaseBuffer) {
@@ -2234,14 +2195,14 @@ process.stdout.write(JSON.stringify({
                 "transferredSameBuffer": True,
                 "successTimeoutMs": 120000,
                 "successTimeoutCleared": True,
-                "successListenersRemaining": 0,
+                "successListenersRemaining": 1,
                 "successRelayCleared": True,
                 "expiredTimeoutMs": 120000,
                 "expiredPosts": 0,
-                "expiredListenersRemaining": 0,
+                "expiredListenersRemaining": 1,
                 "unloadingPosts": 0,
                 "unloadingTimeoutCleared": True,
-                "unloadingListenersRemaining": 0,
+                "unloadingListenersRemaining": 1,
             },
         )
 
@@ -2825,8 +2786,113 @@ async function resolveResultArtifact(jobId, ownerArtifact, reference) {{
         self.assertIn("kinetic-v5\\.1\\.0\\.min\\.js$", compatibility_block)
         self.assertIn("occurrences !== BIGSCAPE_KINETIC_GLOBAL_EVAL_SHIM_COUNT", compatibility_block)
         self.assertIn("replaceAll(BIGSCAPE_KINETIC_GLOBAL_EVAL_SHIM, 'globalThis')", compatibility_block)
+        self.assertIn("controlOccurrences !== BIGSCAPE_CONTROL_PLACEHOLDER_COUNT", compatibility_block)
+        self.assertIn("singletonTreeOccurrences !== 1", compatibility_block)
+        self.assertIn("data-clusterweave-bigscape-control", compatibility_block)
+        self.assertIn("BIGSCAPE_SINGLETON_TREE_REPLACEMENT", compatibility_block)
         self.assertIn("connect-src 'none'", csp_line)
-        self.assertIn("const BIGSCAPE_PREVIEW_SANDBOX = 'allow-scripts';", js_text)
+        self.assertIn("const BIGSCAPE_PREVIEW_SANDBOX = 'allow-scripts allow-downloads';", js_text)
+
+    def test_frontend_bigscape_controls_and_singleton_tree_rewrite_fail_closed(self) -> None:
+        js_text = (REPO_ROOT / "web" / "static" / "assets" / "result-reader-boundary.js").read_text(
+            encoding="utf-8"
+        )
+        constants = js_text.split("const BIGSCAPE_KINETIC_GLOBAL_EVAL_SHIM", 1)[1].split(
+            "const RESULT_FOLDER_TABS", 1
+        )[0]
+        constants = "const BIGSCAPE_KINETIC_GLOBAL_EVAL_SHIM" + constants
+        compatibility = js_text.split("function rewriteBigscapeScriptForSandbox", 1)[1].split(
+            "async function inlineBigscapeResultScripts", 1
+        )[0]
+        compatibility = "function rewriteBigscapeScriptForSandbox" + compatibility
+        node_script = f"""
+function resultArtifactName(path) {{
+  return String(path || '').split('/').pop() || '';
+}}
+{constants}
+{compatibility}
+
+function singletonLayout(numLeaves) {{
+  const leaf = {{ xy: [], IsLeaf: () => true }};
+  const treeData = {{ num_leaves: numLeaves, root: {{}} }};
+  const calls = [];
+  class NodeIterator {{
+    constructor() {{ this.returned = false; }}
+    Begin() {{ this.returned = true; return leaf; }}
+    Next() {{ return null; }}
+  }}
+  class PhylogramTreeDrawer {{
+    Init() {{ calls.push('Init'); }}
+    set draw_scale_bar(value) {{ calls.push('draw_scale_bar:' + value); }}
+    CalcCoordinates() {{ calls.push('CalcCoordinates'); }}
+    Draw() {{ calls.push('Draw'); }}
+  }}
+  eval(BIGSCAPE_SINGLETON_TREE_REPLACEMENT);
+  return {{ x: leaf.xy.x, y: leaf.xy.y, calls }};
+}}
+
+const exactSource = Array(BIGSCAPE_CONTROL_PLACEHOLDER_COUNT)
+  .fill(BIGSCAPE_CONTROL_PLACEHOLDER)
+  .join('\\n') + '\\n' + BIGSCAPE_SINGLETON_TREE_SIGNATURE;
+const rewritten = rewriteBigscapeScriptForSandbox('html_content/js/bigscape.js', exactSource);
+let placeholderDriftRejected = false;
+try {{
+  rewriteBigscapeScriptForSandbox(
+    'html_content/js/bigscape.js',
+    exactSource.replace(BIGSCAPE_CONTROL_PLACEHOLDER, ''),
+  );
+}} catch (error) {{
+  placeholderDriftRejected = /compatibility profile/.test(String(error.message));
+}}
+let treeDriftRejected = false;
+try {{
+  rewriteBigscapeScriptForSandbox(
+    'html_content/js/bigscape.js',
+    exactSource.replace(BIGSCAPE_SINGLETON_TREE_SIGNATURE, ''),
+  );
+}} catch (error) {{
+  treeDriftRejected = /compatibility profile/.test(String(error.message));
+}}
+const singleton = singletonLayout(1);
+const multi = singletonLayout(2);
+process.stdout.write(JSON.stringify({{
+  placeholderCount: (rewritten.match(/data-clusterweave-bigscape-control/g) || []).length,
+  unsafePlaceholdersRemoved: !rewritten.includes(BIGSCAPE_CONTROL_PLACEHOLDER),
+  controlsRemainKeyboardReachable: (rewritten.match(/role='button' tabindex='0'/g) || []).length
+    === BIGSCAPE_CONTROL_PLACEHOLDER_COUNT,
+  singletonFinite: Number.isFinite(singleton.x) && Number.isFinite(singleton.y),
+  singletonCoordinates: [singleton.x, singleton.y],
+  singletonSkipsPhylogramDivision: singleton.calls.length === 0,
+  multiUsesPhylogram: multi.calls.join(',')
+    === 'Init,draw_scale_bar:false,CalcCoordinates,Draw',
+  unrelatedScriptUnchanged: rewriteBigscapeScriptForSandbox('other.js', exactSource) === exactSource,
+  placeholderDriftRejected,
+  treeDriftRejected,
+}}));
+"""
+        result = subprocess.run(
+            ["node", "-e", node_script],
+            cwd=str(REPO_ROOT),
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.assertEqual(
+            json.loads(result.stdout),
+            {
+                "placeholderCount": 13,
+                "unsafePlaceholdersRemoved": True,
+                "controlsRemainKeyboardReachable": True,
+                "singletonFinite": True,
+                "singletonCoordinates": [400, 20],
+                "singletonSkipsPhylogramDivision": True,
+                "multiUsesPhylogram": True,
+                "unrelatedScriptUnchanged": True,
+                "placeholderDriftRejected": True,
+                "treeDriftRejected": True,
+            },
+        )
 
 
     def test_web_supports_in_place_stage_reruns(self) -> None:

@@ -1,0 +1,21 @@
+stage	parameter	value
+routing	analysis_scope	fungi
+routing	target_genome	unset
+workflow	scientific_overrides	none
+workflow	cpus	12
+workflow	genome_parallelism	3
+workflow	workers	2
+antiSMASH	taxon	fungi
+antiSMASH	genefinding_tool	none
+antiSMASH	minimum_record_bp	1000
+antiSMASH	record_shard_cpus	1
+antiSMASH	legacy_single_run_cpus	4
+antiSMASH	enabled_optional_flags	--verbose --fullhmmer --asf --clusterhmmer --tigrfam --cc-mibig --cb-general --cb-knownclusters --cb-subclusters --pfam2go --smcog-trees --tfbs --rre --allow-long-headers
+BiG-SCAPE	selected_category	mix
+BiG-SCAPE	selected_threshold	0.3
+BiG-SCAPE	include_singletons	yes
+BiG-SCAPE	MIBiG_version	4.0
+harmonization	matching_rule	same normalized scaffold; all positive overlaps; descending overlap_bp; greedy one-to-one
+ordering	stable_sort	-priority_score; focus-ecology order; -selected_family_genome_count; -overlap_bp; normalized genome; antiSMASH region; FunBGCeX cluster
+optional	NPLinker	disabled
+FunBGCeX	workers	2

@@ -1,0 +1,7 @@
+analysis_state	definition	observed_records
+completed_with_detection	Applicable component completed and reported at least one feature.	149
+completed_no_detection	Applicable component completed without reporting the feature.	0
+taxonomically_inapplicable	The taxon route makes the component inapplicable; this is not a zero or failure.	26
+failed_or_incomplete	The applicable component failed or lacks completion evidence.	0
+not_generated_or_unavailable	The artifact was not requested, generated, retained, or available for review.	2
+unresolved	Available evidence cannot support classification into another state.	0

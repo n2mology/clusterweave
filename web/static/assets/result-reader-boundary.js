@@ -54,6 +54,12 @@ const TOOL_RESULT_RUNTIME_MAX_PER_DOCUMENT = 512;
 
 const TOOL_RESULT_RUNTIME_RESOLVE_TIMEOUT_MS = 15000;
 
+const RESULT_PREVIEW_COPY_MAX_BYTES = 1024 * 1024;
+
+const RESULT_PREVIEW_CLIPBOARD_TIMEOUT_MS = 1500;
+
+const RESULT_PREVIEW_EXTERNAL_URL_MAX_LENGTH = 16384;
+
 const RESULT_PREVIEW_NAVIGATOR_SCRIPT = String.raw`
 (function () {
   const scriptEl = document.currentScript || document.querySelector('script[data-clusterweave-result-preview]');
@@ -61,27 +67,57 @@ const RESULT_PREVIEW_NAVIGATOR_SCRIPT = String.raw`
   scriptEl.dataset.ready = '1';
   const channel = scriptEl.dataset.channel || '';
   const owner = scriptEl.dataset.owner || '';
+  const allowBundleLinks = scriptEl.dataset.bundleLinks === '1';
   const pending = new Map();
   const prepared = new WeakMap();
+  const actionPending = new Map();
   const maxPending = 64;
   const maxRequests = 512;
   const resolveTimeoutMs = 15000;
   let requestSequence = 0;
+  let actionSequence = 0;
+
+  function announce(message, isError) {
+    let status = document.querySelector('[data-clusterweave-result-status]');
+    if (!status) {
+      status = document.createElement('div');
+      status.setAttribute('data-clusterweave-result-status', '');
+      status.setAttribute('role', 'status');
+      status.setAttribute('aria-live', 'polite');
+      status.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:2147483647;max-width:min(520px,calc(100% - 32px));padding:10px 12px;border:1px solid #57534e;border-radius:6px;background:#fff;color:#292524;font:14px/1.4 system-ui,sans-serif;box-shadow:0 4px 18px rgba(0,0,0,.18)';
+      (document.body || document.documentElement).appendChild(status);
+    }
+    status.style.borderColor = isError ? '#b91c1c' : '#57534e';
+    status.textContent = String(message || '');
+  }
+
+  function safeExternalReference(value) {
+    const raw = String(value || '').trim();
+    if (!raw || raw.length > 16384) return '';
+    try {
+      const url = new URL(raw);
+      if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return '';
+      return url.href;
+    } catch (error) {
+      return '';
+    }
+  }
 
   function relativeReference(element) {
     const value = String(element && element.getAttribute('href') || '').trim();
     if (!value || value.startsWith('#')) return null;
+    const external = safeExternalReference(value);
+    if (external) return { value: external, external: true, supported: true };
     if (value.startsWith('/') || value.includes('\\')
         || /^(?:[a-z][a-z0-9+.-]*:)?\/\//i.test(value)
         || /^(?:data|blob|mailto|tel|javascript):/i.test(value)) {
       return { value: value, supported: false };
     }
     const path = value.split(/[?#]/, 1)[0];
-    const match = path.match(/\.([a-z0-9]+)$/i);
-    const extension = match ? match[1].toLowerCase() : '';
     return {
       value: value,
-      supported: ['html', 'htm', 'png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(extension),
+      external: false,
+      supported: allowBundleLinks && !!path && value.length <= 2048,
     };
   }
 
@@ -97,13 +133,40 @@ const RESULT_PREVIEW_NAVIGATOR_SCRIPT = String.raw`
     element.setAttribute('title', 'This link is outside the generated result bundle.');
   }
 
+  function prepareExternalLink(element, value) {
+    const external = safeExternalReference(value);
+    if (!external || !channel || !owner) {
+      disableLocalLink(element);
+      return;
+    }
+    prepared.delete(element);
+    element.removeAttribute('href');
+    element.removeAttribute('target');
+    element.removeAttribute('rel');
+    element.removeAttribute('aria-disabled');
+    element.removeAttribute('data-clusterweave-result-pending');
+    element.removeAttribute('data-clusterweave-result-request');
+    element.setAttribute('data-clusterweave-result-external', external);
+    if (!element.hasAttribute('role')) element.setAttribute('role', 'link');
+    if (!element.hasAttribute('tabindex')) element.setAttribute('tabindex', '0');
+  }
+
   function prepareLocalLink(element) {
     if (!element
         || element.hasAttribute('data-clusterweave-result-artifact')
         || element.hasAttribute('data-clusterweave-result-fragment')
         || element.getAttribute('aria-disabled') === 'true') return;
+    const storedExternal = element.getAttribute('data-clusterweave-result-external') || '';
+    if (storedExternal && !element.hasAttribute('href')) {
+      prepareExternalLink(element, storedExternal);
+      return;
+    }
     const reference = relativeReference(element);
     if (!reference) return;
+    if (reference.external) {
+      prepareExternalLink(element, reference.value);
+      return;
+    }
     if (!reference.supported || !channel || !owner) {
       disableLocalLink(element);
       return;
@@ -158,13 +221,15 @@ const RESULT_PREVIEW_NAVIGATOR_SCRIPT = String.raw`
       owner: owner,
       request: request,
       reference: reference.value,
+      download: element.hasAttribute('download'),
+      activate: !!activate,
     }, '*');
   }
 
   function scan(root) {
     const elements = [];
-    if (root && root.matches && root.matches('a[href],area[href]')) elements.push(root);
-    if (root && root.querySelectorAll) elements.push.apply(elements, root.querySelectorAll('a[href],area[href]'));
+    if (root && root.matches && root.matches('a[href],area[href],[data-clusterweave-result-external]')) elements.push(root);
+    if (root && root.querySelectorAll) elements.push.apply(elements, root.querySelectorAll('a[href],area[href],[data-clusterweave-result-external]'));
     elements.forEach(prepareLocalLink);
   }
 
@@ -178,11 +243,52 @@ const RESULT_PREVIEW_NAVIGATOR_SCRIPT = String.raw`
     }, '*');
   }
 
+  function requestAction(action, payload, target) {
+    if (!channel || !owner || actionSequence >= maxRequests) {
+      announce('This result action is unavailable.', true);
+      return;
+    }
+    const request = 'a' + String(++actionSequence);
+    const timer = window.setTimeout(function () {
+      if (!actionPending.has(request)) return;
+      actionPending.delete(request);
+      announce('The result action timed out.', true);
+    }, resolveTimeoutMs);
+    actionPending.set(request, { target: target || null, timer: timer });
+    window.parent.postMessage(Object.assign({
+      type: 'clusterweave:result-bundle-action',
+      channel: channel,
+      owner: owner,
+      request: request,
+      action: action,
+    }, payload || {}), '*');
+  }
+
+  function activateResolvedArtifact(element, artifact, fragment, mode, grant) {
+    if (mode === 'download') {
+      requestAction('download-artifact', {
+        artifact: artifact,
+        grant: grant || '',
+      }, element);
+      return;
+    }
+    navigateArtifact(artifact, fragment);
+  }
+
   window.addEventListener('message', function (event) {
     const payload = event && event.data;
     if (event.source !== window.parent || !payload
-        || payload.type !== 'clusterweave:result-bundle-resolved'
         || payload.channel !== channel || payload.owner !== owner) return;
+    if (payload.type === 'clusterweave:result-bundle-action-result') {
+      const actionRequest = String(payload.request || '');
+      const actionEntry = actionPending.get(actionRequest);
+      if (!actionEntry) return;
+      actionPending.delete(actionRequest);
+      window.clearTimeout(actionEntry.timer);
+      announce(payload.message || (payload.ok ? 'Result action completed.' : 'Result action failed.'), !payload.ok);
+      return;
+    }
+    if (payload.type !== 'clusterweave:result-bundle-resolved') return;
     const request = String(payload.request || '');
     const entry = pending.get(request);
     if (!entry) return;
@@ -194,15 +300,30 @@ const RESULT_PREVIEW_NAVIGATOR_SCRIPT = String.raw`
     const artifact = String(payload.artifact || '');
     const href = String(payload.href || '');
     const fragment = String(payload.fragment || '');
-    if (!/^[A-Za-z0-9_-]{16,}$/.test(artifact) || !href) {
+    const mode = String(payload.mode || 'navigate');
+    const grant = String(payload.grant || '');
+    if (!/^[A-Za-z0-9_-]{16,}$/.test(artifact)
+        || !['navigate', 'download'].includes(mode)
+        || (mode === 'navigate' && !href)) {
       disableLocalLink(element);
       return;
     }
-    finishPreparedLink(element);
-    element.setAttribute('href', href);
+    if (mode === 'navigate') {
+      finishPreparedLink(element);
+      element.setAttribute('href', href);
+    } else {
+      prepared.delete(element);
+      element.removeAttribute('href');
+      element.removeAttribute('aria-busy');
+      element.removeAttribute('data-clusterweave-result-pending');
+      if (!element.hasAttribute('role')) element.setAttribute('role', 'link');
+      if (!element.hasAttribute('tabindex')) element.setAttribute('tabindex', '0');
+    }
     element.setAttribute('data-clusterweave-result-artifact', artifact);
     element.setAttribute('data-clusterweave-result-fragment', fragment);
-    if (entry.activate) navigateArtifact(artifact, fragment);
+    element.setAttribute('data-clusterweave-result-mode', mode);
+    if (grant) element.setAttribute('data-clusterweave-result-grant', grant);
+    if (entry.activate) activateResolvedArtifact(element, artifact, fragment, mode, grant);
   });
 
   function interactiveTarget(event) {
@@ -221,6 +342,7 @@ const RESULT_PREVIEW_NAVIGATOR_SCRIPT = String.raw`
     }
     const artifact = target.getAttribute('data-clusterweave-result-artifact') || '';
     const fragment = target.getAttribute('data-clusterweave-result-fragment') || '';
+    const mode = target.getAttribute('data-clusterweave-result-mode') || 'navigate';
     if (!artifact && !fragment) {
       if (!prepared.has(target)) return;
       event.preventDefault();
@@ -244,7 +366,62 @@ const RESULT_PREVIEW_NAVIGATOR_SCRIPT = String.raw`
     }
     event.preventDefault();
     event.stopImmediatePropagation();
-    navigateArtifact(artifact, fragment);
+    activateResolvedArtifact(
+      target,
+      artifact,
+      fragment,
+      mode,
+      target.getAttribute('data-clusterweave-result-grant') || '',
+    );
+  }
+
+  function copyTarget(event) {
+    return event.target && event.target.closest
+      ? event.target.closest('.clipboard-copy,[data-clusterweave-copy-source]')
+      : null;
+  }
+
+  function copyTargetText(target) {
+    if (!target) return '';
+    if (target.hasAttribute('data-seq')) return String(target.getAttribute('data-seq') || '');
+    const selector = String(target.getAttribute('data-clusterweave-copy-source') || '');
+    if (!selector) return '';
+    try {
+      return String(document.querySelector(selector)?.textContent || '');
+    } catch (error) {
+      return '';
+    }
+  }
+
+  function activateCopy(event, target) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const text = copyTargetText(target);
+    if (!text) {
+      announce('Select a gene before copying its sequence.', true);
+      return;
+    }
+    requestAction('copy-text', { text: text }, target);
+  }
+
+  function activateExternal(event, target) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const href = safeExternalReference(target.getAttribute('data-clusterweave-result-external') || '');
+    if (!href) {
+      announce('This external result link is unavailable.', true);
+      return;
+    }
+    requestAction('open-external', { href: href }, target);
+  }
+
+  function refreshCopyControls() {
+    document.querySelectorAll('[data-clusterweave-copy-source]').forEach(function (control) {
+      const ready = !!copyTargetText(control);
+      control.setAttribute('aria-disabled', ready ? 'false' : 'true');
+      if (!ready) control.setAttribute('title', 'Select a gene before copying its sequence.');
+      else if (control.getAttribute('title') === 'Select a gene before copying its sequence.') control.removeAttribute('title');
+    });
   }
 
   function warmLink(event) {
@@ -257,21 +434,43 @@ const RESULT_PREVIEW_NAVIGATOR_SCRIPT = String.raw`
   document.addEventListener('focusin', warmLink, true);
   document.addEventListener('click', function (event) {
     if (!event.isTrusted || event.defaultPrevented) return;
+    const copy = copyTarget(event);
+    if (copy) {
+      activateCopy(event, copy);
+      return;
+    }
     const target = interactiveTarget(event);
-    if (target) activateTarget(event, target);
+    if (!target) return;
+    if (target.hasAttribute('data-clusterweave-result-external')) activateExternal(event, target);
+    else activateTarget(event, target);
   }, true);
   document.addEventListener('keydown', function (event) {
-    if (!event.isTrusted || event.defaultPrevented || event.key !== 'Enter') return;
-    const target = interactiveTarget(event);
-    if (target && (prepared.has(target) || target.hasAttribute('data-clusterweave-result-artifact'))) {
-      activateTarget(event, target);
+    if (!event.isTrusted || event.defaultPrevented) return;
+    const copy = copyTarget(event);
+    if (copy && event.key === 'Enter') {
+      activateCopy(event, copy);
+      return;
     }
+    const target = interactiveTarget(event);
+    if (!target) return;
+    if (
+      target.hasAttribute('data-clusterweave-bigscape-control')
+      && ['Enter', ' '].includes(event.key)
+    ) {
+      event.preventDefault();
+      target.click();
+      return;
+    }
+    if (event.key !== 'Enter') return;
+    if (target.hasAttribute('data-clusterweave-result-external')) activateExternal(event, target);
+    else if (prepared.has(target) || target.hasAttribute('data-clusterweave-result-artifact')) activateTarget(event, target);
   }, true);
   const observer = new MutationObserver(function (mutations) {
     mutations.forEach(function (mutation) {
       if (mutation.type === 'attributes') scan(mutation.target);
       else Array.prototype.forEach.call(mutation.addedNodes || [], scan);
     });
+    refreshCopyControls();
   });
   observer.observe(document.documentElement, {
     subtree: true,
@@ -280,6 +479,7 @@ const RESULT_PREVIEW_NAVIGATOR_SCRIPT = String.raw`
     attributeFilter: ['href'],
   });
   scan(document);
+  refreshCopyControls();
 })();
 `;
 
@@ -303,19 +503,48 @@ const STATIC_RESULT_PREVIEW_CSP = "default-src 'none'; img-src data: blob:; styl
 
 const TOOL_RESULT_PREVIEW_CSP = "default-src 'none'; script-src 'unsafe-inline'; img-src data: blob:; style-src 'unsafe-inline' data: blob:; font-src data: blob:; media-src data: blob:; connect-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; form-action 'none'; base-uri 'none'";
 
-const TOOL_RESULT_PREVIEW_SANDBOX = 'allow-scripts';
+const TOOL_RESULT_PREVIEW_SANDBOX = 'allow-scripts allow-downloads';
 
 const CLINKER_RESULT_PREVIEW_CSP = "default-src 'none'; script-src 'unsafe-inline'; img-src data: blob:; style-src 'unsafe-inline' data: blob:; font-src data: blob:; media-src data: blob:; connect-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; form-action 'none'; base-uri 'none'";
 
-const CLINKER_PREVIEW_SANDBOX = 'allow-scripts';
+const CLINKER_PREVIEW_SANDBOX = 'allow-scripts allow-downloads';
 
 const BIGSCAPE_RESULT_PREVIEW_CSP = "default-src 'none'; script-src 'unsafe-inline'; img-src data: blob:; style-src 'unsafe-inline' data: blob:; font-src data: blob:; media-src data: blob:; connect-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; form-action 'none'; base-uri 'none'";
 
-const BIGSCAPE_PREVIEW_SANDBOX = 'allow-scripts';
+const BIGSCAPE_PREVIEW_SANDBOX = 'allow-scripts allow-downloads';
 
 const BIGSCAPE_KINETIC_GLOBAL_EVAL_SHIM = '(1,eval)("this")';
 
 const BIGSCAPE_KINETIC_GLOBAL_EVAL_SHIM_COUNT = 2;
+
+const BIGSCAPE_CONTROL_PLACEHOLDER = "href='##'";
+
+const BIGSCAPE_CONTROL_PLACEHOLDER_COUNT = 13;
+
+const BIGSCAPE_SINGLETON_TREE_SIGNATURE = `    var treeDrawer = new PhylogramTreeDrawer();
+    treeDrawer.Init(treeData, { svg_id: 'det_fam_tree', height: ((treeData.num_leaves - 1) * 40), width: 400 });
+    treeDrawer.draw_scale_bar = false;
+    treeDrawer.CalcCoordinates();
+    treeDrawer.Draw();`;
+
+const BIGSCAPE_SINGLETON_TREE_REPLACEMENT = `    if (treeData.num_leaves <= 1) {
+      var singletonNodeIterator = new NodeIterator(treeData.root);
+      var singletonNode = singletonNodeIterator.Begin();
+      while (singletonNode != null) {
+        if (singletonNode.IsLeaf()) {
+          singletonNode.xy['x'] = 400;
+          singletonNode.xy['y'] = 20;
+          break;
+        }
+        singletonNode = singletonNodeIterator.Next();
+      }
+    } else {
+      var treeDrawer = new PhylogramTreeDrawer();
+      treeDrawer.Init(treeData, { svg_id: 'det_fam_tree', height: ((treeData.num_leaves - 1) * 40), width: 400 });
+      treeDrawer.draw_scale_bar = false;
+      treeDrawer.CalcCoordinates();
+      treeDrawer.Draw();
+    }`;
 
 const RESULT_FOLDER_TABS = [
   { key: 'antismash', label: 'ANTISMASH' },
@@ -519,6 +748,18 @@ function toolResultPreviewChannel() {
   const bytes = new Uint8Array(16);
   window.crypto.getRandomValues(bytes);
   return Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('');
+}
+
+function safeResultPreviewExternalUrl(rawUrl) {
+  const value = String(rawUrl || '').trim();
+  if (!value || value.length > RESULT_PREVIEW_EXTERNAL_URL_MAX_LENGTH) return '';
+  try {
+    const url = new URL(value);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return '';
+    return url.href;
+  } catch (error) {
+    return '';
+  }
 }
 
 function resultUrlShouldStayExternal(rawUrl) {
@@ -883,7 +1124,25 @@ function isClassicResultScript(script) {
 
 function rewriteToolResultScriptForSandbox(assetPath, sourceText, resultContext = null) {
   const source = String(sourceText || '');
-  if (!/^antismash\.js$/i.test(resultArtifactName(assetPath, resultContext))) return source;
+  const assetName = resultArtifactName(assetPath, resultContext);
+  const descriptor = resultArtifactDescriptor(assetPath, resultContext);
+  if (descriptor?.category === 'funbgcex' && /^BGC[0-9]+\.js$/i.test(assetName)) {
+    const xCoordinate = 'const x = event.clientX - rect.left;';
+    const yCoordinate = 'const y = event.clientY - rect.top;';
+    if (source.split(xCoordinate).length !== 2 || source.split(yCoordinate).length !== 2) {
+      throw new Error('The FunBGCeX gene selector does not match the sandbox compatibility profile.');
+    }
+    return source
+      .replace(
+        xCoordinate,
+        'const x = (event.clientX - rect.left) * canvas.width / rect.width;',
+      )
+      .replace(
+        yCoordinate,
+        'const y = (event.clientY - rect.top) * canvas.height / rect.height;',
+      );
+  }
+  if (!/^antismash\.js$/i.test(assetName)) return source;
   const getter = 'function T(){const t=window.location.hash.substring(1);return t||"overview"}';
   const switcher = 'function k(){setTimeout((()=>{$(".page").hide()';
   if (source.split(getter).length !== 2 || source.split(switcher).length !== 2) {
@@ -902,14 +1161,29 @@ function rewriteToolResultScriptForSandbox(assetPath, sourceText, resultContext 
 
 function rewriteBigscapeScriptForSandbox(assetPath, sourceText) {
   const source = String(sourceText || '');
-  if (!/^kinetic-v5\.1\.0\.min\.js$/i.test(resultArtifactName(assetPath))) {
-    return source;
+  const assetName = resultArtifactName(assetPath);
+  if (/^kinetic-v5\.1\.0\.min\.js$/i.test(assetName)) {
+    const occurrences = source.split(BIGSCAPE_KINETIC_GLOBAL_EVAL_SHIM).length - 1;
+    if (occurrences !== BIGSCAPE_KINETIC_GLOBAL_EVAL_SHIM_COUNT) {
+      throw new Error('The bundled BiG-SCAPE Kinetic runtime does not match the CSP-safe compatibility profile.');
+    }
+    return source.replaceAll(BIGSCAPE_KINETIC_GLOBAL_EVAL_SHIM, 'globalThis');
   }
-  const occurrences = source.split(BIGSCAPE_KINETIC_GLOBAL_EVAL_SHIM).length - 1;
-  if (occurrences !== BIGSCAPE_KINETIC_GLOBAL_EVAL_SHIM_COUNT) {
-    throw new Error('The bundled BiG-SCAPE Kinetic runtime does not match the CSP-safe compatibility profile.');
+  if (!/^bigscape\.js$/i.test(assetName)) return source;
+  const controlOccurrences = source.split(BIGSCAPE_CONTROL_PLACEHOLDER).length - 1;
+  const singletonTreeOccurrences = source.split(BIGSCAPE_SINGLETON_TREE_SIGNATURE).length - 1;
+  if (
+    controlOccurrences !== BIGSCAPE_CONTROL_PLACEHOLDER_COUNT
+    || singletonTreeOccurrences !== 1
+  ) {
+    throw new Error('The bundled BiG-SCAPE controls and family-tree renderer do not match the sandbox compatibility profile.');
   }
-  return source.replaceAll(BIGSCAPE_KINETIC_GLOBAL_EVAL_SHIM, 'globalThis');
+  return source
+    .replaceAll(
+      BIGSCAPE_CONTROL_PLACEHOLDER,
+      "data-clusterweave-bigscape-control='' role='button' tabindex='0'",
+    )
+    .replace(BIGSCAPE_SINGLETON_TREE_SIGNATURE, BIGSCAPE_SINGLETON_TREE_REPLACEMENT);
 }
 
 async function inlineBigscapeResultScripts(doc, jobId, htmlPath, options = {}) {
@@ -1019,6 +1293,7 @@ async function rewriteHtmlResultAssets(htmlText, jobId, htmlPath, options = {}) 
   const allowBigscapeScripts = options.allowBigscapeScripts === true && isBigscapeHtmlArtifact(htmlPath);
   const allowToolBundleScripts = options.allowToolBundleScripts === true
     && isToolResultBundleHtml(htmlPath, resultContext);
+  const interactivePreview = allowClinkerInlineScripts || allowBigscapeScripts || allowToolBundleScripts;
   const bigscapeAssetBudget = allowBigscapeScripts
     ? { declaredBytes: 0, actualBytes: 0 }
     : null;
@@ -1114,24 +1389,25 @@ async function rewriteHtmlResultAssets(htmlText, jobId, htmlPath, options = {}) 
     const value = el.getAttribute('href') || '';
     if (/^javascript:/i.test(value)) {
       el.removeAttribute('href');
-    } else if (allowToolBundleScripts && value.startsWith('#')) {
+    } else if (interactivePreview && value.startsWith('#')) {
       el.setAttribute('href', value);
       el.setAttribute('data-clusterweave-result-fragment', value);
-    } else if (allowToolBundleScripts && resultUrlShouldStayExternal(value)) {
+    } else if (interactivePreview && resultUrlShouldStayExternal(value)) {
+      const externalUrl = safeResultPreviewExternalUrl(value);
       el.removeAttribute('href');
       el.removeAttribute('target');
       el.removeAttribute('rel');
-      el.setAttribute('aria-disabled', 'true');
-      el.setAttribute('title', 'This link is outside the generated result bundle.');
+      if (externalUrl) {
+        el.removeAttribute('aria-disabled');
+        el.setAttribute('data-clusterweave-result-external', externalUrl);
+        if (!el.hasAttribute('role')) el.setAttribute('role', 'link');
+        if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '0');
+      } else {
+        el.setAttribute('aria-disabled', 'true');
+        el.setAttribute('title', 'This link is outside the generated result bundle.');
+      }
     } else if (!resultUrlShouldStayExternal(value)) {
       if (allowToolBundleScripts) {
-        const localReferencePath = splitResultAssetUrl(value).path;
-        if (!['html', 'htm'].includes(resultPathExt(localReferencePath))) {
-          el.removeAttribute('href');
-          el.setAttribute('aria-disabled', 'true');
-          el.setAttribute('title', 'This link is outside the generated result bundle.');
-          continue;
-        }
         el.removeAttribute('target');
         el.removeAttribute('rel');
       } else {
@@ -1139,24 +1415,44 @@ async function rewriteHtmlResultAssets(htmlText, jobId, htmlPath, options = {}) 
         el.setAttribute('aria-disabled', 'true');
         el.setAttribute('title', 'This link is outside the generated result bundle.');
       }
-    } else if (/^(?:[a-z][a-z0-9+.-]*:)?\/\//i.test(value)) {
-      if (allowBigscapeScripts) {
-        el.removeAttribute('href');
-        el.setAttribute('aria-disabled', 'true');
-      } else {
-        el.setAttribute('rel', 'noopener noreferrer');
-        el.setAttribute('target', '_blank');
-      }
-    } else if (allowBigscapeScripts && !value.startsWith('#')) {
+    } else if (interactivePreview && !value.startsWith('#')) {
       el.removeAttribute('href');
       el.setAttribute('aria-disabled', 'true');
     }
   }
-  if (allowToolBundleScripts) {
+  const ownerDescriptor = resultArtifactDescriptor(htmlPath, resultContext);
+  if (
+    allowToolBundleScripts
+    && ownerDescriptor?.category === 'funbgcex'
+    && /^BGC[0-9]+\.html?$/i.test(resultArtifactName(htmlPath, resultContext))
+  ) {
+    const canvas = doc.querySelector('#canvas');
+    const sequence = doc.querySelector('#aaseq');
+    const copyControl = Array.from(doc.querySelectorAll('[onclick]')).find(element => (
+      /^copyToClipboard\s*\(\s*\)\s*;?$/i.test(String(element.getAttribute('onclick') || '').trim())
+    ));
+    if (!canvas || !sequence || !copyControl) {
+      throw new Error('The FunBGCeX gene detail page does not match the sandbox compatibility profile.');
+    }
+    const instruction = doc.createElement('p');
+    instruction.id = 'clusterweave-funbgcex-gene-instruction';
+    instruction.setAttribute('data-clusterweave-funbgcex-instruction', '');
+    instruction.textContent = 'Select a gene arrow to show its information and enable sequence copying.';
+    canvas.parentNode?.insertBefore(instruction, canvas);
+    copyControl.removeAttribute('onclick');
+    copyControl.setAttribute('data-clusterweave-copy-source', '#aaseq');
+    copyControl.setAttribute('aria-describedby', instruction.id);
+    copyControl.setAttribute('aria-disabled', 'true');
+  }
+  if (interactivePreview) {
     const navigator = doc.createElement('script');
     navigator.setAttribute('data-clusterweave-result-preview', '');
     navigator.setAttribute('data-channel', String(options.toolPreviewChannel || ''));
-    navigator.setAttribute('data-owner', resultArtifactId(htmlPath, resultContext));
+    navigator.setAttribute(
+      'data-owner',
+      String(options.toolPreviewOwner || resultArtifactId(htmlPath, resultContext)),
+    );
+    navigator.setAttribute('data-bundle-links', allowToolBundleScripts ? '1' : '0');
     navigator.textContent = RESULT_PREVIEW_NAVIGATOR_SCRIPT;
     (doc.body || doc.head || doc.documentElement).appendChild(navigator);
   }
@@ -1174,7 +1470,120 @@ async function buildHtmlResultObjectUrl(jobId, htmlPath, htmlText, options = {})
   return url;
 }
 
-function renderSandboxedClinkerPreview(targetWindow, relPath, htmlText) {
+async function copyResultPreviewText(targetWindow, text) {
+  if (typeof targetWindow.navigator?.clipboard?.writeText === 'function') {
+    let timeout = null;
+    try {
+      const copied = await Promise.race([
+        targetWindow.navigator.clipboard.writeText(text).then(() => true, () => false),
+        new Promise(resolve => {
+          timeout = targetWindow.setTimeout(() => resolve(false), RESULT_PREVIEW_CLIPBOARD_TIMEOUT_MS);
+        }),
+      ]);
+      if (copied) return true;
+    } catch (error) {
+    } finally {
+      if (timeout) targetWindow.clearTimeout(timeout);
+    }
+  }
+  const textarea = targetWindow.document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.cssText = 'position:fixed;left:-10000px;top:0;opacity:0';
+  targetWindow.document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  let copied = false;
+  try {
+    copied = targetWindow.document.execCommand('copy') === true;
+  } catch (error) {}
+  textarea.remove();
+  return copied;
+}
+
+function installResultPreviewActionRelay(targetWindow, frame, contextProvider, options = {}) {
+  let actionCount = 0;
+  const sendResult = (context, request, ok, message) => {
+    if (!frame.contentWindow) return;
+    const payload = {
+      type: 'clusterweave:result-bundle-action-result',
+      channel: context.channel,
+      owner: context.owner,
+      request,
+      ok: ok === true,
+      message: String(message || ''),
+    };
+    if (typeof options.postToFrame === 'function') {
+      options.postToFrame(frame.id, payload);
+    } else {
+      frame.contentWindow.postMessage(payload, '*');
+    }
+  };
+  const handleAction = async event => {
+    const payload = event?.data;
+    const context = contextProvider?.() || {};
+    if (
+      event.source !== frame.contentWindow
+      || !payload
+      || payload.type !== 'clusterweave:result-bundle-action'
+      || payload.channel !== context.channel
+      || payload.owner !== context.owner
+    ) return;
+    const request = String(payload.request || '');
+    const action = String(payload.action || '');
+    actionCount += 1;
+    if (!/^a[1-9][0-9]{0,8}$/.test(request) || actionCount > TOOL_RESULT_RUNTIME_MAX_PER_DOCUMENT) return;
+    const activeGesture = targetWindow.navigator?.userActivation?.isActive === true;
+    try {
+      if (action === 'copy-text') {
+        const text = String(payload.text || '');
+        if (!activeGesture || !text || new Blob([text]).size > RESULT_PREVIEW_COPY_MAX_BYTES) {
+          throw new Error('Sequence copying was blocked by the result security boundary.');
+        }
+        if (!await copyResultPreviewText(targetWindow, text)) {
+          throw new Error('The browser blocked automatic copying; select the sequence and copy it manually.');
+        }
+        sendResult(context, request, true, 'Sequence copied to the clipboard.');
+        return;
+      }
+      if (action === 'open-external') {
+        const href = safeResultPreviewExternalUrl(payload.href);
+        if (!activeGesture || !href) {
+          throw new Error('The external result link was blocked by the result security boundary.');
+        }
+        const opened = targetWindow.open(href, '_blank', 'noopener,noreferrer');
+        if (!opened) throw new Error('The browser blocked the external result link.');
+        try { opened.opener = null; } catch (error) {}
+        sendResult(context, request, true, 'Opened the external result link.');
+        return;
+      }
+      if (action === 'download-artifact' && typeof options.downloadArtifact === 'function') {
+        const artifact = String(payload.artifact || '');
+        const grant = String(payload.grant || '');
+        const granted = typeof options.consumeDownloadGrant === 'function'
+          && options.consumeDownloadGrant(grant, artifact) === true;
+        if (!activeGesture && !granted) {
+          throw new Error('The result download requires a new user action.');
+        }
+        await options.downloadArtifact(artifact, context);
+        sendResult(context, request, true, 'Result file download started.');
+        return;
+      }
+      throw new Error('This result action is not allowed.');
+    } catch (error) {
+      sendResult(
+        context,
+        request,
+        false,
+        error instanceof Error ? error.message : 'The result action failed.',
+      );
+    }
+  };
+  targetWindow.addEventListener('message', handleAction);
+  return () => targetWindow.removeEventListener('message', handleAction);
+}
+
+function renderSandboxedClinkerPreview(targetWindow, relPath, htmlText, channel = '', owner = '') {
   const doc = targetWindow.document;
   const title = fileNameFromPath(relPath) || 'Clinker panel';
   doc.open();
@@ -1185,6 +1594,15 @@ function renderSandboxedClinkerPreview(targetWindow, relPath, htmlText) {
 <meta name="referrer" content="no-referrer">
 <title>${escapeHtml(title)}</title>
 <style>html,body{height:100%;margin:0;background:#fff}iframe{display:block;width:100%;height:100%;border:0}</style>
+<script>(function(){
+  window.CLUSTERWEAVE_RESULT_ACTION_POST = function(frameId, payload) {
+    const selectedFrame = document.getElementById(String(frameId || ''));
+    if (selectedFrame && selectedFrame.contentWindow) selectedFrame.contentWindow.postMessage(payload, '*');
+  };
+  window.addEventListener('pagehide', function() {
+    window.CLUSTERWEAVE_RESULT_ACTION_POST = null;
+  }, { once: true });
+})();<\/script>
 </head><body></body></html>`);
   doc.close();
   const frame = doc.createElement('iframe');
@@ -1194,10 +1612,20 @@ function renderSandboxedClinkerPreview(targetWindow, relPath, htmlText) {
   frame.setAttribute('title', title);
   frame.srcdoc = htmlText;
   doc.body.appendChild(frame);
+  const postToFrame = targetWindow.CLUSTERWEAVE_RESULT_ACTION_POST;
+  const cleanupActions = channel && owner
+    ? installResultPreviewActionRelay(
+      targetWindow,
+      frame,
+      () => ({ channel, owner }),
+      { postToFrame },
+    )
+    : () => {};
+  if (channel && owner) targetWindow.addEventListener('pagehide', cleanupActions, { once: true });
   return frame;
 }
 
-function renderSandboxedBigscapePreview(targetWindow, relPath, htmlText, databaseBuffer, channel) {
+function renderSandboxedBigscapePreview(targetWindow, relPath, htmlText, databaseBuffer, channel, owner = '') {
   const doc = targetWindow.document;
   const title = fileNameFromPath(relPath) || 'BiG-SCAPE';
   doc.open();
@@ -1209,6 +1637,13 @@ function renderSandboxedBigscapePreview(targetWindow, relPath, htmlText, databas
 <title>${escapeHtml(title)}</title>
 <style>html,body{height:100%;margin:0;background:#fff}iframe{display:block;width:100%;height:100%;border:0}</style>
 <script>(function(){
+  window.CLUSTERWEAVE_RESULT_ACTION_POST = function(frameId, payload) {
+    const selectedFrame = document.getElementById(String(frameId || ''));
+    if (selectedFrame && selectedFrame.contentWindow) selectedFrame.contentWindow.postMessage(payload, '*');
+  };
+  window.addEventListener('pagehide', function() {
+    window.CLUSTERWEAVE_RESULT_ACTION_POST = null;
+  }, { once: true });
   let transferBuffer = null;
   let transferChannel = '';
   let transferFrameId = '';
@@ -1284,6 +1719,16 @@ function renderSandboxedBigscapePreview(targetWindow, relPath, htmlText, databas
   databaseBuffer = null;
   frame.srcdoc = htmlText;
   doc.body.appendChild(frame);
+  const postToFrame = targetWindow.CLUSTERWEAVE_RESULT_ACTION_POST;
+  const cleanupActions = owner
+    ? installResultPreviewActionRelay(
+      targetWindow,
+      frame,
+      () => ({ channel, owner }),
+      { postToFrame },
+    )
+    : () => {};
+  if (owner) targetWindow.addEventListener('pagehide', cleanupActions, { once: true });
   return frame;
 }
 
@@ -1340,6 +1785,7 @@ function renderSandboxedToolResultPreview(
     state.closed = true;
     state.queue.length = 0;
     state.pending.clear();
+    state.downloadGrants.clear();
     state.controllers.forEach(controller => controller.abort());
     state.controllers.clear();
   }
@@ -1352,6 +1798,7 @@ function renderSandboxedToolResultPreview(
       owner: String(nextOwner || ''),
       queue: [],
       pending: new Set(),
+      downloadGrants: new Map(),
       controllers: new Set(),
       active: 0,
       total: 0,
@@ -1389,6 +1836,8 @@ function renderSandboxedToolResultPreview(
       artifact: '',
       href: '',
       fragment: '',
+      mode: 'navigate',
+      grant: '',
       ...payload,
     }, '*');
   }
@@ -1412,7 +1861,9 @@ function renderSandboxedToolResultPreview(
       if (state.closed || state !== runtimeState) return;
       const currentDescriptor = resultArtifactDescriptor(currentPath, resultContext);
       const descriptor = resolved?.descriptor;
-      const allowedKind = descriptor?.kind === 'html' || descriptor?.kind === 'image';
+      const navigable = descriptor?.kind === 'html' || descriptor?.kind === 'image';
+      const mode = task.download === true || !navigable ? 'download' : 'navigate';
+      const allowedKind = mode === 'navigate' ? navigable : descriptor?.downloadable === true;
       if (
         !resolved
         || !allowedKind
@@ -1424,10 +1875,18 @@ function renderSandboxedToolResultPreview(
         return;
       }
       const fragment = resolved.fragment || resultAssetHashSuffix(task.reference);
+      const grant = mode === 'download' && task.activationGranted
+        ? task.request
+        : '';
+      if (grant) state.downloadGrants.set(grant, descriptor.id);
       sendResolved(task.source, state, task.request, {
         artifact: descriptor.id,
-        href: `${resultHref(jobId, resolved.key, { resultContext })}${fragment}`,
+        href: mode === 'navigate'
+          ? `${resultHref(jobId, resolved.key, { resultContext })}${fragment}`
+          : '',
         fragment,
+        mode,
+        grant,
       });
     } catch (error) {
       sendResolved(task.source, state, task.request);
@@ -1481,6 +1940,9 @@ function renderSandboxedToolResultPreview(
       source: event.source,
       request,
       reference,
+      download: event.data.download === true,
+      activationGranted: event.data.activate === true
+        && targetWindow.navigator?.userActivation?.isActive === true,
     });
     pumpRuntimeReferences(state);
   }
@@ -1558,9 +2020,60 @@ function renderSandboxedToolResultPreview(
     }
   }
 
+  const cleanupActions = installResultPreviewActionRelay(
+    targetWindow,
+    frame,
+    () => ({
+      channel: String(runtimeState?.channel || ''),
+      owner: String(runtimeState?.owner || ''),
+    }),
+    {
+      postToFrame,
+      consumeDownloadGrant(grant, artifact) {
+        const state = runtimeState;
+        if (!state || state.closed || !grant) return false;
+        const expectedArtifact = state.downloadGrants.get(grant) || '';
+        state.downloadGrants.delete(grant);
+        return expectedArtifact === artifact;
+      },
+      async downloadArtifact(artifact, context) {
+        const state = runtimeState;
+        if (
+          !state
+          || state.closed
+          || context.channel !== state.channel
+          || context.owner !== state.owner
+        ) throw new Error('The result download context is no longer active.');
+        const descriptor = resultArtifactDescriptor(artifact, resultContext);
+        const targetPath = artifactPresentationKey(descriptor);
+        const currentDescriptor = resultArtifactDescriptor(currentPath, resultContext);
+        if (
+          !targetPath
+          || descriptor?.downloadable !== true
+          || !currentDescriptor?.bundle_id
+          || descriptor?.bundle_id !== currentDescriptor.bundle_id
+          || descriptor?.category !== currentDescriptor.category
+        ) throw new Error('The requested file is outside the signed result bundle.');
+        const response = await resultFetch(jobId, targetPath, { resultContext });
+        if (!response.ok) throw new Error('The requested result file is unavailable.');
+        const blob = await response.blob();
+        if (targetWindow.closed) throw new Error('The result preview was closed before the download completed.');
+        const url = targetWindow.URL.createObjectURL(blob);
+        const link = targetWindow.document.createElement('a');
+        link.href = url;
+        link.download = resultArtifactName(targetPath, resultContext) || 'clusterweave-result';
+        targetWindow.document.body.appendChild(link);
+        link.click();
+        link.remove();
+        targetWindow.setTimeout(() => targetWindow.URL.revokeObjectURL(url), 30000);
+      },
+    },
+  );
+
   targetWindow.addEventListener('message', resolveRuntimeReference);
   targetWindow.addEventListener('message', navigate);
   targetWindow.addEventListener('pagehide', () => {
+    cleanupActions();
     targetWindow.removeEventListener('message', resolveRuntimeReference);
     targetWindow.removeEventListener('message', navigate);
     closeRuntimeState(runtimeState);
@@ -1624,8 +2137,15 @@ async function openHtmlResultWithAssets(event, jobId, relPath, previewWindow = n
     await stageHtmlResultPreviewWindow(targetWindow, relPath);
     if (targetWindow.closed) return false;
     if (isExactPublicClinkerPanelHtml(relPath)) {
-      const rewrittenHtml = await rewriteHtmlResultAssets(htmlText, jobId, relPath, { allowClinkerInlineScripts: true });
-      renderSandboxedClinkerPreview(targetWindow, relPath, rewrittenHtml);
+      const channel = toolResultPreviewChannel();
+      const owner = resultArtifactId(relPath, resultContext);
+      const rewrittenHtml = await rewriteHtmlResultAssets(htmlText, jobId, relPath, {
+        allowClinkerInlineScripts: true,
+        toolPreviewChannel: channel,
+        toolPreviewOwner: owner,
+        resultContext,
+      });
+      renderSandboxedClinkerPreview(targetWindow, relPath, rewrittenHtml, channel, owner);
       return false;
     }
     if (isToolResultBundleHtml(relPath, resultContext)) {
@@ -2024,10 +2544,28 @@ function toolHtmlViewLabel(path) {
 
 function uniqueToolHtmlArtifacts(files, toolKey) {
   const predicate = toolKey === 'antismash' ? isAntiSmashHtmlArtifact : isFunbgcexHtmlArtifact;
-  const items = (files || [])
+  let items = (files || [])
     .filter(predicate)
     .sort((a, b) => toolHtmlSortKey(a).localeCompare(toolHtmlSortKey(b)))
     .map(path => ({ label: toolGenomeLabel(path, toolKey), path }));
+  if (toolKey === 'funbgcex') {
+    const canonicalByBundle = new Map();
+    items.forEach(item => {
+      const descriptor = resultArtifactDescriptor(item.path);
+      const bundleKey = String(
+        descriptor?.bundle_id
+        || descriptor?.pair_id
+        || `legacy:${item.label}`,
+      );
+      const existing = canonicalByBundle.get(bundleKey);
+      const filename = resultArtifactName(item.path).toLowerCase();
+      const priority = filename === 'results.html' ? 0 : filename === 'allbgcs.html' ? 1 : 2;
+      if (!existing || priority < existing.priority) {
+        canonicalByBundle.set(bundleKey, { ...item, priority });
+      }
+    });
+    items = Array.from(canonicalByBundle.values()).map(({ priority, ...item }) => item);
+  }
   const labelCounts = new Map();
   items.forEach(item => {
     labelCounts.set(item.label, (labelCounts.get(item.label) || 0) + 1);
@@ -2944,11 +3482,14 @@ async function openBigscapeResult(event, jobId, htmlPath, databasePath) {
     if (previewWindow.closed) return false;
     const dbName = fileNameFromPath(databasePath);
     const channel = bigscapePreviewChannel();
+    const owner = resultArtifactId(htmlPath);
     const contractedHtml = injectBigscapeDatabaseContract(htmlText, dbName, databasePath, channel);
     const rewrittenHtml = await rewriteHtmlResultAssets(contractedHtml, jobId, htmlPath, {
       allowBigscapeScripts: true,
+      toolPreviewChannel: channel,
+      toolPreviewOwner: owner,
     });
-    renderSandboxedBigscapePreview(previewWindow, htmlPath, rewrittenHtml, databaseBuffer, channel);
+    renderSandboxedBigscapePreview(previewWindow, htmlPath, rewrittenHtml, databaseBuffer, channel, owner);
   } catch (err) {
     const message = err && err.message ? err.message : 'BiG-SCAPE result could not be opened.';
     if (!previewWindow.closed) {

@@ -2141,6 +2141,11 @@ def _prepare_public_bigscape_results(
             "PUBLICATION: sanitized BiG-SCAPE database "
             f"{action} ({database.public_bytes} bytes)."
         )
+        if database.viewer_error:
+            job.add_log(
+                "WARN: compact BiG-SCAPE web viewer unavailable "
+                f"({database.viewer_error.rstrip('.')})."
+            )
     viewer_paths = [
         database.viewer_path
         for database in preparation.databases

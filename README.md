@@ -22,10 +22,10 @@ protein features or funannotate when annotation is needed; bacterial genomes use
 feature-free sequence with Prodigal gene finding. antiSMASH and BiG-SCAPE apply
 to both domains, while FunBGCeX applies only to fungi.
 
-> Web-hosted access: **Coming soon.** ClusterWeave v1.0.2 is currently
+> Web-hosted access: **Coming soon.** ClusterWeave v1.0.3 is currently
 > available only for local use through the Docker interface described below.
 
-Version 1.0.2 is the current public ClusterWeave release.
+Version 1.0.3 is the current public ClusterWeave release.
 
 [Watch the ClusterWeave fungal demo on YouTube](https://youtu.be/pCHNmzbBZ0Y).
 
@@ -46,7 +46,7 @@ report. Experimental validation and subject-matter review remain necessary.
 
 ## Run a job
 
-Version 1.0.2 runs through the local interface. After starting a local instance,
+Version 1.0.3 runs through the local interface. After starting a local instance,
 open [http://127.0.0.1:8080](http://127.0.0.1:8080) and follow these steps:
 
 1. In **INPUT STATION**, keep **New run** selected and choose **Fungi**,
@@ -249,17 +249,21 @@ have the same sensitivity as the submitted genomes.
 
 ## Public examples
 
-Two curated bundles show the v1.0.0 output contract without publishing raw
-genomes or private runtime data:
+Two compact, accession-defined bundles show the validated v1.0.2 output
+contract without redistributing genomes or private execution records:
 
-- [`examples/fungi_only`](examples/fungi_only/) retains the 50-genome fungal
-  accession set and fungal-only detector outputs.
-- [`examples/mixed`](examples/mixed/) contains 20 bacterial and 20 fungal
-  assemblies, both taxon mappings, four canonical SVGs, and compact summaries.
+- [`examples/flavi19`](examples/flavi19/) contains 19 section *Flavi*
+  assemblies, sanitized antiSMASH/FunBGCeX candidate reconciliation, explicit
+  analysis states, GCF-completion summaries, and the editable aspirochlorine
+  focal-locus record.
+- [`examples/saccharopolyspora26`](examples/saccharopolyspora26/) contains the
+  exact 26 RefSeq assemblies in the public BGCFlow v0.9.0
+  `mq_saccharopolyspora` example, with taxon-aware applicability and complete
+  configured GCF-assignment summaries.
 
-The example accession lists are locked inputs for v1.0.0. Their lists and
-derived outputs should not be changed in place; a later correction belongs to a
-later version with its own provenance.
+The bundles provide versioned accession manifests and portable retrieval and
+component-command templates. Component predictions and family assignments are
+organized evidence, not biological ground truth.
 
 ## Repository and documentation map
 
@@ -314,7 +318,7 @@ DE-AC05-00OR22725.
 Citation metadata is in [`CITATION.cff`](CITATION.cff). The companion software
 record resolves at
 [doi:10.11578/PMI/dc.20260608.2](https://doi.org/10.11578/PMI/dc.20260608.2).
-Version 1.0.2 is the current public release.
+Version 1.0.3 is the current public release.
 
 ClusterWeave's own source is available under the
 [BSD 3-Clause License](LICENSE). Downloaded tools, containers, databases, and

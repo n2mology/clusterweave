@@ -1,0 +1,80 @@
+assembly_accession	genome	component	applicability	analysis_state	feature_count	interpretation
+GCF_900114905.1	Saccharopolyspora_antimicrobica_CPCC_201259	antiSMASH	applicable	completed_with_detection	29	applicable component completed and reported at least one feature
+GCF_900114905.1	Saccharopolyspora_antimicrobica_CPCC_201259	FunBGCeX	not_applicable_taxon	taxonomically_inapplicable	0	taxon route excludes the component; not a negative detection
+GCF_900114905.1	Saccharopolyspora_antimicrobica_CPCC_201259	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	29	applicable component completed and reported at least one feature
+GCF_003635025.1	Saccharopolyspora_antimicrobica_DSM_45119	antiSMASH	applicable	completed_with_detection	29	applicable component completed and reported at least one feature
+GCF_003635025.1	Saccharopolyspora_antimicrobica_DSM_45119	FunBGCeX	not_applicable_taxon	taxonomically_inapplicable	0	taxon route excludes the component; not a negative detection
+GCF_003635025.1	Saccharopolyspora_antimicrobica_DSM_45119	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	29	applicable component completed and reported at least one feature
+GCF_007829955.1	Saccharopolyspora_dendranthemae_DSM_46699	antiSMASH	applicable	completed_with_detection	24	applicable component completed and reported at least one feature
+GCF_007829955.1	Saccharopolyspora_dendranthemae_DSM_46699	FunBGCeX	not_applicable_taxon	taxonomically_inapplicable	0	taxon route excludes the component; not a negative detection
+GCF_007829955.1	Saccharopolyspora_dendranthemae_DSM_46699	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	24	applicable component completed and reported at least one feature
+GCF_018070075.1	Saccharopolyspora_endophytica_KCTC_19397	antiSMASH	applicable	completed_with_detection	28	applicable component completed and reported at least one feature
+GCF_018070075.1	Saccharopolyspora_endophytica_KCTC_19397	FunBGCeX	not_applicable_taxon	taxonomically_inapplicable	0	taxon route excludes the component; not a negative detection
+GCF_018070075.1	Saccharopolyspora_endophytica_KCTC_19397	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	28	applicable component completed and reported at least one feature
+GCF_002564065.1	Saccharopolyspora_erythraea_DSM_40517	antiSMASH	applicable	completed_with_detection	40	applicable component completed and reported at least one feature
+GCF_002564065.1	Saccharopolyspora_erythraea_DSM_40517	FunBGCeX	not_applicable_taxon	taxonomically_inapplicable	0	taxon route excludes the component; not a negative detection
+GCF_002564065.1	Saccharopolyspora_erythraea_DSM_40517	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	40	applicable component completed and reported at least one feature
+GCF_022392385.1	Saccharopolyspora_erythraea_E3	antiSMASH	applicable	completed_with_detection	38	applicable component completed and reported at least one feature
+GCF_022392385.1	Saccharopolyspora_erythraea_E3	FunBGCeX	not_applicable_taxon	taxonomically_inapplicable	0	taxon route excludes the component; not a negative detection
+GCF_022392385.1	Saccharopolyspora_erythraea_E3	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	38	applicable component completed and reported at least one feature
+GCF_016859185.1	Saccharopolyspora_erythraea_NRRL_23338	antiSMASH	applicable	completed_with_detection	39	applicable component completed and reported at least one feature
+GCF_016859185.1	Saccharopolyspora_erythraea_NRRL_23338	FunBGCeX	not_applicable_taxon	taxonomically_inapplicable	0	taxon route excludes the component; not a negative detection
+GCF_016859185.1	Saccharopolyspora_erythraea_NRRL_23338	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	39	applicable component completed and reported at least one feature
+GCF_000062885.1	Saccharopolyspora_erythraea_NRRL_2338	antiSMASH	applicable	completed_with_detection	39	applicable component completed and reported at least one feature
+GCF_000062885.1	Saccharopolyspora_erythraea_NRRL_2338	FunBGCeX	not_applicable_taxon	taxonomically_inapplicable	0	taxon route excludes the component; not a negative detection
+GCF_000062885.1	Saccharopolyspora_erythraea_NRRL_2338	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	39	applicable component completed and reported at least one feature
+GCF_018141105.1	Saccharopolyspora_erythraea_SCSIO_07745	antiSMASH	applicable	completed_with_detection	38	applicable component completed and reported at least one feature
+GCF_018141105.1	Saccharopolyspora_erythraea_SCSIO_07745	FunBGCeX	not_applicable_taxon	taxonomically_inapplicable	0	taxon route excludes the component; not a negative detection
+GCF_018141105.1	Saccharopolyspora_erythraea_SCSIO_07745	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	38	applicable component completed and reported at least one feature
+GCF_900116135.1	Saccharopolyspora_flava_DSM_44771	antiSMASH	applicable	completed_with_detection	21	applicable component completed and reported at least one feature
+GCF_900116135.1	Saccharopolyspora_flava_DSM_44771	FunBGCeX	not_applicable_taxon	taxonomically_inapplicable	0	taxon route excludes the component; not a negative detection
+GCF_900116135.1	Saccharopolyspora_flava_DSM_44771	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	21	applicable component completed and reported at least one feature
+GCF_016526145.1	Saccharopolyspora_galaxeae_HNM0986	antiSMASH	applicable	completed_with_detection	31	applicable component completed and reported at least one feature
+GCF_016526145.1	Saccharopolyspora_galaxeae_HNM0986	FunBGCeX	not_applicable_taxon	taxonomically_inapplicable	0	taxon route excludes the component; not a negative detection
+GCF_016526145.1	Saccharopolyspora_galaxeae_HNM0986	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	31	applicable component completed and reported at least one feature
+GCF_014203325.1	Saccharopolyspora_gloriosae_DSM_45582	antiSMASH	applicable	completed_with_detection	27	applicable component completed and reported at least one feature
+GCF_014203325.1	Saccharopolyspora_gloriosae_DSM_45582	FunBGCeX	not_applicable_taxon	taxonomically_inapplicable	0	taxon route excludes the component; not a negative detection
+GCF_014203325.1	Saccharopolyspora_gloriosae_DSM_45582	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	27	applicable component completed and reported at least one feature
+GCF_022828475.1	Saccharopolyspora_gloriosae_MLY014	antiSMASH	applicable	completed_with_detection	28	applicable component completed and reported at least one feature
+GCF_022828475.1	Saccharopolyspora_gloriosae_MLY014	FunBGCeX	not_applicable_taxon	taxonomically_inapplicable	0	taxon route excludes the component; not a negative detection
+GCF_022828475.1	Saccharopolyspora_gloriosae_MLY014	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	28	applicable component completed and reported at least one feature
+GCF_024734405.1	Saccharopolyspora_gregorii_BM8-3	antiSMASH	applicable	completed_with_detection	26	applicable component completed and reported at least one feature
+GCF_024734405.1	Saccharopolyspora_gregorii_BM8-3	FunBGCeX	not_applicable_taxon	taxonomically_inapplicable	0	taxon route excludes the component; not a negative detection
+GCF_024734405.1	Saccharopolyspora_gregorii_BM8-3	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	26	applicable component completed and reported at least one feature
+GCF_008630535.1	Saccharopolyspora_hirsuta_VKM_Ac-666	antiSMASH	applicable	completed_with_detection	26	applicable component completed and reported at least one feature
+GCF_008630535.1	Saccharopolyspora_hirsuta_VKM_Ac-666	FunBGCeX	not_applicable_taxon	taxonomically_inapplicable	0	taxon route excludes the component; not a negative detection
+GCF_008630535.1	Saccharopolyspora_hirsuta_VKM_Ac-666	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	26	applicable component completed and reported at least one feature
+GCF_013410345.1	Saccharopolyspora_hordei_DSM_44065	antiSMASH	applicable	completed_with_detection	16	applicable component completed and reported at least one feature
+GCF_013410345.1	Saccharopolyspora_hordei_DSM_44065	FunBGCeX	not_applicable_taxon	taxonomically_inapplicable	0	taxon route excludes the component; not a negative detection
+GCF_013410345.1	Saccharopolyspora_hordei_DSM_44065	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	16	applicable component completed and reported at least one feature
+GCF_900108315.1	Saccharopolyspora_kobensis_ATCC_20501	antiSMASH	applicable	completed_with_detection	27	applicable component completed and reported at least one feature
+GCF_900108315.1	Saccharopolyspora_kobensis_ATCC_20501	FunBGCeX	not_applicable_taxon	taxonomically_inapplicable	0	taxon route excludes the component; not a negative detection
+GCF_900108315.1	Saccharopolyspora_kobensis_ATCC_20501	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	27	applicable component completed and reported at least one feature
+GCF_900112555.1	Saccharopolyspora_kobensis_CGMCC_4.3529	antiSMASH	applicable	completed_with_detection	28	applicable component completed and reported at least one feature
+GCF_900112555.1	Saccharopolyspora_kobensis_CGMCC_4.3529	FunBGCeX	not_applicable_taxon	taxonomically_inapplicable	0	taxon route excludes the component; not a negative detection
+GCF_900112555.1	Saccharopolyspora_kobensis_CGMCC_4.3529	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	28	applicable component completed and reported at least one feature
+GCF_014203395.1	Saccharopolyspora_phatthalungensis_DSM_45584	antiSMASH	applicable	completed_with_detection	43	applicable component completed and reported at least one feature
+GCF_014203395.1	Saccharopolyspora_phatthalungensis_DSM_45584	FunBGCeX	not_applicable_taxon	taxonomically_inapplicable	0	taxon route excludes the component; not a negative detection
+GCF_014203395.1	Saccharopolyspora_phatthalungensis_DSM_45584	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	43	applicable component completed and reported at least one feature
+GCF_014697215.1	Saccharopolyspora_pogona_NRRL30141	antiSMASH	applicable	completed_with_detection	39	applicable component completed and reported at least one feature
+GCF_014697215.1	Saccharopolyspora_pogona_NRRL30141	FunBGCeX	not_applicable_taxon	taxonomically_inapplicable	0	taxon route excludes the component; not a negative detection
+GCF_014697215.1	Saccharopolyspora_pogona_NRRL30141	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	39	applicable component completed and reported at least one feature
+GCF_003931915.1	Saccharopolyspora_rhizosphaerae_H219	antiSMASH	applicable	completed_with_detection	16	applicable component completed and reported at least one feature
+GCF_003931915.1	Saccharopolyspora_rhizosphaerae_H219	FunBGCeX	not_applicable_taxon	taxonomically_inapplicable	0	taxon route excludes the component; not a negative detection
+GCF_003931915.1	Saccharopolyspora_rhizosphaerae_H219	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	16	applicable component completed and reported at least one feature
+GCF_025643595.1	Saccharopolyspora_rosea_A22	antiSMASH	applicable	completed_with_detection	23	applicable component completed and reported at least one feature
+GCF_025643595.1	Saccharopolyspora_rosea_A22	FunBGCeX	not_applicable_taxon	taxonomically_inapplicable	0	taxon route excludes the component; not a negative detection
+GCF_025643595.1	Saccharopolyspora_rosea_A22	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	23	applicable component completed and reported at least one feature
+GCF_012277335.1	Saccharopolyspora_sp._ASAGF58	antiSMASH	applicable	completed_with_detection	35	applicable component completed and reported at least one feature
+GCF_012277335.1	Saccharopolyspora_sp._ASAGF58	FunBGCeX	not_applicable_taxon	taxonomically_inapplicable	0	taxon route excludes the component; not a negative detection
+GCF_012277335.1	Saccharopolyspora_sp._ASAGF58	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	35	applicable component completed and reported at least one feature
+GCF_014490055.1	Saccharopolyspora_spinosa_CCTCC_M206084	antiSMASH	applicable	completed_with_detection	42	applicable component completed and reported at least one feature
+GCF_014490055.1	Saccharopolyspora_spinosa_CCTCC_M206084	FunBGCeX	not_applicable_taxon	taxonomically_inapplicable	0	taxon route excludes the component; not a negative detection
+GCF_014490055.1	Saccharopolyspora_spinosa_CCTCC_M206084	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	42	applicable component completed and reported at least one feature
+GCF_002846475.1	Saccharopolyspora_spinosa_DSM_44228	antiSMASH	applicable	completed_with_detection	42	applicable component completed and reported at least one feature
+GCF_002846475.1	Saccharopolyspora_spinosa_DSM_44228	FunBGCeX	not_applicable_taxon	taxonomically_inapplicable	0	taxon route excludes the component; not a negative detection
+GCF_002846475.1	Saccharopolyspora_spinosa_DSM_44228	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	42	applicable component completed and reported at least one feature
+GCF_000194155.1	Saccharopolyspora_spinosa_NRRL_18395	antiSMASH	applicable	completed_with_detection	42	applicable component completed and reported at least one feature
+GCF_000194155.1	Saccharopolyspora_spinosa_NRRL_18395	FunBGCeX	not_applicable_taxon	taxonomically_inapplicable	0	taxon route excludes the component; not a negative detection
+GCF_000194155.1	Saccharopolyspora_spinosa_NRRL_18395	BiG-SCAPE selected GCF view	applicable to antiSMASH candidates	completed_with_detection	42	applicable component completed and reported at least one feature
+	panel	NPLinker	optional	not_generated_or_unavailable	0	artifact was not requested, generated, retained, or available

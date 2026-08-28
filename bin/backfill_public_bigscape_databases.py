@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import hashlib
 import os
 import sys
 from contextlib import contextmanager
@@ -43,6 +44,10 @@ from job_store import (  # noqa: E402
     write_job,
 )
 from result_policy import result_is_public_bigscape_database  # noqa: E402
+from result_attestation import (  # noqa: E402
+    read_result_attestation,
+    write_result_attestation,
+)
 
 
 TERMINAL_STATUSES = {JobStatus.SUCCESS.value, JobStatus.FAILED.value}
@@ -190,6 +195,52 @@ def _state_token(meta: dict[str, object]) -> tuple[str, str, str, str, str]:
     )
 
 
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while block := handle.read(16 * 1024 * 1024):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _refresh_existing_publication(
+    job: Job,
+    job_dir: Path,
+    public_paths: list[Path],
+    *,
+    before_publish,
+) -> bool:
+    """Re-sign only metadata when every signed archive input is unchanged."""
+
+    attestation = read_result_attestation(job_dir, job.id)
+    if attestation is None or not attestation.archive_path:
+        return False
+    signed = {path: (size, digest) for path, size, digest in attestation.files}
+    for path in public_paths:
+        try:
+            relative = path.relative_to(job_dir).as_posix()
+            expected_size, expected_digest = signed[relative]
+            if path.is_symlink() or not path.is_file():
+                return False
+            if int(path.stat().st_size) != expected_size:
+                return False
+            if _sha256(path) != expected_digest:
+                return False
+        except (KeyError, OSError, ValueError):
+            return False
+    if not any(result_is_public_bigscape_database(path) for path in job.result_files):
+        return False
+    before_publish()
+    write_result_attestation(
+        job_dir,
+        job.id,
+        verify_hashes=False,
+        viewer_path=job.bigscape_viewer_database,
+        archive_path=attestation.archive_path,
+    )
+    return True
+
+
 def backfill_one(job_id: str, *, force: bool = False, dry_run: bool = False) -> str:
     job_dir = JOBS_DIR / job_id
     meta = read_job(job_id)
@@ -257,6 +308,12 @@ def backfill_one(job_id: str, *, force: bool = False, dry_run: bool = False) -> 
                 "PUBLICATION: sanitized BiG-SCAPE database "
                 f"{action} ({database.public_bytes} bytes)."
             )
+            viewer_error = str(getattr(database, "viewer_error", "") or "")
+            if viewer_error:
+                job.add_log(
+                    "WARN: compact BiG-SCAPE web viewer unavailable "
+                    f"({viewer_error.rstrip('.')})."
+                )
         viewer_paths = [
             database.viewer_path
             for database in preparation.databases
@@ -290,17 +347,24 @@ def backfill_one(job_id: str, *, force: bool = False, dry_run: bool = False) -> 
             if reason:
                 raise _BackfillStateChanged(reason)
 
+        public_paths = [
+            database.public_path.resolve()
+            for database in preparation.databases
+        ]
         try:
-            _collect_result_files(
+            if not _refresh_existing_publication(
                 job,
                 job_dir,
-                layout,
-                attested_bigscape_databases={
-                    database.public_path.resolve()
-                    for database in preparation.databases
-                },
+                public_paths,
                 before_publish=assert_publish_state,
-            )
+            ):
+                _collect_result_files(
+                    job,
+                    job_dir,
+                    layout,
+                    attested_bigscape_databases=set(public_paths),
+                    before_publish=assert_publish_state,
+                )
         except _BackfillStateChanged:
             return "skip: job state changed"
         except Exception as exc:

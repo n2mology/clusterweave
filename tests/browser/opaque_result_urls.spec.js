@@ -105,7 +105,11 @@ const bodies = new Map([
   [ids.funbgcex, `<!doctype html><html><body>
     <a id="bgc-link" href="results/Fungus_alpha.funbgcex_results/HTMLs/BGC1.html#top">BGC 1</a>
   </body></html>`],
-  [ids.funbgcexRegion, '<!doctype html><html><body><main id="top">FunBGCeX BGC 1 detail</main></body></html>'],
+  [ids.funbgcexRegion, `<!doctype html><html><body><main id="top">FunBGCeX BGC 1 detail</main>
+    <canvas id="canvas" width="800" height="60"></canvas>
+    <p id="aaseq"></p>
+    <button type="button" onclick="copyToClipboard()">Copy AA sequence to clipboard</button>
+  </body></html>`],
 ]);
 
 function artifactEndpoint(id) {
@@ -295,7 +299,10 @@ test.describe('opaque public result URLs and sandboxed bundle navigation', () =>
     );
     const popup = await popupPromise;
     await popup.locator('#clusterweave-tool-result-preview').waitFor();
-    await expect(popup.locator('#clusterweave-tool-result-preview')).toHaveAttribute('sandbox', 'allow-scripts');
+    await expect(popup.locator('#clusterweave-tool-result-preview')).toHaveAttribute(
+      'sandbox',
+      'allow-scripts allow-downloads',
+    );
     await expect.poll(() => popup.frames().length).toBe(2);
     const frame = popup.frames()[1];
     await frame.waitForLoadState('domcontentloaded');

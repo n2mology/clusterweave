@@ -62,11 +62,15 @@ def run_sharded_fixture(root: Path, scenario: str) -> tuple[subprocess.Completed
         "run_antismash_record_shard(){\n"
         "  local record_id=$3 safe_id=$4 shard_dir=$7 row_file=$8\n"
         "  mkdir -p \"$shard_dir\"\n"
-        "  printf '{\"records\":[{\"id\":\"%s\"}],\"timings\":{}}\\n' \"$record_id\" > \"$shard_dir/$safe_id.json\"\n"
         "  if [[ \"$SCENARIO\" == failure && \"$record_id\" == recordB ]]; then\n"
         "    printf '%s\\t%s\\tfailed\\t0\\t0\\n' \"$record_id\" \"$shard_dir\" > \"$row_file\"\n"
         "    return 1\n"
         "  fi\n"
+        "  if [[ \"$SCENARIO\" == empty && \"$record_id\" == recordB ]]; then\n"
+        "    printf '%s\\t%s\\tempty\\t0\\t0\\n' \"$record_id\" \"$shard_dir\" > \"$row_file\"\n"
+        "    return 0\n"
+        "  fi\n"
+        "  printf '{\"records\":[{\"id\":\"%s\"}],\"timings\":{}}\\n' \"$record_id\" > \"$shard_dir/$safe_id.json\"\n"
         "  local count=0\n"
         "  if [[ \"$SCENARIO\" == failure ]]; then\n"
         "    printf 'partial region\\n' > \"$shard_dir/$safe_id.region001.gbk\"\n"
@@ -190,6 +194,70 @@ class FungalShardRegionParityTests(unittest.TestCase):
                 row_file.read_text(encoding="utf-8").split("\t")[:3],
                 ["recordB", str(shard_dir), "ok"],
             )
+
+    def test_real_shard_runner_classifies_exact_no_gene_diagnostic_as_empty(self) -> None:
+        pipeline = (REPO_ROOT / "run_annotation_and_detection.sh").read_text(
+            encoding="utf-8"
+        )
+        shard_function = "run_antismash_record_shard() {" + pipeline.split(
+            "run_antismash_record_shard() {", 1
+        )[1].split("\n}\n\nmerge_antismash_shard_jsons() {", 1)[0] + "\n}\n"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            row_file = root / "row.tsv"
+            stdout_log = root / "stdout.log"
+            stderr_log = root / "stderr.log"
+            shard_dir = root / "shard"
+            ant_input = root / "empty_record.gbk"
+            ant_input.write_text("fixture\n", encoding="utf-8")
+            shell = (
+                "set -euo pipefail\n"
+                "ANTISMASH_SHARD_CPUS=1\n"
+                "ANTISMASH_MIN_RECORD_BP=1000\n"
+                "ANTISMASH_SHARD_COMPACTOR=/unused/compact_antismash_shard.py\n"
+                "ANTISMASH_RETAIN_SHARD_WORK=0\n"
+                "ANT_FLAGS_ARRAY=()\n"
+                "antismash_record_progress(){ printf '%s\\n' \"$6\"; }\n"
+                "run_tool_with_activity(){\n"
+                "  printf '%s\\n' \"INFO No CDS features found in record 'recordB'\" > \"$5\"\n"
+                "  printf '%s\\n' \"INFO No genes found, skipping record 'recordB'\" >> \"$5\"\n"
+                "  printf '%s\\n' 'ERROR all records skipped' >> \"$5\"\n"
+                "  return 1\n"
+                "}\n"
+                + shard_function
+                + "\nrun_antismash_record_shard \"$@\"\n"
+            )
+            completed = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    shell,
+                    "empty-shard-classifier",
+                    "Fungus_fixture",
+                    str(ant_input),
+                    "recordB",
+                    "recordB",
+                    "2",
+                    "4",
+                    str(shard_dir),
+                    str(row_file),
+                    str(stdout_log),
+                    str(stderr_log),
+                ],
+                cwd=REPO_ROOT,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=30,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertIn("antiSMASH record shard empty (no genes)", completed.stdout)
+            self.assertEqual(
+                row_file.read_text(encoding="utf-8").split("\t")[:3],
+                ["recordB", str(shard_dir), "empty"],
+            )
+            self.assertEqual(list(shard_dir.iterdir()), [])
 
     def test_sharded_assembly_matches_legacy_fungal_region_set_and_count(self) -> None:
         pipeline = (REPO_ROOT / "run_annotation_and_detection.sh").read_text(
@@ -364,6 +432,19 @@ class FungalShardRegionParityTests(unittest.TestCase):
             self.assertFalse((ant_out / "Fungus_fixture.antismash.json").exists())
             self.assertFalse((ant_out / "index.html").exists())
             self.assertFalse((ant_out / ".done").exists())
+
+    def test_empty_no_gene_shard_is_assembled_with_successful_sibling(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            completed, ant_out = run_sharded_fixture(Path(tmp), "empty")
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertTrue((ant_out / "Fungus_fixture.antismash.json").is_file())
+            self.assertTrue((ant_out / "index.html").is_file())
+            self.assertTrue((ant_out / ".done").is_file())
+            manifest = (ant_out / "shard_manifest.tsv").read_text(encoding="utf-8")
+            self.assertIn("recordA", manifest)
+            self.assertIn("recordB", manifest)
+            self.assertIn("\tempty\t", manifest)
 
     def test_zero_region_shards_publish_browseable_complete_result(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

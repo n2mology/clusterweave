@@ -1,0 +1,39 @@
+funbgcex_cluster	locus_tag	locus_descriptor	protein_type	local_start_1based	local_end_1based	genome_start_1based	genome_end_1based	strand	translation_length_aa	funbgcex_color	domain	homologue_evidence
+BGC21	BDV33DRAFT_188079	BDV33DRAFT_188079 / 1...2074 (-)	hydrolase	1	2074	58247	60320	-	545	#0096FF	–	–
+BGC21	BDV33DRAFT_199445	BDV33DRAFT_199445 / 2604...4951 (-)	transcription factor	2604	4951	60850	63197	-	764	#929000	–	–
+BGC21	BDV33DRAFT_199446	BDV33DRAFT_199446 / 5363...6762 (+)	cytochrome P450 monooxygenase	5363	6762	63609	65008	+	405	#FF8AD8	–	–
+BGC21	BDV33DRAFT_188081	BDV33DRAFT_188081 / 7085...8820 (-)	major facilitator superfamily transporter	7085	8820	65331	67066	-	515	#000000	–	major facilitator superfamily transporter EfuF (FPROT00004); identity: 30.5%
+BGC21	BDV33DRAFT_199448	BDV33DRAFT_199448 / 9320...9883 (-)	–	9320	9883	67566	68129	-	187	#BBBBBB	–	–
+BGC21	BDV33DRAFT_199449	BDV33DRAFT_199449 / 10111...22418 (-)	nonribosomal peptide synthetase	10111	22418	68357	80664	-	3593	#005493	A-T-C-A-T-C-A-T-TE	nonribosomal peptide synthetase ImqB (FBGC00190); identity: 93.7%
+BGC21	BDV33DRAFT_188082	BDV33DRAFT_188082 / 22846...25116 (+)	FAD-dependent monooxygenase	22846	25116	81092	83362	+	620	#008F00	–	FAD-dependent monooxygenase ImqC (FBGC00190); identity: 96.6%
+BGC21	BDV33DRAFT_188083	BDV33DRAFT_188083 / 25749...27680 (-)	major facilitator superfamily transporter	25749	27680	83995	85926	-	539	#000000	–	major facilitator superfamily transporter ImqD (FBGC00190); identity: 97.4%
+BGC21	BDV33DRAFT_199452	BDV33DRAFT_199452 / 28318...29478 (+)	2OG-Fe(II)-dependent dioxygenase	28318	29478	86564	87724	+	364	#FF2F92	–	2OG-Fe(II)-dependent dioxygenase ImqE (FBGC00190); identity: 99.2%
+BGC21	BDV33DRAFT_188085	BDV33DRAFT_188085 / 30020...31242 (+)	methyltransferase	30020	31242	88266	89488	+	369	#FF9300	–	methyltransferase ImqF (FBGC00190); identity: 96.7%
+BGC21	BDV33DRAFT_199454	BDV33DRAFT_199454 / 31613...32353 (-)	methyltransferase	31613	32353	89859	90599	-	246	#FF9300	–	methyltransferase ImqG (FBGC00190); identity: 98.4%
+BGC21	BDV33DRAFT_233375	BDV33DRAFT_233375 / 32620...34137 (-)	FAD-dependent monooxygenase	32620	34137	90866	92383	-	478	#008F01	–	amino acid oxidase ImqH (FBGC00190); identity: 93.7%
+BGC21	BDV33DRAFT_154226	BDV33DRAFT_154226 / 34959...36325 (+)	major facilitator superfamily transporter	34959	36325	93205	94571	+	436	#000000	–	major facilitator superfamily transporter ImqI (FBGC00190); identity: 97.2%
+BGC21	BDV33DRAFT_154224	BDV33DRAFT_154224 / 37035...38181 (+)	2OG-Fe(II)-dependent dioxygenase	37035	38181	95281	96427	+	334	#FF2F92	–	2OG-Fe(II)-dependent dioxygenase ImqJ (FBGC00190); identity: 97.6%
+BGC21	BDV33DRAFT_233378	BDV33DRAFT_233378 / 38579...40207 (-)	transcription factor	38579	40207	96825	98453	-	542	#929000	–	transcription factor ImqK (FBGC00190); identity: 86.3%
+BGC21	BDV33DRAFT_199459	BDV33DRAFT_199459 / 42286...43086 (-)	HAD-like hydrolase	42286	43086	100532	101332	-	266	#0096FF	–	–
+BGC21	BDV33DRAFT_233385	BDV33DRAFT_233385 / 44770...46460 (+)	major facilitator superfamily transporter	44770	46460	103016	104706	+	483	#000000	–	major facilitator superfamily transporter CnsO (FBGC00301); identity: 34.0%
+BGC21	BDV33DRAFT_233387	BDV33DRAFT_233387 / 47403...51342 (-)	cytochrome P450 monooxygenase, FAD-dependent halogenase	47403	51342	105649	109588	-	1031	#FF8AD8	–	FAD-dependent halogenase AclH (FBGC00397); identity: 98.0%
+BGC21	BDV33DRAFT_233389	BDV33DRAFT_233389 / 51557...53376 (+)	cytochrome P450 monooxygenase	51557	53376	109803	111622	+	491	#FF8AD8	–	cytochrome P450 monooxygenase AclL (FBGC00397); identity: 96.5%
+BGC21	BDV33DRAFT_188094	BDV33DRAFT_188094 / 53489...54971 (-)	transcription factor	53489	54971	111735	113217	-	456	#929000	–	transcription factor AclZ (FBGC00397); identity: 97.8%
+BGC21	BDV33DRAFT_199465	BDV33DRAFT_199465 / 56267...57161 (-)	gamma-glutamyl cyclotransferase	56267	57161	114513	115407	-	272	#73FDFF	–	gamma-glutamyl cyclotransferase AclK (FBGC00397); identity: 96.3%
+BGC21	BDV33DRAFT_165422	BDV33DRAFT_165422 / 57974...59284 (+)	major facilitator superfamily transporter	57974	59284	116220	117530	+	436	#000000	–	major facilitator superfamily transporter AclA (FBGC00397); identity: 97.0%
+BGC21	BDV33DRAFT_233398	BDV33DRAFT_233398 / 59892...62400 (-)	ABC transporter	59892	62400	118138	120646	-	728	#000000	–	ABC transporter AclQ (FBGC00397); identity: 98.5%
+BGC21	BDV33DRAFT_233399	BDV33DRAFT_233399 / 62922...65862 (+)	aminotransferase, acetyltransferase	62922	65862	121168	124108	+	822	#73FCD6	–	aminotransferase AclI (FBGC00397); identity: 98.3%
+BGC21	BDV33DRAFT_188099	BDV33DRAFT_188099 / 66309...69134 (-)	FAD-dependent monooxygenase, cytochrome P450 monooxygenase	66309	69134	124555	127380	-	701	#008F01	–	cytochrome P450 monooxygenase AclB (FBGC00397); identity: 96.4%
+BGC21	BDV33DRAFT_199472	BDV33DRAFT_199472 / 69412...70483 (+)	2OG-Fe(II)-dependent dioxygenase	69412	70483	127658	128729	+	287	#FF2F92	–	2OG-Fe(II)-dependent dioxygenase AclN (FBGC00397); identity: 96.2%
+BGC21	BDV33DRAFT_165427	BDV33DRAFT_165427 / 70907...71905 (-)	FAD-dependent monooxygenase	70907	71905	129153	130151	-	314	#008F01	–	thioredoxin reductase AclD (FBGC00397); identity: 99.7%
+BGC21	BDV33DRAFT_199474	BDV33DRAFT_199474 / 72866...73923 (-)	FAD-dependent monooxygenase	72866	73923	131112	132169	-	334	#008F01	–	thioredoxin reductase AclT (FBGC00397); identity: 97.6%
+BGC21	BDV33DRAFT_233400	BDV33DRAFT_233400 / 74187...76590 (+)	methyltransferase, glutathione S-transferase	74187	76590	132433	134836	+	603	#FF9300	–	methyltransferase AclM (FBGC00397); identity: 81.4%
+BGC21	BDV33DRAFT_233402	BDV33DRAFT_233402 / 76722...78508 (-)	cytochrome P450 monooxygenase	76722	78508	134968	136754	-	486	#FF8AD8	–	cytochrome P450 monooxygenase AclC (FBGC00397); identity: 97.0%
+BGC21	BDV33DRAFT_233404	BDV33DRAFT_233404 / 78601...79971 (+)	peptidase	78601	79971	136847	138217	+	422	#0096FF	–	dipeptidase AclJ (FBGC00397); identity: 93.4%
+BGC21	BDV33DRAFT_199479	BDV33DRAFT_199479 / 80274...85056 (-)	nonribosomal peptide synthetase	80274	85056	138520	143302	-	1573	#005493	T-C-A-T-C	nonribosomal peptide synthetase AclP (FBGC00397); identity: 96.2%
+BGC21	BDV33DRAFT_188106	BDV33DRAFT_188106 / 86008...87865 (-)	transporter	86008	87865	144254	146111	-	594	#000000	–	transporter AclS (FBGC00397); identity: 90.4%
+BGC21	BDV33DRAFT_233405	BDV33DRAFT_233405 / 88113...89324 (+)	dehydrogenase	88113	89324	146359	147570	+	366	#531B93	–	dehydrogenase AclE (FBGC00397); identity: 96.2%
+BGC21	BDV33DRAFT_233407	BDV33DRAFT_233407 / 89582...91462 (-)	methyltransferase	89582	91462	147828	149708	-	479	#FF9300	–	methyltransferase AclU (FBGC00397); identity: 95.6%
+BGC21	BDV33DRAFT_233409	BDV33DRAFT_233409 / 93418...94351 (-)	short-chain dehydrogenase/reductase	93418	94351	151664	152597	-	287	#531B93	–	short-chain dehydrogenase/reductase BDV38DRAFT_283034 (FBGC00689); identity: 95.5%
+BGC21	BDV33DRAFT_199485	BDV33DRAFT_199485 / 96141...97706 (+)	cupin domain-containing protein, FMN-dependent dehydrogenase	96141	97706	154387	155952	+	276	#FF7E79	–	–
+BGC21	BDV33DRAFT_188110	BDV33DRAFT_188110 / 98194...99366 (+)	short-chain dehydrogenase/reductase	98194	99366	156440	157612	+	304	#531B93	–	short-chain dehydrogenase/reductase PtmH (FBGC00473); identity: 37.6%

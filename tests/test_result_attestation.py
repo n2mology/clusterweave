@@ -121,6 +121,67 @@ class ResultAttestationTests(unittest.TestCase):
                 self.base, "attested", verify_hashes=False
             )
 
+    def test_production_scale_manifest_and_attestation_share_bounded_envelope(self) -> None:
+        manifest = self.base / "downloads/public_results_manifest.tsv"
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        digest = "0" * 64
+        rows = [
+            (
+                "data/results/demo/antismash/"
+                f"genome_{index:05d}/assets/"
+                f"clusterweave_bounded_bundle_{index:05d}_supporting_asset.js"
+            )
+            for index in range(30_000)
+        ]
+        manifest.write_text(
+            "path\tbytes\tsha256\n"
+            + "".join(f"{path}\t0\t{digest}\n" for path in rows),
+            encoding="utf-8",
+        )
+        self.assertGreater(manifest.stat().st_size, 4 * 1024 * 1024)
+
+        with mock.patch.object(self.module, "_validate_files"):
+            written = self.module.write_result_attestation(
+                self.base, "attested", verify_hashes=False
+            )
+        index = self.base / self.module.RESULT_ATTESTATION_PATH
+        self.assertGreater(index.stat().st_size, 4 * 1024 * 1024)
+        self.assertLessEqual(
+            index.stat().st_size, self.module.PUBLIC_RESULT_INDEX_MAX_BYTES
+        )
+        self.assertEqual(30_000, len(written.files))
+        self.assertEqual(written, self.module.read_result_attestation(self.base, "attested"))
+
+        policy = importlib.import_module("result_policy")
+        self.assertEqual(
+            policy.PUBLIC_RESULT_INDEX_MAX_BYTES,
+            self.module.PUBLIC_RESULT_INDEX_MAX_BYTES,
+        )
+        app_source = (WEB_ROOT / "app.py").read_text(encoding="utf-8")
+        self.assertNotIn("_PUBLIC_MANIFEST_MAX_BYTES =", app_source)
+        self.assertGreaterEqual(app_source.count("PUBLIC_RESULT_INDEX_MAX_BYTES"), 7)
+
+    def test_manifest_and_attestation_remain_fail_closed_beyond_bound(self) -> None:
+        manifest = self.base / "downloads/public_results_manifest.tsv"
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        with manifest.open("wb") as handle:
+            handle.truncate(self.module.PUBLIC_RESULT_INDEX_MAX_BYTES + 1)
+        with self.assertRaisesRegex(OSError, "exceeds the bounded size"):
+            self.module.write_result_attestation(
+                self.base, "attested", verify_hashes=False
+            )
+
+        self.write_manifest()
+        output_bound = manifest.stat().st_size + 32
+        with (
+            mock.patch.object(self.module, "PUBLIC_RESULT_INDEX_MAX_BYTES", output_bound),
+            self.assertRaisesRegex(OSError, "attestation exceeds the bounded size"),
+        ):
+            self.module.write_result_attestation(
+                self.base, "attested", verify_hashes=True
+            )
+        self.assertFalse((self.base / self.module.RESULT_ATTESTATION_PATH).exists())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -22,16 +22,19 @@ not public release artifacts.
 
 The public examples are intentionally curated:
 
-- `examples/fungi_only`: retained 50-genome fungal accession set and derived
-  fungal outputs.
-- `examples/mixed`: 20 current bacterial RefSeq plus 20 current fungal
-  assemblies, verified 2026-07-16 and processed together in the completed
-  canonical run, with both taxon maps and derived taxon-aware outputs.
+- [`examples/flavi19`](../examples/flavi19/): 19 versioned section *Flavi*
+  assemblies from Kjærbølling et al. (2020), with source-study and current NCBI
+  names preserved separately.
+- [`examples/saccharopolyspora26`](../examples/saccharopolyspora26/): the exact
+  26 versioned RefSeq assemblies in the public BGCFlow v0.9.0
+  `mq_saccharopolyspora` example.
 
-A zero-BGC assembly remains scientifically valid input. Mixed-example
-substitution occurs only for an accession-specific download or assembly failure
-and must use a current annotated RefSeq assembly from the same species or
-nearest represented lineage with the substitution documented.
+Both bundles prefer accession manifests and NCBI Datasets retrieval over genome
+redistribution. Their tables retain public candidate coordinates, component
+evidence, explicit analysis states, and aggregate selected-family assignment
+coverage while omitting run-local family identifiers and private execution
+metadata. Component predictions and similarity annotations are evidence rather
+than biological ground truth.
 
 The source, BSD-3-Clause license, and citation metadata are available from the
 repository and [doi:10.11578/PMI/dc.20260608.2](https://doi.org/10.11578/PMI/dc.20260608.2).

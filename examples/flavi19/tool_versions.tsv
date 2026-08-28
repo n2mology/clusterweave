@@ -1,0 +1,9 @@
+tool_or_resource	version	scope	role
+ClusterWeave	1.0.2	workflow	taxon routing, evidence harmonization, state handling, ordering, and exports
+antiSMASH	8.0.4	all assemblies	BGC prediction and known-cluster/ClusterCompare evidence
+funannotate	1.8.17	fungal assemblies	fungal gene annotation route
+FunBGCeX	1.0.1	fungal assemblies	fungal BGC prediction and similarity evidence
+BiG-SCAPE	2.0.0-beta.6	antiSMASH candidates	selected-view GCF assignment
+MIBiG	4.0	reference evidence	curated BGC reference context
+clinker	0.0.32	selected review panels	gene-cluster alignment and synteny evidence
+FastTree	2.2.0	BiG-SCAPE runtime	tree construction used by the component runtime

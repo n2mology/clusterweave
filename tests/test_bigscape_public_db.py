@@ -520,6 +520,38 @@ class BigscapePublicDatabaseTests(unittest.TestCase):
                 (1, 1, 1),
             )
 
+    def test_force_refresh_reuses_valid_full_export_and_only_rebuilds_viewer(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "big_scape.db"
+            create_source_database(source)
+            add_viewer_projection_rows(source)
+            script_digest = create_viewer_assets(source.parent)
+            with mock.patch.object(
+                bigscape_public_db_module,
+                "_BIGSCAPE_200_JS_SHA256",
+                script_digest,
+            ):
+                first = sanitize_bigscape_database(source)
+                assert first.viewer_path is not None
+                public_checksum = file_sha256(first.public_path)
+                public_identity = first.public_path.stat()
+                viewer_checksum = file_sha256(first.viewer_path)
+
+                refreshed = sanitize_bigscape_database(source, force=True)
+
+            self.assertTrue(refreshed.reused)
+            self.assertEqual(file_sha256(refreshed.public_path), public_checksum)
+            self.assertEqual(
+                refreshed.public_path.stat().st_ino,
+                public_identity.st_ino,
+            )
+            self.assertEqual(
+                refreshed.public_path.stat().st_mtime_ns,
+                public_identity.st_mtime_ns,
+            )
+            assert refreshed.viewer_path is not None
+            self.assertEqual(file_sha256(refreshed.viewer_path), viewer_checksum)
+
     def test_compact_viewer_projection_is_deterministic_attested_and_source_immutable(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "big_scape.db"
@@ -658,6 +690,100 @@ class BigscapePublicDatabaseTests(unittest.TestCase):
             self.assertEqual(file_sha256(source), raw_checksum)
             self.assertEqual(source.read_bytes(), raw_bytes)
 
+    def test_query_complete_distance_projection_preserves_only_ui_reachable_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "big_scape.db"
+            create_source_database(source)
+            add_viewer_projection_rows(source)
+            script_digest = create_viewer_assets(source.parent)
+            with sqlite3.connect(source) as raw:
+                raw.execute(
+                    "INSERT INTO connected_component(id,record_id,cutoff,bin_label,run_id) "
+                    "VALUES(3,2,0.3,'mix',1)"
+                )
+                raw.execute(
+                    "UPDATE distance SET distance=0.8 WHERE record_a_id=1 AND record_b_id=3"
+                )
+                raw.execute(
+                    "INSERT INTO distance VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        2, 3, 0.9, 0.1, 0.1, 0.1, 1, 0, 1, 0, 1,
+                        0, 1, 0, 1, 0, 0, 1, 0, 1,
+                    ),
+                )
+                raw.commit()
+
+            with mock.patch.object(
+                bigscape_public_db_module,
+                "_BIGSCAPE_200_JS_SHA256",
+                script_digest,
+            ):
+                exported = sanitize_bigscape_database(source)
+                viewer = exported.viewer_path
+                assert viewer is not None
+                checked = validate_public_bigscape_viewer_database(viewer)
+
+            self.assertEqual(checked["reachable_records"], 3)
+            self.assertEqual(checked["distance"], 2)
+            with sqlite3.connect(exported.public_path) as public, sqlite3.connect(
+                viewer
+            ) as compact:
+                expected_network = list(public.execute(
+                    "SELECT record_a_id,record_b_id,distance FROM distance "
+                    "WHERE record_a_id IN (1,2,3) AND record_b_id IN (1,2,3) "
+                    "AND record_a_id != record_b_id AND distance < 0.3 ORDER BY 1,2,3"
+                ))
+                observed_network = list(compact.execute(
+                    "SELECT record_a_id,record_b_id,distance FROM distance "
+                    "WHERE record_a_id IN (1,2,3) AND record_b_id IN (1,2,3) "
+                    "AND record_a_id != record_b_id AND distance < 0.3 ORDER BY 1,2,3"
+                ))
+                expected_alignment = list(public.execute(
+                    "SELECT record_a_id,record_b_id,lcs_domain_a_start,"
+                    "lcs_domain_b_start,lcs_domain_a_stop,lcs_domain_b_stop,reverse "
+                    "FROM distance WHERE (record_a_id IN (1,3) AND record_b_id=1) "
+                    "OR (record_b_id IN (1,3) AND record_a_id=1) ORDER BY 1,2"
+                ))
+                observed_alignment = list(compact.execute(
+                    "SELECT record_a_id,record_b_id,lcs_domain_a_start,"
+                    "lcs_domain_b_start,lcs_domain_a_stop,lcs_domain_b_stop,reverse "
+                    "FROM distance WHERE (record_a_id IN (1,3) AND record_b_id=1) "
+                    "OR (record_b_id IN (1,3) AND record_a_id=1) ORDER BY 1,2"
+                ))
+                retained = list(compact.execute(
+                    "SELECT record_a_id,record_b_id,distance FROM distance ORDER BY 1,2"
+                ))
+
+            self.assertEqual(observed_network, expected_network)
+            self.assertEqual(observed_alignment, expected_alignment)
+            self.assertEqual(retained, [(1, 2, 0.2), (1, 3, 0.8)])
+
+    def test_malformed_run_cutoff_fails_closed_with_bounded_diagnostic(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "big_scape.db"
+            create_source_database(source)
+            add_viewer_projection_rows(source)
+            script_digest = create_viewer_assets(source.parent)
+            with sqlite3.connect(source) as raw:
+                raw.execute("UPDATE run SET cutoffs='0.3,NaN' WHERE id=1")
+                raw.commit()
+
+            with mock.patch.object(
+                bigscape_public_db_module,
+                "_BIGSCAPE_200_JS_SHA256",
+                script_digest,
+            ):
+                exported = sanitize_bigscape_database(source)
+
+            self.assertIsNone(exported.viewer_path)
+            self.assertEqual(exported.viewer_bytes, 0)
+            self.assertEqual(
+                exported.viewer_error,
+                "BiG-SCAPE viewer run cutoff is outside the supported range",
+            )
+            self.assertLessEqual(len(exported.viewer_error), 240)
+            self.assertTrue(exported.public_path.is_file())
+
     def test_viewer_is_omitted_when_web_assets_are_absent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "big_scape.db"
@@ -667,6 +793,7 @@ class BigscapePublicDatabaseTests(unittest.TestCase):
 
             self.assertIsNone(exported.viewer_path)
             self.assertEqual(exported.viewer_bytes, 0)
+            self.assertEqual(exported.viewer_error, "")
             self.assertTrue(exported.public_path.is_file())
             self.assertFalse(
                 (exported.public_path.parent / "clusterweave_viewer.sqlite").exists()
@@ -691,6 +818,10 @@ class BigscapePublicDatabaseTests(unittest.TestCase):
 
             self.assertIsNone(exported.viewer_path)
             self.assertEqual(exported.viewer_bytes, 0)
+            self.assertEqual(
+                exported.viewer_error,
+                "Viewer database exceeds the strict size limit",
+            )
             self.assertTrue(exported.public_path.is_file())
             self.assertGreater(exported.public_bytes, 4096)
             self.assertEqual(file_sha256(source), raw_checksum)

@@ -7,7 +7,7 @@ Compose reads `docker-compose.yml` and starts the related containers together.
 You do not need to install the scientific tools one at a time.
 
 Project-hosted access is coming soon. The trusted local Docker profile is the
-only currently available v1.0.2 path. This release has been
+only currently available v1.0.3 path. This release has been
 validated on Linux x86_64, and the sections below explain the corresponding
 Docker Desktop setup for WSL2, Intel macOS, and Apple Silicon.
 
@@ -160,7 +160,7 @@ they are maintained differently:
 - A **tagged archive** is a fixed snapshot downloaded from the GitHub Releases
   page. An archive has no Git history and cannot be updated with `git pull`.
 
-ClusterWeave v1.0.2 is the current public release. Use the
+ClusterWeave v1.0.3 is the current public release. Use the
 [ClusterWeave releases page](https://github.com/n2mology/clusterweave/releases)
 when you need its immutable tag or source archive.
 
@@ -174,10 +174,10 @@ git clone https://github.com/n2mology/clusterweave.git
 cd clusterweave
 ```
 
-For a reproducible v1.0.2 checkout, request the tag explicitly:
+For a reproducible v1.0.3 checkout, request the tag explicitly:
 
 ```bash
-git clone --branch v1.0.2 --depth 1 https://github.com/n2mology/clusterweave.git
+git clone --branch v1.0.3 --depth 1 https://github.com/n2mology/clusterweave.git
 cd clusterweave
 ```
 
@@ -334,7 +334,7 @@ few or no BGC calls.
 1. Open **INPUT STATION** and keep **New run** selected.
 2. Choose **Bacteria** as the analysis scope.
 3. Enter the public example accession `GCF_000005845.2` in the NCBI accession
-   list. This is *Escherichia coli* K-12 substrain MG1655 from the mixed example.
+   list. This is the public *Escherichia coli* K-12 substrain MG1655 assembly.
 4. Enter `first_bacteria` as the project name. Leave target genome and ecology
    unset for this first run.
 5. Select **Submit run** and wait for input verification to finish.
@@ -446,7 +446,7 @@ actually published and reviewed:
 ```bash
 git fetch --tags origin
 git tag --list
-git switch --detach v1.0.2
+git switch --detach v1.0.3
 docker compose build
 docker compose up -d
 ```

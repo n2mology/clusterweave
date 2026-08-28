@@ -96,6 +96,28 @@ test('clinker reader separates fungal and bacterial panels in a styled table', a
     ],
   });
   await jsonRoute(page, `**/api/results/${runId}/activity`, { public_events: [], genome_progress: [] });
+  await page.route(`**/api/results/${runId}/artifacts/BBBBBBBBBBBBBBBBBBBBBB`, route => route.fulfill({
+    status: 200,
+    contentType: 'text/html; charset=utf-8',
+    body: `<!doctype html><html><body>
+      <button id="btn-save-svg" type="button">Save SVG</button>
+      <button id="btn-save-json" type="button">Save JSON</button>
+      <svg id="cluster-map" xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect width="40" height="20"></rect></svg>
+      <script>
+        function download(blob, filename) {
+          const link = document.createElement('a');
+          link.href = URL.createObjectURL(blob); link.download = filename;
+          document.body.appendChild(link); link.click(); link.remove();
+        }
+        document.getElementById('btn-save-svg').addEventListener('click', function () {
+          download(new Blob([document.getElementById('cluster-map').outerHTML], { type: 'image/svg+xml' }), 'clinker.svg');
+        });
+        document.getElementById('btn-save-json').addEventListener('click', function () {
+          download(new Blob([JSON.stringify({ fixture: 'clinker' })], { type: 'application/json' }), 'clinker.json');
+        });
+      </script>
+    </body></html>`,
+  }));
 
   await page.goto(baseUrl);
   await page.evaluate(() => openOpsPanel({ tab: 'jobs', focusPanel: false }));
@@ -121,4 +143,23 @@ test('clinker reader separates fungal and bacterial panels in a styled table', a
   const href = await reader.getByRole('link', { name: 'Open' }).getAttribute('href');
   expect(new URL(href, baseUrl).pathname).toBe(`/api/results/${runId}/artifacts/BBBBBBBBBBBBBBBBBBBBBB`);
   expect(href).not.toContain('data/results');
+
+  const popupPromise = page.waitForEvent('popup');
+  await reader.getByRole('link', { name: 'Open' }).click();
+  const popup = await popupPromise;
+  const preview = popup.locator('#clusterweave-clinker-preview');
+  await preview.waitFor();
+  await expect(preview).toHaveAttribute('sandbox', 'allow-scripts allow-downloads');
+  await expect.poll(() => popup.frames().length).toBe(2);
+  const frame = popup.frames()[1];
+  for (const [button, filename] of [
+    ['#btn-save-svg', 'clinker.svg'],
+    ['#btn-save-json', 'clinker.json'],
+  ]) {
+    const downloadPromise = popup.waitForEvent('download');
+    await frame.locator(button).click();
+    expect((await downloadPromise).suggestedFilename()).toBe(filename);
+  }
+  expect(await popup.evaluate(() => window.opener)).toBeNull();
+  await popup.close();
 });

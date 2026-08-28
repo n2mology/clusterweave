@@ -2,11 +2,11 @@
 
 ## Supported version
 
-ClusterWeave v1.0.2 is the current supported release. Security fixes target the
+ClusterWeave v1.0.3 is the current supported release. Security fixes target the
 current v1.x release line, and the affected version, Git revision, or tag should
 accompany every report.
 
-Project-hosted access is coming soon. ClusterWeave v1.0.2 is currently
+Project-hosted access is coming soon. ClusterWeave v1.0.3 is currently
 available only through the trusted loopback-only local profile.
 
 ## Report a vulnerability

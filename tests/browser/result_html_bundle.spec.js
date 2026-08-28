@@ -19,6 +19,12 @@ const ids = Object.freeze({
   funbgcexFunctions: 'IIIIIIIIIIIIIIIIIIIIII',
   funbgcexAfter: 'JJJJJJJJJJJJJJJJJJJJJJ',
   otherRoot: 'KKKKKKKKKKKKKKKKKKKKKK',
+  fungalGbk: 'MMMMMMMMMMMMMMMMMMMMMM',
+  fungalJson: 'NNNNNNNNNNNNNNNNNNNNNN',
+  fungalZip: 'OOOOOOOOOOOOOOOOOOOOOO',
+  funbgcexRegionScript: 'PPPPPPPPPPPPPPPPPPPPPP',
+  funbgcexRegionGbk: 'QQQQQQQQQQQQQQQQQQQQQQ',
+  crossBundleGbk: 'SSSSSSSSSSSSSSSSSSSSSS',
 });
 
 function descriptor(id, filename, category, role, bundleId, overrides = {}) {
@@ -89,6 +95,24 @@ const children = new Map([
       'funbgcexBundleOpaque01x',
       { kind: 'script', mime: 'text/javascript; charset=utf-8' },
     )],
+  [`${ids.fungalRoot}:region001.gbk`,
+    descriptor(ids.fungalGbk, 'region001.gbk', 'antismash', 'region-download', 'fungalBundleOpaque001x',
+      { kind: 'file', mime: 'chemical/x-genbank' })],
+  [`${ids.fungalRoot}:result.json`,
+    descriptor(ids.fungalJson, 'result.json', 'antismash', 'result-download', 'fungalBundleOpaque001x',
+      { kind: 'file', mime: 'application/json' })],
+  [`${ids.fungalRoot}:bundle.zip`,
+    descriptor(ids.fungalZip, 'bundle.zip', 'antismash', 'archive', 'fungalBundleOpaque001x',
+      { kind: 'archive', mime: 'application/zip' })],
+  [`${ids.funbgcexRegion}:../scripts/BGC1.js`,
+    descriptor(ids.funbgcexRegionScript, 'BGC1.js', 'funbgcex', 'asset', 'funbgcexBundleOpaque01x',
+      { kind: 'script', mime: 'text/javascript; charset=utf-8' })],
+  [`${ids.funbgcexRegion}:../BGCs/BGC1.gbk`,
+    descriptor(ids.funbgcexRegionGbk, 'BGC1.gbk', 'funbgcex', 'region-download', 'funbgcexBundleOpaque01x',
+      { kind: 'file', mime: 'chemical/x-genbank' })],
+  [`${ids.fungalRoot}:cross-bundle.gbk`,
+    descriptor(ids.crossBundleGbk, 'cross-bundle.gbk', 'antismash', 'region-download', 'otherBundleOpaque00001x',
+      { kind: 'file', mime: 'chemical/x-genbank' })],
 ]);
 for (let index = 0; index < 80; index += 1) {
   children.set(
@@ -98,7 +122,27 @@ for (let index = 0; index < 80; index += 1) {
 }
 
 const fixtures = new Map([
-  [ids.fungalRoot, '<!doctype html><html><body><h1>Fungal antiSMASH</h1><a id="root-region-fragment" href="#r1c1">Region control</a><section id="r1c1">Region 1.1 body</section><a href="knownclusterblast/region1/hit.html">Region 1</a><a href="region001.gbk">GBK download</a><a href="result.json">JSON download</a><a href="bundle.zip">ZIP download</a><div id="runtime-links"></div><script defer src="regions.js"></script></body></html>'],
+  [ids.fungalRoot, `<!doctype html><html><body><h1>Fungal antiSMASH</h1>
+    <a id="root-region-fragment" href="#r1c1">Region control</a><section id="r1c1">Region 1.1 body</section>
+    <a href="knownclusterblast/region1/hit.html">Region 1</a>
+    <a href="region001.gbk" download>GBK download</a>
+    <a href="result.json" download>JSON download</a>
+    <a href="bundle.zip" download>ZIP download</a>
+    <button id="antismash-copy" class="clipboard-copy" data-seq="MANTISEQ">Copy antiSMASH sequence</button>
+    <button id="antismash-svg" type="button">Download region SVG</button>
+    <a id="antismash-external" href="https://outside.example.invalid/antismash" target="_blank">antiSMASH citation</a>
+    <a id="unsupported-data" href="data:text/plain,blocked">Unsupported data link</a>
+    <a id="credential-link" href="https://user:secret@outside.example.invalid/private">Credential link</a>
+    <a id="javascript-link" href="javascript:alert(1)">JavaScript link</a>
+    <a id="cross-bundle-link" href="cross-bundle.gbk">Cross-bundle link</a>
+    <a id="undeclared-link" href="missing.gbk">Undeclared link</a>
+    <svg id="region-svg" xmlns="http://www.w3.org/2000/svg"><rect width="12" height="8"></rect></svg>
+    <div id="runtime-links"></div><script defer src="regions.js"></script>
+    <script>document.getElementById('antismash-svg').addEventListener('click', function () {
+      const anchor = document.createElement('a');
+      anchor.href = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(document.getElementById('region-svg').outerHTML);
+      anchor.download = 'region001.svg'; document.body.appendChild(anchor); anchor.click(); anchor.remove();
+    });</script></body></html>`],
   [ids.fungalRegion, '<!doctype html><html><head><link rel="stylesheet" href="../../css/missing.css"></head><body><h1>Fungal region detail</h1></body></html>'],
   [ids.bacterialRoot, '<!doctype html><html><body><h1>Bacterial antiSMASH</h1><a href="knownclusterblast/region1/hit.html">Region 1</a></body></html>'],
   [ids.bacterialRegion, '<!doctype html><html><body><h1>Bacterial region detail</h1></body></html>'],
@@ -121,7 +165,19 @@ const fixtures = new Map([
     <div id="missing-css"></div><div id="external-css"></div>
     <a id="external-link" href="https://outside.example.invalid/docs" target="_blank">External docs</a>
   </body></html>`],
-  [ids.funbgcexRegion, '<!doctype html><html><body><h1>FunBGCeX BGC 1 detail</h1></body></html>'],
+  [ids.funbgcexRegion, `<!doctype html><html><head><style>#canvas{width:400px;height:30px}</style></head><body>
+    <h1>FunBGCeX BGC 1 detail</h1>
+    <a id="bgc-gbk" class="link" href="../BGCs/BGC1.gbk">Download BGC GenBank file</a>
+    <canvas id="canvas" width="800" height="60"></canvas>
+    <table><tr><th>Locus tag / Position</th><td><span id="position"></span></td></tr>
+      <tr><th>Predicted function</th><td><span id="function"></span></td></tr>
+      <tr><th>Homologue</th><td><span id="homologue"></span></td></tr>
+      <tr><th>Representative protein families</th><td><span id="pfam"></span></td></tr>
+      <tr><th>Amino acid length</th><td><span id="aalen"></span></td></tr></table>
+    <p id="aaseq" style="display:none"></p>
+    <button id="aa-copy" type="button" autofocus onclick="copyToClipboard()" class="btn">Copy AA sequence to clipboard</button>
+    <a class="link" id="blast" href="https://blast.ncbi.nlm.nih.gov/Blast.cgi" target="_blank">BLASTp on this protein</a>
+    <script src="../scripts/BGC1.js"></script></body></html>`],
   [ids.fungalRuntime, 'var burst="";for(var i=0;i<80;i+=1){burst += "<a id=\\"runtime-burst-"+i+"\\" href=\\"runtime/hit-"+i+".html\\">Burst "+i+"</a>";}document.getElementById("runtime-links").innerHTML = "<a id=\\"runtime-html\\" href=\\"knownclusterblast/region1/hit.html\\">Runtime MIBiG hits</a><a id=\\"runtime-image\\" href=\\"smcogs/tree.png\\">Runtime smCOG tree</a><a id=\\"runtime-private\\" href=\\"region001.gbk\\">Runtime private GBK</a><div id=\\"runtime-burst\\">"+burst+"</div>";'],
   [ids.fungalImage, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64')],
   [ids.funbgcexFunctions, `window.funbgcexDeferredOrder = ['functions'];
@@ -130,6 +186,28 @@ const fixtures = new Map([
   [ids.funbgcexAfter, `window.funbgcexDeferredOrder.push('after');
     document.body.dataset.funbgcexDeferredOrder = window.funbgcexDeferredOrder.join(',');
     document.getElementById('funbgcex-ready').textContent = typeof Filter + ':' + typeof copy;`],
+  [ids.fungalGbk, 'LOCUS       ANTISMASH_FIXTURE'],
+  [ids.fungalJson, '{"fixture":"antiSMASH"}'],
+  [ids.fungalZip, Buffer.from('PK fixture archive')],
+  [ids.funbgcexRegionGbk, 'LOCUS       FUNBGCEX_FIXTURE'],
+  [ids.crossBundleGbk, 'LOCUS       CROSS_BUNDLE_FIXTURE'],
+  [ids.funbgcexRegionScript, `const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d'); ctx.fillStyle = '#8b5cf6'; ctx.fillRect(100, 5, 200, 50);
+    canvas.addEventListener('click', function(event) {
+      const rect = canvas.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      if (x >= 100 && x <= 300 && y >= 5 && y <= 55) {
+        document.querySelector('#position').textContent = 'FIXTURE_0001 / 100...300 (+)';
+        document.querySelector('#function').textContent = 'polyketide synthase';
+        document.querySelector('#aalen').textContent = '8';
+        document.querySelector('#aaseq').textContent = 'MPEPTIDE';
+        document.querySelector('#homologue').innerHTML = '<a class="funbgcs" href="http://staffweb1.cityu.edu.hk/funbgcs/FBGC00001.html" target="_blank">FBGC00001</a>';
+        document.querySelector('#pfam').innerHTML = '<a class="funbgcs" href="https://www.ebi.ac.uk/interpro/entry/pfam/PF00001" target="_blank">PF00001</a>';
+        document.querySelector('#blast').href = 'https://blast.ncbi.nlm.nih.gov/Blast.cgi?QUERY=MPEPTIDE';
+      }
+    });
+    function copyToClipboard() { throw new Error('compatibility bridge did not intercept the copy control'); }`],
 ]);
 
 function artifactEndpoint(id) {
@@ -161,6 +239,20 @@ test.describe('authenticated generated HTML bundles', () => {
     };
     watchPage(page);
     page.context().on('page', watchPage);
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: baseUrl });
+
+    for (const pattern of [
+      'https://outside.example.invalid/**',
+      'http://staffweb1.cityu.edu.hk/**',
+      'https://www.ebi.ac.uk/**',
+      'https://blast.ncbi.nlm.nih.gov/**',
+    ]) {
+      await page.context().route(pattern, route => route.fulfill({
+        status: 200,
+        contentType: 'text/html; charset=utf-8',
+        body: '<!doctype html><title>External fixture</title><p>External fixture</p>',
+      }));
+    }
 
     await page.route('**/api/system/status', route => route.fulfill({
       status: 200,
@@ -198,7 +290,7 @@ test.describe('authenticated generated HTML bundles', () => {
         }
         const child = children.get(`${ownerId}:${reference}`);
         if (!child) {
-          if (requestPayload.optional === true && /\.(?:css|html?|png)$/i.test(reference)) {
+          if (requestPayload.optional === true && /\.(?:css|gbk|html?|png)$/i.test(reference)) {
             await route.fulfill({
               status: 200,
               contentType: 'application/json',
@@ -267,13 +359,26 @@ test.describe('authenticated generated HTML bundles', () => {
     });
     const popup = await popupPromise;
     await popup.locator('#clusterweave-tool-result-preview').waitFor();
-    await expect(popup.locator('#clusterweave-tool-result-preview')).toHaveAttribute('sandbox', 'allow-scripts');
+    await expect(popup.locator('#clusterweave-tool-result-preview')).toHaveAttribute(
+      'sandbox',
+      'allow-scripts allow-downloads',
+    );
     await expect.poll(() => popup.frames().length).toBe(2);
     const frame = popup.frames()[1];
     await frame.waitForLoadState('domcontentloaded');
     expect(popup.url()).toMatch(/^blob:/);
     expect(popup.url()).not.toContain(token);
     expect(await popup.evaluate(() => window.opener)).toBeNull();
+    await popup.evaluate(() => {
+      window.__clusterweaveClipboardWrites = [];
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: {
+          writeText: async value => { window.__clusterweaveClipboardWrites.push(String(value)); },
+          readText: async () => window.__clusterweaveClipboardWrites.at(-1) || '',
+        },
+      });
+    });
     return { popup, frame };
   }
 
@@ -298,15 +403,12 @@ test.describe('authenticated generated HTML bundles', () => {
     const funbgcexViews = await page.evaluate(() => {
       const views = uniqueToolHtmlArtifacts(Object.values(window.__bundleKeys), 'funbgcex');
       renderToolHtmlReader(activeJobId, 'funbgcex', views);
-      return views.map(item => item.label);
+      return views.map(item => ({ label: item.label, id: resultArtifactId(item.path) }));
     });
-    expect(funbgcexViews).toEqual([
-      'FunBGCeX fixture · All BGCs',
-      'FunBGCeX fixture · Results',
-    ]);
-    await expect(page.locator('#files-container .result-tool-row')).toHaveCount(2);
-    await expect(page.locator('#files-container')).toContainText('FunBGCeX fixture · All BGCs');
-    await expect(page.locator('#files-container')).toContainText('FunBGCeX fixture · Results');
+    expect(funbgcexViews).toEqual([{ label: 'FunBGCeX fixture', id: ids.funbgcexRoot }]);
+    await expect(page.locator('#files-container .result-tool-row')).toHaveCount(1);
+    await expect(page.locator('#files-container')).toContainText('FunBGCeX fixture');
+    await expect(page.locator('#files-container')).not.toContainText('All BGCs');
 
     const fungal = await openBundle(page, ids.fungalRoot);
     await expect(fungal.frame.locator('body')).toContainText('Fungal antiSMASH');
@@ -323,14 +425,31 @@ test.describe('authenticated generated HTML bundles', () => {
     expect(fungal.frame.url()).not.toContain(token);
     expect(fungal.frame.url()).not.toContain(internalJobId);
     expect(fungal.frame.url()).not.toContain('data/results');
-    for (const linkName of ['GBK download', 'JSON download', 'ZIP download']) {
-      const disabled = fungal.frame.getByText(linkName, { exact: true });
-      await expect(disabled).not.toHaveAttribute('href');
-      await expect(disabled).toHaveAttribute('aria-disabled', 'true');
+    for (const [linkName, filename] of [
+      ['GBK download', 'region001.gbk'],
+      ['JSON download', 'result.json'],
+      ['ZIP download', 'bundle.zip'],
+    ]) {
+      const link = fungal.frame.getByText(linkName, { exact: true });
+      const downloadPromise = fungal.popup.waitForEvent('download');
+      await link.click();
+      const download = await downloadPromise;
+      expect(download.suggestedFilename()).toBe(filename);
     }
-    expect(page.__bundleState.resolverReferences).not.toContain('region001.gbk');
-    expect(page.__bundleState.resolverReferences).not.toContain('result.json');
-    expect(page.__bundleState.resolverReferences).not.toContain('bundle.zip');
+    expect(page.__bundleState.resolverReferences).toEqual(expect.arrayContaining([
+      'region001.gbk', 'result.json', 'bundle.zip',
+    ]));
+
+    const svgDownloadPromise = fungal.popup.waitForEvent('download');
+    await fungal.frame.locator('#antismash-svg').click();
+    expect((await svgDownloadPromise).suggestedFilename()).toBe('region001.svg');
+
+    await fungal.frame.locator('#antismash-copy').click();
+    await expect.poll(() => fungal.popup.evaluate(() => window.__clusterweaveClipboardWrites)).toEqual(['MANTISEQ']);
+    await expect(fungal.frame.locator('[data-clusterweave-result-status]')).toHaveText(
+      'Sequence copied to the clipboard.',
+    );
+    await expect.poll(() => fungal.popup.evaluate(() => navigator.clipboard.readText())).toBe('MANTISEQ');
     await expectNestedNavigation(fungal, 'Region 1', ids.fungalRegion, 'hit.html', 'Fungal region detail');
 
     const bacterial = await openBundle(page, ids.bacterialRoot);
@@ -380,7 +499,10 @@ test.describe('authenticated generated HTML bundles', () => {
       .toBe(artifactEndpoint(ids.fungalRegion));
     const privateLink = htmlBundle.frame.locator('#runtime-private');
     await expect(privateLink).not.toHaveAttribute('href');
-    await expect(privateLink).toHaveAttribute('aria-disabled', 'true');
+    await expect(privateLink).toHaveAttribute('data-clusterweave-result-pending', '');
+    await privateLink.hover();
+    await expect(privateLink).toHaveAttribute('data-clusterweave-result-artifact', ids.fungalGbk);
+    await expect(privateLink).toHaveAttribute('data-clusterweave-result-mode', 'download');
     await htmlLink.click();
     await expect(htmlBundle.frame.locator('body')).toContainText('Fungal region detail');
     const childEnvelope = await htmlBundle.frame.locator(
@@ -417,7 +539,7 @@ test.describe('authenticated generated HTML bundles', () => {
     await expect.poll(() => imageBundle.popup.title()).toBe('tree.png');
     await imageBundle.popup.close();
 
-    expect(page.__bundleState.resolverReferences).not.toContain('region001.gbk');
+    expect(page.__bundleState.resolverReferences).toContain('region001.gbk');
     expect(page.__bundleState.resolverReferences).toContain('knownclusterblast/region1/hit.html');
     expect(page.__bundleState.resolverReferences).toContain('smcogs/tree.png');
   });
@@ -457,6 +579,78 @@ test.describe('authenticated generated HTML bundles', () => {
     expect(cleanHref).not.toContain('runtime/hit-0.html');
     expect(cleanHref).not.toContain(internalJobId);
     expect(cleanHref).not.toContain(token);
+    await bundle.popup.close();
+  });
+
+  test('forged, inactive, oversized, cross-bundle, and unsafe actions remain blocked', async ({ page }) => {
+    const bundle = await openBundle(page, ids.fungalRoot);
+    for (const selector of ['#unsupported-data', '#credential-link']) {
+      await expect(bundle.frame.locator(selector)).not.toHaveAttribute('href');
+      await expect(bundle.frame.locator(selector)).toHaveAttribute('aria-disabled', 'true');
+    }
+    await expect(bundle.frame.locator('#javascript-link')).not.toHaveAttribute('href');
+
+    for (const selector of ['#cross-bundle-link', '#undeclared-link']) {
+      const link = bundle.frame.locator(selector);
+      await link.click();
+      await expect(link).toHaveAttribute('aria-disabled', 'true');
+      await expect(link).not.toHaveAttribute('data-clusterweave-result-artifact');
+    }
+    expect(page.__bundleState.resolverReferences).toEqual(expect.arrayContaining([
+      'cross-bundle.gbk', 'missing.gbk',
+    ]));
+
+    const envelope = await bundle.frame.locator(
+      'script[data-clusterweave-result-preview]',
+    ).evaluate(element => ({ channel: element.dataset.channel, owner: element.dataset.owner }));
+    const pageCount = page.context().pages().length;
+    await bundle.popup.evaluate(context => {
+      window.postMessage({
+        type: 'clusterweave:result-bundle-action',
+        channel: context.channel,
+        owner: context.owner,
+        request: 'a900000001',
+        action: 'open-external',
+        href: 'https://outside.example.invalid/forged',
+      }, '*');
+    }, envelope);
+    await page.waitForTimeout(250);
+    expect(page.context().pages()).toHaveLength(pageCount);
+    await bundle.popup.evaluate(() => {
+      Object.defineProperty(navigator, 'userActivation', {
+        configurable: true,
+        value: { hasBeenActive: true, isActive: false },
+      });
+    });
+    await bundle.frame.evaluate(context => {
+      window.parent.postMessage({
+        type: 'clusterweave:result-bundle-action',
+        channel: `${context.channel}-wrong`,
+        owner: context.owner,
+        request: 'a900000002',
+        action: 'copy-text',
+        text: 'wrong-channel',
+      }, '*');
+      window.parent.postMessage({
+        type: 'clusterweave:result-bundle-action',
+        channel: context.channel,
+        owner: context.owner,
+        request: 'a900000003',
+        action: 'copy-text',
+        text: 'x'.repeat((1024 * 1024) + 1),
+      }, '*');
+      window.parent.postMessage({
+        type: 'clusterweave:result-bundle-action',
+        channel: context.channel,
+        owner: context.owner,
+        request: 'a900000004',
+        action: 'open-external',
+        href: 'https://outside.example.invalid/inactive',
+      }, '*');
+    }, envelope);
+    await page.waitForTimeout(250);
+    expect(page.context().pages()).toHaveLength(pageCount);
+    expect(await bundle.popup.evaluate(() => window.__clusterweaveClipboardWrites)).toEqual([]);
     await bundle.popup.close();
   });
 
@@ -559,10 +753,70 @@ test.describe('authenticated generated HTML bundles', () => {
     const external = bundle.frame.locator('#external-link');
     await expect(external).not.toHaveAttribute('href');
     await expect(external).not.toHaveAttribute('target');
-    await expect(external).toHaveAttribute('aria-disabled', 'true');
-    const openPageCount = page.context().pages().length;
+    await expect(external).toHaveAttribute(
+      'data-clusterweave-result-external',
+      'https://outside.example.invalid/docs',
+    );
+    const externalPagePromise = page.context().waitForEvent('page');
     await external.click();
-    expect(page.context().pages()).toHaveLength(openPageCount);
+    const externalPage = await externalPagePromise;
+    await expect(externalPage).toHaveURL('https://outside.example.invalid/docs');
+    expect(await externalPage.evaluate(() => window.opener)).toBeNull();
+    await externalPage.close();
+    await bundle.popup.close();
+  });
+
+  test('FunBGCeX gene selection populates details, copies AA, downloads GBK, and opens safe links', async ({ page }) => {
+    const bundle = await openBundle(page, ids.funbgcexRoot);
+    const bgcLink = bundle.frame.getByRole('link', { name: 'BGC 1' });
+    await bgcLink.hover();
+    await expect(bgcLink).toHaveAttribute('data-clusterweave-result-artifact', ids.funbgcexRegion);
+    await bgcLink.click();
+    await expect(bundle.frame.locator('body')).toContainText('FunBGCeX BGC 1 detail');
+
+    const copy = bundle.frame.locator('#aa-copy');
+    await expect(copy).toHaveAttribute('aria-disabled', 'true');
+    await copy.click({ force: true });
+    await expect(bundle.frame.locator('[data-clusterweave-result-status]')).toHaveText(
+      'Select a gene before copying its sequence.',
+    );
+
+    await bundle.frame.locator('#canvas').click({ position: { x: 100, y: 15 } });
+    await expect(bundle.frame.locator('#position')).toContainText('FIXTURE_0001');
+    await expect(bundle.frame.locator('#function')).toHaveText('polyketide synthase');
+    await expect(bundle.frame.locator('#aalen')).toHaveText('8');
+    await expect(copy).toHaveAttribute('aria-disabled', 'false');
+    await copy.click();
+    await expect(bundle.frame.locator('[data-clusterweave-result-status]')).toHaveText(
+      'Sequence copied to the clipboard.',
+    );
+    await expect.poll(() => bundle.popup.evaluate(() => navigator.clipboard.readText())).toBe('MPEPTIDE');
+
+    const gbkDownloadPromise = bundle.popup.waitForEvent('download');
+    await bundle.frame.locator('#bgc-gbk').click();
+    expect((await gbkDownloadPromise).suggestedFilename()).toBe('BGC1.gbk');
+
+    async function expectExternalOpen(locator, expectedUrl) {
+      await expect(locator).toHaveAttribute('data-clusterweave-result-external', expectedUrl);
+      const openedPromise = page.context().waitForEvent('page');
+      await locator.click();
+      const opened = await openedPromise;
+      await expect(opened).toHaveURL(expectedUrl);
+      expect(await opened.evaluate(() => window.opener)).toBeNull();
+      await opened.close();
+    }
+    await expectExternalOpen(
+      bundle.frame.getByRole('link', { name: 'FBGC00001' }),
+      'http://staffweb1.cityu.edu.hk/funbgcs/FBGC00001.html',
+    );
+    await expectExternalOpen(
+      bundle.frame.getByRole('link', { name: 'PF00001' }),
+      'https://www.ebi.ac.uk/interpro/entry/pfam/PF00001',
+    );
+    await expectExternalOpen(
+      bundle.frame.getByRole('link', { name: 'BLASTp on this protein' }),
+      'https://blast.ncbi.nlm.nih.gov/Blast.cgi?QUERY=MPEPTIDE',
+    );
     await bundle.popup.close();
   });
 
