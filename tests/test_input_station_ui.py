@@ -123,7 +123,9 @@ process.stdout.write(JSON.stringify({
 
     def test_static_asset_versions_bypass_the_prior_day_cache(self) -> None:
         self.assertIn("clusterweave.css?v=20260723-timer-utc1-citation-align1", self.index)
-        self.assertIn("clusterweave.js?v=20260827-bigscape-family1", self.index)
+        self.assertIn("clusterweave.js?v=20260902-input-station1", self.index)
+        self.assertIn("intake-taxon-boundary.js?v=20260902-input-station1", self.js)
+        self.assertNotIn("intake-taxon-boundary.js?v=20260727-r12f1-upload-copy1", self.js)
         self.assertNotIn("clusterweave.css?v=20260713-workflow-bars4", self.index)
         self.assertNotIn("clusterweave.js?v=20260713-workflow-bars4", self.index)
 
@@ -306,13 +308,19 @@ process.stdout.write(JSON.stringify({empty, upload, accepted}));
         self.assertTrue(result["upload"]["missing"])
         self.assertFalse(result["accepted"]["missing"])
 
-    def test_project_name_input_immediately_removes_the_submit_lock(self) -> None:
+    def test_project_name_input_unlocks_without_normalizing_until_blur(self) -> None:
         initializer = function_source(self.controller, "initializeBrutalInputStation")
         renderer = function_source(self.controller, "renderFileList")
 
-        project_listener = initializer.index("document.getElementById('project-name')")
+        project_listener = initializer.index("const projectNameInput")
         project_listener_end = initializer.index("document.getElementById('target-genome')", project_listener)
-        self.assertIn("renderFileList()", initializer[project_listener:project_listener_end])
+        project_block = initializer[project_listener:project_listener_end]
+        input_listener = project_block.index("addEventListener('input'")
+        blur_listener = project_block.index("addEventListener('blur'")
+        self.assertLess(input_listener, blur_listener)
+        self.assertNotIn("normalizeProjectNameInput()", project_block[input_listener:blur_listener])
+        self.assertIn("normalizeProjectNameInput()", project_block[blur_listener:])
+        self.assertIn("renderFileList()", project_block)
         self.assertIn("submit-button-shell", self.index)
         self.assertIn("is-project-locked", self.index)
         self.assertIn("is-project-locked", self.css)
@@ -376,6 +384,8 @@ const document = {
   },
   querySelectorAll() { return []; },
 };
+let brutalInputLogMessageSignature = '';
+let brutalInputLogDismissedSignature = '';
 const state = {brutalInputNotices: new Map()};
 function brutalAccessionDraftIssues() { return []; }
 function conciseInputNotice(value) { return String(value || '').trim(); }
@@ -389,6 +399,80 @@ process.stdout.write(JSON.stringify({hidden: drawer.hidden, html: list.innerHTML
         )
         self.assertTrue(result["hidden"])
         self.assertEqual(result["html"], "")
+
+    def test_input_notice_updates_are_idempotent_and_dismiss_current_messages(self) -> None:
+        renderer = function_source(self.controller, "renderBrutalInputLog")
+        setter = function_source(self.controller, "setBrutalInputNotice")
+        result = run_node_json(
+            """
+const drawer = {hidden: true};
+let html = '';
+let writes = 0;
+const list = {
+  get innerHTML() { return html; },
+  set innerHTML(value) { html = value; writes += 1; },
+};
+const document = {
+  getElementById(id) {
+    if (id === 'input-log-drawer') return drawer;
+    if (id === 'input-log-list') return list;
+    return null;
+  },
+  querySelectorAll() { return []; },
+};
+let brutalInputLogMessageSignature = '';
+let brutalInputLogDismissedSignature = '';
+const state = {brutalInputNotices: new Map([['row', 'First error']])};
+function brutalAccessionDraftIssues() { return []; }
+function conciseInputNotice(value) { return String(value || '').trim(); }
+function escapeHtml(value) { return String(value); }
+"""
+            + renderer
+            + "\n"
+            + setter
+            + """
+renderBrutalInputLog();
+const first = {hidden: drawer.hidden, html, writes};
+renderBrutalInputLog();
+const duplicateRender = {hidden: drawer.hidden, html, writes};
+const duplicateNoticeChanged = setBrutalInputNotice('row', 'First error');
+brutalInputLogDismissedSignature = brutalInputLogMessageSignature;
+drawer.hidden = true;
+renderBrutalInputLog();
+const dismissed = {hidden: drawer.hidden, html, writes};
+const changedNoticeChanged = setBrutalInputNotice('row', 'Second error');
+const changed = {hidden: drawer.hidden, html, writes};
+const duplicateChangedNotice = setBrutalInputNotice('row', 'Second error');
+const clearedNoticeChanged = setBrutalInputNotice('row', '');
+const cleared = {hidden: drawer.hidden, html, writes};
+const duplicateClearChanged = setBrutalInputNotice('row', '');
+process.stdout.write(JSON.stringify({
+  first,
+  duplicateRender,
+  duplicateNoticeChanged,
+  dismissed,
+  changedNoticeChanged,
+  changed,
+  duplicateChangedNotice,
+  clearedNoticeChanged,
+  cleared,
+  duplicateClearChanged,
+}));
+"""
+        )
+        self.assertEqual(result["first"], {"hidden": False, "html": '<div class="input-log-note">First error</div>', "writes": 1})
+        self.assertEqual(result["duplicateRender"]["writes"], 1)
+        self.assertFalse(result["duplicateNoticeChanged"])
+        self.assertTrue(result["dismissed"]["hidden"])
+        self.assertEqual(result["dismissed"]["writes"], 1)
+        self.assertTrue(result["changedNoticeChanged"])
+        self.assertFalse(result["changed"]["hidden"])
+        self.assertIn("Second error", result["changed"]["html"])
+        self.assertEqual(result["changed"]["writes"], 2)
+        self.assertFalse(result["duplicateChangedNotice"])
+        self.assertTrue(result["clearedNoticeChanged"])
+        self.assertEqual(result["cleared"], {"hidden": True, "html": "", "writes": 3})
+        self.assertFalse(result["duplicateClearChanged"])
 
 
 if __name__ == "__main__":

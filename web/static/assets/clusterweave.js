@@ -106,7 +106,7 @@ const GSAP_BROWSER_PATH = 'vendor/gsap-3.15.0/gsap.min.js';
 const WORKFLOW_DNA_MODULE_PATH = new URL('assets/workflow-dna-progress.js?v=20260713-fanout-ui1', window.location.href).toString();
 const API_RESULT_MODULE_PATH = new URL('assets/api-result-boundary.js?v=20260725-r12a1', window.location.href).toString();
 const RESULT_READER_MODULE_PATH = new URL('assets/result-reader-boundary.js?v=20260827-bigscape-family1', window.location.href).toString();
-const INTAKE_TAXON_MODULE_PATH = new URL('assets/intake-taxon-boundary.js?v=20260727-r12f1-upload-copy1', window.location.href).toString();
+const INTAKE_TAXON_MODULE_PATH = new URL('assets/intake-taxon-boundary.js?v=20260902-input-station1', window.location.href).toString();
 const JOB_LIFECYCLE_MODULE_PATH = new URL('assets/job-lifecycle-boundary.js?v=20260727-r12g1', window.location.href).toString();
 const PROGRESS_TREE_MODULE_PATH = new URL('assets/progress-tree.js?v=20260730-stage-tree2', window.location.href).toString();
 const PROGRESS_TREE_CONTRACT_PATH = new URL('assets/progress-tree-contract.json?v=20260730-stage-tree2', window.location.href).toString();

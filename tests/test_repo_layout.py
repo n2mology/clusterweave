@@ -972,7 +972,7 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn('href="/favicon.ico', index_text)
         self.assertTrue((static_dir / "favicon.ico").exists())
         self.assertIn('href="assets/clusterweave.css?v=20260723-timer-utc1-citation-align1"', index_text)
-        self.assertIn('src="assets/clusterweave.js?v=20260827-bigscape-family1"', index_text)
+        self.assertIn('src="assets/clusterweave.js?v=20260902-input-station1"', index_text)
         self.assertEqual(index_text.count('name="clusterweave-game-asset"'), 4)
         self.assertNotIn('<link rel="stylesheet" href="assets/clusterweave-game.css', index_text)
         self.assertNotIn('<script src="assets/clusterweave-game', index_text)
@@ -3539,9 +3539,14 @@ console.log(JSON.stringify({{
             css_text,
             r"\.submit-lock-overlay\s*\{[^}]*background:\s*(?:white|#fff(?:fff)?|var\(--panel\))",
         )
-        project_handler_start = js_text.index("document.getElementById('project-name')?.addEventListener('input'")
+        project_handler_start = js_text.index("const projectNameInput = document.getElementById('project-name')")
         project_handler_end = js_text.index("document.getElementById('target-genome')?.addEventListener", project_handler_start)
-        self.assertIn("renderFileList()", js_text[project_handler_start:project_handler_end])
+        project_handler = js_text[project_handler_start:project_handler_end]
+        input_handler = project_handler.index("addEventListener('input'")
+        blur_handler = project_handler.index("addEventListener('blur'")
+        self.assertIn("renderFileList()", project_handler)
+        self.assertNotIn("normalizeProjectNameInput()", project_handler[input_handler:blur_handler])
+        self.assertIn("normalizeProjectNameInput()", project_handler[blur_handler:])
 
         self.assertIn("function uploadedInputRequiresAcknowledgment()", js_text)
         self.assertIn("function syncDataUseAcknowledgment()", js_text)

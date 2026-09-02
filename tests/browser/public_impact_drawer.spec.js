@@ -382,6 +382,10 @@ test('zoom-equivalent widths keep workflow status and caption separated', async 
 });
 
 test('accession intake matches upload height and verification opens beside Submit', async ({ page }) => {
+  let validationRequests = 0;
+  page.on('request', request => {
+    if (new URL(request.url()).pathname === '/api/inputs/validate') validationRequests += 1;
+  });
   await page.route('**/api/system/status*', async route => {
     await route.fulfill({
       status: 200,
@@ -400,14 +404,68 @@ test('accession intake matches upload height and verification opens beside Submi
   await expect(presentedRows).toHaveCount(6);
   await expect(presentedRows.locator('textarea:disabled')).toHaveCount(5);
 
-  await presentedRows.first().locator('textarea').fill('not-an-accession');
-  await page.locator('#project-name').focus();
+  const firstAccession = presentedRows.first().locator('textarea');
   const log = page.locator('#input-log-drawer');
+  await firstAccession.pressSequentially('not-an-accession');
+  await expect(firstAccession).toHaveAttribute('aria-invalid', 'false');
+  await expect(firstAccession.locator('xpath=.././/span[contains(@class, "status-icon")]')).toHaveAttribute('aria-label', 'Accession validation pending');
+  await expect(log).toBeHidden();
+  expect(validationRequests).toBe(0);
+  await page.locator('#project-name').focus();
   await expect(log).toBeVisible();
   await expect(log).toContainText('not a current NCBI assembly accession');
   await expect(log.locator('xpath=..')).toHaveClass(/submit-feedback-rail/);
   const [buttonBox, logBox] = await Promise.all([page.locator('#run-btn').boundingBox(), log.boundingBox()]);
   expect(logBox.x).toBeGreaterThan(buttonBox.x + buttonBox.width - 1);
+
+  await page.getByRole('button', { name: 'Close input verification' }).click();
+  await expect(log).toBeHidden();
+  await page.evaluate(() => {
+    window.__inputLogMutationRecords = 0;
+    new MutationObserver(records => {
+      window.__inputLogMutationRecords += records.length;
+    }).observe(document.getElementById('input-log-list'), {
+      subtree: true,
+      childList: true,
+      characterData: true,
+    });
+  });
+
+  const projectName = page.locator('#project-name');
+  await projectName.fill('myproject');
+  await projectName.evaluate(node => node.setSelectionRange(2, 2));
+  await page.keyboard.insertText(' ');
+  await expect(projectName).toHaveValue('my project');
+  expect(await projectName.evaluate(node => node.selectionStart)).toBe(3);
+  await projectName.evaluate(node => {
+    node.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    node.setRangeText('研究', node.value.length, node.value.length, 'end');
+    node.dispatchEvent(new InputEvent('input', {
+      bubbles: true,
+      data: '研究',
+      inputType: 'insertCompositionText',
+      isComposing: true,
+    }));
+    node.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '研究' }));
+  });
+  await expect(projectName).toHaveValue('my project研究');
+  await expect(log).toBeHidden();
+  expect(await page.evaluate(() => window.__inputLogMutationRecords)).toBe(0);
+  expect(validationRequests).toBe(0);
+
+  await firstAccession.focus();
+  await expect(projectName).toHaveValue('my_project');
+  await expect(log).toBeHidden();
+  expect(await page.evaluate(() => window.__inputLogMutationRecords)).toBe(0);
+  await firstAccession.fill('also-invalid');
+  await expect(firstAccession).toHaveAttribute('aria-invalid', 'false');
+  await expect(log).toBeHidden();
+  await projectName.focus();
+  await expect(firstAccession).toHaveAttribute('aria-invalid', 'true');
+  await expect(log).toBeVisible();
+  await expect(log).toContainText('Row 1: ALSO-INVALID');
+  await expect.poll(() => page.evaluate(() => window.__inputLogMutationRecords)).toBe(2);
+  expect(validationRequests).toBe(0);
 });
 
 test('Both-mode upload uses a compact taxon table and expands the accession viewport', async ({ page }) => {

@@ -593,6 +593,8 @@ export function createIntakeControllerBoundary({
   const BRUTAL_ACCESSION_PREVIEW_ROWS = 6;
   let brutalAccessionDrafts = [];
   let brutalAccessionCommitted = new Set();
+  let brutalInputLogMessageSignature = '';
+  let brutalInputLogDismissedSignature = '';
   let brutalSyncingAccepted = false;
   let brutalEcoSelections = new Map();
   let brutalEcoContext = null;
@@ -910,10 +912,17 @@ export function createIntakeControllerBoundary({
 
   function setBrutalInputNotice(key, message) {
     const normalizedKey = String(key || '').trim();
-    if (!normalizedKey) return;
-    if (message) state.brutalInputNotices.set(normalizedKey, String(message));
-    else state.brutalInputNotices.delete(normalizedKey);
+    if (!normalizedKey) return false;
+    if (message) {
+      const nextMessage = String(message);
+      if (state.brutalInputNotices.get(normalizedKey) === nextMessage) return false;
+      state.brutalInputNotices.set(normalizedKey, nextMessage);
+    } else {
+      if (!state.brutalInputNotices.has(normalizedKey)) return false;
+      state.brutalInputNotices.delete(normalizedKey);
+    }
     renderBrutalInputLog();
+    return true;
   }
 
   function updateBrutalRowState(row, index) {
@@ -1253,8 +1262,14 @@ export function createIntakeControllerBoundary({
       const message = conciseInputNotice(`${label}: ${reason}`);
       if (!draftMessages.has(message) && !label.startsWith('Row ')) addMessage(message);
     });
-    drawer.hidden = messages.length === 0;
-    list.innerHTML = messages.map(message => `<div class="input-log-note">${escapeHtml(message)}</div>`).join('');
+    const messageSignature = JSON.stringify(messages);
+    const html = messages.map(message => `<div class="input-log-note">${escapeHtml(message)}</div>`).join('');
+    if (messageSignature !== brutalInputLogMessageSignature) {
+      brutalInputLogMessageSignature = messageSignature;
+      brutalInputLogDismissedSignature = '';
+    }
+    if (list.innerHTML !== html) list.innerHTML = html;
+    drawer.hidden = messages.length === 0 || brutalInputLogDismissedSignature === messageSignature;
   }
 
   function initializeBrutalInputStation() {
@@ -1312,11 +1327,18 @@ export function createIntakeControllerBoundary({
     }, true);
     document.getElementById('input-log-close')?.addEventListener('click', () => {
       const drawer = document.getElementById('input-log-drawer');
-      if (drawer) drawer.hidden = true;
+      if (!drawer || drawer.hidden) return;
+      brutalInputLogDismissedSignature = brutalInputLogMessageSignature;
+      drawer.hidden = true;
     });
-    document.getElementById('project-name')?.addEventListener('input', () => {
-      normalizeProjectNameInput();
+    const projectNameInput = document.getElementById('project-name');
+    projectNameInput?.addEventListener('input', () => {
       renderFileList();
+    });
+    projectNameInput?.addEventListener('blur', () => {
+      const priorValue = projectNameInput.value;
+      normalizeProjectNameInput();
+      if (projectNameInput.value !== priorValue) renderFileList();
     });
     document.getElementById('target-genome')?.addEventListener('input', updateBrutalTargetButton);
     document.getElementById('run-ecology')?.addEventListener('change', () => {
