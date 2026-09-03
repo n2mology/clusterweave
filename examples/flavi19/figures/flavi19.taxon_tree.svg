@@ -1,0 +1,1124 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300mm" height="152.73mm" viewBox="0 0 2200 1120" role="img" aria-labelledby="title desc">
+<title id="title">ClusterWeave BGC and GCF context</title>
+<desc id="desc">Compact rank-aligned taxonomy with absolute BGC bars, proportional GCF status bars, a lower-triangular Jaccard matrix, and a ranked link table with fixed-width class-composition bars. The layout adapts to mixed, fungal-only, or bacterial-only inputs.</desc>
+<defs>
+<linearGradient id="jaccardGradient" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#F2F2F2"/><stop offset="50%" stop-color="#A8BFFF"/><stop offset="100%" stop-color="#1F77B4"/></linearGradient>
+<pattern id="crossHatch" patternUnits="userSpaceOnUse" width="7" height="7" patternTransform="rotate(45)"><rect width="7" height="7" fill="#FFFFFF"/><line x1="0" y1="0" x2="0" y2="7" stroke="#444444" stroke-width="1.4"/></pattern>
+</defs>
+<style>.taxonomy-edge{fill:none;stroke:#8B8B8B;stroke-width:1.0;}.taxonomy-rank-label{font-family:Arial,Helvetica,sans-serif;font-size:11.4px;font-weight:700;fill:#444444;paint-order:stroke;stroke:#FFFFFF;stroke-width:2.5px;stroke-linejoin:round;}.row-guide{stroke:#B8B8B8;stroke-width:.65;stroke-dasharray:2 3;}.matrix-grid{stroke:#E5E5E5;stroke-width:.8;}</style>
+<rect width="2200" height="1120" fill="#FFFFFF"/>
+<text x="36.0" y="42.0" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" text-anchor="start" fill="#222222">A</text>
+<text x="80.0" y="42.0" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" text-anchor="start" fill="#222222">Taxonomy + genome profiles</text>
+<text x="1338.0" y="42.0" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" text-anchor="start" fill="#222222">B</text>
+<text x="1382.0" y="42.0" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" text-anchor="start" fill="#222222">Pairwise GCF sharing</text>
+<text x="2160.0" y="42.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="end" fill="#444444">Fungal input · 19 genomes</text>
+<line x1="1314.00" y1="68" x2="1314.00" y2="1030.00" stroke="#DDDDDD" stroke-width="1"/>
+<g id="panel-a" aria-label="Taxonomy and genome profiles">
+<text x="58.0" y="74.0" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" text-anchor="start" fill="#222222">Taxonomy</text>
+<text x="505.0" y="74.0" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" text-anchor="start" fill="#222222">Genome</text>
+<text x="875.0" y="74.0" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" text-anchor="start" fill="#222222">BGCs</text>
+<text x="1194.00" y="74" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700" fill="#222222" text-anchor="middle"><title>Per genome: unique GCFs also found in at least one other submitted genome, divided by all unique GCFs assigned to that genome.</title>Shared · % of genome GCFs.</text>
+<text x="105.00" y="106" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="700" fill="#444444" text-anchor="middle"><title>Domain</title>D</text>
+<line x1="105.00" y1="112" x2="105.00" y2="1030.00" stroke="#E5E5E5" stroke-width="0.8"/>
+<text x="150.00" y="106" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="700" fill="#444444" text-anchor="middle"><title>Kingdom or clade</title>K</text>
+<line x1="150.00" y1="112" x2="150.00" y2="1030.00" stroke="#E5E5E5" stroke-width="0.8"/>
+<text x="195.00" y="106" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="700" fill="#444444" text-anchor="middle"><title>Phylum</title>P</text>
+<line x1="195.00" y1="112" x2="195.00" y2="1030.00" stroke="#E5E5E5" stroke-width="0.8"/>
+<text x="240.00" y="106" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="700" fill="#444444" text-anchor="middle"><title>Class</title>C</text>
+<line x1="240.00" y1="112" x2="240.00" y2="1030.00" stroke="#E5E5E5" stroke-width="0.8"/>
+<text x="285.00" y="106" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="700" fill="#444444" text-anchor="middle"><title>Order</title>O</text>
+<line x1="285.00" y1="112" x2="285.00" y2="1030.00" stroke="#E5E5E5" stroke-width="0.8"/>
+<text x="330.00" y="106" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="700" fill="#444444" text-anchor="middle"><title>Family</title>F</text>
+<line x1="330.00" y1="112" x2="330.00" y2="1030.00" stroke="#E5E5E5" stroke-width="0.8"/>
+<text x="375.00" y="106" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="700" fill="#444444" text-anchor="middle"><title>Genus</title>G</text>
+<line x1="375.00" y1="112" x2="375.00" y2="1030.00" stroke="#E5E5E5" stroke-width="0.8"/>
+<text x="420.00" y="106" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="700" fill="#444444" text-anchor="middle"><title>Species</title>S</text>
+<line x1="420.00" y1="112" x2="420.00" y2="1030.00" stroke="#E5E5E5" stroke-width="0.8"/>
+<line x1="875.00" y1="112" x2="875.00" y2="1030.00" stroke="#E5E5E5" stroke-width="0.8"/>
+<text x="875.0" y="106.0" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="700" text-anchor="middle" fill="#444444">0</text>
+<line x1="990.00" y1="112" x2="990.00" y2="1030.00" stroke="#E5E5E5" stroke-width="0.8"/>
+<text x="990.0" y="106.0" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="700" text-anchor="middle" fill="#444444">100</text>
+<line x1="1105.00" y1="112" x2="1105.00" y2="1030.00" stroke="#E5E5E5" stroke-width="0.8"/>
+<text x="1105.0" y="106.0" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="700" text-anchor="middle" fill="#444444">200</text>
+<text x="1148.0" y="106.0" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="700" text-anchor="middle" fill="#444444">0</text>
+<text x="1240.0" y="106.0" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="700" text-anchor="middle" fill="#444444">100%</text>
+<text x="58.0" y="132.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700" text-anchor="start" fill="#222222">Fungi · 01-19</text>
+<line x1="170" y1="127.00" x2="1295" y2="127.00" stroke="#B8B8B8" stroke-width="0.8" stroke-dasharray="2 3"/>
+<line class="row-guide" x1="466" y1="163.00" x2="1295" y2="163.00"/>
+<line class="row-guide" x1="466" y1="193.00" x2="1295" y2="193.00"/>
+<line class="row-guide" x1="466" y1="223.00" x2="1295" y2="223.00"/>
+<line class="row-guide" x1="466" y1="253.00" x2="1295" y2="253.00"/>
+<line class="row-guide" x1="466" y1="283.00" x2="1295" y2="283.00"/>
+<line class="row-guide" x1="466" y1="313.00" x2="1295" y2="313.00"/>
+<line class="row-guide" x1="466" y1="343.00" x2="1295" y2="343.00"/>
+<line class="row-guide" x1="466" y1="373.00" x2="1295" y2="373.00"/>
+<line class="row-guide" x1="466" y1="403.00" x2="1295" y2="403.00"/>
+<line class="row-guide" x1="466" y1="433.00" x2="1295" y2="433.00"/>
+<line class="row-guide" x1="466" y1="463.00" x2="1295" y2="463.00"/>
+<line class="row-guide" x1="466" y1="493.00" x2="1295" y2="493.00"/>
+<line class="row-guide" x1="466" y1="523.00" x2="1295" y2="523.00"/>
+<line class="row-guide" x1="466" y1="553.00" x2="1295" y2="553.00"/>
+<line class="row-guide" x1="466" y1="583.00" x2="1295" y2="583.00"/>
+<line class="row-guide" x1="466" y1="613.00" x2="1295" y2="613.00"/>
+<line class="row-guide" x1="466" y1="643.00" x2="1295" y2="643.00"/>
+<line class="row-guide" x1="466" y1="673.00" x2="1295" y2="673.00"/>
+<line class="row-guide" x1="466" y1="703.00" x2="1295" y2="703.00"/>
+<g id="taxonomy-tree" aria-label="Rank-aligned NCBI taxonomy">
+<path class="taxonomy-edge" d="M 60.00 425.50 H 105.00 V 425.50"><title>Fungal genomes</title></path>
+<path class="taxonomy-edge" d="M 105.00 425.50 H 150.00 V 425.50"><title>Fungi — NCBI taxid 4751</title></path>
+<path class="taxonomy-edge" d="M 150.00 425.50 H 195.00 V 425.50"><title>Ascomycota — NCBI taxid 4890</title></path>
+<path class="taxonomy-edge" d="M 195.00 425.50 H 240.00 V 425.50"><title>Eurotiomycetes — NCBI taxid 147545</title></path>
+<path class="taxonomy-edge" d="M 240.00 425.50 H 285.00 V 425.50"><title>Eurotiales — NCBI taxid 5042</title></path>
+<path class="taxonomy-edge" d="M 285.00 425.50 H 330.00 V 425.50"><title>Aspergillaceae — NCBI taxid 1131492</title></path>
+<path class="taxonomy-edge" d="M 330.00 425.50 H 375.00 V 425.50"><title>Aspergillus — NCBI taxid 5052</title></path>
+<path class="taxonomy-edge" d="M 375.00 425.50 H 420.00 V 628.00"><title>Aspergillus sergii — NCBI taxid 1034303</title></path>
+<path class="taxonomy-edge" d="M 375.00 425.50 H 420.00 V 688.00"><title>Aspergillus transmontanensis — NCBI taxid 1034304</title></path>
+<path class="taxonomy-edge" d="M 375.00 425.50 H 420.00 V 268.00"><title>Aspergillus bertholletiae — NCBI taxid 1226010</title></path>
+<path class="taxonomy-edge" d="M 375.00 425.50 H 420.00 V 598.00"><title>Aspergillus pseudotamarii — NCBI taxid 132259</title></path>
+<path class="taxonomy-edge" d="M 375.00 425.50 H 420.00 V 328.00"><title>Aspergillus coremiiformis — NCBI taxid 138285</title></path>
+<path class="taxonomy-edge" d="M 375.00 425.50 H 420.00 V 553.00"><title>Aspergillus pseudonomiae — NCBI taxid 1506151</title></path>
+<path class="taxonomy-edge" d="M 375.00 425.50 H 420.00 V 508.00"><title>Aspergillus pseudocaelatus — NCBI taxid 1825620</title></path>
+<path class="taxonomy-edge" d="M 375.00 425.50 H 420.00 V 163.00"><title>Aspergillus alliaceus — NCBI taxid 209559</title></path>
+<path class="taxonomy-edge" d="M 375.00 425.50 H 420.00 V 238.00"><title>Aspergillus avenaceus — NCBI taxid 36643</title></path>
+<path class="taxonomy-edge" d="M 375.00 425.50 H 420.00 V 388.00"><title>Aspergillus leporis — NCBI taxid 41062</title></path>
+<path class="taxonomy-edge" d="M 375.00 425.50 H 420.00 V 658.00"><title>Aspergillus tamarii — NCBI taxid 41984</title></path>
+<path class="taxonomy-edge" d="M 375.00 425.50 H 420.00 V 358.00"><title>Aspergillus flavus — NCBI taxid 5059</title></path>
+<path class="taxonomy-edge" d="M 375.00 425.50 H 420.00 V 478.00"><title>Aspergillus parasiticus — NCBI taxid 5067</title></path>
+<path class="taxonomy-edge" d="M 375.00 425.50 H 420.00 V 298.00"><title>Aspergillus caelatus — NCBI taxid 61420</title></path>
+<path class="taxonomy-edge" d="M 375.00 425.50 H 420.00 V 208.00"><title>Aspergillus arachidicola — NCBI taxid 656916</title></path>
+<path class="taxonomy-edge" d="M 375.00 425.50 H 420.00 V 418.00"><title>Aspergillus minisclerotigenes — NCBI taxid 656917</title></path>
+<path class="taxonomy-edge" d="M 375.00 425.50 H 420.00 V 448.00"><title>Aspergillus novoparasiticus — NCBI taxid 986946</title></path>
+<path class="taxonomy-edge" d="M 420.00 628.00 H 465.00 V 628.00"><title>Aspergillus_sergii_CBS_130017 — NCBI taxid 1034303</title></path>
+<path class="taxonomy-edge" d="M 420.00 688.00 H 465.00 V 688.00"><title>Aspergillus_transmontanensis_CBS_130015 — NCBI taxid 1034304</title></path>
+<path class="taxonomy-edge" d="M 420.00 268.00 H 465.00 V 268.00"><title>Aspergillus_bertholletiae_IBT_29228 — NCBI taxid 1226010</title></path>
+<path class="taxonomy-edge" d="M 420.00 598.00 H 465.00 V 598.00"><title>Aspergillus_pseudotamarii_CBS_117625 — NCBI taxid 132259</title></path>
+<path class="taxonomy-edge" d="M 420.00 328.00 H 465.00 V 328.00"><title>Aspergillus_coremiiformis_CBS_553.77 — NCBI taxid 138285</title></path>
+<path class="taxonomy-edge" d="M 420.00 553.00 H 465.00 V 538.00"><title>Aspergillus_pseudonomiae_CBS_119388 — NCBI taxid 1506151</title></path>
+<path class="taxonomy-edge" d="M 420.00 553.00 H 465.00 V 568.00"><title>Aspergillus_pseudonomiae_IBT_12657 — NCBI taxid 1506151</title></path>
+<path class="taxonomy-edge" d="M 420.00 508.00 H 465.00 V 508.00"><title>Aspergillus_pseudocaelatus_CBS_117616 — NCBI taxid 1825620</title></path>
+<path class="taxonomy-edge" d="M 420.00 163.00 H 465.00 V 148.00"><title>Aspergillus_alliaceus_CBS_536.65 — NCBI taxid 209559</title></path>
+<path class="taxonomy-edge" d="M 420.00 163.00 H 465.00 V 178.00"><title>Aspergillus_alliaceus_IBT_14317 — NCBI taxid 209559</title></path>
+<path class="taxonomy-edge" d="M 420.00 238.00 H 465.00 V 238.00"><title>Aspergillus_avenaceus_IBT_18842 — NCBI taxid 36643</title></path>
+<path class="taxonomy-edge" d="M 420.00 388.00 H 465.00 V 388.00"><title>Aspergillus_leporis_CBS_151.66 — NCBI taxid 41062</title></path>
+<path class="taxonomy-edge" d="M 420.00 658.00 H 465.00 V 658.00"><title>Aspergillus_tamarii_CBS_117626 — NCBI taxid 41984</title></path>
+<path class="taxonomy-edge" d="M 420.00 358.00 H 465.00 V 358.00"><title>Aspergillus_flavus_CBS_121.62 — NCBI taxid 5059</title></path>
+<path class="taxonomy-edge" d="M 420.00 478.00 H 465.00 V 478.00"><title>Aspergillus_parasiticus_CBS_117618 — NCBI taxid 5067</title></path>
+<path class="taxonomy-edge" d="M 420.00 298.00 H 465.00 V 298.00"><title>Aspergillus_caelatus_CBS_763.97 — NCBI taxid 61420</title></path>
+<path class="taxonomy-edge" d="M 420.00 208.00 H 465.00 V 208.00"><title>Aspergillus_arachidicola_CBS_117612 — NCBI taxid 656916</title></path>
+<path class="taxonomy-edge" d="M 420.00 418.00 H 465.00 V 418.00"><title>Aspergillus_minisclerotigenes_CBS_117635 — NCBI taxid 656917</title></path>
+<path class="taxonomy-edge" d="M 420.00 448.00 H 465.00 V 448.00"><title>Aspergillus_novoparasiticus_CBS_126849 — NCBI taxid 986946</title></path>
+<circle class="taxonomy-node" cx="105.00" cy="425.50" r="2.1" fill="#333333"><title>Eukaryota — NCBI taxid 2759</title></circle>
+<circle class="taxonomy-node" cx="150.00" cy="425.50" r="2.1" fill="#333333"><title>Fungi — NCBI taxid 4751</title></circle>
+<circle class="taxonomy-node" cx="195.00" cy="425.50" r="2.1" fill="#333333"><title>Ascomycota — NCBI taxid 4890</title></circle>
+<circle class="taxonomy-node" cx="240.00" cy="425.50" r="2.1" fill="#333333"><title>Eurotiomycetes — NCBI taxid 147545</title></circle>
+<circle class="taxonomy-node" cx="285.00" cy="425.50" r="2.1" fill="#333333"><title>Eurotiales — NCBI taxid 5042</title></circle>
+<circle class="taxonomy-node" cx="330.00" cy="425.50" r="2.1" fill="#333333"><title>Aspergillaceae — NCBI taxid 1131492</title></circle>
+<circle class="taxonomy-node" cx="375.00" cy="425.50" r="2.1" fill="#333333"><title>Aspergillus — NCBI taxid 5052</title></circle>
+<circle class="taxonomy-node" cx="420.00" cy="628.00" r="2.1" fill="#333333"><title>Aspergillus sergii — NCBI taxid 1034303</title></circle>
+<circle class="taxonomy-node" cx="420.00" cy="688.00" r="2.1" fill="#333333"><title>Aspergillus transmontanensis — NCBI taxid 1034304</title></circle>
+<circle class="taxonomy-node" cx="420.00" cy="268.00" r="2.1" fill="#333333"><title>Aspergillus bertholletiae — NCBI taxid 1226010</title></circle>
+<circle class="taxonomy-node" cx="420.00" cy="598.00" r="2.1" fill="#333333"><title>Aspergillus pseudotamarii — NCBI taxid 132259</title></circle>
+<circle class="taxonomy-node" cx="420.00" cy="328.00" r="2.1" fill="#333333"><title>Aspergillus coremiiformis — NCBI taxid 138285</title></circle>
+<circle class="taxonomy-node" cx="420.00" cy="553.00" r="2.1" fill="#333333"><title>Aspergillus pseudonomiae — NCBI taxid 1506151</title></circle>
+<circle class="taxonomy-node" cx="420.00" cy="508.00" r="2.1" fill="#333333"><title>Aspergillus pseudocaelatus — NCBI taxid 1825620</title></circle>
+<circle class="taxonomy-node" cx="420.00" cy="163.00" r="2.1" fill="#333333"><title>Aspergillus alliaceus — NCBI taxid 209559</title></circle>
+<circle class="taxonomy-node" cx="420.00" cy="238.00" r="2.1" fill="#333333"><title>Aspergillus avenaceus — NCBI taxid 36643</title></circle>
+<circle class="taxonomy-node" cx="420.00" cy="388.00" r="2.1" fill="#333333"><title>Aspergillus leporis — NCBI taxid 41062</title></circle>
+<circle class="taxonomy-node" cx="420.00" cy="658.00" r="2.1" fill="#333333"><title>Aspergillus tamarii — NCBI taxid 41984</title></circle>
+<circle class="taxonomy-node" cx="420.00" cy="358.00" r="2.1" fill="#333333"><title>Aspergillus flavus — NCBI taxid 5059</title></circle>
+<circle class="taxonomy-node" cx="420.00" cy="478.00" r="2.1" fill="#333333"><title>Aspergillus parasiticus — NCBI taxid 5067</title></circle>
+<circle class="taxonomy-node" cx="420.00" cy="298.00" r="2.1" fill="#333333"><title>Aspergillus caelatus — NCBI taxid 61420</title></circle>
+<circle class="taxonomy-node" cx="420.00" cy="208.00" r="2.1" fill="#333333"><title>Aspergillus arachidicola — NCBI taxid 656916</title></circle>
+<circle class="taxonomy-node" cx="420.00" cy="418.00" r="2.1" fill="#333333"><title>Aspergillus minisclerotigenes — NCBI taxid 656917</title></circle>
+<circle class="taxonomy-node" cx="420.00" cy="448.00" r="2.1" fill="#333333"><title>Aspergillus novoparasiticus — NCBI taxid 986946</title></circle>
+<text class="taxonomy-rank-label" x="199.00" y="421.00"><title>Ascomycota — NCBI taxid 4890; 19 selected genome(s)</title>Ascomycota</text>
+<text class="taxonomy-rank-label" x="379.00" y="421.00"><title>Aspergillus — NCBI taxid 5052; 19 selected genome(s)</title>Aspergillus</text>
+</g>
+<g id="genome-profiles">
+<circle cx="465" cy="148.00" r="2.5" fill="#333333"/>
+<circle cx="487.5" cy="148.00" r="8.5" fill="#FFFFFF" stroke="#333333" stroke-width="1.1"/>
+<text x="487.5" y="151.5" font-family="Arial, Helvetica, sans-serif" font-size="9.5" font-weight="800" text-anchor="middle" fill="#111111">01</text>
+<text class="leaf-label" x="505" y="152.60" font-family="Arial, Helvetica, sans-serif" font-size="14.0" font-weight="700" fill="#222222"><title>Aspergillus alliaceus CBS 536.65 — internal genome ID: Aspergillus_alliaceus_CBS_536.65 — saved taxonomy lineage</title><tspan font-style="italic">Aspergillus alliaceus</tspan><tspan>&#160;CBS 536.65</tspan></text>
+<g class="bgc-profile" data-genome="Aspergillus_alliaceus_CBS_536.65" data-bgc-count="94" data-x="875.0" data-width="230.0">
+<rect x="875.00" y="141.50" width="25.30" height="13" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus alliaceus CBS 536.65 — NRPS: 22 of 94 BGCs</title></rect>
+<rect x="900.30" y="141.50" width="27.60" height="13" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus alliaceus CBS 536.65 — PKS: 24 of 94 BGCs</title></rect>
+<rect x="927.90" y="141.50" width="27.60" height="13" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus alliaceus CBS 536.65 — terpene: 24 of 94 BGCs</title></rect>
+<rect x="955.50" y="141.50" width="20.70" height="13" fill="#82775B" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus alliaceus CBS 536.65 — hybrid: 18 of 94 BGCs</title></rect>
+<rect x="976.20" y="141.50" width="6.90" height="13" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus alliaceus CBS 536.65 — other: 6 of 94 BGCs</title></rect>
+</g>
+<text x="1114.0" y="152.2" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="start" fill="#222222">94</text>
+<g class="gcf-profile" data-genome="Aspergillus_alliaceus_CBS_536.65" data-gcf-count="94" data-x="1148.0" data-width="92.0">
+<title>Aspergillus alliaceus CBS 536.65 — shared-GCF percentage: 75 unique GCFs found in this genome and at least one other submitted genome, divided by all 94 unique GCFs assigned to this genome.</title>
+<rect x="1148.00" y="141.50" width="73.40" height="13" fill="#1F77B4" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus alliaceus CBS 536.65 — same-domain shared: 75 unique GCFs (79.8% of this genome&apos;s 94 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+<rect x="1221.40" y="141.50" width="18.60" height="13" fill="#DADADA" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus alliaceus CBS 536.65 — dataset singleton: 19 unique GCFs (20.2% of this genome&apos;s 94 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+</g>
+<text x="1249.00" y="152.20" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" fill="#222222"><title>75 of 94 unique GCFs are also found in at least one other submitted genome; this percentage is dataset-relative.</title>79.8%</text>
+<circle cx="465" cy="178.00" r="2.5" fill="#333333"/>
+<circle cx="487.5" cy="178.00" r="8.5" fill="#FFFFFF" stroke="#333333" stroke-width="1.1"/>
+<text x="487.5" y="181.5" font-family="Arial, Helvetica, sans-serif" font-size="9.5" font-weight="800" text-anchor="middle" fill="#111111">02</text>
+<text class="leaf-label" x="505" y="182.60" font-family="Arial, Helvetica, sans-serif" font-size="14.0" font-weight="700" fill="#222222"><title>Aspergillus alliaceus IBT 14317 — internal genome ID: Aspergillus_alliaceus_IBT_14317 — saved taxonomy lineage</title><tspan font-style="italic">Aspergillus alliaceus</tspan><tspan>&#160;IBT 14317</tspan></text>
+<g class="bgc-profile" data-genome="Aspergillus_alliaceus_IBT_14317" data-bgc-count="99" data-x="875.0" data-width="230.0">
+<rect x="875.00" y="171.50" width="21.85" height="13" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus alliaceus IBT 14317 — NRPS: 19 of 99 BGCs</title></rect>
+<rect x="896.85" y="171.50" width="33.35" height="13" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus alliaceus IBT 14317 — PKS: 29 of 99 BGCs</title></rect>
+<rect x="930.20" y="171.50" width="31.05" height="13" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus alliaceus IBT 14317 — terpene: 27 of 99 BGCs</title></rect>
+<rect x="961.25" y="171.50" width="20.70" height="13" fill="#82775B" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus alliaceus IBT 14317 — hybrid: 18 of 99 BGCs</title></rect>
+<rect x="981.95" y="171.50" width="6.90" height="13" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus alliaceus IBT 14317 — other: 6 of 99 BGCs</title></rect>
+</g>
+<text x="1114.0" y="182.2" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="start" fill="#222222">99</text>
+<g class="gcf-profile" data-genome="Aspergillus_alliaceus_IBT_14317" data-gcf-count="99" data-x="1148.0" data-width="92.0">
+<title>Aspergillus alliaceus IBT 14317 — shared-GCF percentage: 77 unique GCFs found in this genome and at least one other submitted genome, divided by all 99 unique GCFs assigned to this genome.</title>
+<rect x="1148.00" y="171.50" width="71.56" height="13" fill="#1F77B4" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus alliaceus IBT 14317 — same-domain shared: 77 unique GCFs (77.8% of this genome&apos;s 99 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+<rect x="1219.56" y="171.50" width="20.44" height="13" fill="#DADADA" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus alliaceus IBT 14317 — dataset singleton: 22 unique GCFs (22.2% of this genome&apos;s 99 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+</g>
+<text x="1249.00" y="182.20" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" fill="#222222"><title>77 of 99 unique GCFs are also found in at least one other submitted genome; this percentage is dataset-relative.</title>77.8%</text>
+<circle cx="465" cy="208.00" r="2.5" fill="#333333"/>
+<circle cx="487.5" cy="208.00" r="8.5" fill="#FFFFFF" stroke="#333333" stroke-width="1.1"/>
+<text x="487.5" y="211.5" font-family="Arial, Helvetica, sans-serif" font-size="9.5" font-weight="800" text-anchor="middle" fill="#111111">03</text>
+<text class="leaf-label" x="505" y="212.60" font-family="Arial, Helvetica, sans-serif" font-size="14.0" font-weight="700" fill="#222222"><title>Aspergillus arachidicola CBS 117612 — internal genome ID: Aspergillus_arachidicola_CBS_117612 — saved taxonomy lineage</title><tspan font-style="italic">Aspergillus arachidicola</tspan><tspan>&#160;CBS 117612</tspan></text>
+<g class="bgc-profile" data-genome="Aspergillus_arachidicola_CBS_117612" data-bgc-count="84" data-x="875.0" data-width="230.0">
+<rect x="875.00" y="201.50" width="27.60" height="13" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus arachidicola CBS 117612 — NRPS: 24 of 84 BGCs</title></rect>
+<rect x="902.60" y="201.50" width="17.25" height="13" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus arachidicola CBS 117612 — PKS: 15 of 84 BGCs</title></rect>
+<rect x="919.85" y="201.50" width="23.00" height="13" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus arachidicola CBS 117612 — terpene: 20 of 84 BGCs</title></rect>
+<rect x="942.85" y="201.50" width="2.30" height="13" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus arachidicola CBS 117612 — RiPP: 2 of 84 BGCs</title></rect>
+<rect x="945.15" y="201.50" width="17.25" height="13" fill="#82775B" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus arachidicola CBS 117612 — hybrid: 15 of 84 BGCs</title></rect>
+<rect x="962.40" y="201.50" width="9.20" height="13" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus arachidicola CBS 117612 — other: 8 of 84 BGCs</title></rect>
+</g>
+<text x="1114.0" y="212.2" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="start" fill="#222222">84</text>
+<g class="gcf-profile" data-genome="Aspergillus_arachidicola_CBS_117612" data-gcf-count="83" data-x="1148.0" data-width="92.0">
+<title>Aspergillus arachidicola CBS 117612 — shared-GCF percentage: 71 unique GCFs found in this genome and at least one other submitted genome, divided by all 83 unique GCFs assigned to this genome.</title>
+<rect x="1148.00" y="201.50" width="78.70" height="13" fill="#1F77B4" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus arachidicola CBS 117612 — same-domain shared: 71 unique GCFs (85.5% of this genome&apos;s 83 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+<rect x="1226.70" y="201.50" width="13.30" height="13" fill="#DADADA" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus arachidicola CBS 117612 — dataset singleton: 12 unique GCFs (14.5% of this genome&apos;s 83 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+</g>
+<text x="1249.00" y="212.20" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" fill="#222222"><title>71 of 83 unique GCFs are also found in at least one other submitted genome; this percentage is dataset-relative.</title>85.5%</text>
+<circle cx="465" cy="238.00" r="2.5" fill="#333333"/>
+<circle cx="487.5" cy="238.00" r="8.5" fill="#FFFFFF" stroke="#333333" stroke-width="1.1"/>
+<text x="487.5" y="241.5" font-family="Arial, Helvetica, sans-serif" font-size="9.5" font-weight="800" text-anchor="middle" fill="#111111">04</text>
+<text class="leaf-label" x="505" y="242.60" font-family="Arial, Helvetica, sans-serif" font-size="14.0" font-weight="700" fill="#222222"><title>Aspergillus avenaceus IBT 18842 — internal genome ID: Aspergillus_avenaceus_IBT_18842 — saved taxonomy lineage</title><tspan font-style="italic">Aspergillus avenaceus</tspan><tspan>&#160;IBT 18842</tspan></text>
+<g class="bgc-profile" data-genome="Aspergillus_avenaceus_IBT_18842" data-bgc-count="79" data-x="875.0" data-width="230.0">
+<rect x="875.00" y="231.50" width="25.30" height="13" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus avenaceus IBT 18842 — NRPS: 22 of 79 BGCs</title></rect>
+<rect x="900.30" y="231.50" width="14.95" height="13" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus avenaceus IBT 18842 — PKS: 13 of 79 BGCs</title></rect>
+<rect x="915.25" y="231.50" width="32.20" height="13" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus avenaceus IBT 18842 — terpene: 28 of 79 BGCs</title></rect>
+<rect x="947.45" y="231.50" width="16.10" height="13" fill="#82775B" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus avenaceus IBT 18842 — hybrid: 14 of 79 BGCs</title></rect>
+<rect x="963.55" y="231.50" width="2.30" height="13" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus avenaceus IBT 18842 — other: 2 of 79 BGCs</title></rect>
+</g>
+<text x="1114.0" y="242.2" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="start" fill="#222222">79</text>
+<g class="gcf-profile" data-genome="Aspergillus_avenaceus_IBT_18842" data-gcf-count="79" data-x="1148.0" data-width="92.0">
+<title>Aspergillus avenaceus IBT 18842 — shared-GCF percentage: 21 unique GCFs found in this genome and at least one other submitted genome, divided by all 79 unique GCFs assigned to this genome.</title>
+<rect x="1148.00" y="231.50" width="24.46" height="13" fill="#1F77B4" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus avenaceus IBT 18842 — same-domain shared: 21 unique GCFs (26.6% of this genome&apos;s 79 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+<rect x="1172.46" y="231.50" width="67.54" height="13" fill="#DADADA" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus avenaceus IBT 18842 — dataset singleton: 58 unique GCFs (73.4% of this genome&apos;s 79 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+</g>
+<text x="1249.00" y="242.20" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" fill="#222222"><title>21 of 79 unique GCFs are also found in at least one other submitted genome; this percentage is dataset-relative.</title>26.6%</text>
+<circle cx="465" cy="268.00" r="2.5" fill="#333333"/>
+<circle cx="487.5" cy="268.00" r="8.5" fill="#FFFFFF" stroke="#333333" stroke-width="1.1"/>
+<text x="487.5" y="271.5" font-family="Arial, Helvetica, sans-serif" font-size="9.5" font-weight="800" text-anchor="middle" fill="#111111">05</text>
+<text class="leaf-label" x="505" y="272.60" font-family="Arial, Helvetica, sans-serif" font-size="14.0" font-weight="700" fill="#222222"><title>Aspergillus bertholletiae IBT 29228 — internal genome ID: Aspergillus_bertholletiae_IBT_29228 — saved taxonomy lineage</title><tspan font-style="italic">Aspergillus bertholletiae</tspan><tspan>&#160;IBT 29228</tspan></text>
+<g class="bgc-profile" data-genome="Aspergillus_bertholletiae_IBT_29228" data-bgc-count="80" data-x="875.0" data-width="230.0">
+<rect x="875.00" y="261.50" width="20.70" height="13" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus bertholletiae IBT 29228 — NRPS: 18 of 80 BGCs</title></rect>
+<rect x="895.70" y="261.50" width="23.00" height="13" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus bertholletiae IBT 29228 — PKS: 20 of 80 BGCs</title></rect>
+<rect x="918.70" y="261.50" width="26.45" height="13" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus bertholletiae IBT 29228 — terpene: 23 of 80 BGCs</title></rect>
+<rect x="945.15" y="261.50" width="1.15" height="13" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus bertholletiae IBT 29228 — RiPP: 1 of 80 BGCs</title></rect>
+<rect x="946.30" y="261.50" width="12.65" height="13" fill="#82775B" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus bertholletiae IBT 29228 — hybrid: 11 of 80 BGCs</title></rect>
+<rect x="958.95" y="261.50" width="8.05" height="13" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus bertholletiae IBT 29228 — other: 7 of 80 BGCs</title></rect>
+</g>
+<text x="1114.0" y="272.2" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="start" fill="#222222">80</text>
+<g class="gcf-profile" data-genome="Aspergillus_bertholletiae_IBT_29228" data-gcf-count="80" data-x="1148.0" data-width="92.0">
+<title>Aspergillus bertholletiae IBT 29228 — shared-GCF percentage: 43 unique GCFs found in this genome and at least one other submitted genome, divided by all 80 unique GCFs assigned to this genome.</title>
+<rect x="1148.00" y="261.50" width="49.45" height="13" fill="#1F77B4" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus bertholletiae IBT 29228 — same-domain shared: 43 unique GCFs (53.8% of this genome&apos;s 80 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+<rect x="1197.45" y="261.50" width="42.55" height="13" fill="#DADADA" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus bertholletiae IBT 29228 — dataset singleton: 37 unique GCFs (46.2% of this genome&apos;s 80 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+</g>
+<text x="1249.00" y="272.20" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" fill="#222222"><title>43 of 80 unique GCFs are also found in at least one other submitted genome; this percentage is dataset-relative.</title>53.8%</text>
+<circle cx="465" cy="298.00" r="2.5" fill="#333333"/>
+<circle cx="487.5" cy="298.00" r="8.5" fill="#FFFFFF" stroke="#333333" stroke-width="1.1"/>
+<text x="487.5" y="301.5" font-family="Arial, Helvetica, sans-serif" font-size="9.5" font-weight="800" text-anchor="middle" fill="#111111">06</text>
+<text class="leaf-label" x="505" y="302.60" font-family="Arial, Helvetica, sans-serif" font-size="14.0" font-weight="700" fill="#222222"><title>Aspergillus caelatus CBS 763.97 — internal genome ID: Aspergillus_caelatus_CBS_763.97 — saved taxonomy lineage</title><tspan font-style="italic">Aspergillus caelatus</tspan><tspan>&#160;CBS 763.97</tspan></text>
+<g class="bgc-profile" data-genome="Aspergillus_caelatus_CBS_763.97" data-bgc-count="104" data-x="875.0" data-width="230.0">
+<rect x="875.00" y="291.50" width="34.50" height="13" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus caelatus CBS 763.97 — NRPS: 30 of 104 BGCs</title></rect>
+<rect x="909.50" y="291.50" width="23.00" height="13" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus caelatus CBS 763.97 — PKS: 20 of 104 BGCs</title></rect>
+<rect x="932.50" y="291.50" width="33.35" height="13" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus caelatus CBS 763.97 — terpene: 29 of 104 BGCs</title></rect>
+<rect x="965.85" y="291.50" width="2.30" height="13" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus caelatus CBS 763.97 — RiPP: 2 of 104 BGCs</title></rect>
+<rect x="968.15" y="291.50" width="18.40" height="13" fill="#82775B" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus caelatus CBS 763.97 — hybrid: 16 of 104 BGCs</title></rect>
+<rect x="986.55" y="291.50" width="8.05" height="13" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus caelatus CBS 763.97 — other: 7 of 104 BGCs</title></rect>
+</g>
+<text x="1114.0" y="302.2" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="start" fill="#222222">104</text>
+<g class="gcf-profile" data-genome="Aspergillus_caelatus_CBS_763.97" data-gcf-count="101" data-x="1148.0" data-width="92.0">
+<title>Aspergillus caelatus CBS 763.97 — shared-GCF percentage: 92 unique GCFs found in this genome and at least one other submitted genome, divided by all 101 unique GCFs assigned to this genome.</title>
+<rect x="1148.00" y="291.50" width="83.80" height="13" fill="#1F77B4" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus caelatus CBS 763.97 — same-domain shared: 92 unique GCFs (91.1% of this genome&apos;s 101 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+<rect x="1231.80" y="291.50" width="8.20" height="13" fill="#DADADA" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus caelatus CBS 763.97 — dataset singleton: 9 unique GCFs (8.9% of this genome&apos;s 101 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+</g>
+<text x="1249.00" y="302.20" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" fill="#222222"><title>92 of 101 unique GCFs are also found in at least one other submitted genome; this percentage is dataset-relative.</title>91.1%</text>
+<circle cx="465" cy="328.00" r="2.5" fill="#333333"/>
+<circle cx="487.5" cy="328.00" r="8.5" fill="#FFFFFF" stroke="#333333" stroke-width="1.1"/>
+<text x="487.5" y="331.5" font-family="Arial, Helvetica, sans-serif" font-size="9.5" font-weight="800" text-anchor="middle" fill="#111111">07</text>
+<text class="leaf-label" x="505" y="332.60" font-family="Arial, Helvetica, sans-serif" font-size="14.0" font-weight="700" fill="#222222"><title>Aspergillus coremiiformis CBS 553.77 — internal genome ID: Aspergillus_coremiiformis_CBS_553.77 — saved taxonomy lineage</title><tspan font-style="italic">Aspergillus coremiiformis</tspan><tspan>&#160;CBS 553.77</tspan></text>
+<g class="bgc-profile" data-genome="Aspergillus_coremiiformis_CBS_553.77" data-bgc-count="52" data-x="875.0" data-width="230.0">
+<rect x="875.00" y="321.50" width="12.65" height="13" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus coremiiformis CBS 553.77 — NRPS: 11 of 52 BGCs</title></rect>
+<rect x="887.65" y="321.50" width="14.95" height="13" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus coremiiformis CBS 553.77 — PKS: 13 of 52 BGCs</title></rect>
+<rect x="902.60" y="321.50" width="19.55" height="13" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus coremiiformis CBS 553.77 — terpene: 17 of 52 BGCs</title></rect>
+<rect x="922.15" y="321.50" width="1.15" height="13" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus coremiiformis CBS 553.77 — RiPP: 1 of 52 BGCs</title></rect>
+<rect x="923.30" y="321.50" width="3.45" height="13" fill="#82775B" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus coremiiformis CBS 553.77 — hybrid: 3 of 52 BGCs</title></rect>
+<rect x="926.75" y="321.50" width="8.05" height="13" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus coremiiformis CBS 553.77 — other: 7 of 52 BGCs</title></rect>
+</g>
+<text x="1114.0" y="332.2" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="start" fill="#222222">52</text>
+<g class="gcf-profile" data-genome="Aspergillus_coremiiformis_CBS_553.77" data-gcf-count="52" data-x="1148.0" data-width="92.0">
+<title>Aspergillus coremiiformis CBS 553.77 — shared-GCF percentage: 25 unique GCFs found in this genome and at least one other submitted genome, divided by all 52 unique GCFs assigned to this genome.</title>
+<rect x="1148.00" y="321.50" width="44.23" height="13" fill="#1F77B4" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus coremiiformis CBS 553.77 — same-domain shared: 25 unique GCFs (48.1% of this genome&apos;s 52 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+<rect x="1192.23" y="321.50" width="47.77" height="13" fill="#DADADA" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus coremiiformis CBS 553.77 — dataset singleton: 27 unique GCFs (51.9% of this genome&apos;s 52 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+</g>
+<text x="1249.00" y="332.20" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" fill="#222222"><title>25 of 52 unique GCFs are also found in at least one other submitted genome; this percentage is dataset-relative.</title>48.1%</text>
+<circle cx="465" cy="358.00" r="2.5" fill="#333333"/>
+<circle cx="487.5" cy="358.00" r="8.5" fill="#FFFFFF" stroke="#333333" stroke-width="1.1"/>
+<text x="487.5" y="361.5" font-family="Arial, Helvetica, sans-serif" font-size="9.5" font-weight="800" text-anchor="middle" fill="#111111">08</text>
+<text class="leaf-label" x="505" y="362.60" font-family="Arial, Helvetica, sans-serif" font-size="14.0" font-weight="700" fill="#222222"><title>Aspergillus flavus CBS 121.62 — internal genome ID: Aspergillus_flavus_CBS_121.62 — saved taxonomy lineage</title><tspan font-style="italic">Aspergillus flavus</tspan><tspan>&#160;CBS 121.62</tspan></text>
+<g class="bgc-profile" data-genome="Aspergillus_flavus_CBS_121.62" data-bgc-count="83" data-x="875.0" data-width="230.0">
+<rect x="875.00" y="351.50" width="21.85" height="13" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus flavus CBS 121.62 — NRPS: 19 of 83 BGCs</title></rect>
+<rect x="896.85" y="351.50" width="20.70" height="13" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus flavus CBS 121.62 — PKS: 18 of 83 BGCs</title></rect>
+<rect x="917.55" y="351.50" width="27.60" height="13" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus flavus CBS 121.62 — terpene: 24 of 83 BGCs</title></rect>
+<rect x="945.15" y="351.50" width="1.15" height="13" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus flavus CBS 121.62 — RiPP: 1 of 83 BGCs</title></rect>
+<rect x="946.30" y="351.50" width="17.25" height="13" fill="#82775B" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus flavus CBS 121.62 — hybrid: 15 of 83 BGCs</title></rect>
+<rect x="963.55" y="351.50" width="6.90" height="13" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus flavus CBS 121.62 — other: 6 of 83 BGCs</title></rect>
+</g>
+<text x="1114.0" y="362.2" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="start" fill="#222222">83</text>
+<g class="gcf-profile" data-genome="Aspergillus_flavus_CBS_121.62" data-gcf-count="82" data-x="1148.0" data-width="92.0">
+<title>Aspergillus flavus CBS 121.62 — shared-GCF percentage: 72 unique GCFs found in this genome and at least one other submitted genome, divided by all 82 unique GCFs assigned to this genome.</title>
+<rect x="1148.00" y="351.50" width="80.78" height="13" fill="#1F77B4" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus flavus CBS 121.62 — same-domain shared: 72 unique GCFs (87.8% of this genome&apos;s 82 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+<rect x="1228.78" y="351.50" width="11.22" height="13" fill="#DADADA" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus flavus CBS 121.62 — dataset singleton: 10 unique GCFs (12.2% of this genome&apos;s 82 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+</g>
+<text x="1249.00" y="362.20" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" fill="#222222"><title>72 of 82 unique GCFs are also found in at least one other submitted genome; this percentage is dataset-relative.</title>87.8%</text>
+<circle cx="465" cy="388.00" r="2.5" fill="#333333"/>
+<circle cx="487.5" cy="388.00" r="8.5" fill="#FFFFFF" stroke="#333333" stroke-width="1.1"/>
+<text x="487.5" y="391.5" font-family="Arial, Helvetica, sans-serif" font-size="9.5" font-weight="800" text-anchor="middle" fill="#111111">09</text>
+<text class="leaf-label" x="505" y="392.60" font-family="Arial, Helvetica, sans-serif" font-size="14.0" font-weight="700" fill="#222222"><title>Aspergillus leporis CBS 151.66 — internal genome ID: Aspergillus_leporis_CBS_151.66 — saved taxonomy lineage</title><tspan font-style="italic">Aspergillus leporis</tspan><tspan>&#160;CBS 151.66</tspan></text>
+<g class="bgc-profile" data-genome="Aspergillus_leporis_CBS_151.66" data-bgc-count="101" data-x="875.0" data-width="230.0">
+<rect x="875.00" y="381.50" width="36.80" height="13" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus leporis CBS 151.66 — NRPS: 32 of 101 BGCs</title></rect>
+<rect x="911.80" y="381.50" width="29.90" height="13" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus leporis CBS 151.66 — PKS: 26 of 101 BGCs</title></rect>
+<rect x="941.70" y="381.50" width="27.60" height="13" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus leporis CBS 151.66 — terpene: 24 of 101 BGCs</title></rect>
+<rect x="969.30" y="381.50" width="1.15" height="13" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus leporis CBS 151.66 — RiPP: 1 of 101 BGCs</title></rect>
+<rect x="970.45" y="381.50" width="12.65" height="13" fill="#82775B" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus leporis CBS 151.66 — hybrid: 11 of 101 BGCs</title></rect>
+<rect x="983.10" y="381.50" width="8.05" height="13" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus leporis CBS 151.66 — other: 7 of 101 BGCs</title></rect>
+</g>
+<text x="1114.0" y="392.2" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="start" fill="#222222">101</text>
+<g class="gcf-profile" data-genome="Aspergillus_leporis_CBS_151.66" data-gcf-count="101" data-x="1148.0" data-width="92.0">
+<title>Aspergillus leporis CBS 151.66 — shared-GCF percentage: 32 unique GCFs found in this genome and at least one other submitted genome, divided by all 101 unique GCFs assigned to this genome.</title>
+<rect x="1148.00" y="381.50" width="29.15" height="13" fill="#1F77B4" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus leporis CBS 151.66 — same-domain shared: 32 unique GCFs (31.7% of this genome&apos;s 101 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+<rect x="1177.15" y="381.50" width="62.85" height="13" fill="#DADADA" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus leporis CBS 151.66 — dataset singleton: 69 unique GCFs (68.3% of this genome&apos;s 101 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+</g>
+<text x="1249.00" y="392.20" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" fill="#222222"><title>32 of 101 unique GCFs are also found in at least one other submitted genome; this percentage is dataset-relative.</title>31.7%</text>
+<circle cx="465" cy="418.00" r="2.5" fill="#333333"/>
+<circle cx="487.5" cy="418.00" r="8.5" fill="#FFFFFF" stroke="#333333" stroke-width="1.1"/>
+<text x="487.5" y="421.5" font-family="Arial, Helvetica, sans-serif" font-size="9.5" font-weight="800" text-anchor="middle" fill="#111111">10</text>
+<text class="leaf-label" x="505" y="422.60" font-family="Arial, Helvetica, sans-serif" font-size="14.0" font-weight="700" fill="#222222"><title>Aspergillus minisclerotigenes CBS 117635 — internal genome ID: Aspergillus_minisclerotigenes_CBS_117635 — saved taxonomy lineage</title><tspan font-style="italic">Aspergillus minisclerotigenes</tspan><tspan>&#160;CBS 117635</tspan></text>
+<g class="bgc-profile" data-genome="Aspergillus_minisclerotigenes_CBS_117635" data-bgc-count="93" data-x="875.0" data-width="230.0">
+<rect x="875.00" y="411.50" width="31.05" height="13" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus minisclerotigenes CBS 117635 — NRPS: 27 of 93 BGCs</title></rect>
+<rect x="906.05" y="411.50" width="28.75" height="13" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus minisclerotigenes CBS 117635 — PKS: 25 of 93 BGCs</title></rect>
+<rect x="934.80" y="411.50" width="26.45" height="13" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus minisclerotigenes CBS 117635 — terpene: 23 of 93 BGCs</title></rect>
+<rect x="961.25" y="411.50" width="1.15" height="13" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus minisclerotigenes CBS 117635 — RiPP: 1 of 93 BGCs</title></rect>
+<rect x="962.40" y="411.50" width="11.50" height="13" fill="#82775B" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus minisclerotigenes CBS 117635 — hybrid: 10 of 93 BGCs</title></rect>
+<rect x="973.90" y="411.50" width="8.05" height="13" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus minisclerotigenes CBS 117635 — other: 7 of 93 BGCs</title></rect>
+</g>
+<text x="1114.0" y="422.2" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="start" fill="#222222">93</text>
+<g class="gcf-profile" data-genome="Aspergillus_minisclerotigenes_CBS_117635" data-gcf-count="91" data-x="1148.0" data-width="92.0">
+<title>Aspergillus minisclerotigenes CBS 117635 — shared-GCF percentage: 77 unique GCFs found in this genome and at least one other submitted genome, divided by all 91 unique GCFs assigned to this genome.</title>
+<rect x="1148.00" y="411.50" width="77.85" height="13" fill="#1F77B4" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus minisclerotigenes CBS 117635 — same-domain shared: 77 unique GCFs (84.6% of this genome&apos;s 91 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+<rect x="1225.85" y="411.50" width="14.15" height="13" fill="#DADADA" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus minisclerotigenes CBS 117635 — dataset singleton: 14 unique GCFs (15.4% of this genome&apos;s 91 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+</g>
+<text x="1249.00" y="422.20" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" fill="#222222"><title>77 of 91 unique GCFs are also found in at least one other submitted genome; this percentage is dataset-relative.</title>84.6%</text>
+<circle cx="465" cy="448.00" r="2.5" fill="#333333"/>
+<circle cx="487.5" cy="448.00" r="8.5" fill="#FFFFFF" stroke="#333333" stroke-width="1.1"/>
+<text x="487.5" y="451.5" font-family="Arial, Helvetica, sans-serif" font-size="9.5" font-weight="800" text-anchor="middle" fill="#111111">11</text>
+<text class="leaf-label" x="505" y="452.60" font-family="Arial, Helvetica, sans-serif" font-size="14.0" font-weight="700" fill="#222222"><title>Aspergillus novoparasiticus CBS 126849 — internal genome ID: Aspergillus_novoparasiticus_CBS_126849 — saved taxonomy lineage</title><tspan font-style="italic">Aspergillus novoparasiticus</tspan><tspan>&#160;CBS 126849</tspan></text>
+<g class="bgc-profile" data-genome="Aspergillus_novoparasiticus_CBS_126849" data-bgc-count="90" data-x="875.0" data-width="230.0">
+<rect x="875.00" y="441.50" width="27.60" height="13" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus novoparasiticus CBS 126849 — NRPS: 24 of 90 BGCs</title></rect>
+<rect x="902.60" y="441.50" width="26.45" height="13" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus novoparasiticus CBS 126849 — PKS: 23 of 90 BGCs</title></rect>
+<rect x="929.05" y="441.50" width="26.45" height="13" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus novoparasiticus CBS 126849 — terpene: 23 of 90 BGCs</title></rect>
+<rect x="955.50" y="441.50" width="1.15" height="13" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus novoparasiticus CBS 126849 — RiPP: 1 of 90 BGCs</title></rect>
+<rect x="956.65" y="441.50" width="13.80" height="13" fill="#82775B" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus novoparasiticus CBS 126849 — hybrid: 12 of 90 BGCs</title></rect>
+<rect x="970.45" y="441.50" width="8.05" height="13" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus novoparasiticus CBS 126849 — other: 7 of 90 BGCs</title></rect>
+</g>
+<text x="1114.0" y="452.2" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="start" fill="#222222">90</text>
+<g class="gcf-profile" data-genome="Aspergillus_novoparasiticus_CBS_126849" data-gcf-count="90" data-x="1148.0" data-width="92.0">
+<title>Aspergillus novoparasiticus CBS 126849 — shared-GCF percentage: 80 unique GCFs found in this genome and at least one other submitted genome, divided by all 90 unique GCFs assigned to this genome.</title>
+<rect x="1148.00" y="441.50" width="81.78" height="13" fill="#1F77B4" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus novoparasiticus CBS 126849 — same-domain shared: 80 unique GCFs (88.9% of this genome&apos;s 90 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+<rect x="1229.78" y="441.50" width="10.22" height="13" fill="#DADADA" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus novoparasiticus CBS 126849 — dataset singleton: 10 unique GCFs (11.1% of this genome&apos;s 90 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+</g>
+<text x="1249.00" y="452.20" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" fill="#222222"><title>80 of 90 unique GCFs are also found in at least one other submitted genome; this percentage is dataset-relative.</title>88.9%</text>
+<circle cx="465" cy="478.00" r="2.5" fill="#333333"/>
+<circle cx="487.5" cy="478.00" r="8.5" fill="#FFFFFF" stroke="#333333" stroke-width="1.1"/>
+<text x="487.5" y="481.5" font-family="Arial, Helvetica, sans-serif" font-size="9.5" font-weight="800" text-anchor="middle" fill="#111111">12</text>
+<text class="leaf-label" x="505" y="482.60" font-family="Arial, Helvetica, sans-serif" font-size="14.0" font-weight="700" fill="#222222"><title>Aspergillus parasiticus CBS 117618 — internal genome ID: Aspergillus_parasiticus_CBS_117618 — saved taxonomy lineage</title><tspan font-style="italic">Aspergillus parasiticus</tspan><tspan>&#160;CBS 117618</tspan></text>
+<g class="bgc-profile" data-genome="Aspergillus_parasiticus_CBS_117618" data-bgc-count="99" data-x="875.0" data-width="230.0">
+<rect x="875.00" y="471.50" width="26.45" height="13" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus parasiticus CBS 117618 — NRPS: 23 of 99 BGCs</title></rect>
+<rect x="901.45" y="471.50" width="25.30" height="13" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus parasiticus CBS 117618 — PKS: 22 of 99 BGCs</title></rect>
+<rect x="926.75" y="471.50" width="33.35" height="13" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus parasiticus CBS 117618 — terpene: 29 of 99 BGCs</title></rect>
+<rect x="960.10" y="471.50" width="1.15" height="13" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus parasiticus CBS 117618 — RiPP: 1 of 99 BGCs</title></rect>
+<rect x="961.25" y="471.50" width="17.25" height="13" fill="#82775B" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus parasiticus CBS 117618 — hybrid: 15 of 99 BGCs</title></rect>
+<rect x="978.50" y="471.50" width="10.35" height="13" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus parasiticus CBS 117618 — other: 9 of 99 BGCs</title></rect>
+</g>
+<text x="1114.0" y="482.2" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="start" fill="#222222">99</text>
+<g class="gcf-profile" data-genome="Aspergillus_parasiticus_CBS_117618" data-gcf-count="98" data-x="1148.0" data-width="92.0">
+<title>Aspergillus parasiticus CBS 117618 — shared-GCF percentage: 87 unique GCFs found in this genome and at least one other submitted genome, divided by all 98 unique GCFs assigned to this genome.</title>
+<rect x="1148.00" y="471.50" width="81.67" height="13" fill="#1F77B4" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus parasiticus CBS 117618 — same-domain shared: 87 unique GCFs (88.8% of this genome&apos;s 98 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+<rect x="1229.67" y="471.50" width="10.33" height="13" fill="#DADADA" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus parasiticus CBS 117618 — dataset singleton: 11 unique GCFs (11.2% of this genome&apos;s 98 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+</g>
+<text x="1249.00" y="482.20" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" fill="#222222"><title>87 of 98 unique GCFs are also found in at least one other submitted genome; this percentage is dataset-relative.</title>88.8%</text>
+<circle cx="465" cy="508.00" r="2.5" fill="#333333"/>
+<circle cx="487.5" cy="508.00" r="8.5" fill="#FFFFFF" stroke="#333333" stroke-width="1.1"/>
+<text x="487.5" y="511.5" font-family="Arial, Helvetica, sans-serif" font-size="9.5" font-weight="800" text-anchor="middle" fill="#111111">13</text>
+<text class="leaf-label" x="505" y="512.60" font-family="Arial, Helvetica, sans-serif" font-size="14.0" font-weight="700" fill="#222222"><title>Aspergillus pseudocaelatus CBS 117616 — internal genome ID: Aspergillus_pseudocaelatus_CBS_117616 — saved taxonomy lineage</title><tspan font-style="italic">Aspergillus pseudocaelatus</tspan><tspan>&#160;CBS 117616</tspan></text>
+<g class="bgc-profile" data-genome="Aspergillus_pseudocaelatus_CBS_117616" data-bgc-count="96" data-x="875.0" data-width="230.0">
+<rect x="875.00" y="501.50" width="29.90" height="13" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus pseudocaelatus CBS 117616 — NRPS: 26 of 96 BGCs</title></rect>
+<rect x="904.90" y="501.50" width="21.85" height="13" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus pseudocaelatus CBS 117616 — PKS: 19 of 96 BGCs</title></rect>
+<rect x="926.75" y="501.50" width="31.05" height="13" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus pseudocaelatus CBS 117616 — terpene: 27 of 96 BGCs</title></rect>
+<rect x="957.80" y="501.50" width="2.30" height="13" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus pseudocaelatus CBS 117616 — RiPP: 2 of 96 BGCs</title></rect>
+<rect x="960.10" y="501.50" width="17.25" height="13" fill="#82775B" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus pseudocaelatus CBS 117616 — hybrid: 15 of 96 BGCs</title></rect>
+<rect x="977.35" y="501.50" width="8.05" height="13" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus pseudocaelatus CBS 117616 — other: 7 of 96 BGCs</title></rect>
+</g>
+<text x="1114.0" y="512.2" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="start" fill="#222222">96</text>
+<g class="gcf-profile" data-genome="Aspergillus_pseudocaelatus_CBS_117616" data-gcf-count="94" data-x="1148.0" data-width="92.0">
+<title>Aspergillus pseudocaelatus CBS 117616 — shared-GCF percentage: 87 unique GCFs found in this genome and at least one other submitted genome, divided by all 94 unique GCFs assigned to this genome.</title>
+<rect x="1148.00" y="501.50" width="85.15" height="13" fill="#1F77B4" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus pseudocaelatus CBS 117616 — same-domain shared: 87 unique GCFs (92.6% of this genome&apos;s 94 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+<rect x="1233.15" y="501.50" width="6.85" height="13" fill="#DADADA" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus pseudocaelatus CBS 117616 — dataset singleton: 7 unique GCFs (7.4% of this genome&apos;s 94 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+</g>
+<text x="1249.00" y="512.20" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" fill="#222222"><title>87 of 94 unique GCFs are also found in at least one other submitted genome; this percentage is dataset-relative.</title>92.6%</text>
+<circle cx="465" cy="538.00" r="2.5" fill="#333333"/>
+<circle cx="487.5" cy="538.00" r="8.5" fill="#FFFFFF" stroke="#333333" stroke-width="1.1"/>
+<text x="487.5" y="541.5" font-family="Arial, Helvetica, sans-serif" font-size="9.5" font-weight="800" text-anchor="middle" fill="#111111">14</text>
+<text class="leaf-label" x="505" y="542.60" font-family="Arial, Helvetica, sans-serif" font-size="14.0" font-weight="700" fill="#222222"><title>Aspergillus pseudonomiae CBS 119388 — internal genome ID: Aspergillus_pseudonomiae_CBS_119388 — saved taxonomy lineage</title><tspan font-style="italic">Aspergillus pseudonomiae</tspan><tspan>&#160;CBS 119388</tspan></text>
+<g class="bgc-profile" data-genome="Aspergillus_pseudonomiae_CBS_119388" data-bgc-count="93" data-x="875.0" data-width="230.0">
+<rect x="875.00" y="531.50" width="35.65" height="13" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus pseudonomiae CBS 119388 — NRPS: 31 of 93 BGCs</title></rect>
+<rect x="910.65" y="531.50" width="23.00" height="13" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus pseudonomiae CBS 119388 — PKS: 20 of 93 BGCs</title></rect>
+<rect x="933.65" y="531.50" width="27.60" height="13" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus pseudonomiae CBS 119388 — terpene: 24 of 93 BGCs</title></rect>
+<rect x="961.25" y="531.50" width="11.50" height="13" fill="#82775B" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus pseudonomiae CBS 119388 — hybrid: 10 of 93 BGCs</title></rect>
+<rect x="972.75" y="531.50" width="9.20" height="13" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus pseudonomiae CBS 119388 — other: 8 of 93 BGCs</title></rect>
+</g>
+<text x="1114.0" y="542.2" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="start" fill="#222222">93</text>
+<g class="gcf-profile" data-genome="Aspergillus_pseudonomiae_CBS_119388" data-gcf-count="93" data-x="1148.0" data-width="92.0">
+<title>Aspergillus pseudonomiae CBS 119388 — shared-GCF percentage: 85 unique GCFs found in this genome and at least one other submitted genome, divided by all 93 unique GCFs assigned to this genome.</title>
+<rect x="1148.00" y="531.50" width="84.09" height="13" fill="#1F77B4" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus pseudonomiae CBS 119388 — same-domain shared: 85 unique GCFs (91.4% of this genome&apos;s 93 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+<rect x="1232.09" y="531.50" width="7.91" height="13" fill="#DADADA" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus pseudonomiae CBS 119388 — dataset singleton: 8 unique GCFs (8.6% of this genome&apos;s 93 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+</g>
+<text x="1249.00" y="542.20" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" fill="#222222"><title>85 of 93 unique GCFs are also found in at least one other submitted genome; this percentage is dataset-relative.</title>91.4%</text>
+<circle cx="465" cy="568.00" r="2.5" fill="#333333"/>
+<circle cx="487.5" cy="568.00" r="8.5" fill="#FFFFFF" stroke="#333333" stroke-width="1.1"/>
+<text x="487.5" y="571.5" font-family="Arial, Helvetica, sans-serif" font-size="9.5" font-weight="800" text-anchor="middle" fill="#111111">15</text>
+<text class="leaf-label" x="505" y="572.60" font-family="Arial, Helvetica, sans-serif" font-size="14.0" font-weight="700" fill="#222222"><title>Aspergillus pseudonomiae IBT 12657 — internal genome ID: Aspergillus_pseudonomiae_IBT_12657 — saved taxonomy lineage</title><tspan font-style="italic">Aspergillus pseudonomiae</tspan><tspan>&#160;IBT 12657</tspan></text>
+<g class="bgc-profile" data-genome="Aspergillus_pseudonomiae_IBT_12657" data-bgc-count="90" data-x="875.0" data-width="230.0">
+<rect x="875.00" y="561.50" width="32.20" height="13" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus pseudonomiae IBT 12657 — NRPS: 28 of 90 BGCs</title></rect>
+<rect x="907.20" y="561.50" width="21.85" height="13" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus pseudonomiae IBT 12657 — PKS: 19 of 90 BGCs</title></rect>
+<rect x="929.05" y="561.50" width="27.60" height="13" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus pseudonomiae IBT 12657 — terpene: 24 of 90 BGCs</title></rect>
+<rect x="956.65" y="561.50" width="13.80" height="13" fill="#82775B" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus pseudonomiae IBT 12657 — hybrid: 12 of 90 BGCs</title></rect>
+<rect x="970.45" y="561.50" width="8.05" height="13" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus pseudonomiae IBT 12657 — other: 7 of 90 BGCs</title></rect>
+</g>
+<text x="1114.0" y="572.2" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="start" fill="#222222">90</text>
+<g class="gcf-profile" data-genome="Aspergillus_pseudonomiae_IBT_12657" data-gcf-count="90" data-x="1148.0" data-width="92.0">
+<title>Aspergillus pseudonomiae IBT 12657 — shared-GCF percentage: 84 unique GCFs found in this genome and at least one other submitted genome, divided by all 90 unique GCFs assigned to this genome.</title>
+<rect x="1148.00" y="561.50" width="85.87" height="13" fill="#1F77B4" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus pseudonomiae IBT 12657 — same-domain shared: 84 unique GCFs (93.3% of this genome&apos;s 90 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+<rect x="1233.87" y="561.50" width="6.13" height="13" fill="#DADADA" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus pseudonomiae IBT 12657 — dataset singleton: 6 unique GCFs (6.7% of this genome&apos;s 90 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+</g>
+<text x="1249.00" y="572.20" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" fill="#222222"><title>84 of 90 unique GCFs are also found in at least one other submitted genome; this percentage is dataset-relative.</title>93.3%</text>
+<circle cx="465" cy="598.00" r="2.5" fill="#333333"/>
+<circle cx="487.5" cy="598.00" r="8.5" fill="#FFFFFF" stroke="#333333" stroke-width="1.1"/>
+<text x="487.5" y="601.5" font-family="Arial, Helvetica, sans-serif" font-size="9.5" font-weight="800" text-anchor="middle" fill="#111111">16</text>
+<text class="leaf-label" x="505" y="602.60" font-family="Arial, Helvetica, sans-serif" font-size="14.0" font-weight="700" fill="#222222"><title>Aspergillus pseudotamarii CBS 117625 — internal genome ID: Aspergillus_pseudotamarii_CBS_117625 — saved taxonomy lineage</title><tspan font-style="italic">Aspergillus pseudotamarii</tspan><tspan>&#160;CBS 117625</tspan></text>
+<g class="bgc-profile" data-genome="Aspergillus_pseudotamarii_CBS_117625" data-bgc-count="98" data-x="875.0" data-width="230.0">
+<rect x="875.00" y="591.50" width="27.60" height="13" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus pseudotamarii CBS 117625 — NRPS: 24 of 98 BGCs</title></rect>
+<rect x="902.60" y="591.50" width="23.00" height="13" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus pseudotamarii CBS 117625 — PKS: 20 of 98 BGCs</title></rect>
+<rect x="925.60" y="591.50" width="33.35" height="13" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus pseudotamarii CBS 117625 — terpene: 29 of 98 BGCs</title></rect>
+<rect x="958.95" y="591.50" width="19.55" height="13" fill="#82775B" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus pseudotamarii CBS 117625 — hybrid: 17 of 98 BGCs</title></rect>
+<rect x="978.50" y="591.50" width="9.20" height="13" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus pseudotamarii CBS 117625 — other: 8 of 98 BGCs</title></rect>
+</g>
+<text x="1114.0" y="602.2" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="start" fill="#222222">98</text>
+<g class="gcf-profile" data-genome="Aspergillus_pseudotamarii_CBS_117625" data-gcf-count="98" data-x="1148.0" data-width="92.0">
+<title>Aspergillus pseudotamarii CBS 117625 — shared-GCF percentage: 80 unique GCFs found in this genome and at least one other submitted genome, divided by all 98 unique GCFs assigned to this genome.</title>
+<rect x="1148.00" y="591.50" width="75.10" height="13" fill="#1F77B4" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus pseudotamarii CBS 117625 — same-domain shared: 80 unique GCFs (81.6% of this genome&apos;s 98 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+<rect x="1223.10" y="591.50" width="16.90" height="13" fill="#DADADA" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus pseudotamarii CBS 117625 — dataset singleton: 18 unique GCFs (18.4% of this genome&apos;s 98 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+</g>
+<text x="1249.00" y="602.20" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" fill="#222222"><title>80 of 98 unique GCFs are also found in at least one other submitted genome; this percentage is dataset-relative.</title>81.6%</text>
+<circle cx="465" cy="628.00" r="2.5" fill="#333333"/>
+<circle cx="487.5" cy="628.00" r="8.5" fill="#FFFFFF" stroke="#333333" stroke-width="1.1"/>
+<text x="487.5" y="631.5" font-family="Arial, Helvetica, sans-serif" font-size="9.5" font-weight="800" text-anchor="middle" fill="#111111">17</text>
+<text class="leaf-label" x="505" y="632.60" font-family="Arial, Helvetica, sans-serif" font-size="14.0" font-weight="700" fill="#222222"><title>Aspergillus sergii CBS 130017 — internal genome ID: Aspergillus_sergii_CBS_130017 — saved taxonomy lineage</title><tspan font-style="italic">Aspergillus sergii</tspan><tspan>&#160;CBS 130017</tspan></text>
+<g class="bgc-profile" data-genome="Aspergillus_sergii_CBS_130017" data-bgc-count="96" data-x="875.0" data-width="230.0">
+<rect x="875.00" y="621.50" width="31.05" height="13" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus sergii CBS 130017 — NRPS: 27 of 96 BGCs</title></rect>
+<rect x="906.05" y="621.50" width="26.45" height="13" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus sergii CBS 130017 — PKS: 23 of 96 BGCs</title></rect>
+<rect x="932.50" y="621.50" width="26.45" height="13" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus sergii CBS 130017 — terpene: 23 of 96 BGCs</title></rect>
+<rect x="958.95" y="621.50" width="1.15" height="13" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus sergii CBS 130017 — RiPP: 1 of 96 BGCs</title></rect>
+<rect x="960.10" y="621.50" width="16.10" height="13" fill="#82775B" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus sergii CBS 130017 — hybrid: 14 of 96 BGCs</title></rect>
+<rect x="976.20" y="621.50" width="9.20" height="13" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus sergii CBS 130017 — other: 8 of 96 BGCs</title></rect>
+</g>
+<text x="1114.0" y="632.2" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="start" fill="#222222">96</text>
+<g class="gcf-profile" data-genome="Aspergillus_sergii_CBS_130017" data-gcf-count="96" data-x="1148.0" data-width="92.0">
+<title>Aspergillus sergii CBS 130017 — shared-GCF percentage: 83 unique GCFs found in this genome and at least one other submitted genome, divided by all 96 unique GCFs assigned to this genome.</title>
+<rect x="1148.00" y="621.50" width="79.54" height="13" fill="#1F77B4" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus sergii CBS 130017 — same-domain shared: 83 unique GCFs (86.5% of this genome&apos;s 96 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+<rect x="1227.54" y="621.50" width="12.46" height="13" fill="#DADADA" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus sergii CBS 130017 — dataset singleton: 13 unique GCFs (13.5% of this genome&apos;s 96 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+</g>
+<text x="1249.00" y="632.20" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" fill="#222222"><title>83 of 96 unique GCFs are also found in at least one other submitted genome; this percentage is dataset-relative.</title>86.5%</text>
+<circle cx="465" cy="658.00" r="2.5" fill="#333333"/>
+<circle cx="487.5" cy="658.00" r="8.5" fill="#FFFFFF" stroke="#333333" stroke-width="1.1"/>
+<text x="487.5" y="661.5" font-family="Arial, Helvetica, sans-serif" font-size="9.5" font-weight="800" text-anchor="middle" fill="#111111">18</text>
+<text class="leaf-label" x="505" y="662.60" font-family="Arial, Helvetica, sans-serif" font-size="14.0" font-weight="700" fill="#222222"><title>Aspergillus tamarii CBS 117626 — internal genome ID: Aspergillus_tamarii_CBS_117626 — saved taxonomy lineage</title><tspan font-style="italic">Aspergillus tamarii</tspan><tspan>&#160;CBS 117626</tspan></text>
+<g class="bgc-profile" data-genome="Aspergillus_tamarii_CBS_117626" data-bgc-count="103" data-x="875.0" data-width="230.0">
+<rect x="875.00" y="651.50" width="39.10" height="13" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus tamarii CBS 117626 — NRPS: 34 of 103 BGCs</title></rect>
+<rect x="914.10" y="651.50" width="26.45" height="13" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus tamarii CBS 117626 — PKS: 23 of 103 BGCs</title></rect>
+<rect x="940.55" y="651.50" width="28.75" height="13" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus tamarii CBS 117626 — terpene: 25 of 103 BGCs</title></rect>
+<rect x="969.30" y="651.50" width="1.15" height="13" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus tamarii CBS 117626 — RiPP: 1 of 103 BGCs</title></rect>
+<rect x="970.45" y="651.50" width="10.35" height="13" fill="#82775B" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus tamarii CBS 117626 — hybrid: 9 of 103 BGCs</title></rect>
+<rect x="980.80" y="651.50" width="12.65" height="13" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus tamarii CBS 117626 — other: 11 of 103 BGCs</title></rect>
+</g>
+<text x="1114.0" y="662.2" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="start" fill="#222222">103</text>
+<g class="gcf-profile" data-genome="Aspergillus_tamarii_CBS_117626" data-gcf-count="100" data-x="1148.0" data-width="92.0">
+<title>Aspergillus tamarii CBS 117626 — shared-GCF percentage: 74 unique GCFs found in this genome and at least one other submitted genome, divided by all 100 unique GCFs assigned to this genome.</title>
+<rect x="1148.00" y="651.50" width="68.08" height="13" fill="#1F77B4" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus tamarii CBS 117626 — same-domain shared: 74 unique GCFs (74.0% of this genome&apos;s 100 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+<rect x="1216.08" y="651.50" width="23.92" height="13" fill="#DADADA" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus tamarii CBS 117626 — dataset singleton: 26 unique GCFs (26.0% of this genome&apos;s 100 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+</g>
+<text x="1249.00" y="662.20" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" fill="#222222"><title>74 of 100 unique GCFs are also found in at least one other submitted genome; this percentage is dataset-relative.</title>74.0%</text>
+<circle cx="465" cy="688.00" r="2.5" fill="#333333"/>
+<circle cx="487.5" cy="688.00" r="8.5" fill="#FFFFFF" stroke="#333333" stroke-width="1.1"/>
+<text x="487.5" y="691.5" font-family="Arial, Helvetica, sans-serif" font-size="9.5" font-weight="800" text-anchor="middle" fill="#111111">19</text>
+<text class="leaf-label" x="505" y="692.60" font-family="Arial, Helvetica, sans-serif" font-size="14.0" font-weight="700" fill="#222222"><title>Aspergillus transmontanensis CBS 130015 — internal genome ID: Aspergillus_transmontanensis_CBS_130015 — saved taxonomy lineage</title><tspan font-style="italic">Aspergillus transmontanensis</tspan><tspan>&#160;CBS 130015</tspan></text>
+<g class="bgc-profile" data-genome="Aspergillus_transmontanensis_CBS_130015" data-bgc-count="95" data-x="875.0" data-width="230.0">
+<rect x="875.00" y="681.50" width="24.15" height="13" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus transmontanensis CBS 130015 — NRPS: 21 of 95 BGCs</title></rect>
+<rect x="899.15" y="681.50" width="29.90" height="13" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus transmontanensis CBS 130015 — PKS: 26 of 95 BGCs</title></rect>
+<rect x="929.05" y="681.50" width="29.90" height="13" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus transmontanensis CBS 130015 — terpene: 26 of 95 BGCs</title></rect>
+<rect x="958.95" y="681.50" width="1.15" height="13" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus transmontanensis CBS 130015 — RiPP: 1 of 95 BGCs</title></rect>
+<rect x="960.10" y="681.50" width="17.25" height="13" fill="#82775B" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus transmontanensis CBS 130015 — hybrid: 15 of 95 BGCs</title></rect>
+<rect x="977.35" y="681.50" width="6.90" height="13" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus transmontanensis CBS 130015 — other: 6 of 95 BGCs</title></rect>
+</g>
+<text x="1114.0" y="692.2" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="start" fill="#222222">95</text>
+<g class="gcf-profile" data-genome="Aspergillus_transmontanensis_CBS_130015" data-gcf-count="95" data-x="1148.0" data-width="92.0">
+<title>Aspergillus transmontanensis CBS 130015 — shared-GCF percentage: 86 unique GCFs found in this genome and at least one other submitted genome, divided by all 95 unique GCFs assigned to this genome.</title>
+<rect x="1148.00" y="681.50" width="83.28" height="13" fill="#1F77B4" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus transmontanensis CBS 130015 — same-domain shared: 86 unique GCFs (90.5% of this genome&apos;s 95 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+<rect x="1231.28" y="681.50" width="8.72" height="13" fill="#DADADA" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus transmontanensis CBS 130015 — dataset singleton: 9 unique GCFs (9.5% of this genome&apos;s 95 unique GCFs); dataset-relative to the submitted genomes.</title></rect>
+</g>
+<text x="1249.00" y="692.20" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" fill="#222222"><title>86 of 95 unique GCFs are also found in at least one other submitted genome; this percentage is dataset-relative.</title>90.5%</text>
+</g>
+</g>
+<g id="panel-b" aria-label="Pairwise GCF sharing">
+<text x="1521.00" y="76" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700" fill="#222222"><title>GCFs present in both genomes divided by the nonredundant union of GCFs present in either genome.</title>GCF overlap · Jaccard %</text>
+<rect x="1521.00" y="90" width="191.52" height="10" fill="url(#jaccardGradient)" stroke="#B8B8B8" stroke-width="0.8"/>
+<text x="1521.0" y="120.0" font-family="Arial, Helvetica, sans-serif" font-size="10.5" font-weight="700" text-anchor="middle" fill="#444444">0%</text>
+<text x="1712.5" y="120.0" font-family="Arial, Helvetica, sans-serif" font-size="10.5" font-weight="700" text-anchor="middle" fill="#444444">85%</text>
+<text x="1749.0" y="136.0" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#222222">Fungi</text>
+<line x1="1521.00" y1="141.00" x2="1977.00" y2="141.00" stroke="#B8B8B8" stroke-width="0.8"/>
+<rect x="1521.00" y="158.00" width="456.00" height="456.00" fill="#FFFFFF" stroke="#222222" stroke-width="1"/>
+<rect x="1521.00" y="158.00" width="24.00" height="24.00" fill="#F2F2F2"/>
+<rect x="1545.00" y="158.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1569.00" y="158.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1593.00" y="158.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1617.00" y="158.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1641.00" y="158.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1665.00" y="158.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1689.00" y="158.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1713.00" y="158.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1737.00" y="158.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1761.00" y="158.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1785.00" y="158.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1809.00" y="158.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1833.00" y="158.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1857.00" y="158.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1881.00" y="158.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1905.00" y="158.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1929.00" y="158.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1953.00" y="158.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1521.00" y="182.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1545.00" y="182.00" width="24.00" height="24.00" fill="#F2F2F2"/>
+<rect x="1569.00" y="182.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1593.00" y="182.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1617.00" y="182.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1641.00" y="182.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1665.00" y="182.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1689.00" y="182.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1713.00" y="182.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1737.00" y="182.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1761.00" y="182.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1785.00" y="182.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1809.00" y="182.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1833.00" y="182.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1857.00" y="182.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1881.00" y="182.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1905.00" y="182.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1929.00" y="182.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1953.00" y="182.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1521.00" y="206.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1545.00" y="206.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1569.00" y="206.00" width="24.00" height="24.00" fill="#F2F2F2"/>
+<rect x="1593.00" y="206.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1617.00" y="206.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1641.00" y="206.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1665.00" y="206.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1689.00" y="206.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1713.00" y="206.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1737.00" y="206.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1761.00" y="206.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1785.00" y="206.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1809.00" y="206.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1833.00" y="206.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1857.00" y="206.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1881.00" y="206.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1905.00" y="206.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1929.00" y="206.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1953.00" y="206.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1521.00" y="230.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1545.00" y="230.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1569.00" y="230.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1593.00" y="230.00" width="24.00" height="24.00" fill="#F2F2F2"/>
+<rect x="1617.00" y="230.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1641.00" y="230.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1665.00" y="230.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1689.00" y="230.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1713.00" y="230.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1737.00" y="230.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1761.00" y="230.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1785.00" y="230.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1809.00" y="230.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1833.00" y="230.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1857.00" y="230.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1881.00" y="230.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1905.00" y="230.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1929.00" y="230.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1953.00" y="230.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1521.00" y="254.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1545.00" y="254.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1569.00" y="254.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1593.00" y="254.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1617.00" y="254.00" width="24.00" height="24.00" fill="#F2F2F2"/>
+<rect x="1641.00" y="254.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1665.00" y="254.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1689.00" y="254.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1713.00" y="254.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1737.00" y="254.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1761.00" y="254.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1785.00" y="254.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1809.00" y="254.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1833.00" y="254.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1857.00" y="254.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1881.00" y="254.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1905.00" y="254.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1929.00" y="254.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1953.00" y="254.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1521.00" y="278.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1545.00" y="278.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1569.00" y="278.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1593.00" y="278.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1617.00" y="278.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1641.00" y="278.00" width="24.00" height="24.00" fill="#F2F2F2"/>
+<rect x="1665.00" y="278.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1689.00" y="278.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1713.00" y="278.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1737.00" y="278.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1761.00" y="278.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1785.00" y="278.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1809.00" y="278.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1833.00" y="278.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1857.00" y="278.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1881.00" y="278.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1905.00" y="278.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1929.00" y="278.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1953.00" y="278.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1521.00" y="302.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1545.00" y="302.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1569.00" y="302.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1593.00" y="302.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1617.00" y="302.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1641.00" y="302.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1665.00" y="302.00" width="24.00" height="24.00" fill="#F2F2F2"/>
+<rect x="1689.00" y="302.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1713.00" y="302.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1737.00" y="302.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1761.00" y="302.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1785.00" y="302.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1809.00" y="302.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1833.00" y="302.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1857.00" y="302.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1881.00" y="302.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1905.00" y="302.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1929.00" y="302.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1953.00" y="302.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1521.00" y="326.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1545.00" y="326.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1569.00" y="326.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1593.00" y="326.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1617.00" y="326.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1641.00" y="326.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1665.00" y="326.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1689.00" y="326.00" width="24.00" height="24.00" fill="#F2F2F2"/>
+<rect x="1713.00" y="326.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1737.00" y="326.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1761.00" y="326.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1785.00" y="326.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1809.00" y="326.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1833.00" y="326.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1857.00" y="326.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1881.00" y="326.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1905.00" y="326.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1929.00" y="326.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1953.00" y="326.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1521.00" y="350.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1545.00" y="350.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1569.00" y="350.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1593.00" y="350.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1617.00" y="350.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1641.00" y="350.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1665.00" y="350.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1689.00" y="350.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1713.00" y="350.00" width="24.00" height="24.00" fill="#F2F2F2"/>
+<rect x="1737.00" y="350.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1761.00" y="350.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1785.00" y="350.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1809.00" y="350.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1833.00" y="350.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1857.00" y="350.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1881.00" y="350.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1905.00" y="350.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1929.00" y="350.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1953.00" y="350.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1521.00" y="374.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1545.00" y="374.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1569.00" y="374.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1593.00" y="374.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1617.00" y="374.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1641.00" y="374.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1665.00" y="374.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1689.00" y="374.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1713.00" y="374.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1737.00" y="374.00" width="24.00" height="24.00" fill="#F2F2F2"/>
+<rect x="1761.00" y="374.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1785.00" y="374.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1809.00" y="374.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1833.00" y="374.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1857.00" y="374.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1881.00" y="374.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1905.00" y="374.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1929.00" y="374.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1953.00" y="374.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1521.00" y="398.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1545.00" y="398.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1569.00" y="398.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1593.00" y="398.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1617.00" y="398.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1641.00" y="398.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1665.00" y="398.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1689.00" y="398.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1713.00" y="398.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1737.00" y="398.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1761.00" y="398.00" width="24.00" height="24.00" fill="#F2F2F2"/>
+<rect x="1785.00" y="398.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1809.00" y="398.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1833.00" y="398.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1857.00" y="398.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1881.00" y="398.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1905.00" y="398.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1929.00" y="398.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1953.00" y="398.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1521.00" y="422.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1545.00" y="422.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1569.00" y="422.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1593.00" y="422.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1617.00" y="422.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1641.00" y="422.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1665.00" y="422.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1689.00" y="422.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1713.00" y="422.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1737.00" y="422.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1761.00" y="422.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1785.00" y="422.00" width="24.00" height="24.00" fill="#F2F2F2"/>
+<rect x="1809.00" y="422.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1833.00" y="422.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1857.00" y="422.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1881.00" y="422.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1905.00" y="422.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1929.00" y="422.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1953.00" y="422.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1521.00" y="446.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1545.00" y="446.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1569.00" y="446.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1593.00" y="446.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1617.00" y="446.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1641.00" y="446.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1665.00" y="446.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1689.00" y="446.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1713.00" y="446.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1737.00" y="446.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1761.00" y="446.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1785.00" y="446.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1809.00" y="446.00" width="24.00" height="24.00" fill="#F2F2F2"/>
+<rect x="1833.00" y="446.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1857.00" y="446.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1881.00" y="446.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1905.00" y="446.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1929.00" y="446.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1953.00" y="446.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1521.00" y="470.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1545.00" y="470.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1569.00" y="470.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1593.00" y="470.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1617.00" y="470.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1641.00" y="470.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1665.00" y="470.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1689.00" y="470.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1713.00" y="470.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1737.00" y="470.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1761.00" y="470.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1785.00" y="470.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1809.00" y="470.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1833.00" y="470.00" width="24.00" height="24.00" fill="#F2F2F2"/>
+<rect x="1857.00" y="470.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1881.00" y="470.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1905.00" y="470.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1929.00" y="470.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1953.00" y="470.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1521.00" y="494.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1545.00" y="494.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1569.00" y="494.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1593.00" y="494.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1617.00" y="494.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1641.00" y="494.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1665.00" y="494.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1689.00" y="494.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1713.00" y="494.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1737.00" y="494.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1761.00" y="494.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1785.00" y="494.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1809.00" y="494.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1833.00" y="494.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1857.00" y="494.00" width="24.00" height="24.00" fill="#F2F2F2"/>
+<rect x="1881.00" y="494.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1905.00" y="494.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1929.00" y="494.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1953.00" y="494.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1521.00" y="518.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1545.00" y="518.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1569.00" y="518.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1593.00" y="518.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1617.00" y="518.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1641.00" y="518.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1665.00" y="518.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1689.00" y="518.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1713.00" y="518.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1737.00" y="518.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1761.00" y="518.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1785.00" y="518.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1809.00" y="518.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1833.00" y="518.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1857.00" y="518.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1881.00" y="518.00" width="24.00" height="24.00" fill="#F2F2F2"/>
+<rect x="1905.00" y="518.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1929.00" y="518.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1953.00" y="518.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1521.00" y="542.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1545.00" y="542.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1569.00" y="542.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1593.00" y="542.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1617.00" y="542.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1641.00" y="542.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1665.00" y="542.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1689.00" y="542.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1713.00" y="542.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1737.00" y="542.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1761.00" y="542.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1785.00" y="542.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1809.00" y="542.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1833.00" y="542.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1857.00" y="542.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1881.00" y="542.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1905.00" y="542.00" width="24.00" height="24.00" fill="#F2F2F2"/>
+<rect x="1929.00" y="542.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1953.00" y="542.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1521.00" y="566.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1545.00" y="566.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1569.00" y="566.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1593.00" y="566.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1617.00" y="566.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1641.00" y="566.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1665.00" y="566.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1689.00" y="566.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1713.00" y="566.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1737.00" y="566.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1761.00" y="566.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1785.00" y="566.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1809.00" y="566.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1833.00" y="566.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1857.00" y="566.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1881.00" y="566.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1905.00" y="566.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1929.00" y="566.00" width="24.00" height="24.00" fill="#F2F2F2"/>
+<rect x="1953.00" y="566.00" width="24.00" height="24.00" fill="#F6F6F6"/>
+<rect x="1521.00" y="590.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1545.00" y="590.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1569.00" y="590.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1593.00" y="590.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1617.00" y="590.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1641.00" y="590.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1665.00" y="590.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1689.00" y="590.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1713.00" y="590.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1737.00" y="590.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1761.00" y="590.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1785.00" y="590.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1809.00" y="590.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1833.00" y="590.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1857.00" y="590.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1881.00" y="590.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1905.00" y="590.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1929.00" y="590.00" width="24.00" height="24.00" fill="#FFFFFF"/>
+<rect x="1953.00" y="590.00" width="24.00" height="24.00" fill="#F2F2F2"/>
+<text x="1533.0" y="152.0" font-family="Arial, Helvetica, sans-serif" font-size="9.5" font-weight="700" text-anchor="middle" fill="#222222">01</text>
+<text x="1504.0" y="173.2" font-family="Arial, Helvetica, sans-serif" font-size="9.5" font-weight="700" text-anchor="end" fill="#222222">01</text>
+<text x="1629.0" y="152.0" font-family="Arial, Helvetica, sans-serif" font-size="9.5" font-weight="700" text-anchor="middle" fill="#222222">05</text>
+<text x="1504.0" y="269.2" font-family="Arial, Helvetica, sans-serif" font-size="9.5" font-weight="700" text-anchor="end" fill="#222222">05</text>
+<text x="1749.0" y="152.0" font-family="Arial, Helvetica, sans-serif" font-size="9.5" font-weight="700" text-anchor="middle" fill="#222222">10</text>
+<text x="1504.0" y="389.2" font-family="Arial, Helvetica, sans-serif" font-size="9.5" font-weight="700" text-anchor="end" fill="#222222">10</text>
+<text x="1869.0" y="152.0" font-family="Arial, Helvetica, sans-serif" font-size="9.5" font-weight="700" text-anchor="middle" fill="#222222">15</text>
+<text x="1504.0" y="509.2" font-family="Arial, Helvetica, sans-serif" font-size="9.5" font-weight="700" text-anchor="end" fill="#222222">15</text>
+<text x="1965.0" y="152.0" font-family="Arial, Helvetica, sans-serif" font-size="9.5" font-weight="700" text-anchor="middle" fill="#222222">19</text>
+<text x="1504.0" y="605.2" font-family="Arial, Helvetica, sans-serif" font-size="9.5" font-weight="700" text-anchor="end" fill="#222222">19</text>
+<line class="matrix-grid" x1="1521.00" y1="158.00" x2="1521.00" y2="614.00"/>
+<line class="matrix-grid" x1="1521.00" y1="158.00" x2="1977.00" y2="158.00"/>
+<line class="matrix-grid" x1="1641.00" y1="158.00" x2="1641.00" y2="614.00"/>
+<line class="matrix-grid" x1="1521.00" y1="278.00" x2="1977.00" y2="278.00"/>
+<line class="matrix-grid" x1="1761.00" y1="158.00" x2="1761.00" y2="614.00"/>
+<line class="matrix-grid" x1="1521.00" y1="398.00" x2="1977.00" y2="398.00"/>
+<line class="matrix-grid" x1="1881.00" y1="158.00" x2="1881.00" y2="614.00"/>
+<line class="matrix-grid" x1="1521.00" y1="518.00" x2="1977.00" y2="518.00"/>
+<rect class="gcf-pair" x="1833.75" y="494.75" width="22.50" height="22.50" fill="#247AB6" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus pseudonomiae CBS 119388 ↔ Aspergillus pseudonomiae IBT 12657 — GCF overlap 81.2% (Jaccard); 82 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 23 (28.0%), PKS 21 (25.6%), terpene 21 (25.6%), RiPP 2 (2.4%), hybrid 8 (9.8%), other 7 (8.5%)</title></rect>
+<rect class="gcf-pair" x="1641.75" y="446.75" width="22.50" height="22.50" fill="#3081BA" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus caelatus CBS 763.97 ↔ Aspergillus pseudocaelatus CBS 117616 — GCF overlap 71.1% (Jaccard); 81 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 25 (30.9%), PKS 15 (18.5%), terpene 22 (27.2%), RiPP 1 (1.2%), hybrid 12 (14.8%), other 6 (7.4%)</title></rect>
+<rect class="gcf-pair" x="1521.75" y="182.75" width="22.50" height="22.50" fill="#3E89BE" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus alliaceus CBS 536.65 ↔ Aspergillus alliaceus IBT 14317 — GCF overlap 60.8% (Jaccard); 73 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 14 (19.2%), PKS 25 (34.2%), terpene 16 (21.9%), hybrid 13 (17.8%), other 5 (6.8%)</title></rect>
+<rect class="gcf-pair" x="1785.75" y="590.75" width="22.50" height="22.50" fill="#428BC0" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus parasiticus CBS 117618 ↔ Aspergillus transmontanensis CBS 130015 — GCF overlap 58.2% (Jaccard); 71 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 14 (19.7%), PKS 20 (28.2%), terpene 20 (28.2%), RiPP 1 (1.4%), hybrid 9 (12.7%), other 7 (9.9%)</title></rect>
+<rect class="gcf-pair" x="1905.75" y="590.75" width="22.50" height="22.50" fill="#468EC1" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus sergii CBS 130017 ↔ Aspergillus transmontanensis CBS 130015 — GCF overlap 55.3% (Jaccard); 68 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 17 (25.0%), PKS 19 (27.9%), terpene 19 (27.9%), RiPP 1 (1.5%), hybrid 7 (10.3%), other 5 (7.4%)</title></rect>
+<rect class="gcf-pair" x="1689.75" y="374.75" width="22.50" height="22.50" fill="#4990C2" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus flavus CBS 121.62 ↔ Aspergillus minisclerotigenes CBS 117635 — GCF overlap 53.1% (Jaccard); 60 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 13 (21.7%), PKS 13 (21.7%), terpene 18 (30.0%), RiPP 1 (1.7%), hybrid 8 (13.3%), other 7 (11.7%)</title></rect>
+<rect class="gcf-pair" x="1761.75" y="542.75" width="22.50" height="22.50" fill="#4A90C3" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus novoparasiticus CBS 126849 ↔ Aspergillus sergii CBS 130017 — GCF overlap 52.5% (Jaccard); 64 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 15 (23.4%), PKS 18 (28.1%), terpene 18 (28.1%), RiPP 1 (1.6%), hybrid 6 (9.4%), other 6 (9.4%)</title></rect>
+<rect class="gcf-pair" x="1569.75" y="422.75" width="22.50" height="22.50" fill="#4B91C3" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus arachidicola CBS 117612 ↔ Aspergillus parasiticus CBS 117618 — GCF overlap 52.1% (Jaccard); 62 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 15 (24.2%), PKS 14 (22.6%), terpene 16 (25.8%), RiPP 1 (1.6%), hybrid 10 (16.1%), other 6 (9.7%)</title></rect>
+<rect class="gcf-pair" x="1641.75" y="518.75" width="22.50" height="22.50" fill="#4B91C3" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus caelatus CBS 763.97 ↔ Aspergillus pseudotamarii CBS 117625 — GCF overlap 51.9% (Jaccard); 68 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 18 (26.5%), PKS 15 (22.1%), terpene 19 (27.9%), hybrid 9 (13.2%), other 7 (10.3%)</title></rect>
+<rect class="gcf-pair" x="1761.75" y="422.75" width="22.50" height="22.50" fill="#4B91C3" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus novoparasiticus CBS 126849 ↔ Aspergillus parasiticus CBS 117618 — GCF overlap 51.6% (Jaccard); 64 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 12 (18.8%), PKS 15 (23.4%), terpene 19 (29.7%), RiPP 1 (1.6%), hybrid 8 (12.5%), other 9 (14.1%)</title></rect>
+<rect class="gcf-pair" x="1569.75" y="590.75" width="22.50" height="22.50" fill="#4D92C3" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus arachidicola CBS 117612 ↔ Aspergillus transmontanensis CBS 130015 — GCF overlap 50.8% (Jaccard); 60 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 15 (25.0%), PKS 13 (21.7%), terpene 17 (28.3%), RiPP 1 (1.7%), hybrid 8 (13.3%), other 6 (10.0%)</title></rect>
+<rect class="gcf-pair" x="1761.75" y="590.75" width="22.50" height="22.50" fill="#4D92C4" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus novoparasiticus CBS 126849 ↔ Aspergillus transmontanensis CBS 130015 — GCF overlap 50.4% (Jaccard); 62 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 13 (21.0%), PKS 15 (24.2%), terpene 18 (29.0%), RiPP 1 (1.6%), hybrid 8 (12.9%), other 7 (11.3%)</title></rect>
+<rect class="gcf-pair" x="1785.75" y="542.75" width="22.50" height="22.50" fill="#4D92C4" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus parasiticus CBS 117618 ↔ Aspergillus sergii CBS 130017 — GCF overlap 50.4% (Jaccard); 65 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 18 (27.7%), PKS 17 (26.2%), terpene 17 (26.2%), RiPP 1 (1.5%), hybrid 6 (9.2%), other 6 (9.2%)</title></rect>
+<rect class="gcf-pair" x="1737.75" y="398.75" width="22.50" height="22.50" fill="#4E93C4" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus minisclerotigenes CBS 117635 ↔ Aspergillus novoparasiticus CBS 126849 — GCF overlap 49.6% (Jaccard); 60 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 13 (21.7%), PKS 17 (28.3%), terpene 15 (25.0%), RiPP 1 (1.7%), hybrid 7 (11.7%), other 7 (11.7%)</title></rect>
+<rect class="gcf-pair" x="1689.75" y="398.75" width="22.50" height="22.50" fill="#4F93C4" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus flavus CBS 121.62 ↔ Aspergillus novoparasiticus CBS 126849 — GCF overlap 49.6% (Jaccard); 57 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 13 (22.8%), PKS 12 (21.1%), terpene 17 (29.8%), RiPP 1 (1.8%), hybrid 7 (12.3%), other 7 (12.3%)</title></rect>
+<rect class="gcf-pair" x="1809.75" y="518.75" width="22.50" height="22.50" fill="#5094C4" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus pseudocaelatus CBS 117616 ↔ Aspergillus pseudotamarii CBS 117625 — GCF overlap 48.8% (Jaccard); 63 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 18 (28.6%), PKS 14 (22.2%), terpene 17 (27.0%), hybrid 8 (12.7%), other 6 (9.5%)</title></rect>
+<rect class="gcf-pair" x="1689.75" y="590.75" width="22.50" height="22.50" fill="#5094C5" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus flavus CBS 121.62 ↔ Aspergillus transmontanensis CBS 130015 — GCF overlap 48.7% (Jaccard); 58 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 13 (22.4%), PKS 12 (20.7%), terpene 18 (31.0%), RiPP 1 (1.7%), hybrid 7 (12.1%), other 7 (12.1%)</title></rect>
+<rect class="gcf-pair" x="1689.75" y="422.75" width="22.50" height="22.50" fill="#5295C5" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus flavus CBS 121.62 ↔ Aspergillus parasiticus CBS 117618 — GCF overlap 47.5% (Jaccard); 58 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 15 (25.9%), PKS 12 (20.7%), terpene 16 (27.6%), RiPP 1 (1.7%), hybrid 7 (12.1%), other 7 (12.1%)</title></rect>
+<rect class="gcf-pair" x="1569.75" y="398.75" width="22.50" height="22.50" fill="#5396C6" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus arachidicola CBS 117612 ↔ Aspergillus novoparasiticus CBS 126849 — GCF overlap 46.6% (Jaccard); 55 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 13 (23.6%), PKS 13 (23.6%), terpene 15 (27.3%), RiPP 1 (1.8%), hybrid 7 (12.7%), other 6 (10.9%)</title></rect>
+<rect class="gcf-pair" x="1569.75" y="374.75" width="22.50" height="22.50" fill="#5496C6" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus arachidicola CBS 117612 ↔ Aspergillus minisclerotigenes CBS 117635 — GCF overlap 46.2% (Jaccard); 55 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 13 (23.6%), PKS 11 (20.0%), terpene 17 (30.9%), RiPP 1 (1.8%), hybrid 7 (12.7%), other 6 (10.9%)</title></rect>
+<rect class="gcf-pair" x="1569.75" y="326.75" width="22.50" height="22.50" fill="#5496C6" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus arachidicola CBS 117612 ↔ Aspergillus flavus CBS 121.62 — GCF overlap 46.0% (Jaccard); 52 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 13 (25.0%), PKS 10 (19.2%), terpene 15 (28.8%), RiPP 1 (1.9%), hybrid 7 (13.5%), other 6 (11.5%)</title></rect>
+<rect class="gcf-pair" x="1689.75" y="542.75" width="22.50" height="22.50" fill="#5496C6" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus flavus CBS 121.62 ↔ Aspergillus sergii CBS 130017 — GCF overlap 45.9% (Jaccard); 56 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 15 (26.8%), PKS 12 (21.4%), terpene 18 (32.1%), RiPP 1 (1.8%), hybrid 5 (8.9%), other 5 (8.9%)</title></rect>
+<rect class="gcf-pair" x="1737.75" y="422.75" width="22.50" height="22.50" fill="#5597C6" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus minisclerotigenes CBS 117635 ↔ Aspergillus parasiticus CBS 117618 — GCF overlap 45.4% (Jaccard); 59 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 12 (20.3%), PKS 14 (23.7%), terpene 17 (28.8%), RiPP 1 (1.7%), hybrid 8 (13.6%), other 7 (11.9%)</title></rect>
+<rect class="gcf-pair" x="1737.75" y="590.75" width="22.50" height="22.50" fill="#5597C6" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus minisclerotigenes CBS 117635 ↔ Aspergillus transmontanensis CBS 130015 — GCF overlap 45.3% (Jaccard); 58 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 13 (22.4%), PKS 14 (24.1%), terpene 16 (27.6%), RiPP 1 (1.7%), hybrid 7 (12.1%), other 7 (12.1%)</title></rect>
+<rect class="gcf-pair" x="1569.75" y="542.75" width="22.50" height="22.50" fill="#5798C7" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus arachidicola CBS 117612 ↔ Aspergillus sergii CBS 130017 — GCF overlap 44.4% (Jaccard); 55 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 16 (29.1%), PKS 13 (23.6%), terpene 15 (27.3%), RiPP 1 (1.8%), hybrid 5 (9.1%), other 5 (9.1%)</title></rect>
+<rect class="gcf-pair" x="1737.75" y="542.75" width="22.50" height="22.50" fill="#5898C7" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus minisclerotigenes CBS 117635 ↔ Aspergillus sergii CBS 130017 — GCF overlap 43.8% (Jaccard); 57 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 14 (24.6%), PKS 15 (26.3%), terpene 16 (28.1%), RiPP 1 (1.8%), hybrid 6 (10.5%), other 5 (8.8%)</title></rect>
+<rect class="gcf-pair" x="1809.75" y="566.75" width="22.50" height="22.50" fill="#5B9AC8" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus pseudocaelatus CBS 117616 ↔ Aspergillus tamarii CBS 117626 — GCF overlap 41.6% (Jaccard); 57 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 17 (29.8%), PKS 13 (22.8%), terpene 15 (26.3%), RiPP 1 (1.8%), hybrid 5 (8.8%), other 6 (10.5%)</title></rect>
+<rect class="gcf-pair" x="1641.75" y="566.75" width="22.50" height="22.50" fill="#619DCA" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus caelatus CBS 763.97 ↔ Aspergillus tamarii CBS 117626 — GCF overlap 38.6% (Jaccard); 56 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 17 (30.4%), PKS 12 (21.4%), terpene 14 (25.0%), RiPP 1 (1.8%), hybrid 5 (8.9%), other 7 (12.5%)</title></rect>
+<rect class="gcf-pair" x="1881.75" y="566.75" width="22.50" height="22.50" fill="#64A0CB" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus pseudotamarii CBS 117625 ↔ Aspergillus tamarii CBS 117626 — GCF overlap 36.6% (Jaccard); 53 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 16 (30.2%), PKS 9 (17.0%), terpene 15 (28.3%), hybrid 6 (11.3%), other 7 (13.2%)</title></rect>
+<rect class="gcf-pair" x="1689.75" y="446.75" width="22.50" height="22.50" fill="#6AA3CD" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus flavus CBS 121.62 ↔ Aspergillus pseudocaelatus CBS 117616 — GCF overlap 33.3% (Jaccard); 44 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 11 (25.0%), PKS 9 (20.5%), terpene 14 (31.8%), hybrid 5 (11.4%), other 5 (11.4%)</title></rect>
+<rect class="gcf-pair" x="1689.75" y="566.75" width="22.50" height="22.50" fill="#6BA4CE" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus flavus CBS 121.62 ↔ Aspergillus tamarii CBS 117626 — GCF overlap 32.8% (Jaccard); 45 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 13 (28.9%), PKS 11 (24.4%), terpene 12 (26.7%), hybrid 3 (6.7%), other 6 (13.3%)</title></rect>
+<rect class="gcf-pair" x="1641.75" y="326.75" width="22.50" height="22.50" fill="#6DA5CF" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus caelatus CBS 763.97 ↔ Aspergillus flavus CBS 121.62 — GCF overlap 31.7% (Jaccard); 44 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 11 (25.0%), PKS 7 (15.9%), terpene 15 (34.1%), hybrid 6 (13.6%), other 5 (11.4%)</title></rect>
+<rect class="gcf-pair" x="1689.75" y="518.75" width="22.50" height="22.50" fill="#6EA5CF" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus flavus CBS 121.62 ↔ Aspergillus pseudotamarii CBS 117625 — GCF overlap 31.4% (Jaccard); 43 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 11 (25.6%), PKS 7 (16.3%), terpene 14 (32.6%), hybrid 6 (14.0%), other 5 (11.6%)</title></rect>
+<rect class="gcf-pair" x="1737.75" y="518.75" width="22.50" height="22.50" fill="#6EA5CF" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus minisclerotigenes CBS 117635 ↔ Aspergillus pseudotamarii CBS 117625 — GCF overlap 31.2% (Jaccard); 45 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 12 (26.7%), PKS 6 (13.3%), terpene 15 (33.3%), hybrid 7 (15.6%), other 5 (11.1%)</title></rect>
+<rect class="gcf-pair" x="1569.75" y="518.75" width="22.50" height="22.50" fill="#6EA6CF" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus arachidicola CBS 117612 ↔ Aspergillus pseudotamarii CBS 117625 — GCF overlap 31.2% (Jaccard); 43 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 13 (30.2%), PKS 3 (7.0%), terpene 14 (32.6%), hybrid 8 (18.6%), other 5 (11.6%)</title></rect>
+<rect class="gcf-pair" x="1761.75" y="446.75" width="22.50" height="22.50" fill="#70A6CF" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus novoparasiticus CBS 126849 ↔ Aspergillus pseudocaelatus CBS 117616 — GCF overlap 30.5% (Jaccard); 43 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 14 (32.6%), PKS 7 (16.3%), terpene 12 (27.9%), hybrid 4 (9.3%), other 6 (14.0%)</title></rect>
+<rect class="gcf-pair" x="1641.75" y="590.75" width="22.50" height="22.50" fill="#71A7D0" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus caelatus CBS 763.97 ↔ Aspergillus transmontanensis CBS 130015 — GCF overlap 29.8% (Jaccard); 45 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 11 (24.4%), PKS 6 (13.3%), terpene 17 (37.8%), hybrid 6 (13.3%), other 5 (11.1%)</title></rect>
+<rect class="gcf-pair" x="1785.75" y="518.75" width="22.50" height="22.50" fill="#71A7D0" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus parasiticus CBS 117618 ↔ Aspergillus pseudotamarii CBS 117625 — GCF overlap 29.8% (Jaccard); 45 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 13 (28.9%), PKS 4 (8.9%), terpene 14 (31.1%), hybrid 8 (17.8%), other 6 (13.3%)</title></rect>
+<rect class="gcf-pair" x="1881.75" y="590.75" width="22.50" height="22.50" fill="#72A7D0" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus pseudotamarii CBS 117625 ↔ Aspergillus transmontanensis CBS 130015 — GCF overlap 29.5% (Jaccard); 44 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 11 (25.0%), PKS 6 (13.6%), terpene 15 (34.1%), hybrid 7 (15.9%), other 5 (11.4%)</title></rect>
+<rect class="gcf-pair" x="1809.75" y="590.75" width="22.50" height="22.50" fill="#72A8D0" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus pseudocaelatus CBS 117616 ↔ Aspergillus transmontanensis CBS 130015 — GCF overlap 29.5% (Jaccard); 43 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 11 (25.6%), PKS 8 (18.6%), terpene 14 (32.6%), hybrid 5 (11.6%), other 5 (11.6%)</title></rect>
+<rect class="gcf-pair" x="1641.75" y="398.75" width="22.50" height="22.50" fill="#72A8D0" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus caelatus CBS 763.97 ↔ Aspergillus novoparasiticus CBS 126849 — GCF overlap 29.1% (Jaccard); 43 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 14 (32.6%), PKS 5 (11.6%), terpene 13 (30.2%), hybrid 5 (11.6%), other 6 (14.0%)</title></rect>
+<rect class="gcf-pair" x="1737.75" y="566.75" width="22.50" height="22.50" fill="#72A8D0" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus minisclerotigenes CBS 117635 ↔ Aspergillus tamarii CBS 117626 — GCF overlap 29.1% (Jaccard); 43 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 12 (27.9%), PKS 10 (23.3%), terpene 12 (27.9%), hybrid 3 (7.0%), other 6 (14.0%)</title></rect>
+<rect class="gcf-pair" x="1569.75" y="278.75" width="22.50" height="22.50" fill="#73A8D1" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus arachidicola CBS 117612 ↔ Aspergillus caelatus CBS 763.97 — GCF overlap 28.7% (Jaccard); 41 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 13 (31.7%), PKS 3 (7.3%), terpene 14 (34.1%), hybrid 6 (14.6%), other 5 (12.2%)</title></rect>
+<rect class="gcf-pair" x="1761.75" y="566.75" width="22.50" height="22.50" fill="#74A9D1" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus novoparasiticus CBS 126849 ↔ Aspergillus tamarii CBS 117626 — GCF overlap 28.4% (Jaccard); 42 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 13 (31.0%), PKS 9 (21.4%), terpene 10 (23.8%), hybrid 2 (4.8%), other 8 (19.0%)</title></rect>
+<rect class="gcf-pair" x="1569.75" y="446.75" width="22.50" height="22.50" fill="#74A9D1" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus arachidicola CBS 117612 ↔ Aspergillus pseudocaelatus CBS 117616 — GCF overlap 28.3% (Jaccard); 39 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 12 (30.8%), PKS 5 (12.8%), terpene 12 (30.8%), hybrid 5 (12.8%), other 5 (12.8%)</title></rect>
+<rect class="gcf-pair" x="1641.75" y="374.75" width="22.50" height="22.50" fill="#75A9D1" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus caelatus CBS 763.97 ↔ Aspergillus minisclerotigenes CBS 117635 — GCF overlap 28.0% (Jaccard); 42 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 11 (26.2%), PKS 6 (14.3%), terpene 16 (38.1%), hybrid 4 (9.5%), other 5 (11.9%)</title></rect>
+<rect class="gcf-pair" x="1641.75" y="542.75" width="22.50" height="22.50" fill="#75A9D1" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus caelatus CBS 763.97 ↔ Aspergillus sergii CBS 130017 — GCF overlap 27.9% (Jaccard); 43 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 14 (32.6%), PKS 6 (14.0%), terpene 15 (34.9%), hybrid 4 (9.3%), other 4 (9.3%)</title></rect>
+<rect class="gcf-pair" x="1737.75" y="470.75" width="22.50" height="22.50" fill="#75AAD1" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus minisclerotigenes CBS 117635 ↔ Aspergillus pseudonomiae CBS 119388 — GCF overlap 27.8% (Jaccard); 40 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 10 (25.0%), PKS 9 (22.5%), terpene 14 (35.0%), RiPP 1 (2.5%), hybrid 2 (5.0%), other 4 (10.0%)</title></rect>
+<rect class="gcf-pair" x="1689.75" y="470.75" width="22.50" height="22.50" fill="#75AAD1" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus flavus CBS 121.62 ↔ Aspergillus pseudonomiae CBS 119388 — GCF overlap 27.7% (Jaccard); 38 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 10 (26.3%), PKS 7 (18.4%), terpene 14 (36.8%), RiPP 1 (2.6%), hybrid 2 (5.3%), other 4 (10.5%)</title></rect>
+<rect class="gcf-pair" x="1833.75" y="542.75" width="22.50" height="22.50" fill="#75AAD1" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus pseudonomiae CBS 119388 ↔ Aspergillus sergii CBS 130017 — GCF overlap 27.7% (Jaccard); 41 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 10 (24.4%), PKS 9 (22.0%), terpene 14 (34.1%), RiPP 1 (2.4%), hybrid 3 (7.3%), other 4 (9.8%)</title></rect>
+<rect class="gcf-pair" x="1737.75" y="446.75" width="22.50" height="22.50" fill="#75AAD1" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus minisclerotigenes CBS 117635 ↔ Aspergillus pseudocaelatus CBS 117616 — GCF overlap 27.6% (Jaccard); 40 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 10 (25.0%), PKS 8 (20.0%), terpene 14 (35.0%), hybrid 3 (7.5%), other 5 (12.5%)</title></rect>
+<rect class="gcf-pair" x="1641.75" y="422.75" width="22.50" height="22.50" fill="#76AAD1" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus caelatus CBS 763.97 ↔ Aspergillus parasiticus CBS 117618 — GCF overlap 27.6% (Jaccard); 43 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 12 (27.9%), PKS 4 (9.3%), terpene 15 (34.9%), hybrid 6 (14.0%), other 6 (14.0%)</title></rect>
+<rect class="gcf-pair" x="1737.75" y="494.75" width="22.50" height="22.50" fill="#76AAD1" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus minisclerotigenes CBS 117635 ↔ Aspergillus pseudonomiae IBT 12657 — GCF overlap 27.5% (Jaccard); 39 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 10 (25.6%), PKS 9 (23.1%), terpene 13 (33.3%), RiPP 1 (2.6%), hybrid 2 (5.1%), other 4 (10.3%)</title></rect>
+<rect class="gcf-pair" x="1929.75" y="590.75" width="22.50" height="22.50" fill="#76AAD1" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus tamarii CBS 117626 ↔ Aspergillus transmontanensis CBS 130015 — GCF overlap 27.5% (Jaccard); 42 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 13 (31.0%), PKS 10 (23.8%), terpene 11 (26.2%), hybrid 2 (4.8%), other 6 (14.3%)</title></rect>
+<rect class="gcf-pair" x="1689.75" y="494.75" width="22.50" height="22.50" fill="#76AAD1" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus flavus CBS 121.62 ↔ Aspergillus pseudonomiae IBT 12657 — GCF overlap 27.4% (Jaccard); 37 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 10 (27.0%), PKS 7 (18.9%), terpene 13 (35.1%), RiPP 1 (2.7%), hybrid 2 (5.4%), other 4 (10.8%)</title></rect>
+<rect class="gcf-pair" x="1905.75" y="566.75" width="22.50" height="22.50" fill="#76AAD1" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus sergii CBS 130017 ↔ Aspergillus tamarii CBS 117626 — GCF overlap 27.3% (Jaccard); 42 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 14 (33.3%), PKS 10 (23.8%), terpene 11 (26.2%), hybrid 2 (4.8%), other 5 (11.9%)</title></rect>
+<rect class="gcf-pair" x="1785.75" y="446.75" width="22.50" height="22.50" fill="#76AAD2" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus parasiticus CBS 117618 ↔ Aspergillus pseudocaelatus CBS 117616 — GCF overlap 27.2% (Jaccard); 41 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 12 (29.3%), PKS 6 (14.6%), terpene 12 (29.3%), hybrid 5 (12.2%), other 6 (14.6%)</title></rect>
+<rect class="gcf-pair" x="1569.75" y="566.75" width="22.50" height="22.50" fill="#77AAD2" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus arachidicola CBS 117612 ↔ Aspergillus tamarii CBS 117626 — GCF overlap 27.1% (Jaccard); 39 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 15 (38.5%), PKS 6 (15.4%), terpene 11 (28.2%), hybrid 2 (5.1%), other 5 (12.8%)</title></rect>
+<rect class="gcf-pair" x="1761.75" y="518.75" width="22.50" height="22.50" fill="#77AAD2" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus novoparasiticus CBS 126849 ↔ Aspergillus pseudotamarii CBS 117625 — GCF overlap 27.0% (Jaccard); 40 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 11 (27.5%), PKS 5 (12.5%), terpene 13 (32.5%), hybrid 5 (12.5%), other 6 (15.0%)</title></rect>
+<rect class="gcf-pair" x="1785.75" y="566.75" width="22.50" height="22.50" fill="#77ABD2" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus parasiticus CBS 117618 ↔ Aspergillus tamarii CBS 117626 — GCF overlap 26.9% (Jaccard); 42 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 14 (33.3%), PKS 8 (19.0%), terpene 10 (23.8%), hybrid 2 (4.8%), other 8 (19.0%)</title></rect>
+<rect class="gcf-pair" x="1641.75" y="470.75" width="22.50" height="22.50" fill="#77ABD2" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus caelatus CBS 763.97 ↔ Aspergillus pseudonomiae CBS 119388 — GCF overlap 26.8% (Jaccard); 41 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 11 (26.8%), PKS 10 (24.4%), terpene 14 (34.1%), RiPP 1 (2.4%), hybrid 2 (4.9%), other 3 (7.3%)</title></rect>
+<rect class="gcf-pair" x="1857.75" y="542.75" width="22.50" height="22.50" fill="#78ABD2" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus pseudonomiae IBT 12657 ↔ Aspergillus sergii CBS 130017 — GCF overlap 26.5% (Jaccard); 39 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 10 (25.6%), PKS 9 (23.1%), terpene 12 (30.8%), RiPP 1 (2.6%), hybrid 3 (7.7%), other 4 (10.3%)</title></rect>
+<rect class="gcf-pair" x="1641.75" y="494.75" width="22.50" height="22.50" fill="#78ABD2" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus caelatus CBS 763.97 ↔ Aspergillus pseudonomiae IBT 12657 — GCF overlap 26.5% (Jaccard); 40 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 10 (25.0%), PKS 10 (25.0%), terpene 14 (35.0%), RiPP 1 (2.5%), hybrid 2 (5.0%), other 3 (7.5%)</title></rect>
+<rect class="gcf-pair" x="1833.75" y="518.75" width="22.50" height="22.50" fill="#78ABD2" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus pseudonomiae CBS 119388 ↔ Aspergillus pseudotamarii CBS 117625 — GCF overlap 26.5% (Jaccard); 40 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 13 (32.5%), PKS 8 (20.0%), terpene 13 (32.5%), hybrid 3 (7.5%), other 3 (7.5%)</title></rect>
+<rect class="gcf-pair" x="1761.75" y="470.75" width="22.50" height="22.50" fill="#78ABD2" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus novoparasiticus CBS 126849 ↔ Aspergillus pseudonomiae CBS 119388 — GCF overlap 26.2% (Jaccard); 38 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 11 (28.9%), PKS 8 (21.1%), terpene 12 (31.6%), RiPP 1 (2.6%), hybrid 2 (5.3%), other 4 (10.5%)</title></rect>
+<rect class="gcf-pair" x="1833.75" y="590.75" width="22.50" height="22.50" fill="#78ACD2" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus pseudonomiae CBS 119388 ↔ Aspergillus transmontanensis CBS 130015 — GCF overlap 26.2% (Jaccard); 39 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 9 (23.1%), PKS 8 (20.5%), terpene 15 (38.5%), RiPP 1 (2.6%), hybrid 2 (5.1%), other 4 (10.3%)</title></rect>
+<rect class="gcf-pair" x="1857.75" y="518.75" width="22.50" height="22.50" fill="#78ACD2" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus pseudonomiae IBT 12657 ↔ Aspergillus pseudotamarii CBS 117625 — GCF overlap 26.2% (Jaccard); 39 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 12 (30.8%), PKS 8 (20.5%), terpene 13 (33.3%), hybrid 3 (7.7%), other 3 (7.7%)</title></rect>
+<rect class="gcf-pair" x="1881.75" y="542.75" width="22.50" height="22.50" fill="#79ACD2" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus pseudotamarii CBS 117625 ↔ Aspergillus sergii CBS 130017 — GCF overlap 26.0% (Jaccard); 40 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 12 (30.0%), PKS 5 (12.5%), terpene 13 (32.5%), hybrid 6 (15.0%), other 4 (10.0%)</title></rect>
+<rect class="gcf-pair" x="1809.75" y="542.75" width="22.50" height="22.50" fill="#79ACD3" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus pseudocaelatus CBS 117616 ↔ Aspergillus sergii CBS 130017 — GCF overlap 25.8% (Jaccard); 39 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 12 (30.8%), PKS 7 (17.9%), terpene 13 (33.3%), hybrid 3 (7.7%), other 4 (10.3%)</title></rect>
+<rect class="gcf-pair" x="1569.75" y="494.75" width="22.50" height="22.50" fill="#7AADD3" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus arachidicola CBS 117612 ↔ Aspergillus pseudonomiae IBT 12657 — GCF overlap 25.4% (Jaccard); 35 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 10 (28.6%), PKS 6 (17.1%), terpene 12 (34.3%), RiPP 1 (2.9%), hybrid 2 (5.7%), other 4 (11.4%)</title></rect>
+<rect class="gcf-pair" x="1857.75" y="590.75" width="22.50" height="22.50" fill="#7BADD3" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus pseudonomiae IBT 12657 ↔ Aspergillus transmontanensis CBS 130015 — GCF overlap 25.0% (Jaccard); 37 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 9 (24.3%), PKS 8 (21.6%), terpene 13 (35.1%), RiPP 1 (2.7%), hybrid 2 (5.4%), other 4 (10.8%)</title></rect>
+<rect class="gcf-pair" x="1761.75" y="494.75" width="22.50" height="22.50" fill="#7BADD3" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus novoparasiticus CBS 126849 ↔ Aspergillus pseudonomiae IBT 12657 — GCF overlap 25.0% (Jaccard); 36 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 10 (27.8%), PKS 8 (22.2%), terpene 11 (30.6%), RiPP 1 (2.8%), hybrid 2 (5.6%), other 4 (11.1%)</title></rect>
+<rect class="gcf-pair" x="1569.75" y="470.75" width="22.50" height="22.50" fill="#7BADD3" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus arachidicola CBS 117612 ↔ Aspergillus pseudonomiae CBS 119388 — GCF overlap 24.8% (Jaccard); 35 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 9 (25.7%), PKS 6 (17.1%), terpene 13 (37.1%), RiPP 1 (2.9%), hybrid 2 (5.7%), other 4 (11.4%)</title></rect>
+<rect class="gcf-pair" x="1809.75" y="494.75" width="22.50" height="22.50" fill="#7CAED4" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus pseudocaelatus CBS 117616 ↔ Aspergillus pseudonomiae IBT 12657 — GCF overlap 24.3% (Jaccard); 36 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 10 (27.8%), PKS 8 (22.2%), terpene 12 (33.3%), RiPP 1 (2.8%), hybrid 2 (5.6%), other 3 (8.3%)</title></rect>
+<rect class="gcf-pair" x="1785.75" y="470.75" width="22.50" height="22.50" fill="#7DAED4" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus parasiticus CBS 117618 ↔ Aspergillus pseudonomiae CBS 119388 — GCF overlap 24.0% (Jaccard); 37 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 10 (27.0%), PKS 6 (16.2%), terpene 14 (37.8%), RiPP 1 (2.7%), hybrid 2 (5.4%), other 4 (10.8%)</title></rect>
+<rect class="gcf-pair" x="1809.75" y="470.75" width="22.50" height="22.50" fill="#7EAFD4" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus pseudocaelatus CBS 117616 ↔ Aspergillus pseudonomiae CBS 119388 — GCF overlap 23.8% (Jaccard); 36 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 11 (30.6%), PKS 8 (22.2%), terpene 11 (30.6%), RiPP 1 (2.8%), hybrid 2 (5.6%), other 3 (8.3%)</title></rect>
+<rect class="gcf-pair" x="1785.75" y="494.75" width="22.50" height="22.50" fill="#7EAFD4" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus parasiticus CBS 117618 ↔ Aspergillus pseudonomiae IBT 12657 — GCF overlap 23.7% (Jaccard); 36 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 10 (27.8%), PKS 6 (16.7%), terpene 13 (36.1%), RiPP 1 (2.8%), hybrid 2 (5.6%), other 4 (11.1%)</title></rect>
+<rect class="gcf-pair" x="1857.75" y="566.75" width="22.50" height="22.50" fill="#7FAFD4" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus pseudonomiae IBT 12657 ↔ Aspergillus tamarii CBS 117626 — GCF overlap 23.4% (Jaccard); 36 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 10 (27.8%), PKS 8 (22.2%), terpene 11 (30.6%), RiPP 1 (2.8%), hybrid 3 (8.3%), other 3 (8.3%)</title></rect>
+<rect class="gcf-pair" x="1833.75" y="566.75" width="22.50" height="22.50" fill="#80B0D5" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus pseudonomiae CBS 119388 ↔ Aspergillus tamarii CBS 117626 — GCF overlap 22.9% (Jaccard); 36 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 10 (27.8%), PKS 8 (22.2%), terpene 11 (30.6%), RiPP 1 (2.8%), hybrid 3 (8.3%), other 3 (8.3%)</title></rect>
+<rect class="gcf-pair" x="1617.75" y="278.75" width="22.50" height="22.50" fill="#81B1D5" stroke="#FFFFFF" stroke-width="1"><title>Aspergillus bertholletiae IBT 29228 ↔ Aspergillus caelatus CBS 763.97 — GCF overlap 22.3% (Jaccard); 33 shared GCFs; Jaccard is shared GCFs divided by the nonredundant union of GCFs in either genome; shared GCFs by representative BGC class: NRPS 8 (24.2%), PKS 5 (15.2%), terpene 13 (39.4%), hybrid 4 (12.1%), other 3 (9.1%)</title></rect>
+<text x="1350.0" y="662.0" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700" text-anchor="start" fill="#222222">Links</text>
+<text x="1360.0" y="696.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700" text-anchor="start" fill="#222222">Pair</text>
+<text x="1826.0" y="696.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700" text-anchor="end" fill="#222222">Shared</text>
+<text x="1914.0" y="696.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700" text-anchor="end" fill="#222222">Overlap</text>
+<text x="1946.0" y="696.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700" text-anchor="start" fill="#222222">Shared GCFs by BGC class</text>
+<line x1="1946.00" y1="714.00" x2="2142.00" y2="714.00" stroke="#B8B8B8" stroke-width="0.8"/>
+<line x1="1946.00" y1="711.00" x2="1946.00" y2="717.00" stroke="#B8B8B8" stroke-width="0.8"/>
+<line x1="2044.00" y1="711.00" x2="2044.00" y2="717.00" stroke="#B8B8B8" stroke-width="0.8"/>
+<line x1="2142.00" y1="711.00" x2="2142.00" y2="717.00" stroke="#B8B8B8" stroke-width="0.8"/>
+<text x="1946.0" y="728.0" font-family="Arial, Helvetica, sans-serif" font-size="9.5" font-weight="700" text-anchor="start" fill="#444444">0</text>
+<text x="2044.0" y="728.0" font-family="Arial, Helvetica, sans-serif" font-size="9.5" font-weight="700" text-anchor="middle" fill="#444444">50</text>
+<text x="2142.0" y="728.0" font-family="Arial, Helvetica, sans-serif" font-size="9.5" font-weight="700" text-anchor="end" fill="#444444">100%</text>
+<line x1="1346.00" y1="736.00" x2="2152.00" y2="736.00" stroke="#B8B8B8" stroke-width="0.8"/>
+<text x="1360.0" y="756.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700" text-anchor="start" fill="#222222">14-15</text>
+<text x="1416.0" y="756.0" font-family="Arial, Helvetica, sans-serif" font-size="12.6" font-weight="400" text-anchor="start" fill="#222222">A. pseudonomiae 119388 ↔ A. pseudonomiae 12657</text>
+<text x="1826.0" y="756.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="end" fill="#222222">82</text>
+<text x="1914.0" y="756.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="end" fill="#222222">81.2%</text>
+<rect x="1946.00" y="748.00" width="196.00" height="10" fill="#F7F7F7"/>
+<rect x="1946.00" y="748.00" width="54.98" height="10" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus pseudonomiae CBS 119388 ↔ Aspergillus pseudonomiae IBT 12657 — NRPS: 23 shared GCFs (28.0% of 82); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2000.98" y="748.00" width="50.20" height="10" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus pseudonomiae CBS 119388 ↔ Aspergillus pseudonomiae IBT 12657 — PKS: 21 shared GCFs (25.6% of 82); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2051.17" y="748.00" width="50.20" height="10" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus pseudonomiae CBS 119388 ↔ Aspergillus pseudonomiae IBT 12657 — terpene: 21 shared GCFs (25.6% of 82); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2101.37" y="748.00" width="4.78" height="10" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus pseudonomiae CBS 119388 ↔ Aspergillus pseudonomiae IBT 12657 — RiPP: 2 shared GCFs (2.4% of 82); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2106.15" y="748.00" width="19.12" height="10" fill="#82775B" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus pseudonomiae CBS 119388 ↔ Aspergillus pseudonomiae IBT 12657 — hybrid: 8 shared GCFs (9.8% of 82); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2125.27" y="748.00" width="16.73" height="10" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus pseudonomiae CBS 119388 ↔ Aspergillus pseudonomiae IBT 12657 — other: 7 shared GCFs (8.5% of 82); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="1946.00" y="748.00" width="196.00" height="10" fill="none" stroke="#DADADA" stroke-width="0.7"/>
+<line x1="1346.00" y1="766.00" x2="2152.00" y2="766.00" stroke="#E5E5E5" stroke-width="0.7"/>
+<text x="1360.0" y="784.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700" text-anchor="start" fill="#222222">06-13</text>
+<text x="1416.0" y="784.0" font-family="Arial, Helvetica, sans-serif" font-size="12.6" font-weight="400" text-anchor="start" fill="#222222">A. caelatus 763.97 ↔ A. pseudocaelatus 117616</text>
+<text x="1826.0" y="784.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="end" fill="#222222">81</text>
+<text x="1914.0" y="784.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="end" fill="#222222">71.1%</text>
+<rect x="1946.00" y="776.00" width="196.00" height="10" fill="#F7F7F7"/>
+<rect x="1946.00" y="776.00" width="60.49" height="10" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus caelatus CBS 763.97 ↔ Aspergillus pseudocaelatus CBS 117616 — NRPS: 25 shared GCFs (30.9% of 81); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2006.49" y="776.00" width="36.30" height="10" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus caelatus CBS 763.97 ↔ Aspergillus pseudocaelatus CBS 117616 — PKS: 15 shared GCFs (18.5% of 81); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2042.79" y="776.00" width="53.23" height="10" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus caelatus CBS 763.97 ↔ Aspergillus pseudocaelatus CBS 117616 — terpene: 22 shared GCFs (27.2% of 81); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2096.02" y="776.00" width="2.42" height="10" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus caelatus CBS 763.97 ↔ Aspergillus pseudocaelatus CBS 117616 — RiPP: 1 shared GCFs (1.2% of 81); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2098.44" y="776.00" width="29.04" height="10" fill="#82775B" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus caelatus CBS 763.97 ↔ Aspergillus pseudocaelatus CBS 117616 — hybrid: 12 shared GCFs (14.8% of 81); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2127.48" y="776.00" width="14.52" height="10" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus caelatus CBS 763.97 ↔ Aspergillus pseudocaelatus CBS 117616 — other: 6 shared GCFs (7.4% of 81); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="1946.00" y="776.00" width="196.00" height="10" fill="none" stroke="#DADADA" stroke-width="0.7"/>
+<line x1="1346.00" y1="794.00" x2="2152.00" y2="794.00" stroke="#E5E5E5" stroke-width="0.7"/>
+<text x="1360.0" y="812.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700" text-anchor="start" fill="#222222">01-02</text>
+<text x="1416.0" y="812.0" font-family="Arial, Helvetica, sans-serif" font-size="12.6" font-weight="400" text-anchor="start" fill="#222222">A. alliaceus 536.65 ↔ A. alliaceus 14317</text>
+<text x="1826.0" y="812.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="end" fill="#222222">73</text>
+<text x="1914.0" y="812.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="end" fill="#222222">60.8%</text>
+<rect x="1946.00" y="804.00" width="196.00" height="10" fill="#F7F7F7"/>
+<rect x="1946.00" y="804.00" width="37.59" height="10" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus alliaceus CBS 536.65 ↔ Aspergillus alliaceus IBT 14317 — NRPS: 14 shared GCFs (19.2% of 73); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="1983.59" y="804.00" width="67.12" height="10" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus alliaceus CBS 536.65 ↔ Aspergillus alliaceus IBT 14317 — PKS: 25 shared GCFs (34.2% of 73); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2050.71" y="804.00" width="42.96" height="10" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus alliaceus CBS 536.65 ↔ Aspergillus alliaceus IBT 14317 — terpene: 16 shared GCFs (21.9% of 73); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2093.67" y="804.00" width="34.90" height="10" fill="#82775B" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus alliaceus CBS 536.65 ↔ Aspergillus alliaceus IBT 14317 — hybrid: 13 shared GCFs (17.8% of 73); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2128.58" y="804.00" width="13.42" height="10" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus alliaceus CBS 536.65 ↔ Aspergillus alliaceus IBT 14317 — other: 5 shared GCFs (6.8% of 73); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="1946.00" y="804.00" width="196.00" height="10" fill="none" stroke="#DADADA" stroke-width="0.7"/>
+<line x1="1346.00" y1="822.00" x2="2152.00" y2="822.00" stroke="#E5E5E5" stroke-width="0.7"/>
+<text x="1360.0" y="840.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700" text-anchor="start" fill="#222222">12-19</text>
+<text x="1416.0" y="840.0" font-family="Arial, Helvetica, sans-serif" font-size="12.6" font-weight="400" text-anchor="start" fill="#222222">A. parasiticus 117618 ↔ A. transmontanensis 130015</text>
+<text x="1826.0" y="840.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="end" fill="#222222">71</text>
+<text x="1914.0" y="840.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="end" fill="#222222">58.2%</text>
+<rect x="1946.00" y="832.00" width="196.00" height="10" fill="#F7F7F7"/>
+<rect x="1946.00" y="832.00" width="38.65" height="10" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus parasiticus CBS 117618 ↔ Aspergillus transmontanensis CBS 130015 — NRPS: 14 shared GCFs (19.7% of 71); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="1984.65" y="832.00" width="55.21" height="10" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus parasiticus CBS 117618 ↔ Aspergillus transmontanensis CBS 130015 — PKS: 20 shared GCFs (28.2% of 71); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2039.86" y="832.00" width="55.21" height="10" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus parasiticus CBS 117618 ↔ Aspergillus transmontanensis CBS 130015 — terpene: 20 shared GCFs (28.2% of 71); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2095.07" y="832.00" width="2.76" height="10" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus parasiticus CBS 117618 ↔ Aspergillus transmontanensis CBS 130015 — RiPP: 1 shared GCFs (1.4% of 71); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2097.83" y="832.00" width="24.85" height="10" fill="#82775B" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus parasiticus CBS 117618 ↔ Aspergillus transmontanensis CBS 130015 — hybrid: 9 shared GCFs (12.7% of 71); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2122.68" y="832.00" width="19.32" height="10" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus parasiticus CBS 117618 ↔ Aspergillus transmontanensis CBS 130015 — other: 7 shared GCFs (9.9% of 71); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="1946.00" y="832.00" width="196.00" height="10" fill="none" stroke="#DADADA" stroke-width="0.7"/>
+<line x1="1346.00" y1="850.00" x2="2152.00" y2="850.00" stroke="#E5E5E5" stroke-width="0.7"/>
+<text x="1360.0" y="868.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700" text-anchor="start" fill="#222222">17-19</text>
+<text x="1416.0" y="868.0" font-family="Arial, Helvetica, sans-serif" font-size="12.6" font-weight="400" text-anchor="start" fill="#222222">A. sergii 130017 ↔ A. transmontanensis 130015</text>
+<text x="1826.0" y="868.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="end" fill="#222222">68</text>
+<text x="1914.0" y="868.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="end" fill="#222222">55.3%</text>
+<rect x="1946.00" y="860.00" width="196.00" height="10" fill="#F7F7F7"/>
+<rect x="1946.00" y="860.00" width="49.00" height="10" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus sergii CBS 130017 ↔ Aspergillus transmontanensis CBS 130015 — NRPS: 17 shared GCFs (25.0% of 68); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="1995.00" y="860.00" width="54.76" height="10" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus sergii CBS 130017 ↔ Aspergillus transmontanensis CBS 130015 — PKS: 19 shared GCFs (27.9% of 68); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2049.76" y="860.00" width="54.76" height="10" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus sergii CBS 130017 ↔ Aspergillus transmontanensis CBS 130015 — terpene: 19 shared GCFs (27.9% of 68); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2104.53" y="860.00" width="2.88" height="10" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus sergii CBS 130017 ↔ Aspergillus transmontanensis CBS 130015 — RiPP: 1 shared GCFs (1.5% of 68); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2107.41" y="860.00" width="20.18" height="10" fill="#82775B" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus sergii CBS 130017 ↔ Aspergillus transmontanensis CBS 130015 — hybrid: 7 shared GCFs (10.3% of 68); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2127.59" y="860.00" width="14.41" height="10" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus sergii CBS 130017 ↔ Aspergillus transmontanensis CBS 130015 — other: 5 shared GCFs (7.4% of 68); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="1946.00" y="860.00" width="196.00" height="10" fill="none" stroke="#DADADA" stroke-width="0.7"/>
+<line x1="1346.00" y1="878.00" x2="2152.00" y2="878.00" stroke="#E5E5E5" stroke-width="0.7"/>
+<text x="1360.0" y="896.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700" text-anchor="start" fill="#222222">08-10</text>
+<text x="1416.0" y="896.0" font-family="Arial, Helvetica, sans-serif" font-size="12.6" font-weight="400" text-anchor="start" fill="#222222">A. flavus 121.62 ↔ A. minisclerotigenes 117635</text>
+<text x="1826.0" y="896.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="end" fill="#222222">60</text>
+<text x="1914.0" y="896.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="end" fill="#222222">53.1%</text>
+<rect x="1946.00" y="888.00" width="196.00" height="10" fill="#F7F7F7"/>
+<rect x="1946.00" y="888.00" width="42.47" height="10" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus flavus CBS 121.62 ↔ Aspergillus minisclerotigenes CBS 117635 — NRPS: 13 shared GCFs (21.7% of 60); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="1988.47" y="888.00" width="42.47" height="10" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus flavus CBS 121.62 ↔ Aspergillus minisclerotigenes CBS 117635 — PKS: 13 shared GCFs (21.7% of 60); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2030.93" y="888.00" width="58.80" height="10" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus flavus CBS 121.62 ↔ Aspergillus minisclerotigenes CBS 117635 — terpene: 18 shared GCFs (30.0% of 60); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2089.73" y="888.00" width="3.27" height="10" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus flavus CBS 121.62 ↔ Aspergillus minisclerotigenes CBS 117635 — RiPP: 1 shared GCFs (1.7% of 60); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2093.00" y="888.00" width="26.13" height="10" fill="#82775B" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus flavus CBS 121.62 ↔ Aspergillus minisclerotigenes CBS 117635 — hybrid: 8 shared GCFs (13.3% of 60); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2119.13" y="888.00" width="22.87" height="10" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus flavus CBS 121.62 ↔ Aspergillus minisclerotigenes CBS 117635 — other: 7 shared GCFs (11.7% of 60); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="1946.00" y="888.00" width="196.00" height="10" fill="none" stroke="#DADADA" stroke-width="0.7"/>
+<line x1="1346.00" y1="906.00" x2="2152.00" y2="906.00" stroke="#E5E5E5" stroke-width="0.7"/>
+<text x="1360.0" y="924.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700" text-anchor="start" fill="#222222">11-17</text>
+<text x="1416.0" y="924.0" font-family="Arial, Helvetica, sans-serif" font-size="12.6" font-weight="400" text-anchor="start" fill="#222222">A. novoparasiticus 126849 ↔ A. sergii 130017</text>
+<text x="1826.0" y="924.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="end" fill="#222222">64</text>
+<text x="1914.0" y="924.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="end" fill="#222222">52.5%</text>
+<rect x="1946.00" y="916.00" width="196.00" height="10" fill="#F7F7F7"/>
+<rect x="1946.00" y="916.00" width="45.94" height="10" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus novoparasiticus CBS 126849 ↔ Aspergillus sergii CBS 130017 — NRPS: 15 shared GCFs (23.4% of 64); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="1991.94" y="916.00" width="55.12" height="10" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus novoparasiticus CBS 126849 ↔ Aspergillus sergii CBS 130017 — PKS: 18 shared GCFs (28.1% of 64); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2047.06" y="916.00" width="55.12" height="10" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus novoparasiticus CBS 126849 ↔ Aspergillus sergii CBS 130017 — terpene: 18 shared GCFs (28.1% of 64); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2102.19" y="916.00" width="3.06" height="10" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus novoparasiticus CBS 126849 ↔ Aspergillus sergii CBS 130017 — RiPP: 1 shared GCFs (1.6% of 64); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2105.25" y="916.00" width="18.38" height="10" fill="#82775B" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus novoparasiticus CBS 126849 ↔ Aspergillus sergii CBS 130017 — hybrid: 6 shared GCFs (9.4% of 64); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2123.62" y="916.00" width="18.38" height="10" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus novoparasiticus CBS 126849 ↔ Aspergillus sergii CBS 130017 — other: 6 shared GCFs (9.4% of 64); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="1946.00" y="916.00" width="196.00" height="10" fill="none" stroke="#DADADA" stroke-width="0.7"/>
+<line x1="1346.00" y1="934.00" x2="2152.00" y2="934.00" stroke="#E5E5E5" stroke-width="0.7"/>
+<text x="1360.0" y="952.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700" text-anchor="start" fill="#222222">03-12</text>
+<text x="1416.0" y="952.0" font-family="Arial, Helvetica, sans-serif" font-size="12.6" font-weight="400" text-anchor="start" fill="#222222">A. arachidicola 117612 ↔ A. parasiticus 117618</text>
+<text x="1826.0" y="952.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="end" fill="#222222">62</text>
+<text x="1914.0" y="952.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="end" fill="#222222">52.1%</text>
+<rect x="1946.00" y="944.00" width="196.00" height="10" fill="#F7F7F7"/>
+<rect x="1946.00" y="944.00" width="47.42" height="10" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus arachidicola CBS 117612 ↔ Aspergillus parasiticus CBS 117618 — NRPS: 15 shared GCFs (24.2% of 62); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="1993.42" y="944.00" width="44.26" height="10" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus arachidicola CBS 117612 ↔ Aspergillus parasiticus CBS 117618 — PKS: 14 shared GCFs (22.6% of 62); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2037.68" y="944.00" width="50.58" height="10" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus arachidicola CBS 117612 ↔ Aspergillus parasiticus CBS 117618 — terpene: 16 shared GCFs (25.8% of 62); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2088.26" y="944.00" width="3.16" height="10" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus arachidicola CBS 117612 ↔ Aspergillus parasiticus CBS 117618 — RiPP: 1 shared GCFs (1.6% of 62); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2091.42" y="944.00" width="31.61" height="10" fill="#82775B" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus arachidicola CBS 117612 ↔ Aspergillus parasiticus CBS 117618 — hybrid: 10 shared GCFs (16.1% of 62); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2123.03" y="944.00" width="18.97" height="10" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus arachidicola CBS 117612 ↔ Aspergillus parasiticus CBS 117618 — other: 6 shared GCFs (9.7% of 62); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="1946.00" y="944.00" width="196.00" height="10" fill="none" stroke="#DADADA" stroke-width="0.7"/>
+<line x1="1346.00" y1="962.00" x2="2152.00" y2="962.00" stroke="#E5E5E5" stroke-width="0.7"/>
+<text x="1360.0" y="980.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700" text-anchor="start" fill="#222222">06-16</text>
+<text x="1416.0" y="980.0" font-family="Arial, Helvetica, sans-serif" font-size="12.6" font-weight="400" text-anchor="start" fill="#222222">A. caelatus 763.97 ↔ A. pseudotamarii 117625</text>
+<text x="1826.0" y="980.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="end" fill="#222222">68</text>
+<text x="1914.0" y="980.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="end" fill="#222222">51.9%</text>
+<rect x="1946.00" y="972.00" width="196.00" height="10" fill="#F7F7F7"/>
+<rect x="1946.00" y="972.00" width="51.88" height="10" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus caelatus CBS 763.97 ↔ Aspergillus pseudotamarii CBS 117625 — NRPS: 18 shared GCFs (26.5% of 68); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="1997.88" y="972.00" width="43.24" height="10" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus caelatus CBS 763.97 ↔ Aspergillus pseudotamarii CBS 117625 — PKS: 15 shared GCFs (22.1% of 68); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2041.12" y="972.00" width="54.76" height="10" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus caelatus CBS 763.97 ↔ Aspergillus pseudotamarii CBS 117625 — terpene: 19 shared GCFs (27.9% of 68); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2095.88" y="972.00" width="25.94" height="10" fill="#82775B" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus caelatus CBS 763.97 ↔ Aspergillus pseudotamarii CBS 117625 — hybrid: 9 shared GCFs (13.2% of 68); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2121.82" y="972.00" width="20.18" height="10" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus caelatus CBS 763.97 ↔ Aspergillus pseudotamarii CBS 117625 — other: 7 shared GCFs (10.3% of 68); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="1946.00" y="972.00" width="196.00" height="10" fill="none" stroke="#DADADA" stroke-width="0.7"/>
+<line x1="1346.00" y1="990.00" x2="2152.00" y2="990.00" stroke="#E5E5E5" stroke-width="0.7"/>
+<text x="1360.0" y="1008.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700" text-anchor="start" fill="#222222">11-12</text>
+<text x="1416.0" y="1008.0" font-family="Arial, Helvetica, sans-serif" font-size="12.6" font-weight="400" text-anchor="start" fill="#222222">A. novoparasiticus 126849 ↔ A. parasiticus 117618</text>
+<text x="1826.0" y="1008.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="end" fill="#222222">64</text>
+<text x="1914.0" y="1008.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="end" fill="#222222">51.6%</text>
+<rect x="1946.00" y="1000.00" width="196.00" height="10" fill="#F7F7F7"/>
+<rect x="1946.00" y="1000.00" width="36.75" height="10" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus novoparasiticus CBS 126849 ↔ Aspergillus parasiticus CBS 117618 — NRPS: 12 shared GCFs (18.8% of 64); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="1982.75" y="1000.00" width="45.94" height="10" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus novoparasiticus CBS 126849 ↔ Aspergillus parasiticus CBS 117618 — PKS: 15 shared GCFs (23.4% of 64); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2028.69" y="1000.00" width="58.19" height="10" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus novoparasiticus CBS 126849 ↔ Aspergillus parasiticus CBS 117618 — terpene: 19 shared GCFs (29.7% of 64); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2086.88" y="1000.00" width="3.06" height="10" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus novoparasiticus CBS 126849 ↔ Aspergillus parasiticus CBS 117618 — RiPP: 1 shared GCFs (1.6% of 64); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2089.94" y="1000.00" width="24.50" height="10" fill="#82775B" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus novoparasiticus CBS 126849 ↔ Aspergillus parasiticus CBS 117618 — hybrid: 8 shared GCFs (12.5% of 64); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="2114.44" y="1000.00" width="27.56" height="10" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.7"><title>Aspergillus novoparasiticus CBS 126849 ↔ Aspergillus parasiticus CBS 117618 — other: 9 shared GCFs (14.1% of 64); each shared GCF is assigned its representative broad BGC class.</title></rect>
+<rect x="1946.00" y="1000.00" width="196.00" height="10" fill="none" stroke="#DADADA" stroke-width="0.7"/>
+</g>
+<rect x="30" y="1046.00" width="2140" height="58.0" fill="none" stroke="#DADADA" stroke-width="1.2"/>
+<text x="50.0" y="1082.0" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700" text-anchor="start" fill="#222222">BGC class</text>
+<circle cx="149.00" cy="1076.50" r="7" fill="#56D8C1" stroke="#333333" stroke-width="1.1"/>
+<text x="164.0" y="1082.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="start" fill="#222222">NRPS</text>
+<circle cx="231.00" cy="1076.50" r="7" fill="#EC961C" stroke="#333333" stroke-width="1.1"/>
+<text x="246.0" y="1082.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="start" fill="#222222">PKS</text>
+<circle cx="307.00" cy="1076.50" r="7" fill="#A743CC" stroke="#333333" stroke-width="1.1"/>
+<text x="322.0" y="1082.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="start" fill="#222222">terpene</text>
+<circle cx="411.00" cy="1076.50" r="7" fill="#5481E3" stroke="#333333" stroke-width="1.1"/>
+<text x="426.0" y="1082.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="start" fill="#222222">RiPP</text>
+<circle cx="487.00" cy="1076.50" r="7" fill="#82775B" stroke="#333333" stroke-width="1.1"/>
+<text x="502.0" y="1082.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="start" fill="#222222">hybrid</text>
+<circle cx="579.00" cy="1076.50" r="7" fill="#A8BFFF" stroke="#333333" stroke-width="1.1"/>
+<text x="594.0" y="1082.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="start" fill="#222222">other</text>
+<text x="730.0" y="1082.0" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700" text-anchor="start" fill="#222222">GCF status</text>
+<rect x="830.00" y="1069.00" width="15" height="15" fill="#DADADA" stroke="#333333" stroke-width="0.8"/>
+<text x="852.0" y="1082.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="start" fill="#222222">singleton</text>
+<rect x="935.00" y="1069.00" width="15" height="15" fill="#1F77B4" stroke="#333333" stroke-width="0.8"/>
+<text x="957.0" y="1082.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="start" fill="#222222">same-domain</text>
+<text x="1915.0" y="1082.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="end" fill="#444444">Unique pairs below diagonal</text>
+<text x="2145.0" y="1082.0" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="400" text-anchor="end" fill="#444444">Rank-aligned; not a phylogram</text>
+</svg>

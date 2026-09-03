@@ -2,7 +2,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="650" viewBox="0 0 1600 650">
 <style>text{font-family:Arial,Helvetica,sans-serif;fill:#1F2937}.title{font-size:21px;font-weight:700}.subtitle{font-size:13px}.label{font-size:12px}.small{font-size:10px}.track{stroke:#374151;stroke-width:1.2}.gene{stroke:#374151;stroke-width:.65}.box{fill:#EAF5FF;stroke:#2786C0;stroke-width:1}.funbox{fill:#FFF2CC;fill-opacity:.55;stroke:#C98A00;stroke-width:1.4}.mibigbox{fill:none;stroke:#2A9D8F;stroke-width:1.4}.link{fill:#2A9D8F;fill-opacity:.10;stroke:#2A9D8F;stroke-opacity:.35;stroke-width:.7}</style>
 <rect width="1600" height="650" fill="#FFFFFF"/>
-<text x="40" y="36" class="title">Author-approved fungal focal locus: Aspergillus novoparasiticus CBS 126849 — aspirochlorine evidence record</text>
+<text x="40" y="36" class="title">Synteny-resolved fungal focal locus: Aspergillus novoparasiticus CBS 126849 — aspirochlorine evidence record</text>
 <text x="40" y="61" class="subtitle">Atlas rank 1; global review rank 61; stable locator GCA_009176405.1 / ML733399.1:241-173302</text>
 <rect x="40" y="78" width="1520" height="82" rx="7" class="box"/>
 <text x="58" y="102" class="subtitle">antiSMASH: NRPS; known-cluster BGC0001123.5 score 81; ClusterCompare 0.815196555512613</text>
@@ -155,5 +155,5 @@
 <g id="mibig-BAE56609.1" data-gene-id="BAE56609.1" data-start="42210" data-end="43743"><title>BAE56609.1: biosynthetic-additional (smcogs) SMCOG1042: O-methyltransferase</title><polygon class="gene" fill="#F2B84B" points="1515.00,471.00 1478.06,471.00 1469.06,480.00 1478.06,489.00 1515.00,489.00"/></g>
 <rect x="40" y="555" width="1520" height="64" rx="7" fill="#F5F5F5" stroke="#6B7280"/>
 <text x="58" y="579" class="subtitle">Interpretive boundary: antiSMASH, FunBGCeX, MIBiG, protein, and synteny records organize component evidence; they do not demonstrate metabolite production or establish biological ground truth.</text>
-<text x="58" y="603" class="small">Editable sources: focal_locus_aspirochlorine.genes.tsv, .funbgcex_genes.tsv, .alignments.tsv, .records.tsv, and .figure.json</text>
+<text x="58" y="603" class="small">Editable sources: focal_locus.tsv, records.tsv, genes.tsv, funbgcex_genes.tsv, and alignments.tsv</text>
 </svg>

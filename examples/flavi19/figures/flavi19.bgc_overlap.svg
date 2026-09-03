@@ -1,0 +1,868 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="974" height="6312" viewBox="0 0 974 6312">
+<rect x="0" y="0" width="100%" height="100%" fill="#FFFFFF"/>
+<text x="44.0" y="42.0" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" text-anchor="start" fill="#222222">BGC scaffold overlap between antiSMASH and FunBGCeX</text>
+<text x="44.0" y="236.6" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" text-anchor="start" fill="#222222"><tspan font-style="italic">Aspergillus alliaceus</tspan><tspan> CBS 536.65</tspan></text>
+<g data-chart="agreement-pie" data-total="121" data-center-x="420.0" data-center-y="231.6" data-radius="100.0">
+<path d="M 420.0 231.6 L 470.0 318.2 A 100.0 100.0 0 1 1 457.6 138.9 Z" fill="#4A4A4A" stroke="#FFFFFF" stroke-width="1.2" data-segment="shared" data-value="78" data-percent="64%" data-exploded="false"><title>Shared: 78 BGCs; 64% of genome union</title></path>
+<text x="362.1" y="240.4" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" text-anchor="middle" fill="#FFFFFF">64%</text>
+<text x="354.0" y="353.6" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#4A4A4A">Shared (n = 78)</text>
+<path d="M 440.1 212.1 L 477.7 119.4 A 100.0 100.0 0 0 1 533.9 177.4 Z" fill="#2F7FB8" stroke="#FFFFFF" stroke-width="1.2" data-segment="antismash_only" data-value="16" data-percent="13%" data-exploded="true"><title>antiSMASH-only: 16 BGCs; 13% of genome union</title></path>
+<text x="481.7" y="176.5" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#FFFFFF">13%</text>
+<path d="M 446.3 241.1 L 540.1 206.4 A 100.0 100.0 0 0 1 496.3 327.7 Z" fill="#E58A1F" stroke="#FFFFFF" stroke-width="1.2" data-segment="funbgcex_only" data-value="27" data-percent="22%" data-exploded="true"><title>FunBGCeX-only: 27 BGCs; 22% of genome union</title></path>
+<text x="500.9" y="265.6" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#111111">22%</text>
+</g>
+<path d="M 515.5 139.0 L 601.4 125.7 Q 619.2 123.0 637.2 123.0 L 668.0 123.0" fill="none" stroke="#2F7FB8" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="619.2" data-bend-y="123.0"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="antismash_only" data-total="16" data-total-percent="13%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="76.0" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#2F7FB8">antiSMASH-only (n = 16)</text>
+<text x="744.0" y="106.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="94.0" width="49.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="terpene" data-value="7" data-percent="6%" data-tool-percent="44%"><title>antiSMASH-only terpene: 7 BGCs; 6% of genome union</title></rect>
+<text x="806.0" y="105.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">6%</text>
+<text x="744.0" y="128.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">hybrid</text>
+<rect x="752.0" y="116.0" width="42.0" height="16.0" fill="#82775B" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="hybrid" data-value="6" data-percent="5%" data-tool-percent="38%"><title>antiSMASH-only hybrid: 6 BGCs; 5% of genome union</title></rect>
+<text x="799.0" y="127.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">5%</text>
+<text x="744.0" y="150.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="138.0" width="21.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="other" data-value="3" data-percent="2%" data-tool-percent="19%"><title>antiSMASH-only other: 3 BGCs; 2% of genome union</title></rect>
+<text x="778.0" y="149.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+</g>
+<path d="M 545.1 276.7 L 611.3 289.4 Q 628.7 292.7 646.4 292.7 L 668.0 292.7" fill="none" stroke="#E58A1F" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="628.7" data-bend-y="292.7"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="funbgcex_only" data-total="27" data-total-percent="22%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="212.7" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#E58A1F">FunBGCeX-only (n = 27)</text>
+<text x="744.0" y="242.7" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">NRPS</text>
+<rect x="752.0" y="230.7" width="35.0" height="16.0" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="NRPS" data-value="5" data-percent="4%" data-tool-percent="19%"><title>FunBGCeX-only NRPS: 5 BGCs; 4% of genome union</title></rect>
+<text x="792.0" y="242.4" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">4%</text>
+<text x="744.0" y="264.7" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">PKS</text>
+<rect x="752.0" y="252.7" width="70.0" height="16.0" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="PKS" data-value="10" data-percent="8%" data-tool-percent="37%"><title>FunBGCeX-only PKS: 10 BGCs; 8% of genome union</title></rect>
+<text x="827.0" y="264.4" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">8%</text>
+<text x="744.0" y="286.7" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="274.7" width="7.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="terpene" data-value="1" data-percent="1%" data-tool-percent="4%"><title>FunBGCeX-only terpene: 1 BGC; 1% of genome union</title></rect>
+<text x="764.0" y="286.4" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">1%</text>
+<text x="744.0" y="308.7" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">RiPP</text>
+<rect x="752.0" y="296.7" width="21.0" height="16.0" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="RiPP" data-value="3" data-percent="2%" data-tool-percent="11%"><title>FunBGCeX-only RiPP: 3 BGCs; 2% of genome union</title></rect>
+<text x="778.0" y="308.4" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+<text x="744.0" y="330.7" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">hybrid</text>
+<rect x="752.0" y="318.7" width="7.0" height="16.0" fill="#82775B" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="hybrid" data-value="1" data-percent="1%" data-tool-percent="4%"><title>FunBGCeX-only hybrid: 1 BGC; 1% of genome union</title></rect>
+<text x="764.0" y="330.4" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">1%</text>
+<text x="744.0" y="352.7" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="340.7" width="49.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="other" data-value="7" data-percent="6%" data-tool-percent="26%"><title>FunBGCeX-only other: 7 BGCs; 6% of genome union</title></rect>
+<text x="806.0" y="352.4" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">6%</text>
+</g>
+<line x1="44.0" y1="387.0" x2="930.0" y2="387.0" stroke="#D2D2D2" stroke-width="0.9" stroke-dasharray="2 3"/>
+<text x="44.0" y="557.0" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" text-anchor="start" fill="#222222"><tspan font-style="italic">Aspergillus alliaceus</tspan><tspan> IBT 14317</tspan></text>
+<g data-chart="agreement-pie" data-total="126" data-center-x="420.0" data-center-y="552.0" data-radius="100.0">
+<path d="M 420.0 552.0 L 470.0 638.6 A 100.0 100.0 0 1 1 461.1 460.9 Z" fill="#4A4A4A" stroke="#FFFFFF" stroke-width="1.2" data-segment="shared" data-value="82" data-percent="65%" data-exploded="false"><title>Shared: 82 BGCs; 65% of genome union</title></path>
+<text x="362.1" y="559.7" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" text-anchor="middle" fill="#FFFFFF">65%</text>
+<text x="354.0" y="674.0" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#4A4A4A">Shared (n = 82)</text>
+<path d="M 441.0 533.5 L 482.1 442.3 A 100.0 100.0 0 0 1 536.6 504.0 Z" fill="#2F7FB8" stroke="#FFFFFF" stroke-width="1.2" data-segment="antismash_only" data-value="17" data-percent="13%" data-exploded="true"><title>antiSMASH-only: 17 BGCs; 13% of genome union</title></path>
+<text x="484.5" y="499.9" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#FFFFFF">13%</text>
+<path d="M 446.1 562.2 L 541.6 532.8 A 100.0 100.0 0 0 1 496.1 648.8 Z" fill="#E58A1F" stroke="#FFFFFF" stroke-width="1.2" data-segment="funbgcex_only" data-value="27" data-percent="21%" data-exploded="true"><title>FunBGCeX-only: 27 BGCs; 21% of genome union</title></path>
+<text x="500.1" y="588.2" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#111111">21%</text>
+</g>
+<path d="M 519.7 464.0 L 602.8 450.8 Q 620.6 448.0 638.6 448.0 L 668.0 448.0" fill="none" stroke="#2F7FB8" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="620.6" data-bend-y="448.0"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="antismash_only" data-total="17" data-total-percent="13%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="401.0" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#2F7FB8">antiSMASH-only (n = 17)</text>
+<text x="744.0" y="431.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="419.0" width="63.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="terpene" data-value="9" data-percent="7%" data-tool-percent="53%"><title>antiSMASH-only terpene: 9 BGCs; 7% of genome union</title></rect>
+<text x="820.0" y="430.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">7%</text>
+<text x="744.0" y="453.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">hybrid</text>
+<rect x="752.0" y="441.0" width="42.0" height="16.0" fill="#82775B" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="hybrid" data-value="6" data-percent="5%" data-tool-percent="35%"><title>antiSMASH-only hybrid: 6 BGCs; 5% of genome union</title></rect>
+<text x="799.0" y="452.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">5%</text>
+<text x="744.0" y="475.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="463.0" width="14.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="other" data-value="2" data-percent="2%" data-tool-percent="12%"><title>antiSMASH-only other: 2 BGCs; 2% of genome union</title></rect>
+<text x="771.0" y="474.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+</g>
+<path d="M 543.8 600.6 L 610.7 613.3 Q 628.3 616.6 646.1 616.6 L 668.0 616.6" fill="none" stroke="#E58A1F" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="628.3" data-bend-y="616.6"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="funbgcex_only" data-total="27" data-total-percent="21%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="547.6" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#E58A1F">FunBGCeX-only (n = 27)</text>
+<text x="744.0" y="577.6" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">NRPS</text>
+<rect x="752.0" y="565.6" width="35.0" height="16.0" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="NRPS" data-value="5" data-percent="4%" data-tool-percent="19%"><title>FunBGCeX-only NRPS: 5 BGCs; 4% of genome union</title></rect>
+<text x="792.0" y="577.3" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">4%</text>
+<text x="744.0" y="599.6" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">PKS</text>
+<rect x="752.0" y="587.6" width="56.0" height="16.0" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="PKS" data-value="8" data-percent="6%" data-tool-percent="30%"><title>FunBGCeX-only PKS: 8 BGCs; 6% of genome union</title></rect>
+<text x="813.0" y="599.3" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">6%</text>
+<text x="744.0" y="621.6" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="609.6" width="14.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="terpene" data-value="2" data-percent="2%" data-tool-percent="7%"><title>FunBGCeX-only terpene: 2 BGCs; 2% of genome union</title></rect>
+<text x="771.0" y="621.3" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+<text x="744.0" y="643.6" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">RiPP</text>
+<rect x="752.0" y="631.6" width="21.0" height="16.0" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="RiPP" data-value="3" data-percent="2%" data-tool-percent="11%"><title>FunBGCeX-only RiPP: 3 BGCs; 2% of genome union</title></rect>
+<text x="778.0" y="643.3" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+<text x="744.0" y="665.6" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="653.6" width="63.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="other" data-value="9" data-percent="7%" data-tool-percent="33%"><title>FunBGCeX-only other: 9 BGCs; 7% of genome union</title></rect>
+<text x="820.0" y="665.3" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">7%</text>
+</g>
+<line x1="44.0" y1="700.0" x2="930.0" y2="700.0" stroke="#D2D2D2" stroke-width="0.9" stroke-dasharray="2 3"/>
+<text x="44.0" y="901.7" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" text-anchor="start" fill="#222222"><tspan font-style="italic">Aspergillus arachidicola</tspan><tspan> CBS 117612</tspan></text>
+<g data-chart="agreement-pie" data-total="116" data-center-x="420.0" data-center-y="896.7" data-radius="100.0">
+<path d="M 420.0 896.7 L 470.0 983.3 A 100.0 100.0 0 1 1 421.8 796.7 Z" fill="#4A4A4A" stroke="#FFFFFF" stroke-width="1.2" data-segment="shared" data-value="68" data-percent="59%" data-exploded="false"><title>Shared: 68 BGCs; 59% of genome union</title></path>
+<text x="363.8" y="916.0" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" text-anchor="middle" fill="#FFFFFF">59%</text>
+<text x="354.0" y="1018.7" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#4A4A4A">Shared (n = 68)</text>
+<path d="M 432.2 871.5 L 434.0 771.5 A 100.0 100.0 0 0 1 509.6 808.1 Z" fill="#2F7FB8" stroke="#FFFFFF" stroke-width="1.2" data-segment="antismash_only" data-value="16" data-percent="14%" data-exploded="true"><title>antiSMASH-only: 16 BGCs; 14% of genome union</title></path>
+<text x="457.5" y="824.1" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#FFFFFF">14%</text>
+<path d="M 447.5 901.7 L 524.9 838.4 A 100.0 100.0 0 0 1 497.5 988.3 Z" fill="#E58A1F" stroke="#FFFFFF" stroke-width="1.2" data-segment="funbgcex_only" data-value="32" data-percent="28%" data-exploded="true"><title>FunBGCeX-only: 32 BGCs; 28% of genome union</title></path>
+<text x="504.6" y="916.9" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#111111">28%</text>
+</g>
+<path d="M 478.0 777.0 L 589.3 763.2 Q 607.2 761.0 625.2 761.0 L 668.0 761.0" fill="none" stroke="#2F7FB8" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="607.2" data-bend-y="761.0"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="antismash_only" data-total="16" data-total-percent="14%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="714.0" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#2F7FB8">antiSMASH-only (n = 16)</text>
+<text x="744.0" y="744.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="732.0" width="49.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="terpene" data-value="7" data-percent="6%" data-tool-percent="44%"><title>antiSMASH-only terpene: 7 BGCs; 6% of genome union</title></rect>
+<text x="806.0" y="743.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">6%</text>
+<text x="744.0" y="766.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">hybrid</text>
+<rect x="752.0" y="754.0" width="49.0" height="16.0" fill="#82775B" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="hybrid" data-value="7" data-percent="6%" data-tool-percent="44%"><title>antiSMASH-only hybrid: 7 BGCs; 6% of genome union</title></rect>
+<text x="806.0" y="765.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">6%</text>
+<text x="744.0" y="788.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="776.0" width="14.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="other" data-value="2" data-percent="2%" data-tool-percent="12%"><title>antiSMASH-only other: 2 BGCs; 2% of genome union</title></rect>
+<text x="771.0" y="787.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+</g>
+<path d="M 550.8 920.6 L 614.0 933.2 Q 630.5 936.6 647.4 936.6 L 668.0 936.6" fill="none" stroke="#E58A1F" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="630.5" data-bend-y="936.6"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="funbgcex_only" data-total="32" data-total-percent="28%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="867.6" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#E58A1F">FunBGCeX-only (n = 32)</text>
+<text x="744.0" y="897.6" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">NRPS</text>
+<rect x="752.0" y="885.6" width="56.0" height="16.0" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="NRPS" data-value="8" data-percent="7%" data-tool-percent="25%"><title>FunBGCeX-only NRPS: 8 BGCs; 7% of genome union</title></rect>
+<text x="813.0" y="897.3" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">7%</text>
+<text x="744.0" y="919.6" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">PKS</text>
+<rect x="752.0" y="907.6" width="42.0" height="16.0" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="PKS" data-value="6" data-percent="5%" data-tool-percent="19%"><title>FunBGCeX-only PKS: 6 BGCs; 5% of genome union</title></rect>
+<text x="799.0" y="919.3" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">5%</text>
+<text x="744.0" y="941.6" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="929.6" width="14.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="terpene" data-value="2" data-percent="2%" data-tool-percent="6%"><title>FunBGCeX-only terpene: 2 BGCs; 2% of genome union</title></rect>
+<text x="771.0" y="941.3" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+<text x="744.0" y="963.6" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">RiPP</text>
+<rect x="752.0" y="951.6" width="35.0" height="16.0" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="RiPP" data-value="5" data-percent="4%" data-tool-percent="16%"><title>FunBGCeX-only RiPP: 5 BGCs; 4% of genome union</title></rect>
+<text x="792.0" y="963.3" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">4%</text>
+<text x="744.0" y="985.6" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="973.6" width="77.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="other" data-value="11" data-percent="9%" data-tool-percent="34%"><title>FunBGCeX-only other: 11 BGCs; 9% of genome union</title></rect>
+<text x="834.0" y="985.3" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">9%</text>
+</g>
+<line x1="44.0" y1="1023.0" x2="930.0" y2="1023.0" stroke="#D2D2D2" stroke-width="0.9" stroke-dasharray="2 3"/>
+<text x="44.0" y="1187.8" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" text-anchor="start" fill="#222222"><tspan font-style="italic">Aspergillus avenaceus</tspan><tspan> IBT 18842</tspan></text>
+<g data-chart="agreement-pie" data-total="103" data-center-x="420.0" data-center-y="1182.8" data-radius="100.0">
+<path d="M 420.0 1182.8 L 470.0 1269.4 A 100.0 100.0 0 1 1 461.0 1091.6 Z" fill="#4A4A4A" stroke="#FFFFFF" stroke-width="1.2" data-segment="shared" data-value="67" data-percent="65%" data-exploded="false"><title>Shared: 67 BGCs; 65% of genome union</title></path>
+<text x="362.1" y="1190.6" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" text-anchor="middle" fill="#FFFFFF">65%</text>
+<text x="354.0" y="1304.8" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#4A4A4A">Shared (n = 67)</text>
+<path d="M 439.8 1163.1 L 480.8 1071.8 A 100.0 100.0 0 0 1 531.3 1122.6 Z" fill="#2F7FB8" stroke="#FFFFFF" stroke-width="1.2" data-segment="antismash_only" data-value="12" data-percent="12%" data-exploded="true"><title>antiSMASH-only: 12 BGCs; 12% of genome union</title></path>
+<text x="481.0" y="1126.9" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#FFFFFF">12%</text>
+<path d="M 446.6 1191.5 L 538.1 1151.0 A 100.0 100.0 0 0 1 496.6 1278.1 Z" fill="#E58A1F" stroke="#FFFFFF" stroke-width="1.2" data-segment="funbgcex_only" data-value="24" data-percent="23%" data-exploded="true"><title>FunBGCeX-only: 24 BGCs; 23% of genome union</title></path>
+<text x="501.8" y="1214.3" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#111111">23%</text>
+</g>
+<path d="M 514.3 1089.0 L 601.0 1075.7 Q 618.8 1073.0 636.8 1073.0 L 668.0 1073.0" fill="none" stroke="#2F7FB8" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="618.8" data-bend-y="1073.0"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="antismash_only" data-total="12" data-total-percent="12%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="1037.0" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#2F7FB8">antiSMASH-only (n = 12)</text>
+<text x="744.0" y="1067.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="1055.0" width="49.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="terpene" data-value="7" data-percent="7%" data-tool-percent="58%"><title>antiSMASH-only terpene: 7 BGCs; 7% of genome union</title></rect>
+<text x="806.0" y="1066.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">7%</text>
+<text x="744.0" y="1089.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">hybrid</text>
+<rect x="752.0" y="1077.0" width="35.0" height="16.0" fill="#82775B" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="hybrid" data-value="5" data-percent="5%" data-tool-percent="42%"><title>antiSMASH-only hybrid: 5 BGCs; 5% of genome union</title></rect>
+<text x="792.0" y="1088.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">5%</text>
+</g>
+<path d="M 546.4 1224.0 L 611.9 1236.7 Q 629.1 1240.0 646.6 1240.0 L 668.0 1240.0" fill="none" stroke="#E58A1F" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="629.1" data-bend-y="1240.0"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="funbgcex_only" data-total="24" data-total-percent="23%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="1171.0" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#E58A1F">FunBGCeX-only (n = 24)</text>
+<text x="744.0" y="1201.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">NRPS</text>
+<rect x="752.0" y="1189.0" width="35.0" height="16.0" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="NRPS" data-value="5" data-percent="5%" data-tool-percent="21%"><title>FunBGCeX-only NRPS: 5 BGCs; 5% of genome union</title></rect>
+<text x="792.0" y="1200.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">5%</text>
+<text x="744.0" y="1223.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">PKS</text>
+<rect x="752.0" y="1211.0" width="35.0" height="16.0" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="PKS" data-value="5" data-percent="5%" data-tool-percent="21%"><title>FunBGCeX-only PKS: 5 BGCs; 5% of genome union</title></rect>
+<text x="792.0" y="1222.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">5%</text>
+<text x="744.0" y="1245.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="1233.0" width="7.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="terpene" data-value="1" data-percent="1%" data-tool-percent="4%"><title>FunBGCeX-only terpene: 1 BGC; 1% of genome union</title></rect>
+<text x="764.0" y="1244.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">1%</text>
+<text x="744.0" y="1267.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">RiPP</text>
+<rect x="752.0" y="1255.0" width="35.0" height="16.0" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="RiPP" data-value="5" data-percent="5%" data-tool-percent="21%"><title>FunBGCeX-only RiPP: 5 BGCs; 5% of genome union</title></rect>
+<text x="792.0" y="1266.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">5%</text>
+<text x="744.0" y="1289.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="1277.0" width="56.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="other" data-value="8" data-percent="8%" data-tool-percent="33%"><title>FunBGCeX-only other: 8 BGCs; 8% of genome union</title></rect>
+<text x="813.0" y="1288.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">8%</text>
+</g>
+<line x1="44.0" y1="1324.0" x2="930.0" y2="1324.0" stroke="#D2D2D2" stroke-width="0.9" stroke-dasharray="2 3"/>
+<text x="44.0" y="1525.1" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" text-anchor="start" fill="#222222"><tspan font-style="italic">Aspergillus bertholletiae</tspan><tspan> IBT 29228</tspan></text>
+<g data-chart="agreement-pie" data-total="107" data-center-x="420.0" data-center-y="1520.1" data-radius="100.0">
+<path d="M 420.0 1520.1 L 470.0 1606.7 A 100.0 100.0 0 1 1 440.9 1422.3 Z" fill="#4A4A4A" stroke="#FFFFFF" stroke-width="1.2" data-segment="shared" data-value="66" data-percent="62%" data-exploded="false"><title>Shared: 66 BGCs; 62% of genome union</title></path>
+<text x="362.7" y="1534.0" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" text-anchor="middle" fill="#FFFFFF">62%</text>
+<text x="354.0" y="1642.1" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#4A4A4A">Shared (n = 66)</text>
+<path d="M 436.3 1497.4 L 457.2 1399.6 A 100.0 100.0 0 0 1 522.2 1446.1 Z" fill="#2F7FB8" stroke="#FFFFFF" stroke-width="1.2" data-segment="antismash_only" data-value="14" data-percent="13%" data-exploded="true"><title>antiSMASH-only: 14 BGCs; 13% of genome union</title></path>
+<text x="470.1" y="1455.0" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#FFFFFF">13%</text>
+<path d="M 447.1 1527.2 L 533.0 1475.9 A 100.0 100.0 0 0 1 497.1 1613.8 Z" fill="#E58A1F" stroke="#FFFFFF" stroke-width="1.2" data-segment="funbgcex_only" data-value="27" data-percent="25%" data-exploded="true"><title>FunBGCeX-only: 27 BGCs; 25% of genome union</title></path>
+<text x="503.2" y="1546.6" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#111111">25%</text>
+</g>
+<path d="M 497.4 1412.0 L 595.6 1398.5 Q 613.4 1396.0 631.4 1396.0 L 668.0 1396.0" fill="none" stroke="#2F7FB8" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="613.4" data-bend-y="1396.0"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="antismash_only" data-total="14" data-total-percent="13%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="1338.0" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#2F7FB8">antiSMASH-only (n = 14)</text>
+<text x="744.0" y="1368.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="1356.0" width="56.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="terpene" data-value="8" data-percent="7%" data-tool-percent="57%"><title>antiSMASH-only terpene: 8 BGCs; 7% of genome union</title></rect>
+<text x="813.0" y="1367.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">7%</text>
+<text x="744.0" y="1390.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">RiPP</text>
+<rect x="752.0" y="1378.0" width="7.0" height="16.0" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="RiPP" data-value="1" data-percent="1%" data-tool-percent="7%"><title>antiSMASH-only RiPP: 1 BGC; 1% of genome union</title></rect>
+<text x="764.0" y="1389.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">1%</text>
+<text x="744.0" y="1412.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">hybrid</text>
+<rect x="752.0" y="1400.0" width="21.0" height="16.0" fill="#82775B" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="hybrid" data-value="3" data-percent="3%" data-tool-percent="21%"><title>antiSMASH-only hybrid: 3 BGCs; 3% of genome union</title></rect>
+<text x="778.0" y="1411.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">3%</text>
+<text x="744.0" y="1434.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="1422.0" width="14.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="other" data-value="2" data-percent="2%" data-tool-percent="14%"><title>antiSMASH-only other: 2 BGCs; 2% of genome union</title></rect>
+<text x="771.0" y="1433.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+</g>
+<path d="M 548.7 1553.6 L 613.0 1566.3 Q 629.8 1569.6 647.0 1569.6 L 668.0 1569.6" fill="none" stroke="#E58A1F" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="629.8" data-bend-y="1569.6"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="funbgcex_only" data-total="27" data-total-percent="25%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="1500.6" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#E58A1F">FunBGCeX-only (n = 27)</text>
+<text x="744.0" y="1530.6" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">NRPS</text>
+<rect x="752.0" y="1518.6" width="28.0" height="16.0" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="NRPS" data-value="4" data-percent="4%" data-tool-percent="15%"><title>FunBGCeX-only NRPS: 4 BGCs; 4% of genome union</title></rect>
+<text x="785.0" y="1530.3" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">4%</text>
+<text x="744.0" y="1552.6" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">PKS</text>
+<rect x="752.0" y="1540.6" width="14.0" height="16.0" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="PKS" data-value="2" data-percent="2%" data-tool-percent="7%"><title>FunBGCeX-only PKS: 2 BGCs; 2% of genome union</title></rect>
+<text x="771.0" y="1552.3" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+<text x="744.0" y="1574.6" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="1562.6" width="14.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="terpene" data-value="2" data-percent="2%" data-tool-percent="7%"><title>FunBGCeX-only terpene: 2 BGCs; 2% of genome union</title></rect>
+<text x="771.0" y="1574.3" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+<text x="744.0" y="1596.6" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">RiPP</text>
+<rect x="752.0" y="1584.6" width="49.0" height="16.0" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="RiPP" data-value="7" data-percent="7%" data-tool-percent="26%"><title>FunBGCeX-only RiPP: 7 BGCs; 7% of genome union</title></rect>
+<text x="806.0" y="1596.3" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">7%</text>
+<text x="744.0" y="1618.6" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="1606.6" width="84.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="other" data-value="12" data-percent="11%" data-tool-percent="44%"><title>FunBGCeX-only other: 12 BGCs; 11% of genome union</title></rect>
+<text x="841.0" y="1618.3" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">11%</text>
+</g>
+<line x1="44.0" y1="1653.0" x2="930.0" y2="1653.0" stroke="#D2D2D2" stroke-width="0.9" stroke-dasharray="2 3"/>
+<text x="44.0" y="1827.1" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" text-anchor="start" fill="#222222"><tspan font-style="italic">Aspergillus caelatus</tspan><tspan> CBS 763.97</tspan></text>
+<g data-chart="agreement-pie" data-total="131" data-center-x="420.0" data-center-y="1822.1" data-radius="100.0">
+<path d="M 420.0 1822.1 L 470.0 1908.7 A 100.0 100.0 0 1 1 468.6 1734.7 Z" fill="#4A4A4A" stroke="#FFFFFF" stroke-width="1.2" data-segment="shared" data-value="87" data-percent="66%" data-exploded="false"><title>Shared: 87 BGCs; 66% of genome union</title></path>
+<text x="362.0" y="1827.3" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" text-anchor="middle" fill="#FFFFFF">66%</text>
+<text x="354.0" y="1944.1" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#4A4A4A">Shared (n = 87)</text>
+<path d="M 442.2 1805.0 L 490.8 1717.6 A 100.0 100.0 0 0 1 539.1 1780.5 Z" fill="#2F7FB8" stroke="#FFFFFF" stroke-width="1.2" data-segment="antismash_only" data-value="17" data-percent="13%" data-exploded="true"><title>antiSMASH-only: 17 BGCs; 13% of genome union</title></path>
+<text x="488.2" y="1774.4" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#FFFFFF">13%</text>
+<path d="M 445.8 1833.0 L 542.7 1808.4 A 100.0 100.0 0 0 1 495.8 1919.6 Z" fill="#E58A1F" stroke="#FFFFFF" stroke-width="1.2" data-segment="funbgcex_only" data-value="27" data-percent="21%" data-exploded="true"><title>FunBGCeX-only: 27 BGCs; 21% of genome union</title></path>
+<text x="499.2" y="1860.3" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#111111">21%</text>
+</g>
+<path d="M 525.4 1741.0 L 604.6 1727.9 Q 622.4 1725.0 640.4 1725.0 L 668.0 1725.0" fill="none" stroke="#2F7FB8" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="622.4" data-bend-y="1725.0"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="antismash_only" data-total="17" data-total-percent="13%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="1667.0" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#2F7FB8">antiSMASH-only (n = 17)</text>
+<text x="744.0" y="1697.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="1685.0" width="56.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="terpene" data-value="8" data-percent="6%" data-tool-percent="47%"><title>antiSMASH-only terpene: 8 BGCs; 6% of genome union</title></rect>
+<text x="813.0" y="1696.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">6%</text>
+<text x="744.0" y="1719.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">RiPP</text>
+<rect x="752.0" y="1707.0" width="14.0" height="16.0" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="RiPP" data-value="2" data-percent="2%" data-tool-percent="12%"><title>antiSMASH-only RiPP: 2 BGCs; 2% of genome union</title></rect>
+<text x="771.0" y="1718.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+<text x="744.0" y="1741.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">hybrid</text>
+<rect x="752.0" y="1729.0" width="35.0" height="16.0" fill="#82775B" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="hybrid" data-value="5" data-percent="4%" data-tool-percent="29%"><title>antiSMASH-only hybrid: 5 BGCs; 4% of genome union</title></rect>
+<text x="792.0" y="1740.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">4%</text>
+<text x="744.0" y="1763.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="1751.0" width="14.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="other" data-value="2" data-percent="2%" data-tool-percent="12%"><title>antiSMASH-only other: 2 BGCs; 2% of genome union</title></rect>
+<text x="771.0" y="1762.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+</g>
+<path d="M 542.5 1873.8 L 610.2 1886.5 Q 627.8 1889.8 645.8 1889.8 L 668.0 1889.8" fill="none" stroke="#E58A1F" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="627.8" data-bend-y="1889.8"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="funbgcex_only" data-total="27" data-total-percent="21%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="1820.8" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#E58A1F">FunBGCeX-only (n = 27)</text>
+<text x="744.0" y="1850.8" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">NRPS</text>
+<rect x="752.0" y="1838.8" width="42.0" height="16.0" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="NRPS" data-value="6" data-percent="5%" data-tool-percent="22%"><title>FunBGCeX-only NRPS: 6 BGCs; 5% of genome union</title></rect>
+<text x="799.0" y="1850.5" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">5%</text>
+<text x="744.0" y="1872.8" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">PKS</text>
+<rect x="752.0" y="1860.8" width="49.0" height="16.0" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="PKS" data-value="7" data-percent="5%" data-tool-percent="26%"><title>FunBGCeX-only PKS: 7 BGCs; 5% of genome union</title></rect>
+<text x="806.0" y="1872.5" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">5%</text>
+<text x="744.0" y="1894.8" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="1882.8" width="7.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="terpene" data-value="1" data-percent="1%" data-tool-percent="4%"><title>FunBGCeX-only terpene: 1 BGC; 1% of genome union</title></rect>
+<text x="764.0" y="1894.5" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">1%</text>
+<text x="744.0" y="1916.8" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">RiPP</text>
+<rect x="752.0" y="1904.8" width="35.0" height="16.0" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="RiPP" data-value="5" data-percent="4%" data-tool-percent="19%"><title>FunBGCeX-only RiPP: 5 BGCs; 4% of genome union</title></rect>
+<text x="792.0" y="1916.5" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">4%</text>
+<text x="744.0" y="1938.8" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="1926.8" width="56.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="other" data-value="8" data-percent="6%" data-tool-percent="30%"><title>FunBGCeX-only other: 8 BGCs; 6% of genome union</title></rect>
+<text x="813.0" y="1938.5" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">6%</text>
+</g>
+<line x1="44.0" y1="1973.0" x2="930.0" y2="1973.0" stroke="#D2D2D2" stroke-width="0.9" stroke-dasharray="2 3"/>
+<text x="44.0" y="2124.0" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" text-anchor="start" fill="#222222"><tspan font-style="italic">Aspergillus coremiiformis</tspan><tspan> CBS 553.77</tspan></text>
+<g data-chart="agreement-pie" data-total="61" data-center-x="420.0" data-center-y="2119.0" data-radius="100.0">
+<path d="M 420.0 2119.0 L 470.0 2205.6 A 100.0 100.0 0 1 1 489.2 2046.8 Z" fill="#4A4A4A" stroke="#FFFFFF" stroke-width="1.2" data-segment="shared" data-value="43" data-percent="70%" data-exploded="false"><title>Shared: 43 BGCs; 70% of genome union</title></path>
+<text x="362.4" y="2116.8" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" text-anchor="middle" fill="#FFFFFF">70%</text>
+<text x="354.0" y="2241.0" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#4A4A4A">Shared (n = 43)</text>
+<path d="M 446.4 2109.6 L 515.5 2037.4 A 100.0 100.0 0 0 1 545.6 2121.6 Z" fill="#2F7FB8" stroke="#FFFFFF" stroke-width="1.2" data-segment="antismash_only" data-value="9" data-percent="15%" data-exploded="true"><title>antiSMASH-only: 9 BGCs; 15% of genome union</title></path>
+<text x="501.0" y="2094.8" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#FFFFFF">15%</text>
+<path d="M 443.4 2134.4 L 542.6 2146.4 A 100.0 100.0 0 0 1 493.4 2221.0 Z" fill="#E58A1F" stroke="#FFFFFF" stroke-width="1.2" data-segment="funbgcex_only" data-value="9" data-percent="15%" data-exploded="true"><title>FunBGCeX-only: 9 BGCs; 15% of genome union</title></path>
+<text x="491.8" y="2171.2" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#111111">15%</text>
+</g>
+<path d="M 545.2 2074.2 L 611.4 2061.6 Q 628.7 2058.2 646.4 2058.2 L 668.0 2058.2" fill="none" stroke="#2F7FB8" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="628.7" data-bend-y="2058.2"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="antismash_only" data-total="9" data-total-percent="15%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="2011.2" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#2F7FB8">antiSMASH-only (n = 9)</text>
+<text x="744.0" y="2041.2" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="2029.2" width="35.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="terpene" data-value="5" data-percent="8%" data-tool-percent="56%"><title>antiSMASH-only terpene: 5 BGCs; 8% of genome union</title></rect>
+<text x="792.0" y="2040.9" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">8%</text>
+<text x="744.0" y="2063.2" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">hybrid</text>
+<rect x="752.0" y="2051.2" width="14.0" height="16.0" fill="#82775B" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="hybrid" data-value="2" data-percent="3%" data-tool-percent="22%"><title>antiSMASH-only hybrid: 2 BGCs; 3% of genome union</title></rect>
+<text x="771.0" y="2062.9" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">3%</text>
+<text x="744.0" y="2085.2" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="2073.2" width="14.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="other" data-value="2" data-percent="3%" data-tool-percent="22%"><title>antiSMASH-only other: 2 BGCs; 3% of genome union</title></rect>
+<text x="771.0" y="2084.9" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">3%</text>
+</g>
+<path d="M 531.0 2192.3 L 606.4 2205.3 Q 624.2 2208.3 642.2 2208.3 L 668.0 2208.3" fill="none" stroke="#E58A1F" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="624.2" data-bend-y="2208.3"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="funbgcex_only" data-total="9" data-total-percent="15%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="2161.3" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#E58A1F">FunBGCeX-only (n = 9)</text>
+<text x="744.0" y="2191.3" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">NRPS</text>
+<rect x="752.0" y="2179.3" width="21.0" height="16.0" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="NRPS" data-value="3" data-percent="5%" data-tool-percent="33%"><title>FunBGCeX-only NRPS: 3 BGCs; 5% of genome union</title></rect>
+<text x="778.0" y="2191.0" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">5%</text>
+<text x="744.0" y="2213.3" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">PKS</text>
+<rect x="752.0" y="2201.3" width="21.0" height="16.0" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="PKS" data-value="3" data-percent="5%" data-tool-percent="33%"><title>FunBGCeX-only PKS: 3 BGCs; 5% of genome union</title></rect>
+<text x="778.0" y="2213.0" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">5%</text>
+<text x="744.0" y="2235.3" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="2223.3" width="21.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="other" data-value="3" data-percent="5%" data-tool-percent="33%"><title>FunBGCeX-only other: 3 BGCs; 5% of genome union</title></rect>
+<text x="778.0" y="2235.0" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">5%</text>
+</g>
+<line x1="44.0" y1="2270.0" x2="930.0" y2="2270.0" stroke="#D2D2D2" stroke-width="0.9" stroke-dasharray="2 3"/>
+<text x="44.0" y="2494.4" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" text-anchor="start" fill="#222222"><tspan font-style="italic">Aspergillus flavus</tspan><tspan> CBS 121.62</tspan></text>
+<g data-chart="agreement-pie" data-total="120" data-center-x="420.0" data-center-y="2489.4" data-radius="100.0">
+<path d="M 420.0 2489.4 L 470.0 2576.0 A 100.0 100.0 0 1 1 384.2 2396.0 Z" fill="#4A4A4A" stroke="#FFFFFF" stroke-width="1.2" data-segment="shared" data-value="63" data-percent="52%" data-exploded="false"><title>Shared: 63 BGCs; 52% of genome union</title></path>
+<text x="367.7" y="2519.1" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" text-anchor="middle" fill="#FFFFFF">52%</text>
+<text x="354.0" y="2611.4" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#4A4A4A">Shared (n = 63)</text>
+<path d="M 424.4 2461.7 L 388.5 2368.3 A 100.0 100.0 0 0 1 487.3 2384.0 Z" fill="#2F7FB8" stroke="#FFFFFF" stroke-width="1.2" data-segment="antismash_only" data-value="20" data-percent="17%" data-exploded="true"><title>antiSMASH-only: 20 BGCs; 17% of genome union</title></path>
+<text x="433.5" y="2409.2" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#FFFFFF">17%</text>
+<path d="M 447.9 2491.6 L 510.8 2413.8 A 100.0 100.0 0 0 1 497.9 2578.2 Z" fill="#E58A1F" stroke="#FFFFFF" stroke-width="1.2" data-segment="funbgcex_only" data-value="37" data-percent="31%" data-exploded="true"><title>FunBGCeX-only: 37 BGCs; 31% of genome union</title></path>
+<text x="505.7" y="2500.9" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#111111">31%</text>
+</g>
+<path d="M 440.8 2358.0 L 577.4 2343.9 Q 595.3 2342.0 613.3 2342.0 L 668.0 2342.0" fill="none" stroke="#2F7FB8" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="595.3" data-bend-y="2342.0"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="antismash_only" data-total="20" data-total-percent="17%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="2284.0" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#2F7FB8">antiSMASH-only (n = 20)</text>
+<text x="744.0" y="2314.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">NRPS</text>
+<rect x="752.0" y="2302.0" width="7.0" height="16.0" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="NRPS" data-value="1" data-percent="1%" data-tool-percent="5%"><title>antiSMASH-only NRPS: 1 BGC; 1% of genome union</title></rect>
+<text x="764.0" y="2313.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">1%</text>
+<text x="744.0" y="2336.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="2324.0" width="63.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="terpene" data-value="9" data-percent="8%" data-tool-percent="45%"><title>antiSMASH-only terpene: 9 BGCs; 8% of genome union</title></rect>
+<text x="820.0" y="2335.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">8%</text>
+<text x="744.0" y="2358.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">hybrid</text>
+<rect x="752.0" y="2346.0" width="63.0" height="16.0" fill="#82775B" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="hybrid" data-value="9" data-percent="8%" data-tool-percent="45%"><title>antiSMASH-only hybrid: 9 BGCs; 8% of genome union</title></rect>
+<text x="820.0" y="2357.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">8%</text>
+<text x="744.0" y="2380.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="2368.0" width="7.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="other" data-value="1" data-percent="1%" data-tool-percent="5%"><title>antiSMASH-only other: 1 BGC; 1% of genome union</title></rect>
+<text x="764.0" y="2379.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">1%</text>
+</g>
+<path d="M 552.6 2499.8 L 614.8 2512.5 Q 631.1 2515.8 647.7 2515.8 L 668.0 2515.8" fill="none" stroke="#E58A1F" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="631.1" data-bend-y="2515.8"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="funbgcex_only" data-total="37" data-total-percent="31%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="2446.8" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#E58A1F">FunBGCeX-only (n = 37)</text>
+<text x="744.0" y="2476.8" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">NRPS</text>
+<rect x="752.0" y="2464.8" width="70.0" height="16.0" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="NRPS" data-value="10" data-percent="8%" data-tool-percent="27%"><title>FunBGCeX-only NRPS: 10 BGCs; 8% of genome union</title></rect>
+<text x="827.0" y="2476.5" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">8%</text>
+<text x="744.0" y="2498.8" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">PKS</text>
+<rect x="752.0" y="2486.8" width="63.0" height="16.0" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="PKS" data-value="9" data-percent="8%" data-tool-percent="24%"><title>FunBGCeX-only PKS: 9 BGCs; 8% of genome union</title></rect>
+<text x="820.0" y="2498.5" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">8%</text>
+<text x="744.0" y="2520.8" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="2508.8" width="21.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="terpene" data-value="3" data-percent="2%" data-tool-percent="8%"><title>FunBGCeX-only terpene: 3 BGCs; 2% of genome union</title></rect>
+<text x="778.0" y="2520.5" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+<text x="744.0" y="2542.8" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">RiPP</text>
+<rect x="752.0" y="2530.8" width="42.0" height="16.0" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="RiPP" data-value="6" data-percent="5%" data-tool-percent="16%"><title>FunBGCeX-only RiPP: 6 BGCs; 5% of genome union</title></rect>
+<text x="799.0" y="2542.5" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">5%</text>
+<text x="744.0" y="2564.8" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="2552.8" width="63.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="other" data-value="9" data-percent="8%" data-tool-percent="24%"><title>FunBGCeX-only other: 9 BGCs; 8% of genome union</title></rect>
+<text x="820.0" y="2564.5" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">8%</text>
+</g>
+<line x1="44.0" y1="2616.0" x2="930.0" y2="2616.0" stroke="#D2D2D2" stroke-width="0.9" stroke-dasharray="2 3"/>
+<text x="44.0" y="2815.9" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" text-anchor="start" fill="#222222"><tspan font-style="italic">Aspergillus leporis</tspan><tspan> CBS 151.66</tspan></text>
+<g data-chart="agreement-pie" data-total="127" data-center-x="420.0" data-center-y="2810.9" data-radius="100.0">
+<path d="M 420.0 2810.9 L 470.0 2897.5 A 100.0 100.0 0 1 1 462.7 2720.5 Z" fill="#4A4A4A" stroke="#FFFFFF" stroke-width="1.2" data-segment="shared" data-value="83" data-percent="65%" data-exploded="false"><title>Shared: 83 BGCs; 65% of genome union</title></path>
+<text x="362.0" y="2818.1" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" text-anchor="middle" fill="#FFFFFF">65%</text>
+<text x="354.0" y="2932.9" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#4A4A4A">Shared (n = 83)</text>
+<path d="M 441.7 2793.2 L 484.4 2702.8 A 100.0 100.0 0 0 1 538.8 2769.5 Z" fill="#2F7FB8" stroke="#FFFFFF" stroke-width="1.2" data-segment="antismash_only" data-value="18" data-percent="14%" data-exploded="true"><title>antiSMASH-only: 18 BGCs; 14% of genome union</title></path>
+<text x="486.6" y="2761.3" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#FFFFFF">14%</text>
+<path d="M 445.7 2821.9 L 542.9 2798.2 A 100.0 100.0 0 0 1 495.7 2908.5 Z" fill="#E58A1F" stroke="#FFFFFF" stroke-width="1.2" data-segment="funbgcex_only" data-value="26" data-percent="20%" data-exploded="true"><title>FunBGCeX-only: 26 BGCs; 20% of genome union</title></path>
+<text x="499.1" y="2849.5" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#111111">20%</text>
+</g>
+<path d="M 523.0 2726.8 L 603.9 2713.0 Q 621.6 2710.0 639.6 2710.0 L 668.0 2710.0" fill="none" stroke="#2F7FB8" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="621.6" data-bend-y="2710.0"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="antismash_only" data-total="18" data-total-percent="14%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="2630.0" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#2F7FB8">antiSMASH-only (n = 18)</text>
+<text x="744.0" y="2660.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">NRPS</text>
+<rect x="752.0" y="2648.0" width="7.0" height="16.0" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="NRPS" data-value="1" data-percent="1%" data-tool-percent="6%"><title>antiSMASH-only NRPS: 1 BGC; 1% of genome union</title></rect>
+<text x="764.0" y="2659.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">1%</text>
+<text x="744.0" y="2682.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">PKS</text>
+<rect x="752.0" y="2670.0" width="7.0" height="16.0" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="PKS" data-value="1" data-percent="1%" data-tool-percent="6%"><title>antiSMASH-only PKS: 1 BGC; 1% of genome union</title></rect>
+<text x="764.0" y="2681.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">1%</text>
+<text x="744.0" y="2704.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="2692.0" width="70.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="terpene" data-value="10" data-percent="8%" data-tool-percent="56%"><title>antiSMASH-only terpene: 10 BGCs; 8% of genome union</title></rect>
+<text x="827.0" y="2703.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">8%</text>
+<text x="744.0" y="2726.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">RiPP</text>
+<rect x="752.0" y="2714.0" width="7.0" height="16.0" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="RiPP" data-value="1" data-percent="1%" data-tool-percent="6%"><title>antiSMASH-only RiPP: 1 BGC; 1% of genome union</title></rect>
+<text x="764.0" y="2725.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">1%</text>
+<text x="744.0" y="2748.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">hybrid</text>
+<rect x="752.0" y="2736.0" width="21.0" height="16.0" fill="#82775B" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="hybrid" data-value="3" data-percent="2%" data-tool-percent="17%"><title>antiSMASH-only hybrid: 3 BGCs; 2% of genome union</title></rect>
+<text x="778.0" y="2747.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+<text x="744.0" y="2770.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="2758.0" width="14.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="other" data-value="2" data-percent="2%" data-tool-percent="11%"><title>antiSMASH-only other: 2 BGCs; 2% of genome union</title></rect>
+<text x="771.0" y="2769.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+</g>
+<path d="M 542.3 2863.2 L 610.1 2876.5 Q 627.8 2880.0 645.8 2880.0 L 668.0 2880.0" fill="none" stroke="#E58A1F" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="627.8" data-bend-y="2880.0"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="funbgcex_only" data-total="26" data-total-percent="20%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="2800.0" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#E58A1F">FunBGCeX-only (n = 26)</text>
+<text x="744.0" y="2830.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">NRPS</text>
+<rect x="752.0" y="2818.0" width="63.0" height="16.0" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="NRPS" data-value="9" data-percent="7%" data-tool-percent="35%"><title>FunBGCeX-only NRPS: 9 BGCs; 7% of genome union</title></rect>
+<text x="820.0" y="2829.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">7%</text>
+<text x="744.0" y="2852.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">PKS</text>
+<rect x="752.0" y="2840.0" width="28.0" height="16.0" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="PKS" data-value="4" data-percent="3%" data-tool-percent="15%"><title>FunBGCeX-only PKS: 4 BGCs; 3% of genome union</title></rect>
+<text x="785.0" y="2851.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">3%</text>
+<text x="744.0" y="2874.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="2862.0" width="21.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="terpene" data-value="3" data-percent="2%" data-tool-percent="12%"><title>FunBGCeX-only terpene: 3 BGCs; 2% of genome union</title></rect>
+<text x="778.0" y="2873.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+<text x="744.0" y="2896.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">RiPP</text>
+<rect x="752.0" y="2884.0" width="14.0" height="16.0" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="RiPP" data-value="2" data-percent="2%" data-tool-percent="8%"><title>FunBGCeX-only RiPP: 2 BGCs; 2% of genome union</title></rect>
+<text x="771.0" y="2895.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+<text x="744.0" y="2918.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">hybrid</text>
+<rect x="752.0" y="2906.0" width="14.0" height="16.0" fill="#82775B" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="hybrid" data-value="2" data-percent="2%" data-tool-percent="8%"><title>FunBGCeX-only hybrid: 2 BGCs; 2% of genome union</title></rect>
+<text x="771.0" y="2917.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+<text x="744.0" y="2940.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="2928.0" width="42.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="other" data-value="6" data-percent="5%" data-tool-percent="23%"><title>FunBGCeX-only other: 6 BGCs; 5% of genome union</title></rect>
+<text x="799.0" y="2939.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">5%</text>
+</g>
+<line x1="44.0" y1="2974.0" x2="930.0" y2="2974.0" stroke="#D2D2D2" stroke-width="0.9" stroke-dasharray="2 3"/>
+<text x="44.0" y="3182.7" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" text-anchor="start" fill="#222222"><tspan font-style="italic">Aspergillus minisclerotigenes</tspan><tspan> CBS 117635</tspan></text>
+<g data-chart="agreement-pie" data-total="127" data-center-x="420.0" data-center-y="3177.7" data-radius="100.0">
+<path d="M 420.0 3177.7 L 470.0 3264.3 A 100.0 100.0 0 1 1 429.5 3078.2 Z" fill="#4A4A4A" stroke="#FFFFFF" stroke-width="1.2" data-segment="shared" data-value="76" data-percent="60%" data-exploded="false"><title>Shared: 76 BGCs; 60% of genome union</title></path>
+<text x="363.3" y="3194.9" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" text-anchor="middle" fill="#FFFFFF">60%</text>
+<text x="354.0" y="3299.7" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#4A4A4A">Shared (n = 76)</text>
+<path d="M 433.8 3153.4 L 443.3 3053.8 A 100.0 100.0 0 0 1 514.3 3094.1 Z" fill="#2F7FB8" stroke="#FFFFFF" stroke-width="1.2" data-segment="antismash_only" data-value="17" data-percent="13%" data-exploded="true"><title>antiSMASH-only: 17 BGCs; 13% of genome union</title></path>
+<text x="462.4" y="3107.7" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#FFFFFF">13%</text>
+<path d="M 447.4 3183.5 L 527.9 3124.1 A 100.0 100.0 0 0 1 497.4 3270.1 Z" fill="#E58A1F" stroke="#FFFFFF" stroke-width="1.2" data-segment="funbgcex_only" data-value="34" data-percent="27%" data-exploded="true"><title>FunBGCeX-only: 34 BGCs; 27% of genome union</title></path>
+<text x="504.2" y="3200.1" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#111111">27%</text>
+</g>
+<path d="M 485.5 3062.0 L 591.8 3048.3 Q 609.6 3046.0 627.6 3046.0 L 668.0 3046.0" fill="none" stroke="#2F7FB8" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="609.6" data-bend-y="3046.0"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="antismash_only" data-total="17" data-total-percent="13%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="2988.0" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#2F7FB8">antiSMASH-only (n = 17)</text>
+<text x="744.0" y="3018.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">NRPS</text>
+<rect x="752.0" y="3006.0" width="7.0" height="16.0" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="NRPS" data-value="1" data-percent="1%" data-tool-percent="6%"><title>antiSMASH-only NRPS: 1 BGC; 1% of genome union</title></rect>
+<text x="764.0" y="3017.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">1%</text>
+<text x="744.0" y="3040.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="3028.0" width="49.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="terpene" data-value="7" data-percent="6%" data-tool-percent="41%"><title>antiSMASH-only terpene: 7 BGCs; 6% of genome union</title></rect>
+<text x="806.0" y="3039.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">6%</text>
+<text x="744.0" y="3062.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">hybrid</text>
+<rect x="752.0" y="3050.0" width="49.0" height="16.0" fill="#82775B" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="hybrid" data-value="7" data-percent="6%" data-tool-percent="41%"><title>antiSMASH-only hybrid: 7 BGCs; 6% of genome union</title></rect>
+<text x="806.0" y="3061.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">6%</text>
+<text x="744.0" y="3084.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="3072.0" width="14.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="other" data-value="2" data-percent="2%" data-tool-percent="12%"><title>antiSMASH-only other: 2 BGCs; 2% of genome union</title></rect>
+<text x="771.0" y="3083.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+</g>
+<path d="M 550.2 3204.9 L 613.7 3217.6 Q 630.3 3220.9 647.3 3220.9 L 668.0 3220.9" fill="none" stroke="#E58A1F" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="630.3" data-bend-y="3220.9"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="funbgcex_only" data-total="34" data-total-percent="27%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="3151.9" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#E58A1F">FunBGCeX-only (n = 34)</text>
+<text x="744.0" y="3181.9" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">NRPS</text>
+<rect x="752.0" y="3169.9" width="56.0" height="16.0" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="NRPS" data-value="8" data-percent="6%" data-tool-percent="24%"><title>FunBGCeX-only NRPS: 8 BGCs; 6% of genome union</title></rect>
+<text x="813.0" y="3181.6" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">6%</text>
+<text x="744.0" y="3203.9" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">PKS</text>
+<rect x="752.0" y="3191.9" width="49.0" height="16.0" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="PKS" data-value="7" data-percent="6%" data-tool-percent="21%"><title>FunBGCeX-only PKS: 7 BGCs; 6% of genome union</title></rect>
+<text x="806.0" y="3203.6" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">6%</text>
+<text x="744.0" y="3225.9" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="3213.9" width="28.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="terpene" data-value="4" data-percent="3%" data-tool-percent="12%"><title>FunBGCeX-only terpene: 4 BGCs; 3% of genome union</title></rect>
+<text x="785.0" y="3225.6" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">3%</text>
+<text x="744.0" y="3247.9" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">RiPP</text>
+<rect x="752.0" y="3235.9" width="28.0" height="16.0" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="RiPP" data-value="4" data-percent="3%" data-tool-percent="12%"><title>FunBGCeX-only RiPP: 4 BGCs; 3% of genome union</title></rect>
+<text x="785.0" y="3247.6" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">3%</text>
+<text x="744.0" y="3269.9" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="3257.9" width="77.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="other" data-value="11" data-percent="9%" data-tool-percent="32%"><title>FunBGCeX-only other: 11 BGCs; 9% of genome union</title></rect>
+<text x="834.0" y="3269.6" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">9%</text>
+</g>
+<line x1="44.0" y1="3304.0" x2="930.0" y2="3304.0" stroke="#D2D2D2" stroke-width="0.9" stroke-dasharray="2 3"/>
+<text x="44.0" y="3494.3" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" text-anchor="start" fill="#222222"><tspan font-style="italic">Aspergillus novoparasiticus</tspan><tspan> CBS 126849</tspan></text>
+<g data-chart="agreement-pie" data-total="121" data-center-x="420.0" data-center-y="3489.3" data-radius="100.0">
+<path d="M 420.0 3489.3 L 470.0 3575.9 A 100.0 100.0 0 1 1 442.7 3392.0 Z" fill="#4A4A4A" stroke="#FFFFFF" stroke-width="1.2" data-segment="shared" data-value="75" data-percent="62%" data-exploded="false"><title>Shared: 75 BGCs; 62% of genome union</title></path>
+<text x="362.6" y="3502.6" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" text-anchor="middle" fill="#FFFFFF">62%</text>
+<text x="354.0" y="3611.3" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#4A4A4A">Shared (n = 75)</text>
+<path d="M 436.2 3466.5 L 459.0 3369.1 A 100.0 100.0 0 0 1 520.8 3413.2 Z" fill="#2F7FB8" stroke="#FFFFFF" stroke-width="1.2" data-segment="antismash_only" data-value="15" data-percent="12%" data-exploded="true"><title>antiSMASH-only: 15 BGCs; 12% of genome union</title></path>
+<text x="469.9" y="3424.1" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#FFFFFF">12%</text>
+<path d="M 447.2 3496.1 L 531.8 3442.7 A 100.0 100.0 0 0 1 497.2 3582.7 Z" fill="#E58A1F" stroke="#FFFFFF" stroke-width="1.2" data-segment="funbgcex_only" data-value="31" data-percent="26%" data-exploded="true"><title>FunBGCeX-only: 31 BGCs; 26% of genome union</title></path>
+<text x="503.5" y="3514.8" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#111111">26%</text>
+</g>
+<path d="M 497.1 3381.0 L 595.5 3367.5 Q 613.3 3365.0 631.3 3365.0 L 668.0 3365.0" fill="none" stroke="#2F7FB8" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="613.3" data-bend-y="3365.0"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="antismash_only" data-total="15" data-total-percent="12%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="3318.0" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#2F7FB8">antiSMASH-only (n = 15)</text>
+<text x="744.0" y="3348.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="3336.0" width="56.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="terpene" data-value="8" data-percent="7%" data-tool-percent="53%"><title>antiSMASH-only terpene: 8 BGCs; 7% of genome union</title></rect>
+<text x="813.0" y="3347.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">7%</text>
+<text x="744.0" y="3370.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">hybrid</text>
+<rect x="752.0" y="3358.0" width="35.0" height="16.0" fill="#82775B" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="hybrid" data-value="5" data-percent="4%" data-tool-percent="33%"><title>antiSMASH-only hybrid: 5 BGCs; 4% of genome union</title></rect>
+<text x="792.0" y="3369.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">4%</text>
+<text x="744.0" y="3392.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="3380.0" width="14.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="other" data-value="2" data-percent="2%" data-tool-percent="13%"><title>antiSMASH-only other: 2 BGCs; 2% of genome union</title></rect>
+<text x="771.0" y="3391.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+</g>
+<path d="M 549.1 3521.3 L 613.2 3533.9 Q 630.0 3537.3 647.1 3537.3 L 668.0 3537.3" fill="none" stroke="#E58A1F" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="630.0" data-bend-y="3537.3"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="funbgcex_only" data-total="31" data-total-percent="26%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="3468.3" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#E58A1F">FunBGCeX-only (n = 31)</text>
+<text x="744.0" y="3498.3" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">NRPS</text>
+<rect x="752.0" y="3486.3" width="56.0" height="16.0" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="NRPS" data-value="8" data-percent="7%" data-tool-percent="26%"><title>FunBGCeX-only NRPS: 8 BGCs; 7% of genome union</title></rect>
+<text x="813.0" y="3498.0" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">7%</text>
+<text x="744.0" y="3520.3" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">PKS</text>
+<rect x="752.0" y="3508.3" width="49.0" height="16.0" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="PKS" data-value="7" data-percent="6%" data-tool-percent="23%"><title>FunBGCeX-only PKS: 7 BGCs; 6% of genome union</title></rect>
+<text x="806.0" y="3520.0" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">6%</text>
+<text x="744.0" y="3542.3" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="3530.3" width="21.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="terpene" data-value="3" data-percent="2%" data-tool-percent="10%"><title>FunBGCeX-only terpene: 3 BGCs; 2% of genome union</title></rect>
+<text x="778.0" y="3542.0" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+<text x="744.0" y="3564.3" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">RiPP</text>
+<rect x="752.0" y="3552.3" width="21.0" height="16.0" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="RiPP" data-value="3" data-percent="2%" data-tool-percent="10%"><title>FunBGCeX-only RiPP: 3 BGCs; 2% of genome union</title></rect>
+<text x="778.0" y="3564.0" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+<text x="744.0" y="3586.3" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="3574.3" width="70.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="other" data-value="10" data-percent="8%" data-tool-percent="32%"><title>FunBGCeX-only other: 10 BGCs; 8% of genome union</title></rect>
+<text x="827.0" y="3586.0" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">8%</text>
+</g>
+<line x1="44.0" y1="3621.0" x2="930.0" y2="3621.0" stroke="#D2D2D2" stroke-width="0.9" stroke-dasharray="2 3"/>
+<text x="44.0" y="3844.6" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" text-anchor="start" fill="#222222"><tspan font-style="italic">Aspergillus parasiticus</tspan><tspan> CBS 117618</tspan></text>
+<g data-chart="agreement-pie" data-total="145" data-center-x="420.0" data-center-y="3839.6" data-radius="100.0">
+<path d="M 420.0 3839.6 L 470.0 3926.2 A 100.0 100.0 0 1 1 396.0 3742.5 Z" fill="#4A4A4A" stroke="#FFFFFF" stroke-width="1.2" data-segment="shared" data-value="79" data-percent="54%" data-exploded="false"><title>Shared: 79 BGCs; 54% of genome union</title></path>
+<text x="366.2" y="3866.0" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" text-anchor="middle" fill="#FFFFFF">54%</text>
+<text x="354.0" y="3961.6" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#4A4A4A">Shared (n = 79)</text>
+<path d="M 425.3 3812.1 L 401.4 3715.0 A 100.0 100.0 0 0 1 483.8 3731.0 Z" fill="#2F7FB8" stroke="#FFFFFF" stroke-width="1.2" data-segment="antismash_only" data-value="20" data-percent="14%" data-exploded="true"><title>antiSMASH-only: 20 BGCs; 14% of genome union</title></path>
+<text x="436.4" y="3759.9" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#FFFFFF">14%</text>
+<path d="M 448.0 3841.0 L 506.5 3759.9 A 100.0 100.0 0 0 1 498.0 3927.6 Z" fill="#E58A1F" stroke="#FFFFFF" stroke-width="1.2" data-segment="funbgcex_only" data-value="46" data-percent="32%" data-exploded="true"><title>FunBGCeX-only: 46 BGCs; 32% of genome union</title></path>
+<text x="505.9" y="3848.7" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#111111">32%</text>
+</g>
+<path d="M 445.3 3709.0 L 578.8 3694.9 Q 596.7 3693.0 614.7 3693.0 L 668.0 3693.0" fill="none" stroke="#2F7FB8" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="596.7" data-bend-y="3693.0"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="antismash_only" data-total="20" data-total-percent="14%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="3635.0" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#2F7FB8">antiSMASH-only (n = 20)</text>
+<text x="744.0" y="3665.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">NRPS</text>
+<rect x="752.0" y="3653.0" width="7.0" height="16.0" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="NRPS" data-value="1" data-percent="1%" data-tool-percent="5%"><title>antiSMASH-only NRPS: 1 BGC; 1% of genome union</title></rect>
+<text x="764.0" y="3664.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">1%</text>
+<text x="744.0" y="3687.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="3675.0" width="49.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="terpene" data-value="7" data-percent="5%" data-tool-percent="35%"><title>antiSMASH-only terpene: 7 BGCs; 5% of genome union</title></rect>
+<text x="806.0" y="3686.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">5%</text>
+<text x="744.0" y="3709.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">hybrid</text>
+<rect x="752.0" y="3697.0" width="63.0" height="16.0" fill="#82775B" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="hybrid" data-value="9" data-percent="6%" data-tool-percent="45%"><title>antiSMASH-only hybrid: 9 BGCs; 6% of genome union</title></rect>
+<text x="820.0" y="3708.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">6%</text>
+<text x="744.0" y="3731.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="3719.0" width="21.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="other" data-value="3" data-percent="2%" data-tool-percent="15%"><title>antiSMASH-only other: 3 BGCs; 2% of genome union</title></rect>
+<text x="778.0" y="3730.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+</g>
+<path d="M 552.8 3846.3 L 614.9 3859.0 Q 631.1 3862.3 647.7 3862.3 L 668.0 3862.3" fill="none" stroke="#E58A1F" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="631.1" data-bend-y="3862.3"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="funbgcex_only" data-total="46" data-total-percent="32%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="3782.3" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#E58A1F">FunBGCeX-only (n = 46)</text>
+<text x="744.0" y="3812.3" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">NRPS</text>
+<rect x="752.0" y="3800.3" width="77.0" height="16.0" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="NRPS" data-value="11" data-percent="8%" data-tool-percent="24%"><title>FunBGCeX-only NRPS: 11 BGCs; 8% of genome union</title></rect>
+<text x="834.0" y="3812.0" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">8%</text>
+<text x="744.0" y="3834.3" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">PKS</text>
+<rect x="752.0" y="3822.3" width="56.0" height="16.0" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="PKS" data-value="8" data-percent="6%" data-tool-percent="17%"><title>FunBGCeX-only PKS: 8 BGCs; 6% of genome union</title></rect>
+<text x="813.0" y="3834.0" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">6%</text>
+<text x="744.0" y="3856.3" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="3844.3" width="28.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="terpene" data-value="4" data-percent="3%" data-tool-percent="9%"><title>FunBGCeX-only terpene: 4 BGCs; 3% of genome union</title></rect>
+<text x="785.0" y="3856.0" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">3%</text>
+<text x="744.0" y="3878.3" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">RiPP</text>
+<rect x="752.0" y="3866.3" width="49.0" height="16.0" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="RiPP" data-value="7" data-percent="5%" data-tool-percent="15%"><title>FunBGCeX-only RiPP: 7 BGCs; 5% of genome union</title></rect>
+<text x="806.0" y="3878.0" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">5%</text>
+<text x="744.0" y="3900.3" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">hybrid</text>
+<rect x="752.0" y="3888.3" width="7.0" height="16.0" fill="#82775B" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="hybrid" data-value="1" data-percent="1%" data-tool-percent="2%"><title>FunBGCeX-only hybrid: 1 BGC; 1% of genome union</title></rect>
+<text x="764.0" y="3900.0" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">1%</text>
+<text x="744.0" y="3922.3" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="3910.3" width="105.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="other" data-value="15" data-percent="10%" data-tool-percent="33%"><title>FunBGCeX-only other: 15 BGCs; 10% of genome union</title></rect>
+<text x="862.0" y="3922.0" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">10%</text>
+</g>
+<line x1="44.0" y1="3966.0" x2="930.0" y2="3966.0" stroke="#D2D2D2" stroke-width="0.9" stroke-dasharray="2 3"/>
+<text x="44.0" y="4133.0" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" text-anchor="start" fill="#222222"><tspan font-style="italic">Aspergillus pseudocaelatus</tspan><tspan> CBS 117616</tspan></text>
+<g data-chart="agreement-pie" data-total="119" data-center-x="420.0" data-center-y="4128.0" data-radius="100.0">
+<path d="M 420.0 4128.0 L 470.0 4214.6 A 100.0 100.0 0 1 1 473.0 4043.2 Z" fill="#4A4A4A" stroke="#FFFFFF" stroke-width="1.2" data-segment="shared" data-value="80" data-percent="67%" data-exploded="false"><title>Shared: 80 BGCs; 67% of genome union</title></path>
+<text x="362.0" y="4131.7" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" text-anchor="middle" fill="#FFFFFF">67%</text>
+<text x="354.0" y="4250.0" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#4A4A4A">Shared (n = 80)</text>
+<path d="M 443.3 4112.4 L 496.3 4027.6 A 100.0 100.0 0 0 1 541.9 4095.7 Z" fill="#2F7FB8" stroke="#FFFFFF" stroke-width="1.2" data-segment="antismash_only" data-value="16" data-percent="13%" data-exploded="true"><title>antiSMASH-only: 16 BGCs; 13% of genome union</title></path>
+<text x="491.5" y="4084.9" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#FFFFFF">13%</text>
+<path d="M 445.3 4139.9 L 543.9 4123.2 A 100.0 100.0 0 0 1 495.3 4226.5 Z" fill="#E58A1F" stroke="#FFFFFF" stroke-width="1.2" data-segment="funbgcex_only" data-value="23" data-percent="19%" data-exploded="true"><title>FunBGCeX-only: 23 BGCs; 19% of genome union</title></path>
+<text x="497.8" y="4169.4" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#111111">19%</text>
+</g>
+<path d="M 530.5 4054.0 L 606.3 4041.0 Q 624.0 4038.0 642.0 4038.0 L 668.0 4038.0" fill="none" stroke="#2F7FB8" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="624.0" data-bend-y="4038.0"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="antismash_only" data-total="16" data-total-percent="13%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="3980.0" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#2F7FB8">antiSMASH-only (n = 16)</text>
+<text x="744.0" y="4010.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="3998.0" width="56.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="terpene" data-value="8" data-percent="7%" data-tool-percent="50%"><title>antiSMASH-only terpene: 8 BGCs; 7% of genome union</title></rect>
+<text x="813.0" y="4009.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">7%</text>
+<text x="744.0" y="4032.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">RiPP</text>
+<rect x="752.0" y="4020.0" width="7.0" height="16.0" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="RiPP" data-value="1" data-percent="1%" data-tool-percent="6%"><title>antiSMASH-only RiPP: 1 BGC; 1% of genome union</title></rect>
+<text x="764.0" y="4031.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">1%</text>
+<text x="744.0" y="4054.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">hybrid</text>
+<rect x="752.0" y="4042.0" width="35.0" height="16.0" fill="#82775B" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="hybrid" data-value="5" data-percent="4%" data-tool-percent="31%"><title>antiSMASH-only hybrid: 5 BGCs; 4% of genome union</title></rect>
+<text x="792.0" y="4053.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">4%</text>
+<text x="744.0" y="4076.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="4064.0" width="14.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="other" data-value="2" data-percent="2%" data-tool-percent="12%"><title>antiSMASH-only other: 2 BGCs; 2% of genome union</title></rect>
+<text x="771.0" y="4075.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+</g>
+<path d="M 540.3 4184.6 L 609.4 4197.3 Q 627.1 4200.6 645.1 4200.6 L 668.0 4200.6" fill="none" stroke="#E58A1F" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="627.1" data-bend-y="4200.6"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="funbgcex_only" data-total="23" data-total-percent="19%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="4131.6" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#E58A1F">FunBGCeX-only (n = 23)</text>
+<text x="744.0" y="4161.6" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">NRPS</text>
+<rect x="752.0" y="4149.6" width="42.0" height="16.0" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="NRPS" data-value="6" data-percent="5%" data-tool-percent="26%"><title>FunBGCeX-only NRPS: 6 BGCs; 5% of genome union</title></rect>
+<text x="799.0" y="4161.3" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">5%</text>
+<text x="744.0" y="4183.6" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">PKS</text>
+<rect x="752.0" y="4171.6" width="42.0" height="16.0" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="PKS" data-value="6" data-percent="5%" data-tool-percent="26%"><title>FunBGCeX-only PKS: 6 BGCs; 5% of genome union</title></rect>
+<text x="799.0" y="4183.3" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">5%</text>
+<text x="744.0" y="4205.6" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="4193.6" width="14.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="terpene" data-value="2" data-percent="2%" data-tool-percent="9%"><title>FunBGCeX-only terpene: 2 BGCs; 2% of genome union</title></rect>
+<text x="771.0" y="4205.3" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+<text x="744.0" y="4227.6" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">RiPP</text>
+<rect x="752.0" y="4215.6" width="7.0" height="16.0" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="RiPP" data-value="1" data-percent="1%" data-tool-percent="4%"><title>FunBGCeX-only RiPP: 1 BGC; 1% of genome union</title></rect>
+<text x="764.0" y="4227.3" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">1%</text>
+<text x="744.0" y="4249.6" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="4237.6" width="56.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="other" data-value="8" data-percent="7%" data-tool-percent="35%"><title>FunBGCeX-only other: 8 BGCs; 7% of genome union</title></rect>
+<text x="813.0" y="4249.3" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">7%</text>
+</g>
+<line x1="44.0" y1="4284.0" x2="930.0" y2="4284.0" stroke="#D2D2D2" stroke-width="0.9" stroke-dasharray="2 3"/>
+<text x="44.0" y="4486.1" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" text-anchor="start" fill="#222222"><tspan font-style="italic">Aspergillus pseudonomiae</tspan><tspan> CBS 119388</tspan></text>
+<g data-chart="agreement-pie" data-total="122" data-center-x="420.0" data-center-y="4481.1" data-radius="100.0">
+<path d="M 420.0 4481.1 L 470.0 4567.7 A 100.0 100.0 0 1 1 429.4 4381.5 Z" fill="#4A4A4A" stroke="#FFFFFF" stroke-width="1.2" data-segment="shared" data-value="73" data-percent="60%" data-exploded="false"><title>Shared: 73 BGCs; 60% of genome union</title></path>
+<text x="363.3" y="4498.2" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" text-anchor="middle" fill="#FFFFFF">60%</text>
+<text x="354.0" y="4603.1" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#4A4A4A">Shared (n = 73)</text>
+<path d="M 436.0 4458.1 L 445.5 4358.5 A 100.0 100.0 0 0 1 526.2 4414.9 Z" fill="#2F7FB8" stroke="#FFFFFF" stroke-width="1.2" data-segment="antismash_only" data-value="20" data-percent="16%" data-exploded="true"><title>antiSMASH-only: 20 BGCs; 16% of genome union</title></path>
+<text x="469.2" y="4415.3" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#FFFFFF">16%</text>
+<path d="M 446.7 4489.3 L 536.9 4446.2 A 100.0 100.0 0 0 1 496.7 4575.9 Z" fill="#E58A1F" stroke="#FFFFFF" stroke-width="1.2" data-segment="funbgcex_only" data-value="29" data-percent="24%" data-exploded="true"><title>FunBGCeX-only: 29 BGCs; 24% of genome union</title></path>
+<text x="502.1" y="4511.3" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#111111">24%</text>
+</g>
+<path d="M 496.1 4372.0 L 595.2 4358.4 Q 613.0 4356.0 631.0 4356.0 L 668.0 4356.0" fill="none" stroke="#2F7FB8" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="613.0" data-bend-y="4356.0"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="antismash_only" data-total="20" data-total-percent="16%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="4298.0" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#2F7FB8">antiSMASH-only (n = 20)</text>
+<text x="744.0" y="4328.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">NRPS</text>
+<rect x="752.0" y="4316.0" width="21.0" height="16.0" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="NRPS" data-value="3" data-percent="2%" data-tool-percent="15%"><title>antiSMASH-only NRPS: 3 BGCs; 2% of genome union</title></rect>
+<text x="778.0" y="4327.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+<text x="744.0" y="4350.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="4338.0" width="56.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="terpene" data-value="8" data-percent="7%" data-tool-percent="40%"><title>antiSMASH-only terpene: 8 BGCs; 7% of genome union</title></rect>
+<text x="813.0" y="4349.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">7%</text>
+<text x="744.0" y="4372.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">hybrid</text>
+<rect x="752.0" y="4360.0" width="42.0" height="16.0" fill="#82775B" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="hybrid" data-value="6" data-percent="5%" data-tool-percent="30%"><title>antiSMASH-only hybrid: 6 BGCs; 5% of genome union</title></rect>
+<text x="799.0" y="4371.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">5%</text>
+<text x="744.0" y="4394.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="4382.0" width="21.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="other" data-value="3" data-percent="2%" data-tool-percent="15%"><title>antiSMASH-only other: 3 BGCs; 2% of genome union</title></rect>
+<text x="778.0" y="4393.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+</g>
+<path d="M 547.0 4520.4 L 612.2 4533.1 Q 629.3 4536.4 646.7 4536.4 L 668.0 4536.4" fill="none" stroke="#E58A1F" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="629.3" data-bend-y="4536.4"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="funbgcex_only" data-total="29" data-total-percent="24%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="4456.4" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#E58A1F">FunBGCeX-only (n = 29)</text>
+<text x="744.0" y="4486.4" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">NRPS</text>
+<rect x="752.0" y="4474.4" width="56.0" height="16.0" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="NRPS" data-value="8" data-percent="7%" data-tool-percent="28%"><title>FunBGCeX-only NRPS: 8 BGCs; 7% of genome union</title></rect>
+<text x="813.0" y="4486.1" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">7%</text>
+<text x="744.0" y="4508.4" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">PKS</text>
+<rect x="752.0" y="4496.4" width="42.0" height="16.0" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="PKS" data-value="6" data-percent="5%" data-tool-percent="21%"><title>FunBGCeX-only PKS: 6 BGCs; 5% of genome union</title></rect>
+<text x="799.0" y="4508.1" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">5%</text>
+<text x="744.0" y="4530.4" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="4518.4" width="21.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="terpene" data-value="3" data-percent="2%" data-tool-percent="10%"><title>FunBGCeX-only terpene: 3 BGCs; 2% of genome union</title></rect>
+<text x="778.0" y="4530.1" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+<text x="744.0" y="4552.4" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">RiPP</text>
+<rect x="752.0" y="4540.4" width="21.0" height="16.0" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="RiPP" data-value="3" data-percent="2%" data-tool-percent="10%"><title>FunBGCeX-only RiPP: 3 BGCs; 2% of genome union</title></rect>
+<text x="778.0" y="4552.1" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+<text x="744.0" y="4574.4" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">hybrid</text>
+<rect x="752.0" y="4562.4" width="14.0" height="16.0" fill="#82775B" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="hybrid" data-value="2" data-percent="2%" data-tool-percent="7%"><title>FunBGCeX-only hybrid: 2 BGCs; 2% of genome union</title></rect>
+<text x="771.0" y="4574.1" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+<text x="744.0" y="4596.4" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="4584.4" width="49.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="other" data-value="7" data-percent="6%" data-tool-percent="24%"><title>FunBGCeX-only other: 7 BGCs; 6% of genome union</title></rect>
+<text x="806.0" y="4596.1" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">6%</text>
+</g>
+<line x1="44.0" y1="4631.0" x2="930.0" y2="4631.0" stroke="#D2D2D2" stroke-width="0.9" stroke-dasharray="2 3"/>
+<text x="44.0" y="4833.6" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" text-anchor="start" fill="#222222"><tspan font-style="italic">Aspergillus pseudonomiae</tspan><tspan> IBT 12657</tspan></text>
+<g data-chart="agreement-pie" data-total="120" data-center-x="420.0" data-center-y="4828.6" data-radius="100.0">
+<path d="M 420.0 4828.6 L 470.0 4915.2 A 100.0 100.0 0 1 1 435.6 4729.8 Z" fill="#4A4A4A" stroke="#FFFFFF" stroke-width="1.2" data-segment="shared" data-value="73" data-percent="61%" data-exploded="false"><title>Shared: 73 BGCs; 61% of genome union</title></path>
+<text x="363.0" y="4844.0" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" text-anchor="middle" fill="#FFFFFF">61%</text>
+<text x="354.0" y="4950.6" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#4A4A4A">Shared (n = 73)</text>
+<path d="M 435.9 4805.5 L 451.5 4706.8 A 100.0 100.0 0 0 1 522.5 4755.5 Z" fill="#2F7FB8" stroke="#FFFFFF" stroke-width="1.2" data-segment="antismash_only" data-value="17" data-percent="14%" data-exploded="true"><title>antiSMASH-only: 17 BGCs; 14% of genome union</title></path>
+<text x="468.7" y="4762.5" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#FFFFFF">14%</text>
+<path d="M 447.0 4835.9 L 533.6 4785.9 A 100.0 100.0 0 0 1 497.0 4922.5 Z" fill="#E58A1F" stroke="#FFFFFF" stroke-width="1.2" data-segment="funbgcex_only" data-value="30" data-percent="25%" data-exploded="true"><title>FunBGCeX-only: 30 BGCs; 25% of genome union</title></path>
+<text x="503.1" y="4855.7" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#111111">25%</text>
+</g>
+<path d="M 495.3 4719.0 L 594.9 4705.4 Q 612.7 4703.0 630.7 4703.0 L 668.0 4703.0" fill="none" stroke="#2F7FB8" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="612.7" data-bend-y="4703.0"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="antismash_only" data-total="17" data-total-percent="14%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="4645.0" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#2F7FB8">antiSMASH-only (n = 17)</text>
+<text x="744.0" y="4675.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">NRPS</text>
+<rect x="752.0" y="4663.0" width="14.0" height="16.0" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="NRPS" data-value="2" data-percent="2%" data-tool-percent="12%"><title>antiSMASH-only NRPS: 2 BGCs; 2% of genome union</title></rect>
+<text x="771.0" y="4674.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+<text x="744.0" y="4697.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="4685.0" width="49.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="terpene" data-value="7" data-percent="6%" data-tool-percent="41%"><title>antiSMASH-only terpene: 7 BGCs; 6% of genome union</title></rect>
+<text x="806.0" y="4696.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">6%</text>
+<text x="744.0" y="4719.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">hybrid</text>
+<rect x="752.0" y="4707.0" width="42.0" height="16.0" fill="#82775B" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="hybrid" data-value="6" data-percent="5%" data-tool-percent="35%"><title>antiSMASH-only hybrid: 6 BGCs; 5% of genome union</title></rect>
+<text x="799.0" y="4718.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">5%</text>
+<text x="744.0" y="4741.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="4729.0" width="14.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="other" data-value="2" data-percent="2%" data-tool-percent="12%"><title>antiSMASH-only other: 2 BGCs; 2% of genome union</title></rect>
+<text x="771.0" y="4740.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+</g>
+<path d="M 548.5 4863.0 L 612.9 4875.7 Q 629.7 4879.0 647.0 4879.0 L 668.0 4879.0" fill="none" stroke="#E58A1F" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="629.7" data-bend-y="4879.0"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="funbgcex_only" data-total="30" data-total-percent="25%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="4799.0" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#E58A1F">FunBGCeX-only (n = 30)</text>
+<text x="744.0" y="4829.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">NRPS</text>
+<rect x="752.0" y="4817.0" width="56.0" height="16.0" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="NRPS" data-value="8" data-percent="7%" data-tool-percent="27%"><title>FunBGCeX-only NRPS: 8 BGCs; 7% of genome union</title></rect>
+<text x="813.0" y="4828.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">7%</text>
+<text x="744.0" y="4851.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">PKS</text>
+<rect x="752.0" y="4839.0" width="49.0" height="16.0" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="PKS" data-value="7" data-percent="6%" data-tool-percent="23%"><title>FunBGCeX-only PKS: 7 BGCs; 6% of genome union</title></rect>
+<text x="806.0" y="4850.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">6%</text>
+<text x="744.0" y="4873.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="4861.0" width="21.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="terpene" data-value="3" data-percent="2%" data-tool-percent="10%"><title>FunBGCeX-only terpene: 3 BGCs; 2% of genome union</title></rect>
+<text x="778.0" y="4872.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+<text x="744.0" y="4895.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">RiPP</text>
+<rect x="752.0" y="4883.0" width="14.0" height="16.0" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="RiPP" data-value="2" data-percent="2%" data-tool-percent="7%"><title>FunBGCeX-only RiPP: 2 BGCs; 2% of genome union</title></rect>
+<text x="771.0" y="4894.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+<text x="744.0" y="4917.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">hybrid</text>
+<rect x="752.0" y="4905.0" width="14.0" height="16.0" fill="#82775B" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="hybrid" data-value="2" data-percent="2%" data-tool-percent="7%"><title>FunBGCeX-only hybrid: 2 BGCs; 2% of genome union</title></rect>
+<text x="771.0" y="4916.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+<text x="744.0" y="4939.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="4927.0" width="56.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="other" data-value="8" data-percent="7%" data-tool-percent="27%"><title>FunBGCeX-only other: 8 BGCs; 7% of genome union</title></rect>
+<text x="813.0" y="4938.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">7%</text>
+</g>
+<line x1="44.0" y1="4974.0" x2="930.0" y2="4974.0" stroke="#D2D2D2" stroke-width="0.9" stroke-dasharray="2 3"/>
+<text x="44.0" y="5162.3" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" text-anchor="start" fill="#222222"><tspan font-style="italic">Aspergillus pseudotamarii</tspan><tspan> CBS 117625</tspan></text>
+<g data-chart="agreement-pie" data-total="129" data-center-x="420.0" data-center-y="5157.3" data-radius="100.0">
+<path d="M 420.0 5157.3 L 470.0 5243.9 A 100.0 100.0 0 1 1 438.2 5058.9 Z" fill="#4A4A4A" stroke="#FFFFFF" stroke-width="1.2" data-segment="shared" data-value="79" data-percent="61%" data-exploded="false"><title>Shared: 79 BGCs; 61% of genome union</title></path>
+<text x="362.8" y="5171.9" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" text-anchor="middle" fill="#FFFFFF">61%</text>
+<text x="354.0" y="5279.3" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#4A4A4A">Shared (n = 79)</text>
+<path d="M 436.8 5134.9 L 455.0 5036.5 A 100.0 100.0 0 0 1 526.3 5090.2 Z" fill="#2F7FB8" stroke="#FFFFFF" stroke-width="1.2" data-segment="antismash_only" data-value="19" data-percent="15%" data-exploded="true"><title>antiSMASH-only: 19 BGCs; 15% of genome union</title></path>
+<text x="471.7" y="5093.3" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#FFFFFF">15%</text>
+<path d="M 446.8 5165.3 L 536.3 5120.7 A 100.0 100.0 0 0 1 496.8 5251.9 Z" fill="#E58A1F" stroke="#FFFFFF" stroke-width="1.2" data-segment="funbgcex_only" data-value="31" data-percent="24%" data-exploded="true"><title>FunBGCeX-only: 31 BGCs; 24% of genome union</title></path>
+<text x="502.4" y="5186.8" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#111111">24%</text>
+</g>
+<path d="M 500.0 5051.0 L 596.4 5037.5 Q 614.2 5035.0 632.2 5035.0 L 668.0 5035.0" fill="none" stroke="#2F7FB8" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="614.2" data-bend-y="5035.0"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="antismash_only" data-total="19" data-total-percent="15%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="4988.0" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#2F7FB8">antiSMASH-only (n = 19)</text>
+<text x="744.0" y="5018.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="5006.0" width="70.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="terpene" data-value="10" data-percent="8%" data-tool-percent="53%"><title>antiSMASH-only terpene: 10 BGCs; 8% of genome union</title></rect>
+<text x="827.0" y="5017.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">8%</text>
+<text x="744.0" y="5040.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">hybrid</text>
+<rect x="752.0" y="5028.0" width="49.0" height="16.0" fill="#82775B" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="hybrid" data-value="7" data-percent="5%" data-tool-percent="37%"><title>antiSMASH-only hybrid: 7 BGCs; 5% of genome union</title></rect>
+<text x="806.0" y="5039.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">5%</text>
+<text x="744.0" y="5062.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="5050.0" width="14.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="other" data-value="2" data-percent="2%" data-tool-percent="11%"><title>antiSMASH-only other: 2 BGCs; 2% of genome union</title></rect>
+<text x="771.0" y="5061.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+</g>
+<path d="M 547.4 5195.6 L 612.3 5208.2 Q 629.4 5211.6 646.8 5211.6 L 668.0 5211.6" fill="none" stroke="#E58A1F" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="629.4" data-bend-y="5211.6"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="funbgcex_only" data-total="31" data-total-percent="24%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="5142.6" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#E58A1F">FunBGCeX-only (n = 31)</text>
+<text x="744.0" y="5172.6" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">NRPS</text>
+<rect x="752.0" y="5160.6" width="70.0" height="16.0" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="NRPS" data-value="10" data-percent="8%" data-tool-percent="32%"><title>FunBGCeX-only NRPS: 10 BGCs; 8% of genome union</title></rect>
+<text x="827.0" y="5172.3" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">8%</text>
+<text x="744.0" y="5194.6" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">PKS</text>
+<rect x="752.0" y="5182.6" width="56.0" height="16.0" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="PKS" data-value="8" data-percent="6%" data-tool-percent="26%"><title>FunBGCeX-only PKS: 8 BGCs; 6% of genome union</title></rect>
+<text x="813.0" y="5194.3" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">6%</text>
+<text x="744.0" y="5216.6" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="5204.6" width="7.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="terpene" data-value="1" data-percent="1%" data-tool-percent="3%"><title>FunBGCeX-only terpene: 1 BGC; 1% of genome union</title></rect>
+<text x="764.0" y="5216.3" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">1%</text>
+<text x="744.0" y="5238.6" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">RiPP</text>
+<rect x="752.0" y="5226.6" width="35.0" height="16.0" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="RiPP" data-value="5" data-percent="4%" data-tool-percent="16%"><title>FunBGCeX-only RiPP: 5 BGCs; 4% of genome union</title></rect>
+<text x="792.0" y="5238.3" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">4%</text>
+<text x="744.0" y="5260.6" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="5248.6" width="49.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="other" data-value="7" data-percent="5%" data-tool-percent="23%"><title>FunBGCeX-only other: 7 BGCs; 5% of genome union</title></rect>
+<text x="806.0" y="5260.3" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">5%</text>
+</g>
+<line x1="44.0" y1="5295.0" x2="930.0" y2="5295.0" stroke="#D2D2D2" stroke-width="0.9" stroke-dasharray="2 3"/>
+<text x="44.0" y="5504.6" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" text-anchor="start" fill="#222222"><tspan font-style="italic">Aspergillus sergii</tspan><tspan> CBS 130017</tspan></text>
+<g data-chart="agreement-pie" data-total="136" data-center-x="420.0" data-center-y="5499.6" data-radius="100.0">
+<path d="M 420.0 5499.6 L 470.0 5586.2 A 100.0 100.0 0 1 1 400.1 5401.6 Z" fill="#4A4A4A" stroke="#FFFFFF" stroke-width="1.2" data-segment="shared" data-value="75" data-percent="55%" data-exploded="false"><title>Shared: 75 BGCs; 55% of genome union</title></path>
+<text x="365.8" y="5525.0" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" text-anchor="middle" fill="#FFFFFF">55%</text>
+<text x="354.0" y="5621.6" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#4A4A4A">Shared (n = 75)</text>
+<path d="M 427.9 5472.8 L 408.0 5374.8 A 100.0 100.0 0 0 1 497.5 5401.0 Z" fill="#2F7FB8" stroke="#FFFFFF" stroke-width="1.2" data-segment="antismash_only" data-value="21" data-percent="15%" data-exploded="true"><title>antiSMASH-only: 21 BGCs; 15% of genome union</title></path>
+<text x="444.2" y="5421.9" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#FFFFFF">15%</text>
+<path d="M 447.8 5503.1 L 517.4 5431.3 A 100.0 100.0 0 0 1 497.8 5589.7 Z" fill="#E58A1F" stroke="#FFFFFF" stroke-width="1.2" data-segment="funbgcex_only" data-value="40" data-percent="29%" data-exploded="true"><title>FunBGCeX-only: 40 BGCs; 29% of genome union</title></path>
+<text x="505.3" y="5515.0" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#111111">29%</text>
+</g>
+<path d="M 457.4 5372.0 L 582.7 5358.0 Q 600.6 5356.0 618.6 5356.0 L 668.0 5356.0" fill="none" stroke="#2F7FB8" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="600.6" data-bend-y="5356.0"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="antismash_only" data-total="21" data-total-percent="15%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="5309.0" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#2F7FB8">antiSMASH-only (n = 21)</text>
+<text x="744.0" y="5339.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="5327.0" width="49.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="terpene" data-value="7" data-percent="5%" data-tool-percent="33%"><title>antiSMASH-only terpene: 7 BGCs; 5% of genome union</title></rect>
+<text x="806.0" y="5338.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">5%</text>
+<text x="744.0" y="5361.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">hybrid</text>
+<rect x="752.0" y="5349.0" width="70.0" height="16.0" fill="#82775B" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="hybrid" data-value="10" data-percent="7%" data-tool-percent="48%"><title>antiSMASH-only hybrid: 10 BGCs; 7% of genome union</title></rect>
+<text x="827.0" y="5360.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">7%</text>
+<text x="744.0" y="5383.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="5371.0" width="28.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="other" data-value="4" data-percent="3%" data-tool-percent="19%"><title>antiSMASH-only other: 4 BGCs; 3% of genome union</title></rect>
+<text x="785.0" y="5382.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">3%</text>
+</g>
+<path d="M 552.0 5516.0 L 614.5 5528.7 Q 630.9 5532.0 647.6 5532.0 L 668.0 5532.0" fill="none" stroke="#E58A1F" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="630.9" data-bend-y="5532.0"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="funbgcex_only" data-total="40" data-total-percent="29%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="5452.0" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#E58A1F">FunBGCeX-only (n = 40)</text>
+<text x="744.0" y="5482.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">NRPS</text>
+<rect x="752.0" y="5470.0" width="77.0" height="16.0" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="NRPS" data-value="11" data-percent="8%" data-tool-percent="28%"><title>FunBGCeX-only NRPS: 11 BGCs; 8% of genome union</title></rect>
+<text x="834.0" y="5481.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">8%</text>
+<text x="744.0" y="5504.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">PKS</text>
+<rect x="752.0" y="5492.0" width="63.0" height="16.0" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="PKS" data-value="9" data-percent="7%" data-tool-percent="22%"><title>FunBGCeX-only PKS: 9 BGCs; 7% of genome union</title></rect>
+<text x="820.0" y="5503.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">7%</text>
+<text x="744.0" y="5526.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="5514.0" width="28.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="terpene" data-value="4" data-percent="3%" data-tool-percent="10%"><title>FunBGCeX-only terpene: 4 BGCs; 3% of genome union</title></rect>
+<text x="785.0" y="5525.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">3%</text>
+<text x="744.0" y="5548.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">RiPP</text>
+<rect x="752.0" y="5536.0" width="21.0" height="16.0" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="RiPP" data-value="3" data-percent="2%" data-tool-percent="8%"><title>FunBGCeX-only RiPP: 3 BGCs; 2% of genome union</title></rect>
+<text x="778.0" y="5547.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+<text x="744.0" y="5570.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">hybrid</text>
+<rect x="752.0" y="5558.0" width="7.0" height="16.0" fill="#82775B" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="hybrid" data-value="1" data-percent="1%" data-tool-percent="2%"><title>FunBGCeX-only hybrid: 1 BGC; 1% of genome union</title></rect>
+<text x="764.0" y="5569.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">1%</text>
+<text x="744.0" y="5592.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="5580.0" width="84.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="other" data-value="12" data-percent="9%" data-tool-percent="30%"><title>FunBGCeX-only other: 12 BGCs; 9% of genome union</title></rect>
+<text x="841.0" y="5591.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">9%</text>
+</g>
+<line x1="44.0" y1="5626.0" x2="930.0" y2="5626.0" stroke="#D2D2D2" stroke-width="0.9" stroke-dasharray="2 3"/>
+<text x="44.0" y="5782.6" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" text-anchor="start" fill="#222222"><tspan font-style="italic">Aspergillus tamarii</tspan><tspan> CBS 117626</tspan></text>
+<g data-chart="agreement-pie" data-total="126" data-center-x="420.0" data-center-y="5777.6" data-radius="100.0">
+<path d="M 420.0 5777.6 L 470.0 5864.2 A 100.0 100.0 0 1 1 482.3 5699.4 Z" fill="#4A4A4A" stroke="#FFFFFF" stroke-width="1.2" data-segment="shared" data-value="87" data-percent="69%" data-exploded="false"><title>Shared: 87 BGCs; 69% of genome union</title></path>
+<text x="362.2" y="5778.1" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" text-anchor="middle" fill="#FFFFFF">69%</text>
+<text x="354.0" y="5899.6" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#4A4A4A">Shared (n = 87)</text>
+<path d="M 444.6 5764.2 L 506.9 5686.0 A 100.0 100.0 0 0 1 544.1 5754.3 Z" fill="#2F7FB8" stroke="#FFFFFF" stroke-width="1.2" data-segment="antismash_only" data-value="16" data-percent="13%" data-exploded="true"><title>antiSMASH-only: 16 BGCs; 13% of genome union</title></path>
+<text x="495.5" y="5741.3" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#FFFFFF">13%</text>
+<path d="M 444.9 5790.4 L 544.4 5780.4 A 100.0 100.0 0 0 1 494.9 5877.0 Z" fill="#E58A1F" stroke="#FFFFFF" stroke-width="1.2" data-segment="funbgcex_only" data-value="23" data-percent="18%" data-exploded="true"><title>FunBGCeX-only: 23 BGCs; 18% of genome union</title></path>
+<text x="496.5" y="5821.6" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#111111">18%</text>
+</g>
+<path d="M 536.8 5714.0 L 608.3 5701.2 Q 626.0 5698.0 644.0 5698.0 L 668.0 5698.0" fill="none" stroke="#2F7FB8" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="626.0" data-bend-y="5698.0"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="antismash_only" data-total="16" data-total-percent="13%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="5640.0" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#2F7FB8">antiSMASH-only (n = 16)</text>
+<text x="744.0" y="5670.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="5658.0" width="63.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="terpene" data-value="9" data-percent="7%" data-tool-percent="56%"><title>antiSMASH-only terpene: 9 BGCs; 7% of genome union</title></rect>
+<text x="820.0" y="5669.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">7%</text>
+<text x="744.0" y="5692.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">RiPP</text>
+<rect x="752.0" y="5680.0" width="7.0" height="16.0" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="RiPP" data-value="1" data-percent="1%" data-tool-percent="6%"><title>antiSMASH-only RiPP: 1 BGC; 1% of genome union</title></rect>
+<text x="764.0" y="5691.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">1%</text>
+<text x="744.0" y="5714.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">hybrid</text>
+<rect x="752.0" y="5702.0" width="21.0" height="16.0" fill="#82775B" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="hybrid" data-value="3" data-percent="2%" data-tool-percent="19%"><title>antiSMASH-only hybrid: 3 BGCs; 2% of genome union</title></rect>
+<text x="778.0" y="5713.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+<text x="744.0" y="5736.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="5724.0" width="21.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="other" data-value="3" data-percent="2%" data-tool-percent="19%"><title>antiSMASH-only other: 3 BGCs; 2% of genome union</title></rect>
+<text x="778.0" y="5735.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+</g>
+<path d="M 538.4 5838.3 L 608.8 5851.1 Q 626.5 5854.3 644.5 5854.3 L 668.0 5854.3" fill="none" stroke="#E58A1F" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="626.5" data-bend-y="5854.3"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="funbgcex_only" data-total="23" data-total-percent="18%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="5785.3" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#E58A1F">FunBGCeX-only (n = 23)</text>
+<text x="744.0" y="5815.3" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">NRPS</text>
+<rect x="752.0" y="5803.3" width="14.0" height="16.0" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="NRPS" data-value="2" data-percent="2%" data-tool-percent="9%"><title>FunBGCeX-only NRPS: 2 BGCs; 2% of genome union</title></rect>
+<text x="771.0" y="5815.0" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+<text x="744.0" y="5837.3" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">PKS</text>
+<rect x="752.0" y="5825.3" width="35.0" height="16.0" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="PKS" data-value="5" data-percent="4%" data-tool-percent="22%"><title>FunBGCeX-only PKS: 5 BGCs; 4% of genome union</title></rect>
+<text x="792.0" y="5837.0" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">4%</text>
+<text x="744.0" y="5859.3" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="5847.3" width="7.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="terpene" data-value="1" data-percent="1%" data-tool-percent="4%"><title>FunBGCeX-only terpene: 1 BGC; 1% of genome union</title></rect>
+<text x="764.0" y="5859.0" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">1%</text>
+<text x="744.0" y="5881.3" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">RiPP</text>
+<rect x="752.0" y="5869.3" width="28.0" height="16.0" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="RiPP" data-value="4" data-percent="3%" data-tool-percent="17%"><title>FunBGCeX-only RiPP: 4 BGCs; 3% of genome union</title></rect>
+<text x="785.0" y="5881.0" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">3%</text>
+<text x="744.0" y="5903.3" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="5891.3" width="77.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="other" data-value="11" data-percent="9%" data-tool-percent="48%"><title>FunBGCeX-only other: 11 BGCs; 9% of genome union</title></rect>
+<text x="834.0" y="5903.0" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">9%</text>
+</g>
+<line x1="44.0" y1="5938.0" x2="930.0" y2="5938.0" stroke="#D2D2D2" stroke-width="0.9" stroke-dasharray="2 3"/>
+<text x="44.0" y="6162.4" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" text-anchor="start" fill="#222222"><tspan font-style="italic">Aspergillus transmontanensis</tspan><tspan> CBS 130015</tspan></text>
+<g data-chart="agreement-pie" data-total="139" data-center-x="420.0" data-center-y="6157.4" data-radius="100.0">
+<path d="M 420.0 6157.4 L 470.0 6244.0 A 100.0 100.0 0 1 1 388.5 6062.5 Z" fill="#4A4A4A" stroke="#FFFFFF" stroke-width="1.2" data-segment="shared" data-value="74" data-percent="53%" data-exploded="false"><title>Shared: 74 BGCs; 53% of genome union</title></path>
+<text x="367.1" y="6186.0" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" text-anchor="middle" fill="#FFFFFF">53%</text>
+<text x="354.0" y="6279.4" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#4A4A4A">Shared (n = 74)</text>
+<path d="M 424.3 6129.8 L 392.8 6034.8 A 100.0 100.0 0 0 1 483.1 6048.9 Z" fill="#2F7FB8" stroke="#FFFFFF" stroke-width="1.2" data-segment="antismash_only" data-value="21" data-percent="15%" data-exploded="true"><title>antiSMASH-only: 21 BGCs; 15% of genome union</title></path>
+<text x="433.2" y="6077.2" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#FFFFFF">15%</text>
+<path d="M 448.0 6158.9 L 506.8 6078.0 A 100.0 100.0 0 0 1 498.0 6245.5 Z" fill="#E58A1F" stroke="#FFFFFF" stroke-width="1.2" data-segment="funbgcex_only" data-value="44" data-percent="32%" data-exploded="true"><title>FunBGCeX-only: 44 BGCs; 32% of genome union</title></path>
+<text x="505.9" y="6166.8" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#111111">32%</text>
+</g>
+<path d="M 440.5 6026.0 L 577.3 6011.9 Q 595.2 6010.0 613.2 6010.0 L 668.0 6010.0" fill="none" stroke="#2F7FB8" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="595.2" data-bend-y="6010.0"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="antismash_only" data-total="21" data-total-percent="15%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="5952.0" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#2F7FB8">antiSMASH-only (n = 21)</text>
+<text x="744.0" y="5982.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="5970.0" width="56.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="terpene" data-value="8" data-percent="6%" data-tool-percent="38%"><title>antiSMASH-only terpene: 8 BGCs; 6% of genome union</title></rect>
+<text x="813.0" y="5981.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">6%</text>
+<text x="744.0" y="6004.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">RiPP</text>
+<rect x="752.0" y="5992.0" width="7.0" height="16.0" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="RiPP" data-value="1" data-percent="1%" data-tool-percent="5%"><title>antiSMASH-only RiPP: 1 BGC; 1% of genome union</title></rect>
+<text x="764.0" y="6003.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">1%</text>
+<text x="744.0" y="6026.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">hybrid</text>
+<rect x="752.0" y="6014.0" width="70.0" height="16.0" fill="#82775B" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="hybrid" data-value="10" data-percent="7%" data-tool-percent="48%"><title>antiSMASH-only hybrid: 10 BGCs; 7% of genome union</title></rect>
+<text x="827.0" y="6025.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">7%</text>
+<text x="744.0" y="6048.0" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="6036.0" width="14.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="antismash_only" data-class="other" data-value="2" data-percent="1%" data-tool-percent="10%"><title>antiSMASH-only other: 2 BGCs; 1% of genome union</title></rect>
+<text x="771.0" y="6047.7" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">1%</text>
+</g>
+<path d="M 552.8 6164.4 L 614.9 6177.1 Q 631.1 6180.4 647.7 6180.4 L 668.0 6180.4" fill="none" stroke="#E58A1F" stroke-width="1.5" stroke-opacity="0.74" stroke-dasharray="4 4" stroke-linecap="round" data-connector="slice-to-bar" data-curve="curved-bend" data-bend-x="631.1" data-bend-y="6180.4"/>
+<g data-chart="class-horizontal-bars" data-orientation="horizontal" data-tool="funbgcex_only" data-total="44" data-total-percent="32%" data-x-axis="raw-count" data-scale-max="20">
+<text x="752.0" y="6111.4" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" text-anchor="start" fill="#E58A1F">FunBGCeX-only (n = 44)</text>
+<text x="744.0" y="6141.4" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">NRPS</text>
+<rect x="752.0" y="6129.4" width="77.0" height="16.0" fill="#56D8C1" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="NRPS" data-value="11" data-percent="8%" data-tool-percent="25%"><title>FunBGCeX-only NRPS: 11 BGCs; 8% of genome union</title></rect>
+<text x="834.0" y="6141.1" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">8%</text>
+<text x="744.0" y="6163.4" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">PKS</text>
+<rect x="752.0" y="6151.4" width="63.0" height="16.0" fill="#EC961C" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="PKS" data-value="9" data-percent="6%" data-tool-percent="20%"><title>FunBGCeX-only PKS: 9 BGCs; 6% of genome union</title></rect>
+<text x="820.0" y="6163.1" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">6%</text>
+<text x="744.0" y="6185.4" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">terpene</text>
+<rect x="752.0" y="6173.4" width="21.0" height="16.0" fill="#A743CC" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="terpene" data-value="3" data-percent="2%" data-tool-percent="7%"><title>FunBGCeX-only terpene: 3 BGCs; 2% of genome union</title></rect>
+<text x="778.0" y="6185.1" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">2%</text>
+<text x="744.0" y="6207.4" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">RiPP</text>
+<rect x="752.0" y="6195.4" width="35.0" height="16.0" fill="#5481E3" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="RiPP" data-value="5" data-percent="4%" data-tool-percent="11%"><title>FunBGCeX-only RiPP: 5 BGCs; 4% of genome union</title></rect>
+<text x="792.0" y="6207.1" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">4%</text>
+<text x="744.0" y="6229.4" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" text-anchor="end" fill="#222222">other</text>
+<rect x="752.0" y="6217.4" width="112.0" height="16.0" fill="#A8BFFF" stroke="#FFFFFF" stroke-width="0.8" data-tool="funbgcex_only" data-class="other" data-value="16" data-percent="12%" data-tool-percent="36%"><title>FunBGCeX-only other: 16 BGCs; 12% of genome union</title></rect>
+<text x="869.0" y="6229.1" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" text-anchor="start" fill="#111111">12%</text>
+</g>
+</svg>

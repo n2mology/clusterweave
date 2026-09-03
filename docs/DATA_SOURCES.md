@@ -32,9 +32,11 @@ The public examples are intentionally curated:
 Both bundles prefer accession manifests and NCBI Datasets retrieval over genome
 redistribution. Their tables retain public candidate coordinates, component
 evidence, explicit analysis states, and aggregate selected-family assignment
-coverage while omitting run-local family identifiers and private execution
-metadata. Component predictions and similarity annotations are evidence rather
-than biological ground truth.
+coverage while omitting run-local family identifiers and execution metadata.
+The representative figure set contains taxon/GCF, reconciliation, BiG-SCAPE,
+and synteny-resolved focal-locus views with sanitized editable data. Component
+predictions and similarity annotations are evidence rather than biological
+ground truth.
 
 The source, BSD-3-Clause license, and citation metadata are available from the
 repository and [doi:10.11578/PMI/dc.20260608.2](https://doi.org/10.11578/PMI/dc.20260608.2).

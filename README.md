@@ -254,16 +254,18 @@ contract without redistributing genomes or private execution records:
 
 - [`examples/flavi19`](examples/flavi19/) contains 19 section *Flavi*
   assemblies, sanitized antiSMASH/FunBGCeX candidate reconciliation, explicit
-  analysis states, GCF-completion summaries, and the editable aspirochlorine
-  focal-locus record.
+  analysis states, GCF-completion summaries, four representative panel/family
+  figures, and the synteny-resolved aspirochlorine focal-locus figure and data.
 - [`examples/saccharopolyspora26`](examples/saccharopolyspora26/) contains the
   exact 26 RefSeq assemblies in the public BGCFlow v0.9.0
-  `mq_saccharopolyspora` example, with taxon-aware applicability and complete
-  configured GCF-assignment summaries.
+  `mq_saccharopolyspora` example, with taxon-aware applicability, complete
+  configured GCF-assignment summaries, two panel figures, and the
+  synteny-resolved geosmin focal-locus figure and data.
 
-The bundles provide versioned accession manifests and portable retrieval and
-component-command templates. Component predictions and family assignments are
-organized evidence, not biological ground truth.
+The bundles provide versioned accession manifests, portable retrieval and
+component-command templates, and eight standalone public SVGs with local data
+dictionaries. Component predictions and family assignments are organized
+evidence, not biological ground truth.
 
 ## Repository and documentation map
 

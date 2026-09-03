@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -662,6 +663,13 @@ class RepoLayoutTests(unittest.TestCase):
             "examples/flavi19/focal_locus_aspirochlorine/funbgcex_genes.tsv",
             "examples/flavi19/focal_locus_aspirochlorine/alignments.tsv",
             "examples/flavi19/focal_locus_aspirochlorine/focal_locus_aspirochlorine_gene_context.svg",
+            "examples/flavi19/figures/README.md",
+            "examples/flavi19/figures/flavi19.taxon_tree.svg",
+            "examples/flavi19/figures/flavi19.bgc_overlap.svg",
+            "examples/flavi19/figures/flavi19.bigscape_multipanel.svg",
+            "examples/flavi19/figures/focal_locus_aspirochlorine_bigscape_family.svg",
+            "examples/flavi19/figures/focal_locus_aspirochlorine_bigscape_nodes.tsv",
+            "examples/flavi19/figures/focal_locus_aspirochlorine_bigscape_edges.tsv",
             "examples/saccharopolyspora26/README.md",
             "examples/saccharopolyspora26/COMMANDS.md",
             "examples/saccharopolyspora26/accession_manifest.tsv",
@@ -671,6 +679,15 @@ class RepoLayoutTests(unittest.TestCase):
             "examples/saccharopolyspora26/gcf_completion.tsv",
             "examples/saccharopolyspora26/parameters.tsv",
             "examples/saccharopolyspora26/tool_versions.tsv",
+            "examples/saccharopolyspora26/figures/README.md",
+            "examples/saccharopolyspora26/figures/saccharopolyspora26.taxon_tree.svg",
+            "examples/saccharopolyspora26/figures/saccharopolyspora26.bigscape_multipanel.svg",
+            "examples/saccharopolyspora26/focal_locus_geosmin/README.md",
+            "examples/saccharopolyspora26/focal_locus_geosmin/focal_locus.tsv",
+            "examples/saccharopolyspora26/focal_locus_geosmin/records.tsv",
+            "examples/saccharopolyspora26/focal_locus_geosmin/genes.tsv",
+            "examples/saccharopolyspora26/focal_locus_geosmin/alignments.tsv",
+            "examples/saccharopolyspora26/focal_locus_geosmin/focal_locus_geosmin_gene_context.svg",
         ]:
             self.assertTrue((REPO_ROOT / rel).exists(), rel)
 
@@ -696,6 +713,161 @@ class RepoLayoutTests(unittest.TestCase):
         ).read_text(encoding="utf-8").splitlines()
         self.assertEqual(2121, len(fungal_candidates))
         self.assertEqual(817, len(bacterial_candidates))
+
+    def test_public_example_figure_set_is_consistent(self) -> None:
+        svg_rels = [
+            "examples/flavi19/figures/flavi19.taxon_tree.svg",
+            "examples/flavi19/figures/flavi19.bgc_overlap.svg",
+            "examples/flavi19/figures/flavi19.bigscape_multipanel.svg",
+            "examples/flavi19/figures/focal_locus_aspirochlorine_bigscape_family.svg",
+            "examples/flavi19/focal_locus_aspirochlorine/focal_locus_aspirochlorine_gene_context.svg",
+            "examples/saccharopolyspora26/figures/saccharopolyspora26.taxon_tree.svg",
+            "examples/saccharopolyspora26/figures/saccharopolyspora26.bigscape_multipanel.svg",
+            "examples/saccharopolyspora26/focal_locus_geosmin/focal_locus_geosmin_gene_context.svg",
+        ]
+        self.assertEqual(8, len(svg_rels))
+        for rel in svg_rels:
+            with self.subTest(svg=rel):
+                ET.parse(REPO_ROOT / rel)
+
+        expected_summary = {
+            "flavi19": {
+                "assemblies": "19",
+                "candidate_rows": "2120",
+                "antismash_candidates": "1729",
+                "funbgcex_candidates": "1975",
+                "shared_overlap_rows": "1584",
+                "antismash_only_rows": "145",
+                "funbgcex_only_rows": "391",
+                "assigned_applicable_gcf_rows": "1729",
+                "applicable_unassigned_gcf_rows": "0",
+                "distinct_selected_family_count": "631",
+                "knowncluster_accession_rows": "666",
+                "clustercompare_rows": "1712",
+                "funbgcex_similarity_rows": "1251",
+                "synteny_panels": "20",
+                "protein_alignment_rows": "27842",
+                "ranked_rows": "2120",
+                "rank_recomputation_mismatches": "0",
+                "execution_state": "complete",
+            },
+            "saccharopolyspora26": {
+                "assemblies": "26",
+                "candidate_rows": "816",
+                "antismash_candidates": "816",
+                "funbgcex_candidates": "0",
+                "shared_overlap_rows": "0",
+                "antismash_only_rows": "816",
+                "funbgcex_only_rows": "0",
+                "assigned_applicable_gcf_rows": "816",
+                "applicable_unassigned_gcf_rows": "0",
+                "distinct_selected_family_count": "411",
+                "knowncluster_accession_rows": "654",
+                "clustercompare_rows": "816",
+                "funbgcex_similarity_rows": "0",
+                "synteny_panels": "20",
+                "protein_alignment_rows": "12340",
+                "ranked_rows": "816",
+                "rank_recomputation_mismatches": "0",
+                "execution_state": "complete",
+            },
+        }
+        with (REPO_ROOT / "examples/summary.tsv").open(newline="", encoding="utf-8") as handle:
+            summary_rows = {row["panel"]: row for row in csv.DictReader(handle, delimiter="\t")}
+        self.assertEqual(set(expected_summary), set(summary_rows))
+        for panel, expected in expected_summary.items():
+            with self.subTest(summary=panel):
+                for field, value in expected.items():
+                    self.assertEqual(value, summary_rows[panel][field], field)
+
+        focal_counts = {
+            "examples/flavi19/focal_locus_aspirochlorine/focal_locus.tsv": 1,
+            "examples/flavi19/focal_locus_aspirochlorine/records.tsv": 12,
+            "examples/flavi19/focal_locus_aspirochlorine/genes.tsv": 380,
+            "examples/flavi19/focal_locus_aspirochlorine/funbgcex_genes.tsv": 38,
+            "examples/flavi19/focal_locus_aspirochlorine/alignments.tsv": 1270,
+            "examples/saccharopolyspora26/focal_locus_geosmin/focal_locus.tsv": 1,
+            "examples/saccharopolyspora26/focal_locus_geosmin/records.tsv": 20,
+            "examples/saccharopolyspora26/focal_locus_geosmin/genes.tsv": 358,
+            "examples/saccharopolyspora26/focal_locus_geosmin/alignments.tsv": 1203,
+        }
+        for rel, expected in focal_counts.items():
+            with (REPO_ROOT / rel).open(newline="", encoding="utf-8") as handle:
+                rows = list(csv.DictReader(handle, delimiter="\t"))
+            with self.subTest(table=rel):
+                self.assertEqual(expected, len(rows))
+
+        with (
+            REPO_ROOT / "examples/flavi19/focal_locus_aspirochlorine/focal_locus.tsv"
+        ).open(newline="", encoding="utf-8") as handle:
+            fungal_focal = next(csv.DictReader(handle, delimiter="\t"))
+        self.assertEqual("GCA_009176405.1", fungal_focal["assembly_accession"])
+        self.assertEqual("ML733399.1", fungal_focal["sequence_accession"])
+        self.assertEqual("BGC0001123.5", fungal_focal["mibig_accession"])
+        self.assertEqual("58247", fungal_focal["funbgcex_start_1based"])
+        self.assertEqual("157612", fungal_focal["funbgcex_end_1based"])
+        self.assertEqual("43743", fungal_focal["mibig_full_region_length_bp"])
+        self.assertEqual("0.93", fungal_focal["core_reference_identity"])
+        self.assertEqual("0.95", fungal_focal["core_reference_similarity"])
+
+        with (
+            REPO_ROOT / "examples/saccharopolyspora26/focal_locus_geosmin/focal_locus.tsv"
+        ).open(newline="", encoding="utf-8") as handle:
+            bacterial_focal = next(csv.DictReader(handle, delimiter="\t"))
+        self.assertEqual("GCF_900114905.1", bacterial_focal["assembly_accession"])
+        self.assertEqual("NZ_FOUP01000001.1", bacterial_focal["sequence_accession"])
+        self.assertEqual("BGC0001181.4", bacterial_focal["mibig_accession"])
+        self.assertEqual("1044186", bacterial_focal["antismash_start_1based"])
+        self.assertEqual("1066372", bacterial_focal["antismash_end_1based"])
+        self.assertEqual("taxonomically_inapplicable", bacterial_focal["funbgcex_applicability"])
+        self.assertEqual("0.58", bacterial_focal["core_reference_identity"])
+        self.assertEqual("0.71", bacterial_focal["core_reference_similarity"])
+
+        node_path = REPO_ROOT / "examples/flavi19/figures/focal_locus_aspirochlorine_bigscape_nodes.tsv"
+        edge_path = REPO_ROOT / "examples/flavi19/figures/focal_locus_aspirochlorine_bigscape_edges.tsv"
+        with node_path.open(newline="", encoding="utf-8") as handle:
+            nodes = list(csv.DictReader(handle, delimiter="\t"))
+        with edge_path.open(newline="", encoding="utf-8") as handle:
+            edges = list(csv.DictReader(handle, delimiter="\t"))
+        self.assertEqual(34, len(nodes))
+        self.assertEqual(86, len(edges))
+        for edge in edges:
+            distance = float(edge["distance"])
+            similarity = float(edge["similarity"])
+            width = float(edge["svg_edge_width"])
+            self.assertAlmostEqual(1.0 - distance, similarity)
+            self.assertAlmostEqual(0.8 + 2.0 * similarity, width)
+
+        network_tree = ET.parse(
+            REPO_ROOT / "examples/flavi19/figures/focal_locus_aspirochlorine_bigscape_family.svg"
+        )
+        family_group = next(
+            element
+            for element in network_tree.getroot().iter()
+            if element.attrib.get("id") == "aspirochlorine-family"
+        )
+        self.assertEqual(
+            86,
+            sum(1 for element in family_group if element.tag.rsplit("}", 1)[-1] == "line"),
+        )
+
+        fungal_readme = (REPO_ROOT / "examples/flavi19/README.md").read_text(encoding="utf-8")
+        bacterial_readme = (REPO_ROOT / "examples/saccharopolyspora26/README.md").read_text(encoding="utf-8")
+        for text in (fungal_readme, bacterial_readme):
+            self.assertIn("matrix displays at most the 80 genome pairs", text)
+            self.assertIn("must not be interpreted as zero overlap", text)
+        figure_readme = (REPO_ROOT / "examples/flavi19/figures/README.md").read_text(encoding="utf-8")
+        self.assertIn("Edge similarity is `1 − BiG-SCAPE distance`", figure_readme)
+        self.assertIn("rendered width is `0.8 + 2 × similarity`", figure_readme)
+
+        for markdown_path in (REPO_ROOT / "examples").rglob("*.md"):
+            markdown = markdown_path.read_text(encoding="utf-8")
+            for target in re.findall(r"(?<!!)\[[^\]]+\]\(([^)]+)\)", markdown):
+                target = target.strip().split("#", 1)[0]
+                if not target or re.match(r"^[a-z][a-z0-9+.-]*:", target, re.IGNORECASE):
+                    continue
+                with self.subTest(markdown=markdown_path.relative_to(REPO_ROOT), target=target):
+                    self.assertTrue((markdown_path.parent / target).resolve().exists())
 
     def test_lowercase_runtime_roots_exist(self) -> None:
         for rel in [
@@ -955,6 +1127,13 @@ class RepoLayoutTests(unittest.TestCase):
                 self.assertNotIn("FAM_", text)
                 self.assertNotRegex(text, r"\b(?:job|run|database)[_-]?id\b")
                 self.assertNotRegex(text, r"\b[0-9a-f]{64}\b")
+                self.assertNotRegex(text, r"(?i)author[- ]approved")
+                self.assertNotRegex(text, r"(?i)approval_(?:id|status|source)")
+                self.assertNotRegex(text, r"(?i)claim[-_ ]to[-_ ]evidence|claim ledger")
+                self.assertNotRegex(text, r"\bCW-(?:C\d+|AUTH)\b")
+                self.assertNotIn("manuscript_evidence_review", text)
+                self.assertNotIn("Figure_bioinformatics.svg", text)
+                self.assertNotRegex(text, r"(?i)Adobe Illustrator|build_metadata")
 
     def test_frontend_static_assets_are_extracted_without_new_dependencies(self) -> None:
         static_dir = REPO_ROOT / "web" / "static"
