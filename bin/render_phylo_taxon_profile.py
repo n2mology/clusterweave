@@ -26,9 +26,11 @@ from xml.sax.saxutils import escape, quoteattr
 import render_bigscape_network as bigscape_network
 
 
-RENDERER_VERSION = "3.1.0"
+RENDERER_VERSION = "3.2.0"
 DEFAULT_GCF_CATEGORY = "mix"
 DEFAULT_GCF_THRESHOLD = "0.3"
+DEFAULT_PAIRWISE_VISIBILITY = "auto"
+MAX_NUMERIC_VISIBLE_PAIRS = 500
 ONTOLOGY_VERSION = "clusterweave-bgc-broad-v1"
 DOMAIN_ORDER = {"fungi": 0, "bacteria": 1}
 BGC_ORDER = ["NRPS", "PKS", "terpene", "RiPP", "hybrid", "other"]
@@ -102,6 +104,19 @@ def canonical_gcf_threshold(value: object) -> str:
     return (
         normalized.rstrip("0").rstrip(".") if "." in normalized else normalized
     )
+
+
+def pairwise_visibility_setting(value: str) -> str | int:
+    """Parse auto or the legacy numeric visible-pair limit."""
+    text = clean(value)
+    if text.casefold() == DEFAULT_PAIRWISE_VISIBILITY:
+        return DEFAULT_PAIRWISE_VISIBILITY
+    try:
+        return int(text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            "expected auto or an integer visible-pair limit"
+        ) from exc
 
 
 def split_gcf_memberships(value: object) -> set[tuple[str, str, str]]:
@@ -1332,7 +1347,15 @@ def render(args: argparse.Namespace) -> dict[str, Path]:
     root = build_tree(leaves)
 
     paths["newick"].write_text(to_newick(root) + ";\n", encoding="utf-8")
-    visible_limit = max(0, args.max_visible_arcs)
+    requested_visibility = getattr(
+        args, "max_visible_arcs", DEFAULT_PAIRWISE_VISIBILITY
+    )
+    if requested_visibility == DEFAULT_PAIRWISE_VISIBILITY:
+        visible_limit = len(edges)
+    else:
+        visible_limit = max(
+            0, min(MAX_NUMERIC_VISIBLE_PAIRS, int(requested_visibility))
+        )
     svg = render_svg(
         root, leaves, edges, visible_limit, gcf_category, gcf_threshold
     )
@@ -1395,6 +1418,9 @@ def render(args: argparse.Namespace) -> dict[str, Path]:
         encoding="utf-8",
     )
 
+    visible_pair_count = sum(
+        bool(edge.get("visible_in_svg")) for edge in edges
+    )
     methods = {
         "schema_version": 2,
         "renderer": "render_phylo_taxon_profile.py",
@@ -1427,14 +1453,17 @@ def render(args: argparse.Namespace) -> dict[str, Path]:
             "plus a ranked link table with stacked broad BGC-class bars"
         ),
         "gcf_arc_selection": (
-            "strongest shared-family count, then stable genome pair; mixed jobs "
-            "reserve a bounded cross-taxon lane"
+            "auto includes every positive genome pair; numeric limits select by "
+            "strongest shared-family count, then stable genome pair, with mixed "
+            "jobs reserving a bounded cross-taxon lane"
         ),
         "visual_layout": (
             "approved rank-aligned two-panel profile with absolute BGC bars, "
             "proportional GCF bars, Jaccard matrix, and ranked pair table"
         ),
+        "max_visible_arcs_requested": requested_visibility,
         "max_visible_arcs": visible_limit,
+        "visible_pair_count": visible_pair_count,
         "all_edges_exported": True,
         "cross_domain_interpretation": "shared Cross-Kingdom computational GCF context; no evolutionary event, mechanism, or direction established",
         "sequence_inference": "not_performed",
@@ -1450,8 +1479,9 @@ def render(args: argparse.Namespace) -> dict[str, Path]:
         "basis": "saved_ranked_taxonomy",
         "leaf_count": len(leaves),
         "edge_count": len(edges),
-        "visible_arc_count": sum(bool(edge.get("visible_in_svg")) for edge in edges),
-        "visible_pair_count": sum(bool(edge.get("visible_in_svg")) for edge in edges),
+        "visible_arc_count": visible_pair_count,
+        "visible_pair_count": visible_pair_count,
+        "max_visible_arcs_requested": requested_visibility,
         "unresolved_leaf_count": sum(leaf.unresolved for leaf in leaves),
         "taxon_counts": dict(Counter(leaf.taxon_group for leaf in leaves)),
         "gcf_selected_category": gcf_category,
@@ -1494,13 +1524,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument(
         "--max-visible-arcs",
-        type=int,
-        default=80,
-        help="Maximum pairwise GCF links rendered (legacy option name; default: 80).",
+        type=pairwise_visibility_setting,
+        default=DEFAULT_PAIRWISE_VISIBILITY,
+        help=(
+            "Pairwise GCF links rendered: auto includes every positive genome "
+            "pair; a numeric value applies the legacy bounded selection "
+            "(default: auto)."
+        ),
     )
     parser.add_argument("--png", action="store_true")
     args = parser.parse_args()
-    args.max_visible_arcs = max(0, min(500, args.max_visible_arcs))
     args.gcf_category = canonical_gcf_category(args.gcf_category)
     args.gcf_threshold = canonical_gcf_threshold(args.gcf_threshold)
     return args

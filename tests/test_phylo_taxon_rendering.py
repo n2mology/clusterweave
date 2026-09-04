@@ -36,9 +36,15 @@ class PhyloTaxonRenderingTests(unittest.TestCase):
         ]:
             self.assertIn(filename, text)
         self.assertIn("TAXON_TREE_REQUIRED", text)
-        self.assertIn("PHYLOGENY_MAX_VISIBLE_ARCS", text)
+        self.assertIn('PHYLOGENY_MAX_VISIBLE_ARCS="${PHYLOGENY_MAX_VISIBLE_ARCS:-auto}"', text)
+        for compose_path in ("docker-compose.yml", "clusterweave.yml"):
+            compose = (REPO_ROOT / compose_path).read_text(encoding="utf-8")
+            self.assertIn(
+                'PHYLOGENY_MAX_VISIBLE_ARCS: "${PHYLOGENY_MAX_VISIBLE_ARCS:-auto}"',
+                compose,
+            )
 
-    def render_fixture(self, fungi: int, bacteria: int, *, dense: bool = False, arc_cap: int = 80) -> tuple[Path, tempfile.TemporaryDirectory]:
+    def render_fixture(self, fungi: int, bacteria: int, *, dense: bool = False, arc_cap: int | str = 80) -> tuple[Path, tempfile.TemporaryDirectory]:
         temp = tempfile.TemporaryDirectory()
         root = Path(temp.name)
         manifest = root / "genome_taxon_manifest.tsv"
@@ -338,6 +344,56 @@ class PhyloTaxonRenderingTests(unittest.TestCase):
         manifest = json.loads((output / "clusterweave_tree_manifest.json").read_text(encoding="utf-8"))
         self.assertEqual(manifest["edge_count"], len(edges))
         self.assertEqual(manifest["visible_arc_count"], 4)
+        self.assertEqual(manifest["visible_pair_count"], 4)
+        self.assertEqual(manifest["max_visible_arcs_requested"], 4)
+        methods = json.loads(
+            (output / "clusterweave_tree_methods.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(methods["max_visible_arcs_requested"], 4)
+        self.assertEqual(methods["max_visible_arcs"], 4)
+        self.assertEqual(methods["visible_pair_count"], 4)
+
+    def test_default_auto_displays_every_positive_pair(self) -> None:
+        output, temp = self.render_fixture(7, 7, arc_cap="auto")
+        self.addCleanup(temp.cleanup)
+        subprocess.run(
+            [
+                sys.executable,
+                str(RENDERER),
+                "--manifest", str(Path(temp.name) / "genome_taxon_manifest.tsv"),
+                "--exact-products", str(Path(temp.name) / "antismash_product_types_exact.tsv"),
+                "--crosswalk", str(Path(temp.name) / "candidate_bgc_gcf_crosswalk.tsv"),
+                "--output-dir", str(output),
+            ],
+            cwd=REPO_ROOT,
+            check=True,
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        with (output / "clusterweave_gcf_network_edges.tsv").open(
+            newline="", encoding="utf-8"
+        ) as handle:
+            edges = list(csv.DictReader(handle, delimiter="\t"))
+        self.assertEqual(len(edges), 91)
+        self.assertTrue(all(row["visible_in_svg"] == "True" for row in edges))
+        svg = (output / "clusterweave_taxon_tree.svg").read_text(encoding="utf-8")
+        self.assertEqual(svg.count('class="gcf-pair"'), 91)
+        graphml = (output / "clusterweave_taxon_tree.graphml").read_text(
+            encoding="utf-8"
+        )
+        self.assertEqual(graphml.count("<edge id="), len(edges))
+        manifest = json.loads(
+            (output / "clusterweave_tree_manifest.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(manifest["edge_count"], 91)
+        self.assertEqual(manifest["visible_pair_count"], 91)
+        self.assertEqual(manifest["max_visible_arcs_requested"], "auto")
+        methods = json.loads(
+            (output / "clusterweave_tree_methods.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(methods["max_visible_arcs_requested"], "auto")
+        self.assertEqual(methods["max_visible_arcs"], 91)
+        self.assertEqual(methods["visible_pair_count"], 91)
 
     def test_repeated_exact_product_classes_make_one_hybrid_bgc(self) -> None:
         output, temp = self.render_fixture(1, 0)

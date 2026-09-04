@@ -19,7 +19,7 @@
 ## Representative figures
 
 - Each panel's `figures/` directory contains public SVGs and a local README defining the panels and interpretive limits.
-- `*.taxon_tree.svg` combines taxonomic context, per-genome BGC and selected-GCF summaries, and a bounded pairwise GCF-sharing matrix. The per-genome shared percentage and pairwise Jaccard percentage have different denominators, as documented in each figures README.
+- `*.taxon_tree.svg` combines taxonomic context, per-genome BGC and selected-GCF summaries, and a pairwise GCF-sharing matrix. The default `auto` visibility includes every positive genome pair, while an explicit nonnegative numeric limit retains ranked bounded display. The per-genome shared percentage and pairwise Jaccard percentage have different denominators, as documented in each figures README.
 - `*.bigscape_multipanel.svg` organizes component family, product, known-cluster, protein, and synteny evidence. It does not establish family correctness or metabolite production.
 - `flavi19.bgc_overlap.svg` summarizes fungal candidate relationships as shared coordinate overlaps, antiSMASH-only rows, and FunBGCeX-only rows. These are component-output relationships, not truth classes.
 - `focal_locus_aspirochlorine_bigscape_nodes.tsv` defines the 34 displayed nodes, public accessions, component annotations, colors, and editable coordinates. `focal_locus_aspirochlorine_bigscape_edges.tsv` defines the 86 displayed edges and their BiG-SCAPE metrics. `svg_edge_width = 0.8 + 2 × (1 − distance)`; geometric edge length is layout spacing rather than a calibrated relationship value.

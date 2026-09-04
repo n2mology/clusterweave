@@ -730,6 +730,19 @@ class RepoLayoutTests(unittest.TestCase):
             with self.subTest(svg=rel):
                 ET.parse(REPO_ROOT / rel)
 
+        expected_visible_pair_counts = {
+            "examples/flavi19/figures/flavi19.taxon_tree.svg": 171,
+            "examples/saccharopolyspora26/figures/saccharopolyspora26.taxon_tree.svg": 280,
+        }
+        for rel, expected_count in expected_visible_pair_counts.items():
+            tree = ET.parse(REPO_ROOT / rel)
+            visible_pair_count = sum(
+                element.attrib.get("class") == "gcf-pair"
+                for element in tree.getroot().iter()
+            )
+            with self.subTest(pairwise_matrix=rel):
+                self.assertEqual(expected_count, visible_pair_count)
+
         expected_summary = {
             "flavi19": {
                 "assemblies": "19",
@@ -746,7 +759,7 @@ class RepoLayoutTests(unittest.TestCase):
                 "clustercompare_rows": "1712",
                 "funbgcex_similarity_rows": "1251",
                 "synteny_panels": "20",
-                "protein_alignment_rows": "27842",
+                "protein_alignment_rows": "27557",
                 "ranked_rows": "2120",
                 "rank_recomputation_mismatches": "0",
                 "execution_state": "complete",
@@ -815,6 +828,7 @@ class RepoLayoutTests(unittest.TestCase):
         ).open(newline="", encoding="utf-8") as handle:
             bacterial_focal = next(csv.DictReader(handle, delimiter="\t"))
         self.assertEqual("GCF_900114905.1", bacterial_focal["assembly_accession"])
+        self.assertEqual("1", bacterial_focal["global_candidate_rank"])
         self.assertEqual("NZ_FOUP01000001.1", bacterial_focal["sequence_accession"])
         self.assertEqual("BGC0001181.4", bacterial_focal["mibig_accession"])
         self.assertEqual("1044186", bacterial_focal["antismash_start_1based"])
@@ -822,6 +836,12 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertEqual("taxonomically_inapplicable", bacterial_focal["funbgcex_applicability"])
         self.assertEqual("0.58", bacterial_focal["core_reference_identity"])
         self.assertEqual("0.71", bacterial_focal["core_reference_similarity"])
+
+        bacterial_svg = (
+            REPO_ROOT / "examples/saccharopolyspora26/focal_locus_geosmin/focal_locus_geosmin_gene_context.svg"
+        ).read_text(encoding="utf-8")
+        self.assertIn("Atlas rank 1; global review rank 1;", bacterial_svg)
+        self.assertNotIn("global review rank 27", bacterial_svg)
 
         node_path = REPO_ROOT / "examples/flavi19/figures/focal_locus_aspirochlorine_bigscape_nodes.tsv"
         edge_path = REPO_ROOT / "examples/flavi19/figures/focal_locus_aspirochlorine_bigscape_edges.tsv"
@@ -854,7 +874,9 @@ class RepoLayoutTests(unittest.TestCase):
         fungal_readme = (REPO_ROOT / "examples/flavi19/README.md").read_text(encoding="utf-8")
         bacterial_readme = (REPO_ROOT / "examples/saccharopolyspora26/README.md").read_text(encoding="utf-8")
         for text in (fungal_readme, bacterial_readme):
-            self.assertIn("matrix displays at most the 80 genome pairs", text)
+            self.assertIn("default is `auto`", text)
+            self.assertIn("displays every genome pair with a positive shared-GCF count", text)
+            self.assertIn("nonnegative numeric limit", text)
             self.assertIn("must not be interpreted as zero overlap", text)
         figure_readme = (REPO_ROOT / "examples/flavi19/figures/README.md").read_text(encoding="utf-8")
         self.assertIn("Edge similarity is `1 − BiG-SCAPE distance`", figure_readme)

@@ -36,6 +36,20 @@ def norm_key(value: str | None) -> str:
     return re.sub(r"[^a-z0-9]+", "", clean(value).lower())
 
 
+MISSING_CLASS_EVIDENCE_KEYS = {
+    norm_key(value)
+    for value in (
+        "unavailable",
+        "not available",
+        "not generated",
+        "not generated or unavailable",
+        "not_applicable_taxon",
+        "taxonomically_inapplicable",
+        "not_applicable_detector_only",
+    )
+}
+
+
 def read_csv_rows(path: Path) -> list[dict[str, str]]:
     with path.open("r", newline="", encoding="utf-8-sig") as handle:
         return list(csv.DictReader(handle))
@@ -94,10 +108,13 @@ def matches_focus_ecology(ecology_value: str, focus_label: str) -> bool:
 
 def classes_from_terms(terms: list[str]) -> set[str]:
     out: set[str] = set()
+    has_class_evidence = False
     for raw in terms:
-        token = re.sub(r"[^a-z0-9]+", " ", clean(raw).lower()).strip()
-        if not token:
+        value = clean(raw)
+        if not value or norm_key(value) in MISSING_CLASS_EVIDENCE_KEYS:
             continue
+        has_class_evidence = True
+        token = re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
         if "nrps" in token:
             out.add("NRPS")
         if "pks" in token or "polyketide" in token:
@@ -112,9 +129,15 @@ def classes_from_terms(terms: list[str]) -> set[str]:
             out.add("alkaloid")
         if "saccharide" in token:
             out.add("saccharide")
-    if not out and terms:
+    if not out and has_class_evidence:
         out.add("other")
     return out
+
+
+def funbgcex_classes_from_evidence(core_enzymes: str, applicability: str) -> set[str]:
+    if norm_key(applicability) in MISSING_CLASS_EVIDENCE_KEYS:
+        return set()
+    return classes_from_terms([core_enzymes])
 
 
 def parse_consensus(
@@ -737,7 +760,10 @@ def main() -> None:
                 ecology_points += 1
 
         antismash_classes = classes_from_terms(split_multi(antismash_class))
-        funbgcex_classes = classes_from_terms([clean(comparison.get("funbgcex_core_enzymes"))])
+        funbgcex_classes = funbgcex_classes_from_evidence(
+            clean(comparison.get("funbgcex_core_enzymes")),
+            funbgcex_applicability,
+        )
         class_logic_support = "yes" if antismash_classes and funbgcex_classes and antismash_classes.intersection(funbgcex_classes) else "no"
         class_logic_points = 1 if class_logic_support == "yes" else 0
 

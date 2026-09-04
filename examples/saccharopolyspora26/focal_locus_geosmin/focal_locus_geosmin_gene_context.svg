@@ -3,7 +3,7 @@
 <style>text{font-family:Arial,Helvetica,sans-serif;fill:#1F2937}.title{font-size:22px;font-weight:700}.subtitle{font-size:14px}.track{stroke:#374151;stroke-width:1.2}.gene{stroke:#374151;stroke-width:.7}.label{font-size:12px}.small{font-size:10px}.evidence{fill:#EAF5FF;stroke:#2786C0;stroke-width:1}.boundary{fill:none;stroke:#6B7280;stroke-width:1.2;stroke-dasharray:5 4}.link{fill:#2A9D8F;fill-opacity:.15;stroke:#2A9D8F;stroke-opacity:.55;stroke-width:1}</style>
 <rect width="1570" height="440" fill="#FFFFFF"/>
 <text x="40" y="38" class="title">Synteny-resolved bacterial focal locus: Saccharopolyspora antimicrobica CPCC 201259 — geosmin evidence record</text>
-<text x="40" y="64" class="subtitle">Atlas rank 1; global review rank 27; stable locator GCF_900114905.1 / NZ_FOUP01000001.1:1044186-1066372</text>
+<text x="40" y="64" class="subtitle">Atlas rank 1; global review rank 1; stable locator GCF_900114905.1 / NZ_FOUP01000001.1:1044186-1066372</text>
 <rect x="40" y="82" width="1490" height="55" rx="7" class="evidence"/><text x="58" y="105" class="subtitle">Selected mix@0.3 GCF assignment present; MIBiG: BGC0001181.4 — component label geosmin</text>
 <text x="58" y="126" class="label">Target/reference protein alignment: ctg1_999 ↔ CAB41566.1, identity 0.58, similarity 0.71; FunBGCeX: taxonomically inapplicable</text>
 <rect x="135.00" y="154" width="1300.00" height="52" class="boundary"/><text x="40" y="184" class="label">antiSMASH region</text>

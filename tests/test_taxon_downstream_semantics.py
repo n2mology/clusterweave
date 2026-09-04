@@ -19,6 +19,43 @@ def load_module(name: str, relative_path: str):
 
 
 class TaxonDownstreamSemanticsTests(unittest.TestCase):
+    def test_missing_funbgcex_class_evidence_never_becomes_other(self) -> None:
+        module = load_module("candidate_tables_under_test", "bin/build_candidate_tables.py")
+
+        for value in (
+            "",
+            "NA",
+            "N/A",
+            "none",
+            "-",
+            "unavailable",
+            "not generated or unavailable",
+        ):
+            with self.subTest(value=value):
+                self.assertEqual(module.classes_from_terms([value]), set())
+
+        for applicability in (
+            "not_applicable_taxon",
+            "taxonomically_inapplicable",
+            "not_applicable_detector_only",
+        ):
+            with self.subTest(applicability=applicability):
+                self.assertEqual(
+                    module.funbgcex_classes_from_evidence(
+                        "unrecognized enzyme class",
+                        applicability,
+                    ),
+                    set(),
+                )
+
+        self.assertEqual(
+            module.funbgcex_classes_from_evidence(
+                "unrecognized enzyme class",
+                "applicable",
+            ),
+            {"other"},
+        )
+
     def test_bacteria_are_not_scored_as_missing_a_fungal_only_detector(self) -> None:
         module = load_module("candidate_tables_under_test", "bin/build_candidate_tables.py")
 

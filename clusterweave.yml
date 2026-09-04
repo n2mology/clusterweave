@@ -119,7 +119,7 @@ services:
       # The core taxonomy figure stays enabled in the dependency-light worker.
       # Optional sequence inference/cross-kingdom context stays off publicly.
       RUN_TAXON_TREE_FIGURE: "${RUN_TAXON_TREE_FIGURE:-1}"
-      PHYLOGENY_MAX_VISIBLE_ARCS: "${PHYLOGENY_MAX_VISIBLE_ARCS:-80}"
+      PHYLOGENY_MAX_VISIBLE_ARCS: "${PHYLOGENY_MAX_VISIBLE_ARCS:-auto}"
       RUN_PHYLOGENY: "${RUN_PHYLOGENY:-0}"
       PHYLOGENY_REQUIRED: "${PHYLOGENY_REQUIRED:-0}"
       PHYLOGENY_CPUS: "${PHYLOGENY_CPUS:-1}"
