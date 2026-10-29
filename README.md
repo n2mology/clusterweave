@@ -22,10 +22,10 @@ protein features or funannotate when annotation is needed; bacterial genomes use
 feature-free sequence with Prodigal gene finding. antiSMASH and BiG-SCAPE apply
 to both domains, while FunBGCeX applies only to fungi.
 
-> Web-hosted access: **Coming soon.** ClusterWeave v1.0.3 is currently
+> Web-hosted access: **Coming soon.** ClusterWeave v1.0.4 is currently
 > available only for local use through the Docker interface described below.
 
-Version 1.0.3 is the current public ClusterWeave release.
+Version 1.0.4 is the current public ClusterWeave release.
 
 [Watch the ClusterWeave fungal demo on YouTube](https://youtu.be/pCHNmzbBZ0Y).
 
@@ -46,7 +46,7 @@ report. Experimental validation and subject-matter review remain necessary.
 
 ## Run a job
 
-Version 1.0.3 runs through the local interface. After starting a local instance,
+Version 1.0.4 runs through the local interface. After starting a local instance,
 open [http://127.0.0.1:8080](http://127.0.0.1:8080) and follow these steps:
 
 1. In **INPUT STATION**, keep **New run** selected and choose **Fungi**,
@@ -295,7 +295,7 @@ scientific implementation.
 ## Manuscript, authorship, and conceptualization
 
 ClusterWeave began as the reusable software workflow for the companion manuscript
-*ClusterWeave organizes genome-mining analyses into Integrated Evidence Profiles*.
+*ClusterWeave: taxon-aware reconciliation of biosynthetic gene cluster evidence for comparative genome mining*.
 The authors and maintainers of the project are Julian B. Cosner,
 Stanton Martin, and Tomás A. Rush. Keywords: genome mining, biosynthetic gene
 clusters, gene cluster families, evidence integration, candidate prioritization.
@@ -320,7 +320,7 @@ DE-AC05-00OR22725.
 Citation metadata is in [`CITATION.cff`](CITATION.cff). The companion software
 record resolves at
 [doi:10.11578/PMI/dc.20260608.2](https://doi.org/10.11578/PMI/dc.20260608.2).
-Version 1.0.3 is the current public release.
+Version 1.0.4 is the current public release.
 
 ClusterWeave's own source is available under the
 [BSD 3-Clause License](LICENSE). Downloaded tools, containers, databases, and

@@ -528,7 +528,7 @@ class RepoLayoutTests(unittest.TestCase):
         combined = "\n".join(texts.values())
         normalized_readme = " ".join(texts["README.md"].split())
         self.assertIn(
-            "clusterweave organizes genome-mining analyses into integrated evidence profiles",
+            "clusterweave: taxon-aware reconciliation of biosynthetic gene cluster evidence for comparative genome mining",
             normalized_readme,
         )
         for private_status in [

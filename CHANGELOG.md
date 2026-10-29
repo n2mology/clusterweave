@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.0.4 - 2026-10-29
+
+Patch release:
+
+- Preserved project-name text and caret position during ordinary or composing
+  input, while retaining the established normalization on blur and submission.
+- Made unchanged Input Station validation messages idempotent, so a dismissed
+  verification drawer stays closed until its message set changes.
+- Expanded the accession-defined fungal and bacterial examples with eight
+  public-safe SVGs, editable focal-locus tables, and explicit interpretation
+  limits without adding genomes or execution records.
+- Prevented unavailable or taxonomically inapplicable FunBGCeX class evidence
+  from being scored as the broad `other` class.
+- Changed the taxonomy/GCF figure default to display every positive genome-pair
+  relationship, while retaining an explicit bounded numeric compatibility
+  option and complete graph exports.
+
 ## 1.0.3 - 2026-08-28
 
 Patch release:

@@ -7,7 +7,7 @@ queue metadata, one worker/admission layer claims a job, and
 Python helpers transform or render declared outputs. The shipped runtime does
 not contain a second scientific implementation.
 
-Project-hosted access is coming soon. ClusterWeave v1.0.3 is currently
+Project-hosted access is coming soon. ClusterWeave v1.0.4 is currently
 available only for local use through the trusted single-user profile.
 
 ## Shipped execution profiles
