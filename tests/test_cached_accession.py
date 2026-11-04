@@ -87,7 +87,8 @@ class BundleSafetyTests(unittest.TestCase):
     def test_external_native_executables_and_python_modules_force_misses(self):
         directory = self.root / "custom_runtime"
         directory.mkdir()
-        with mock.patch.dict(os.environ, {"PATH": "/usr/bin:" + str(directory), "PYTHONPATH": "", "PYTHONHOME": ""}):
+        # The clean baseline must not inherit host Python, loader or shell overrides.
+        with mock.patch.dict(os.environ, {"PATH": "/usr/bin:" + str(directory)}, clear=True):
             adapter.native_runtime_supported()
             (directory / "datasets").write_bytes(b"prepared retrieval only")
             (directory / "datasets").chmod(0o700)
@@ -96,9 +97,10 @@ class BundleSafetyTests(unittest.TestCase):
             (directory / "prodigal").chmod(0o700)
             with self.assertRaisesRegex(cache.Unavailable, "external_native_runtime"):
                 adapter.native_runtime_supported()
-        with mock.patch.dict(os.environ, {"PYTHONPATH": str(directory)}):
-            with self.assertRaisesRegex(cache.Unavailable, "external_native_runtime"):
-                adapter.native_runtime_supported()
+        for name in ("PYTHONPATH", "PYTHONHOME", "PYTHONOPTIMIZE", "LD_PRELOAD", "LD_LIBRARY_PATH", "BASH_ENV"):
+            with self.subTest(variable=name), mock.patch.dict(os.environ, {name: str(directory)}, clear=True):
+                with self.assertRaisesRegex(cache.Unavailable, "external_native_runtime"):
+                    adapter.native_runtime_supported()
 
     def test_bundle_canonical_order_and_metadata(self):
         files = {"b/file.txt": b"second", "a.txt": b"first", "empty.txt": b""}
