@@ -1993,6 +1993,8 @@
     transition: opacity .42s ease, visibility 0s linear, background .42s ease;
   }
   .genome-progress-layer[hidden] { display: none; }
+  .genome-exclusion-notice { margin: .6rem 0 0; padding: .6rem .75rem; background: var(--pink-soft); border-left: 3px solid var(--orange); font-size: .8rem; line-height: 1.4; }
+  .genome-exclusion-notice[hidden] { display: none; }
   .genome-progress-head {
     min-width: 0;
     display: flex;
@@ -2047,6 +2049,18 @@
     min-width: 0;
     display: block;
   }
+  .genome-progress-chip {
+    display: inline-block;
+    max-width: 100%;
+    padding: .06rem .16rem;
+    line-height: 1.2;
+    white-space: nowrap;
+    border: 1px solid var(--line);
+    background: white;
+    font-family: var(--mono);
+    font-size: .5rem;
+    font-weight: 950;
+  }
   .genome-progress-organism {
     width: 100%;
     max-width: 100%;
@@ -2082,6 +2096,7 @@
     align-items: center;
     gap: .4rem;
   }
+  .genome-progress-meter-row.has-progress-chip { grid-template-columns: minmax(0, 1fr) auto; }
   .genome-progress-track {
     min-width: 0;
     height: .82rem;

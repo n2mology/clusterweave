@@ -144,6 +144,40 @@ process.stdout.write(JSON.stringify(events));
         )
         self.assertEqual(lines, semantic_fixture(), "classification must not alter canonical lines")
 
+    def test_zero_drop_summaries_preserve_real_warnings(self):
+        lines = ["[INFO] total=3 processed=3 dropped=0", "[INFO] total=3 processed=2 dropped=1",
+                 "[WARN] dropped=0 but annotation incomplete", "[ERROR] failed=0 dropped=0: genuine error",
+                 "Genome dropped: no usable annotation"]
+        expected = ["running", "warning_terminal", "warning", "failed", "warning_terminal"]
+        self.assertEqual([TREE.classify_progress_line(self.contract, line, i, "annotation")["state"] for i, line in enumerate(lines)], expected)
+        module_uri = "data:text/javascript;base64," + base64.b64encode(BROWSER_TREE_PATH.read_bytes()).decode()
+        source = f"import {{classifyProgressTreeLine}} from {json.dumps(module_uri)}; const contract={json.dumps(self.contract)}; process.stdout.write(JSON.stringify({json.dumps(lines)}.map((line,i)=>classifyProgressTreeLine(contract,line,i,'annotation').state)));"
+        self.assertEqual(run_node_json(source), expected)
+
+    def test_browser_and_native_cache_labels_survive_completion_and_clear_on_restart(self):
+        lines = [
+            'NCBI_DOWNLOAD_PROGRESS accession=Fresh taxon=bacteria status=complete percent=8 message="NCBI genome download complete"',
+            'NCBI_DOWNLOAD_PROGRESS accession=Fresh taxon=bacteria status=complete percent=8 message="Accession snapshot ready"',
+            'ACCESSION_CACHE genome=Input stage=retrieval outcome=hit',
+            '[INFO] Stage 1/4: running run_annotation_and_detection.sh',
+            'ACCESSION_CACHE genome=Cached stage=annotation_detection outcome=hit',
+            'GENOME_PROGRESS genome=Cached stage=annotation percent=100 bar=[##########] message="Reused verified annotation and BGC detection"',
+        ]
+        def labels(records):
+            model = TREE.build_progress_tree(self.contract, enumerate(records))
+            return {k: n.progress_label for k,n in model.nodes.items() if n.level == "genome"}
+        initial = labels(lines)
+        self.assertEqual(initial["genome:prep:Fresh"], "GENOME DOWNLOADED")
+        self.assertEqual(initial["genome:prep:Input"], "GENOME READY")
+        self.assertEqual(initial["genome:annotation:Cached"], "CACHED")
+        lines += ['[INFO] Stage 1/4: complete', 'GENOME_PROGRESS genome=Cached stage=annotation percent=0 bar=[----------] message="Starting genome"']
+        self.assertEqual(labels(lines)["genome:annotation:Cached"], "ANNOTATING")
+        module_uri = "data:text/javascript;base64," + base64.b64encode(BROWSER_TREE_PATH.read_bytes()).decode()
+        source = f"import {{buildProgressTree}} from {json.dumps(module_uri)}; const c={json.dumps(self.contract)}; const records={json.dumps(lines)}.map((line,index)=>({{line,index}})); process.stdout.write(JSON.stringify(Object.fromEntries(buildProgressTree(c,records).rows.filter(n=>n.level==='genome').map(n=>[n.key,n.progressLabel||'']))));"
+        self.assertEqual(run_node_json(source), labels(lines))
+        lines += ['GENOME_PROGRESS genome=Cached stage=annotation percent=100 bar=[##########] message="Genome dropped: annotation failed"']
+        self.assertEqual(labels(lines)["genome:annotation:Cached"], "")
+
     def test_heartbeats_update_one_branch_and_retain_measured_progress(self) -> None:
         model = TREE.build_progress_tree(
             self.contract,
@@ -258,6 +292,27 @@ process.stdout.write(JSON.stringify(events));
         self.assertEqual(0, node.percentage)
         self.assertTrue(any(event.state == "rerun" for event in model.permanent_events))
 
+    def test_exclusion_survives_annotation_completion_in_native_and_browser_trees(self) -> None:
+        lines = [
+            'GENOME_EXCLUDED genome=Fungus reason=funannotate_busco_training_insufficient message="Excluded from detection and downstream analysis (funannotate_busco_training_insufficient)"',
+            'GENOME_EXCLUSION_SUMMARY excluded=1 total=4 message="1 of 4 genomes excluded from detection and downstream analysis"',
+            'Stage 1/4: complete', 'Stage 2/4: running run_bigscape.sh',
+        ]
+        model = TREE.build_progress_tree(self.contract, enumerate(lines))
+        self.assertEqual(model.nodes['genome:annotation:Fungus'].state, 'failed')
+        self.assertIn('Excluded from detection', model.nodes['genome:annotation:Fungus'].message)
+        self.assertEqual(model.nodes['stage:bigscape'].state, 'running')
+        self.assertTrue(any('1 of 4 genomes excluded' in event.message for event in model.permanent_events))
+        module_uri = 'data:text/javascript;base64,' + base64.b64encode(BROWSER_TREE_PATH.read_bytes()).decode('ascii')
+        result = run_node_json(f"""
+import {{ buildProgressTree }} from {json.dumps(module_uri)};
+const tree = buildProgressTree({json.dumps(self.contract)}, {json.dumps(lines)}.map((line,index)=>({{line,index}})));
+process.stdout.write(JSON.stringify(tree.rows));
+""")
+        excluded = next(row for row in result if row['key'] == 'genome:annotation:Fungus')
+        self.assertEqual(excluded['state'], 'failed')
+        self.assertIn('Excluded from detection', excluded['message'])
+
 
 @unittest.skipUnless(SCRIPT, "util-linux script is required for TTY behavior tests")
 class CliProgressTreeTests(unittest.TestCase):
@@ -344,6 +399,33 @@ class CliProgressTreeTests(unittest.TestCase):
             self.assertNotIn("\\/  CLUSTER", output)
             self.assertIn("Stage 1/4: skipped", output)
             self.assertIn("Canonical workflow complete.", output)
+
+    def test_partial_annotation_emits_bounded_exclusions_and_preserves_downstream(self) -> None:
+        directory = self.project / 'data/results/fixture_project/summary_tables'
+        directory.mkdir(parents=True)
+        manifest = directory / 'run_manifest.tsv'
+        header = 'genome_id\tgbk_used\tgbk_status\tantismash_status\n'
+        manifest.write_text(header + 'Good\tstaged.gbk\toriginal_ok\tran_ok\n'
+                            'Dropped\t\tfunannotate_busco_training_insufficient\tskipped\n')
+        env = {**self.env, 'RUN_STAGE_ANNOTATION': '1', 'RUN_STAGE_BIGSCAPE': '1'}
+        completed = self.run_redirected('--raw', env=env)
+        self.assertEqual(completed.returncode, 0, completed.stdout)
+        self.assertEqual(completed.stdout.count('GENOME_EXCLUDED genome=Dropped '), 1)
+        self.assertIn('1 of 2 genomes excluded from detection and downstream analysis', completed.stdout)
+        self.assertIn('Stage 2/4: complete', completed.stdout)
+        tty = self.run_tty(env=env)
+        self.assertEqual(tty.returncode, 0, tty.stdout)
+        self.assertIn('Excluded from detection', tty.stdout)
+        manifest.write_text(header + 'Dropped\t\tfunannotate_busco_training_insufficient\tskipped\n')
+        failed = self.run_redirected('--raw', env=env)
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertIn('1 of 1 genomes excluded', failed.stdout)
+        self.assertIn('zero usable genomes', failed.stdout)
+        self.assertNotIn('Stage 2/4: running', failed.stdout)
+        manifest.write_text(header + 'Good\tstaged.gbk\toriginal_ok\tran_ok\n')
+        successful = self.run_redirected('--raw', env=env)
+        self.assertEqual(successful.returncode, 0, successful.stdout)
+        self.assertNotIn('GENOME_EXCLU', successful.stdout)
 
     def test_tty_selects_unicode_tree_and_honors_no_color(self) -> None:
         env = {**self.env, "NO_COLOR": "1"}

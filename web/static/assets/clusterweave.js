@@ -104,12 +104,12 @@ let clusterweaveGameConnectionState = navigator.onLine === false ? 'browser-offl
 
 const GSAP_BROWSER_PATH = 'vendor/gsap-3.15.0/gsap.min.js';
 const WORKFLOW_DNA_MODULE_PATH = new URL('assets/workflow-dna-progress.js?v=20260713-fanout-ui1', window.location.href).toString();
-const API_RESULT_MODULE_PATH = new URL('assets/api-result-boundary.js?v=20260725-r12a1', window.location.href).toString();
+const API_RESULT_MODULE_PATH = new URL('assets/api-result-boundary.js?v=20261030-local-owner1', window.location.href).toString();
 const RESULT_READER_MODULE_PATH = new URL('assets/result-reader-boundary.js?v=20260827-bigscape-family1', window.location.href).toString();
 const INTAKE_TAXON_MODULE_PATH = new URL('assets/intake-taxon-boundary.js?v=20260902-input-station1', window.location.href).toString();
-const JOB_LIFECYCLE_MODULE_PATH = new URL('assets/job-lifecycle-boundary.js?v=20260727-r12g1', window.location.href).toString();
-const PROGRESS_TREE_MODULE_PATH = new URL('assets/progress-tree.js?v=20260730-stage-tree2', window.location.href).toString();
-const PROGRESS_TREE_CONTRACT_PATH = new URL('assets/progress-tree-contract.json?v=20260730-stage-tree2', window.location.href).toString();
+const JOB_LIFECYCLE_MODULE_PATH = new URL('assets/job-lifecycle-boundary.js?v=20261104-exclusions1', window.location.href).toString();
+const PROGRESS_TREE_MODULE_PATH = new URL('assets/progress-tree.js?v=20261104-exclusions1', window.location.href).toString();
+const PROGRESS_TREE_CONTRACT_PATH = new URL('assets/progress-tree-contract.json?v=20261104-exclusions1', window.location.href).toString();
 const DIAGNOSTICS_ACCESS_MODULE_PATH = new URL('assets/diagnostics-access-boundary.js?v=20260727-r12h1', window.location.href).toString();
 const MOTION_MODULE_PATH = new URL('assets/motion-boundary.js?v=20260727-r12h1', window.location.href).toString();
 const CLUSTERWEAVE_GAME_ASSET_SELECTOR = 'meta[name="clusterweave-game-asset"]';
@@ -332,6 +332,7 @@ const jobLifecycleBoundaryInstalled = new Promise((resolve, reject) => {
         rememberOpenedRun,
         renderDiagnosticRerunRail,
         renderOpenedRuns,
+        renderLocalJobs,
         renderQaDrawer,
         renderWeaveHelix,
         rerunStageAllowed,
@@ -2493,7 +2494,50 @@ function openSubmittedRun() {
   loadJob(lastSubmittedRun.jobId, true, { readToken: lastSubmittedRun.readToken, source: 'submission-confirmation' });
 }
 
+let localOwnerCsrf = '';
+let localOwnerPairingAllowed = true;
+
 function authHeadersFor(kind, jobId = null) { return apiResultBoundary.authHeadersFor(kind, jobId); }
+
+async function pairLocalBrowser() {
+  const response = await window.fetch(apiUrl('api/local/session'), { cache: 'no-store' });
+  if (!response.ok || !(await response.json()).enabled) return;
+  const paired = await window.fetch(apiUrl('api/local/session'), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', cache: 'no-store',
+  });
+  if (!paired.ok) throw new Error('Local browser access could not be established. Reload to try again.');
+  localOwnerCsrf = String((await paired.json()).csrf_token || '');
+}
+
+async function forgetLocalBrowser() {
+  const response = await apiFetch('api/local/session', { method: 'DELETE' });
+  if (!response.ok) return;
+  localOwnerCsrf = '';
+  localOwnerPairingAllowed = false;
+  sessionSet(STORAGE_KEYS.adminToken, '');
+  sessionSet(STORAGE_KEYS.submitToken, '');
+  saveOpenedRuns([]);
+  pendingReadTokens.clear();
+  lastSubmittedRun = null;
+  submittedRunReceipt = null;
+  setAccessMode('public');
+  stopSystemConsolePolling();
+  resetToIdleWorkbench();
+  document.getElementById('local-jobs-panel').hidden = true;
+  document.getElementById('local-jobs-select').replaceChildren();
+  updateAccessTokenStatus('Browser access forgotten. Opening this trusted local instance again restores local access.');
+}
+
+async function loadSelectedLocalRun() {
+  const id = document.getElementById('local-jobs-select')?.value;
+  if (!id || !localOwnerCsrf) return;
+  const job = await loadJob(id, true, { source: 'local-history', internalJob: true, deferResultsShell: true });
+  document.body.dataset.existingRunLoaded = job ? 'true' : 'false';
+  if (job) {
+    animateExistingResultUnlock();
+    navigateToSection(null, 'outputs');
+  }
+}
 
 function mergeAuthHeaders(options = {}, auth = {}) { return apiResultBoundary.mergeAuthHeaders(options, auth); }
 
@@ -3327,6 +3371,21 @@ async function startAnalysis() { return intakeControllerBoundary.startAnalysis(.
 
 // ── Job history ────────────────────────────────────────────────────────────
 async function refreshJobHistory() { return jobLifecycleControllerBoundary.refreshJobHistory(...arguments); }
+
+function renderLocalJobs(jobs) {
+  const panel = document.getElementById('local-jobs-panel');
+  const select = document.getElementById('local-jobs-select');
+  if (!panel || !select) return;
+  panel.hidden = !localOwnerCsrf || !canUseAdminSurfaces();
+  if (panel.hidden) return;
+  const selected = select.value;
+  const options = [new Option('Choose a retained local job', '')];
+  for (const job of jobs) {
+    options.push(new Option(`${job.name || job.project_name || 'Job'} · ${job.status || 'pending'}`, job.id));
+  }
+  select.replaceChildren(...options);
+  select.value = selected;
+}
 
 function jobHistoryRenderKey(jobs) { return jobLifecycleControllerBoundary.jobHistoryRenderKey(...arguments); }
 
@@ -5418,6 +5477,11 @@ async function fetchSystemStatus(options = {}) {
       return null;
     }
     const payload = await resp.json();
+    if (payload.local_owner_available && localOwnerPairingAllowed && !options.localPairedOnce
+        && (!localOwnerCsrf || !isFullSystemStatus(payload))) {
+      await pairLocalBrowser();
+      return fetchSystemStatus({ ...options, localPairedOnce: true });
+    }
     rememberClusterweaveGameConnectionState('connected');
     window.ClusterWeaveGame?.setConnectionState?.('connected');
     if (!bootstrapComplete) {
@@ -5566,6 +5630,7 @@ async function bootApiResultBoundary() {
     resultArtifactDescriptor,
     resultUrlShouldStayExternal,
     resultAssetHashSuffix,
+    localCsrfToken: () => localOwnerCsrf,
   });
 }
 

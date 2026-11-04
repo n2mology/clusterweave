@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+from datetime import datetime
 import json
 import os
 from pathlib import Path
@@ -48,6 +49,10 @@ class LocalProfileCpuCompositionTests(unittest.TestCase):
             )
             generated_env = local_root / ".env"
             initialized = read_dotenv(generated_env)
+            original_env = generated_env.read_bytes()
+            subprocess.run(["bash", str(local_init)], cwd=local_root, check=True,
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            self.assertEqual(generated_env.read_bytes(), original_env)
             compose_environment = os.environ.copy()
             for key in initialized:
                 compose_environment.pop(key, None)
@@ -97,6 +102,15 @@ class LocalProfileCpuCompositionTests(unittest.TestCase):
                 text=True,
             )
             override_composition = json.loads(rendered_override.stdout)
+            empty_env = local_root / "empty.env"
+            empty_env.touch()
+            rendered_hosted = subprocess.run(
+                ["docker", "compose", "--env-file", str(empty_env), "-f",
+                 str(COMPOSE_FILE), "config", "--format", "json"],
+                cwd=REPO_ROOT, env=compose_environment, check=True,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            )
+            hosted_composition = json.loads(rendered_hosted.stdout)
 
         web_environment = composition["services"]["web"]["environment"]
         override_web_environment = override_composition["services"]["web"]["environment"]
@@ -106,12 +120,23 @@ class LocalProfileCpuCompositionTests(unittest.TestCase):
         worker_memory_limit_mb = int(worker_service["mem_limit"]) // (1024 * 1024)
 
         local_template = read_dotenv(REPO_ROOT / "config" / "local.env.template")
+        for configuration in (initialized, local_template, web_environment, worker_environment):
+            self.assertEqual(configuration["CLUSTERWEAVE_JOB_RETENTION_DAYS"], "never")
+            self.assertEqual(configuration["CLUSTERWEAVE_ALLOW_NEVER_EXPIRE_JOBS"], "1")
+        for service in ("web", "worker"):
+            hosted_environment = hosted_composition["services"][service]["environment"]
+            self.assertEqual(hosted_environment["CLUSTERWEAVE_JOB_RETENTION_DAYS"], "30")
+            self.assertEqual(hosted_environment["CLUSTERWEAVE_ALLOW_NEVER_EXPIRE_JOBS"], "0")
         self.assertEqual(local_template["CLUSTERWEAVE_MAX_ACCESSIONS"], "50")
         self.assertEqual(local_template["CLUSTERWEAVE_MAX_GENOME_FILES"], "50")
         self.assertEqual(local_template["CLUSTERWEAVE_MAX_CPUS_PER_JOB"], "4")
         self.assertEqual(local_template["CLUSTERWEAVE_WORKER_CPU_LIMIT"], "4")
 
         self.assertEqual(initialized["CLUSTERWEAVE_MAX_ACCESSIONS"], "50")
+        self.assertEqual(initialized["CLUSTERWEAVE_ACCESS_PROFILE"], "local-owner")
+        self.assertEqual(web_environment["CLUSTERWEAVE_ACCESS_PROFILE"], "local-owner")
+        self.assertEqual(web_environment["CLUSTERWEAVE_BIND_ADDRESS"], "127.0.0.1")
+        self.assertEqual(composition["services"]["web"]["healthcheck"]["test"], ["CMD", "python3", "/app/healthcheck.py"])
         self.assertEqual(initialized["CLUSTERWEAVE_MAX_GENOME_FILES"], "50")
         self.assertEqual(initialized["CLUSTERWEAVE_MAX_CPUS_PER_JOB"], "4")
         self.assertEqual(initialized["CLUSTERWEAVE_WORKER_CPU_LIMIT"], "4")
@@ -154,6 +179,21 @@ class LocalProfileCpuCompositionTests(unittest.TestCase):
             with mock.patch.dict(os.environ, process_environment, clear=False):
                 app = importlib.import_module("app")
                 worker = importlib.import_module("worker")
+                job_store = importlib.import_module("job_store")
+                for status in ("success", "failed"):
+                    job_id = f"synthetic-local-{status}"
+                    job = {"id": job_id, "status": status, "created_at": "2000-01-01T00:00:00",
+                           "updated_at": "2000-01-01T00:00:00"}
+                    result_path = job_store.job_dir(job_id) / "results" / "example.txt"
+                    result_path.parent.mkdir(parents=True)
+                    result_path.write_text("retained scientific result\n")
+                    job_store.write_job(job)
+                    self.assertIsNone(job["expires_at"])
+                swept = job_store.sweep_expired_jobs(now=datetime(2100, 1, 1))
+                self.assertEqual(swept["deleted_jobs"], 0)
+                for status in ("success", "failed"):
+                    result_path = job_store.job_dir(f"synthetic-local-{status}") / "results" / "example.txt"
+                    self.assertEqual(result_path.read_text(), "retained scientific result\n")
                 with mock.patch.object(app.os, "cpu_count", return_value=64):
                     accepted_cpu_limit = app.public_cpu_limit()
                     self.assertEqual(accepted_cpu_limit, worker_cpu_limit)

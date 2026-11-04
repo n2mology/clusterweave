@@ -2664,7 +2664,32 @@ write_genome_manifest_row() {
   printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" "$@" > "${row_file}"
 }
 
-process_genome() {
+bacterial_genbank_prepare() {
+  local python_cmd="$1" sanitizer="$2" manifest="$3" input_root="$4" provenance="$5"
+  shift 5
+  if [[ "${sanitizer}" == "${SCRIPT_DIR}/bin/sanitize_bacterial_genbank.py" ]]; then
+    FORCE="${FORCE:-0}" "${python_cmd}" "${SCRIPT_DIR}/bin/cached_genbank.py" bacteria \
+      --route-manifest "${manifest}" --acquired-root "${input_root}" \
+      --provenance "${provenance}" "$@"
+  else
+    "${python_cmd}" "${sanitizer}" "$@"
+  fi
+}
+
+prepare_original_fungal_genbank() {
+  local source="$1" destination="$2" genome_id="$3" input_root="$4"
+  if [[ "${ENGINE}" == "docker" && "${ANNOTATION_GENBANK_HELPER}" == "${SCRIPT_DIR}/bin/annotation_genbank.py" ]]; then
+    FORCE="${FORCE:-0}" repository_helper_python_exec "${SCRIPT_DIR}/bin/cached_genbank.py" fungi \
+      --input "${source}" --output "${destination}" --genome-id "${genome_id}" \
+      --route-manifest "${GENOME_TAXON_MANIFEST}" --acquired-root "${input_root}" \
+      --provenance "${RESULTS_ROOT}/reproducibility/accession_cache/${genome_id}.fungi.json" >/dev/null
+  else
+    cp -f "${source}" "${destination}"
+    normalize_gbk_record_headers_in_place "${destination}" || true
+  fi
+}
+
+compute_genome() {
   local genome_id="$1"
   local ordinal="$2"
   local row_file="$3"
@@ -2756,7 +2781,9 @@ process_genome() {
     else
       python_cmd="$(resolve_python_cmd)" || true
       if [[ -n "${python_cmd}" ]] && bacterial_sanitize_summary="$(
-          "${python_cmd}" "${BACTERIAL_GENBANK_SANITIZER}" \
+          bacterial_genbank_prepare "${python_cmd}" "${BACTERIAL_GENBANK_SANITIZER}" \
+            "${GENOME_TAXON_MANIFEST}" "${genome_input_root}" \
+            "${RESULTS_ROOT}/reproducibility/accession_cache/${genome_id}.bacteria.json" \
             --input "${bacteria_source}" \
             --output "${ant_input}" \
             --record-map "${bacterial_record_map}" \
@@ -2798,8 +2825,10 @@ process_genome() {
   if [[ -z "${gbk_used}" ]]; then
     if [[ -n "${gb_src}" && -s "${gb_src}" ]]; then
       if gbk_has_cds_and_translation "${gb_src}"; then
-        cp -f "${gb_src}" "${staged_gbk}"
-        normalize_gbk_record_headers_in_place "${staged_gbk}" || true
+        if ! prepare_original_fungal_genbank "${gb_src}" "${staged_gbk}" "${genome_id}" "${genome_input_root}"; then
+          cp -f "${gb_src}" "${staged_gbk}"
+          normalize_gbk_record_headers_in_place "${staged_gbk}" || true
+        fi
         gbk_used="${staged_gbk}"
         gbk_status="original_ok"
         prediction_method="existing_cds"
@@ -2956,7 +2985,8 @@ process_genome() {
     antismash_record_count="${#antismash_record_ids[@]}"
     antismash_shard_root="${per_tmp}/antismash_shards"
     antismash_run_mode="legacy"
-    if [[ "${ANTISMASH_RECORD_PARALLELISM}" -gt 1 && "${antismash_record_count}" -gt 1 && "${antismash_record_ids_stable}" -eq 1 ]]; then
+    # One slot runs the same record shards sequentially; only scheduling changes.
+    if [[ "${antismash_record_count}" -gt 1 && "${antismash_record_ids_stable}" -eq 1 ]]; then
       antismash_run_mode="sharded"
     fi
 
@@ -3056,6 +3086,95 @@ process_genome() {
   return 0
 
 }
+
+# Freeze dependency content once per annotation stage. File stamps below are
+# mutation guards; they are never used as cache identity.
+ACCESSION_CONTEXT="${WORK_ROOT}/tmp/accession-cache-context.json"
+rm -f "${ACCESSION_CONTEXT}"
+if [[ -n "${CLUSTERWEAVE_ACCESSION_CACHE_ROOT:-}" && "${ENGINE}" == "docker" \
+    && "${FORCE}" != "1" && "${CLUSTERWEAVE_ACCESSION_CACHE_FORCE_MISS:-0}" != "1" ]]; then
+  cache_settings=()
+  for setting in ENGINE VENV_PY CPUS THREADS WORKERS ANNO_CPUS GENOME_PARALLELISM \
+      ANTISMASH_RECORD_PARALLELISM ANTISMASH_SHARD_CPUS ANTISMASH_LEGACY_CPUS \
+      ANTISMASH_RETAIN_SHARD_WORK ANTISMASH_MIN_RECORD_BP ANTISMASH_MAX_RECORD_BP \
+      ANNOTATION_FALLBACK_ORDER BRAKER3_ENABLED BRAKER_SPECIES_PREFIX \
+      FUNANNOTATE_ORGANISM_NAME FUNANNOTATE_BUSCO_DB FUNANNOTATE_BUSCO_SEED_SPECIES \
+      FUNANNOTATE_BUSCO_DB_DEFAULT FUNANNOTATE_BUSCO_DB_FUNGI FUNANNOTATE_BUSCO_DB_DIKARYA \
+      FUNANNOTATE_BUSCO_DB_MUCOROMYCOTA FUNANNOTATE_BUSCO_DB_MUCORALES \
+      FUNANNOTATE_BUSCO_DB_MICROSPORIDIA FUNANNOTATE_BUSCO_DB_ASCOMYCOTA \
+      FUNANNOTATE_BUSCO_DB_BASIDIOMYCOTA FUNANNOTATE_BUSCO_DB_NO_TAXONOMY \
+      FUNANNOTATE_RETRY_WITHOUT_PROTEIN_EVIDENCE FUNANNOTATE_MIN_TRAINING_MODELS_FALLBACK \
+      FUNANNOTATE_DB BRAKER_BAM BRAKER_PROT_SEQ CLUSTERWEAVE_TOOL_DOCKER_CPUS \
+      CLUSTERWEAVE_TOOL_DOCKER_MEMORY CLUSTERWEAVE_TOOL_DOCKER_PIDS_LIMIT \
+      CLUSTERWEAVE_NUMERIC_LIBRARY_THREADS OMP_NUM_THREADS OPENBLAS_NUM_THREADS \
+      MKL_NUM_THREADS NUMEXPR_NUM_THREADS VECLIB_MAXIMUM_THREADS BLIS_NUM_THREADS \
+      LANG LC_ALL TZ PYTHONHASHSEED SOURCE_DATE_EPOCH ANTISMASH_DB_DIR HAS_FUNGAL_ROUTES \
+      FUNGAL_ANNOTATION_FALLBACK_NEEDED FUNBGCEX_RUNTIME FUNBGCEX_DOCKER_IMAGE \
+      FUNANNOTATE_IMAGE_URI ANTISMASH_DOCKER_IMAGE; do
+    cache_settings+=(--setting "${setting}" "${!setting-}")
+  done
+  # Custom execution helpers remain eligible for ordinary computation only.
+  if [[ "${ANNOTATION_GENBANK_HELPER}" == "${SCRIPT_DIR}/bin/annotation_genbank.py" \
+      && "${BACTERIAL_GENBANK_SANITIZER}" == "${SCRIPT_DIR}/bin/sanitize_bacterial_genbank.py" \
+      && "${ANNOTATION_RUNTIME_HELPER}" == "${SCRIPT_DIR}/bin/annotation_runtime.py" \
+      && "${ANNOTATION_INPUT_HELPER}" == "${SCRIPT_DIR}/bin/annotation_input.py" \
+      && "${ANTISMASH_SHARD_COMPACTOR}" == "${SCRIPT_DIR}/bin/compact_antismash_shard.py" \
+      && "${ANTISMASH_WEB_RESULTS_PREPARER}" == "${SCRIPT_DIR}/bin/prepare_antismash_web_results.py" \
+      && "${ANTISMASH_INPUT_PREPARER}" == "${SCRIPT_DIR}/bin/prepare_antismash_input.py" ]] \
+      && [[ "${CONVERT_PY}" == "${SCRIPT_DIR}/bin/gff3_to_gbk_with_translations.py" ]] \
+      && "$(resolve_python_cmd)" "${SCRIPT_DIR}/bin/cached_accession.py" context \
+          --output "${ACCESSION_CONTEXT}" "${cache_settings[@]}"; then
+    # Execute sibling tools by the exact immutable IDs recorded in the context.
+    while IFS=$'\t' read -r tool digest; do
+      case "${tool}" in
+        funbgcex) FUNBGCEX_DOCKER_IMAGE="sha256:${digest}" ;;
+        funannotate) FUNANNOTATE_IMAGE_URI="docker://sha256:${digest}" ;;
+        antismash) ANTISMASH_DOCKER_IMAGE="sha256:${digest}" ;;
+      esac
+    done < <("$(resolve_python_cmd)" -c 'import json,sys; print("\n".join(k+"\t"+v for k,v in json.load(open(sys.argv[1]))["images"].items()))' "${ACCESSION_CONTEXT}")
+  fi
+fi
+
+process_genome() (
+  # A subshell owns this key's claim through computation and atomic population.
+  local genome_id="$1" row_file="$3" cache_claim="" cache_fd cache_rc=0
+  local taxon="$(route_taxon_for_genome "$1")"
+  local input_root="$(route_root_for_genome "$1")"
+  local state="${WORK_ROOT}/tmp/${genome_id}.accession-cache-state.json"
+  local provenance="${RESULTS_ROOT}/reproducibility/accession_cache/${genome_id}.detection.json"
+  local -a adapter=("$(resolve_python_cmd)" "${SCRIPT_DIR}/bin/cached_accession.py")
+  local -a args=(--genome-id "${genome_id}" --taxon "${taxon}" \
+    --route-manifest "${GENOME_TAXON_MANIFEST}" --acquired-root "${input_root}" \
+    --mapping "$(mapping_file_for_taxon "${taxon}")" --results "${RESULTS_ROOT}" \
+    --work "${WORK_ROOT}" --row "${row_file}" --provenance "${provenance}" \
+    --context "${ACCESSION_CONTEXT}" --state "${state}")
+  if [[ -n "${CLUSTERWEAVE_ACCESSION_CACHE_ROOT:-}" ]]; then
+    cache_claim="$(FORCE="${FORCE}" "${adapter[@]}" prepare "${args[@]}")" || cache_claim=""
+  fi
+  if [[ -n "${cache_claim}" ]]; then
+    if ! have flock; then cache_claim=""; fi
+  fi
+  if [[ -n "${cache_claim}" ]]; then
+    exec {cache_fd}<>"${cache_claim}"
+    local attempts=0
+    until flock -x -w 1 "${cache_fd}"; do
+      [[ -z "${CLUSTERWEAVE_CANCEL_FILE:-}" || ! -e "${CLUSTERWEAVE_CANCEL_FILE}" ]] || return 1
+      attempts=$((attempts + 1))
+      if [[ "${attempts}" -ge 3600 ]]; then cache_claim=""; break; fi
+    done
+    if [[ -n "${cache_claim}" ]] && FORCE="${FORCE}" "${adapter[@]}" restore "${args[@]}"; then
+      log "ACCESSION_CACHE genome=${genome_id} stage=annotation_detection outcome=hit"
+      genome_stage_progress "${genome_id}" "annotation" 100 "Reused verified annotation and BGC detection"
+      return 0
+    fi
+  fi
+  compute_genome "$@"
+  cache_rc=$?
+  if [[ "${cache_rc}" -eq 0 && -n "${cache_claim}" ]]; then
+    FORCE="${FORCE}" "${adapter[@]}" publish "${args[@]}" || true
+  fi
+  return "${cache_rc}"
+)
 
 idx=0
 genome_job_failure=0

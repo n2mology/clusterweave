@@ -181,14 +181,14 @@ class PublicResultManifestTests(unittest.TestCase):
             archive_path = job_root / "downloads" / "demo_public_results.zip"
             names = self.archive_names(archive_path)
             portable_paths = {
-                path.removeprefix("data/results/demo/") for path in manifest_paths
+                path.removeprefix("data/results/demo/").replace("input_gbks/genome_a.gbk", "input_gbks/fungi/genome_a.gbk") for path in manifest_paths
             }
             self.assertEqual(names, portable_paths | {"downloads/public_results_manifest.tsv"})
             self.assertIn("figures/bgc_overlap.svg", names)
             self.assertIn("summary/family_atlas_shortlist.tsv", names)
             self.assertIn("antismash/genome_a/index.html", names)
             self.assertIn("antismash/genome_a/contig.region001.gbk", names)
-            self.assertIn("input_gbks/genome_a.gbk", names)
+            self.assertIn("input_gbks/fungi/genome_a.gbk", names)
             self.assertIn(
                 "funbgcex/genome_a/results/genome_a.funbgcex_results/BGCs/BGC1.gbk",
                 names,
@@ -212,7 +212,7 @@ class PublicResultManifestTests(unittest.TestCase):
             evidence_lines = evidence_text.splitlines()
             self.assertEqual(
                 evidence_lines[0],
-                "path\trole\tgenome_id\ttaxon_group\tsource_accession\tbytes\tsha256",
+                "path\trole\tgenome_id\ttaxon_group\tsource_accession\tbytes\tsha256\tpackage_path",
             )
             evidence_rows = [line.split("\t") for line in evidence_lines[1:]]
             self.assertEqual(
@@ -271,6 +271,7 @@ class PublicResultManifestTests(unittest.TestCase):
             _collect_result_files(job, job_root, layout)
 
             expected_outputs = {
+                *(f"data/results/partial/{name}" for name in ("METHODS.md", "run_metadata.json", "resources.tsv", "CITATIONS.bib", "CITATION.cff")),
                 "data/results/partial/antismash/genome_a/index.html",
                 "data/results/partial/antismash/genome_a/style.css",
                 "data/results/partial/antismash/genome_a/region001.gbk",
@@ -398,15 +399,11 @@ class PublicResultManifestTests(unittest.TestCase):
                 downloads_root=job_root / "downloads",
             )
 
-            _collect_result_files(job, job_root, layout)
-
-            leak_path = "data/results/demo/figures/leak.svg"
-            self.assertNotIn(leak_path, job.result_files)
-            self.assertNotIn(leak_path, self.manifest_paths(job_root))
-            self.assertNotIn(
-                leak_path,
-                self.archive_names(job_root / "downloads" / "demo_public_results.zip"),
-            )
+            with self.assertRaisesRegex(ValueError, "Unsafe researcher report destination"):
+                _collect_result_files(job, job_root, layout)
+            self.assertEqual(private_figure.read_text(), "<svg>private</svg>\n")
+            self.assertEqual(list(private_root.iterdir()), [private_figure.parent])
+            self.assertFalse((job_root / "downloads/demo_public_results.zip").exists())
 
     def test_collector_preserves_previous_result_index_if_refresh_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

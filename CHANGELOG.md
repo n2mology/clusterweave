@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.0.5 - 2026-11-04
+
+- Add an optional, bounded accession-result cache for versioned public NCBI
+  snapshots, genome preparation, annotation and BGC detection. Exact scientific
+  identities, payload checksums and biological validation govern reuse;
+  BiG-SCAPE and downstream comparisons remain specific to each job.
+- Add an operator availability catalog and job-scoped cache provenance, with
+  validated cache progress labels in the web interface and CLI tree.
+- Include methods, recorded tool versions and runtime identities, citations,
+  input checksums and scoped resource measurements in new result packages.
+  Group exported genome GenBank files by taxon; preserve existing signed ZIPs.
+- Enable automatic browser pairing and retained-job discovery for fresh trusted
+  loopback installations. Keep fresh local jobs until manually deleted; preserve
+  hosted authorization, configured expiry and existing local configuration.
+- Serialize queue admission for concurrent submissions and reruns. Retry bounded
+  transient NCBI validation failures without replacing requested accessions.
+- Correct failed-annotation version reporting and make genome exclusions clear
+  in methods, CLI logs and the web results notice. A completed job can contain
+  fewer analyzed genomes than submitted.
+- Preserve late-opened QA stage context, log reading position and the results
+  timer cadence. Consolidate known clinker annotation warnings while retaining
+  coordinate handling, unrelated warnings and unsuccessful exit statuses.
+
+Fungal annotation can still fail when suitable training models are unavailable.
+Excluded genomes have no BGC detection result; exclusion does not show BGC
+absence.
+
 ## 1.0.4 - 2026-10-29
 
 Patch release:

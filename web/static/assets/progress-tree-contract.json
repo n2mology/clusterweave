@@ -54,9 +54,90 @@
   ],
   "records": [
     {
+      "kind": "genome_excluded",
+      "pattern": "^GENOME_EXCLUDED\\s+genome=([A-Za-z0-9_.-]+)\\s+reason=([A-Za-z0-9_+-]+)\\s+message=\"([^\"]*)\"\\s*$",
+      "fields": ["genome", "reason", "display_message"],
+      "workflow_stage": "annotation",
+      "node_level": "genome",
+      "state": "failed"
+    },
+    {
+      "kind": "exclusion_summary",
+      "pattern": "^GENOME_EXCLUSION_SUMMARY\\s+excluded=([0-9]+)\\s+total=([0-9]+)\\s+message=\"([^\"]*)\"\\s*$",
+      "fields": ["excluded", "total", "display_message"],
+      "workflow_stage": "annotation",
+      "node_level": "activity",
+      "state": "warning_terminal",
+      "permanent": true
+    },
+    {
+      "kind": "cache_hit",
+      "pattern": "^ACCESSION_CACHE\\s+genome=(\\S+)\\s+stage=annotation_detection\\s+outcome=hit\\s*$",
+      "fields": [
+        "genome"
+      ],
+      "workflow_stage": "annotation",
+      "node_level": "genome",
+      "state": "complete",
+      "percentage": 100,
+      "progress_status": "cached"
+    },
+    {
+      "kind": "input_cache_hit",
+      "pattern": "^ACCESSION_CACHE\\s+genome=(\\S+)\\s+stage=retrieval\\s+outcome=hit\\s*$",
+      "fields": [
+        "genome"
+      ],
+      "workflow_stage": "prep",
+      "node_level": "genome",
+      "state": "complete",
+      "percentage": 8,
+      "progress_status": "genome_ready"
+    },
+    {
+      "kind": "download",
+      "pattern": "^NCBI_DOWNLOAD_PROGRESS\\s+accession=(\\S+)\\s+taxon=(\\S+)\\s+status=(complete)\\s+percent=(\\d+)\\s+message=\"(NCBI genome download complete)\"\\s*$",
+      "fields": [
+        "genome",
+        "taxon",
+        "record_state",
+        "percentage",
+        "display_message"
+      ],
+      "workflow_stage": "prep",
+      "node_level": "tool",
+      "tool": "NCBI Datasets",
+      "state_field": "record_state",
+      "progress_status": "genome_downloaded",
+      "preserve_progress_status": false
+    },
+    {
+      "kind": "download",
+      "pattern": "^NCBI_DOWNLOAD_PROGRESS\\s+accession=(\\S+)\\s+taxon=(\\S+)\\s+status=(complete)\\s+percent=(\\d+)\\s+message=\"(.*)\"\\s*$",
+      "fields": [
+        "genome",
+        "taxon",
+        "record_state",
+        "percentage",
+        "display_message"
+      ],
+      "workflow_stage": "prep",
+      "node_level": "tool",
+      "tool": "NCBI Datasets",
+      "state_field": "record_state",
+      "progress_status": "genome_ready",
+      "preserve_progress_status": true
+    },
+    {
       "kind": "download",
       "pattern": "^NCBI_DOWNLOAD_PROGRESS\\s+accession=(\\S+)\\s+taxon=(\\S+)\\s+status=(\\S+)\\s+percent=(\\d+)\\s+message=\"(.*)\"\\s*$",
-      "fields": ["genome", "taxon", "record_state", "percentage", "display_message"],
+      "fields": [
+        "genome",
+        "taxon",
+        "record_state",
+        "percentage",
+        "display_message"
+      ],
       "workflow_stage": "prep",
       "node_level": "tool",
       "tool": "NCBI Datasets",
@@ -66,7 +147,13 @@
     {
       "kind": "taxon_route",
       "pattern": "^TAXON_ROUTE\\s+genome=(\\S+)\\s+taxon=(\\S+)(?:\\s+source=(\\S+))?(?:\\s+status=(\\S+))?(?:\\s+message=\"(.*)\")?\\s*$",
-      "fields": ["genome", "taxon", "source", "record_state", "display_message"],
+      "fields": [
+        "genome",
+        "taxon",
+        "source",
+        "record_state",
+        "display_message"
+      ],
       "workflow_stage": "annotation",
       "node_level": "genome",
       "state": "running"
@@ -74,7 +161,12 @@
     {
       "kind": "annotation_decision",
       "pattern": "^GENOME_ANNOTATION_DECISION\\s+genome=(\\S+)\\s+required=(yes|no)\\s+method=(\\S+)\\s+message=\"(.*)\"\\s*$",
-      "fields": ["genome", "required", "tool", "display_message"],
+      "fields": [
+        "genome",
+        "required",
+        "tool",
+        "display_message"
+      ],
       "workflow_stage": "annotation",
       "node_level": "tool",
       "state": "running"
@@ -82,16 +174,36 @@
     {
       "kind": "antismash_record",
       "pattern": "^ANTISMASH_RECORD_PROGRESS\\s+genome=(\\S+)\\s+record=(\\S+)\\s+ordinal=(\\d+)/(\\d+)\\s+percent=(\\d+)\\s+bar=\\[[^\\]]*\\]\\s+message=\"(.*)\"\\s*$",
-      "fields": ["genome", "record", "ordinal", "total", "percentage", "display_message"],
+      "fields": [
+        "genome",
+        "record",
+        "ordinal",
+        "total",
+        "percentage",
+        "display_message"
+      ],
       "workflow_stage": "annotation",
       "node_level": "tool",
       "tool": "antiSMASH",
-      "state": "running"
+      "state": "running",
+      "progress_status_by_tool": {
+        "funannotate": "annotating",
+        "prodigal": "annotating",
+        "braker3": "annotating",
+        "annotation": "annotating",
+        "antismash": "detecting",
+        "funbgcex": "detecting"
+      }
     },
     {
       "kind": "genome_progress",
       "pattern": "^GENOME_PROGRESS\\s+genome=(\\S+)\\s+stage=(\\S+)\\s+percent=(\\d+)\\s+bar=\\[[^\\]]*\\]\\s+message=\"(.*)\"\\s*$",
-      "fields": ["genome", "record_stage", "percentage", "display_message"],
+      "fields": [
+        "genome",
+        "record_stage",
+        "percentage",
+        "display_message"
+      ],
       "workflow_stage": "annotation",
       "node_level": "genome",
       "tool_from_field": "record_stage",
@@ -101,24 +213,58 @@
         "antismash": "antiSMASH",
         "funbgcex": "FunBGCeX"
       },
-      "terminal_on_percent": true
+      "terminal_on_percent": true,
+      "progress_status_by_tool": {
+        "funannotate": "annotating",
+        "prodigal": "annotating",
+        "braker3": "annotating",
+        "annotation": "annotating",
+        "antismash": "detecting",
+        "funbgcex": "detecting"
+      }
     },
     {
       "kind": "tool_progress",
       "pattern": "^TOOL_PROGRESS\\s+genome=(\\S+)\\s+tool=(\\S+)\\s+phase=(\\S+)\\s+message=\"(.*)\"\\s*$",
-      "fields": ["genome", "tool", "phase", "display_message"],
+      "fields": [
+        "genome",
+        "tool",
+        "phase",
+        "display_message"
+      ],
       "workflow_stage": "annotation",
       "node_level": "tool",
-      "state": "running"
+      "state": "running",
+      "progress_status_by_tool": {
+        "funannotate": "annotating",
+        "prodigal": "annotating",
+        "braker3": "annotating",
+        "annotation": "annotating",
+        "antismash": "detecting",
+        "funbgcex": "detecting"
+      }
     },
     {
       "kind": "tool_heartbeat",
       "pattern": "^TOOL_HEARTBEAT\\s+genome=(\\S+)\\s+tool=(\\S+)\\s+phase=(\\S+)\\s+elapsed=(\\d+)s\\s*$",
-      "fields": ["genome", "tool", "phase", "elapsed_activity"],
+      "fields": [
+        "genome",
+        "tool",
+        "phase",
+        "elapsed_activity"
+      ],
       "workflow_stage": "annotation",
       "node_level": "tool",
       "state": "running",
-      "heartbeat": true
+      "heartbeat": true,
+      "progress_status_by_tool": {
+        "funannotate": "annotating",
+        "prodigal": "annotating",
+        "braker3": "annotating",
+        "annotation": "annotating",
+        "antismash": "detecting",
+        "funbgcex": "detecting"
+      }
     }
   ],
   "stage_markers": [
@@ -228,7 +374,11 @@
     {
       "kind": "genome_started",
       "pattern": "^\\[(\\d+)/(\\d+)\\]\\s+genome=(\\S+)",
-      "fields": ["ordinal", "total", "genome"],
+      "fields": [
+        "ordinal",
+        "total",
+        "genome"
+      ],
       "workflow_stage": "annotation",
       "node_level": "genome",
       "state": "running",
@@ -237,7 +387,10 @@
     {
       "kind": "tool_started",
       "pattern": "^(\\S+):\\s+running\\s+(antiSMASH|FunBGCeX)\\b",
-      "fields": ["genome", "tool"],
+      "fields": [
+        "genome",
+        "tool"
+      ],
       "workflow_stage": "annotation",
       "node_level": "tool",
       "state": "running",
@@ -246,7 +399,10 @@
     {
       "kind": "tool_finished",
       "pattern": "^(\\S+):\\s+(antiSMASH|FunBGCeX)\\s+(?:OK|complete|finished)\\b",
-      "fields": ["genome", "tool"],
+      "fields": [
+        "genome",
+        "tool"
+      ],
       "workflow_stage": "annotation",
       "node_level": "tool",
       "state": "complete",
@@ -418,5 +574,31 @@
       "pattern": "\\b(?:WARN|WARNING)\\b",
       "permanent": true
     }
-  ]
+  ],
+  "progress_statuses": {
+    "cached": {
+      "label": "CACHED",
+      "detail": "Annotation and detection restored from validated cache."
+    },
+    "genome_downloaded": {
+      "label": "GENOME DOWNLOADED",
+      "detail": "Fresh genome retrieval completed; annotation and detection are pending."
+    },
+    "genome_ready": {
+      "label": "GENOME READY",
+      "detail": "Genome input is ready for annotation and detection."
+    },
+    "annotating": {
+      "label": "ANNOTATING",
+      "detail": "Preparing gene annotations."
+    },
+    "detecting": {
+      "label": "DETECTING",
+      "detail": "BGC detection is running."
+    },
+    "complete": {
+      "label": "COMPLETE",
+      "detail": "Genome annotation and detection completed."
+    }
+  }
 }

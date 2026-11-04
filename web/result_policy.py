@@ -369,6 +369,8 @@ def is_public_analysis_relative_path(rel_path: str) -> bool:
     normalized = normalized_job_result_path(rel_path)
     if not normalized:
         return False
+    if normalized in {"METHODS.md", "run_metadata.json", "resources.tsv", "CITATIONS.bib", "CITATION.cff"}:
+        return True
     if result_is_public_evidence(normalized):
         return True
     if result_path_forbidden(normalized):

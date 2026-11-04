@@ -46,6 +46,8 @@ services:
       # Public-service access model. These are host-env pass-throughs so
       # deployment secrets and launch policy stay outside source.
       CLUSTERWEAVE_PUBLIC_MODE: "${CLUSTERWEAVE_PUBLIC_MODE:-1}"
+      CLUSTERWEAVE_ACCESS_PROFILE: "${CLUSTERWEAVE_ACCESS_PROFILE:-hosted}"
+      CLUSTERWEAVE_BIND_ADDRESS: "${CLUSTERWEAVE_BIND_ADDRESS:-127.0.0.1}"
       CLUSTERWEAVE_SUBMISSIONS_OPEN: "${CLUSTERWEAVE_SUBMISSIONS_OPEN:-1}"
       CLUSTERWEAVE_SUBMIT_TOKEN: "${CLUSTERWEAVE_SUBMIT_TOKEN:-}"
       CLUSTERWEAVE_ADMIN_TOKEN: "${CLUSTERWEAVE_ADMIN_TOKEN:-}"
@@ -90,7 +92,7 @@ services:
     tmpfs:
       - /tmp:size=4g
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      test: ["CMD", "python3", "/app/healthcheck.py"]
       interval: 30s
       timeout: 10s
       retries: 5

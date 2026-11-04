@@ -7,12 +7,36 @@ queue metadata, one worker/admission layer claims a job, and
 Python helpers transform or render declared outputs. The shipped runtime does
 not contain a second scientific implementation.
 
-Project-hosted access is coming soon. ClusterWeave v1.0.4 is currently
+Project-hosted access is coming soon. ClusterWeave v1.0.5 is currently
 available only for local use through the trusted single-user profile.
 
 ## Shipped execution profiles
 
 ### Trusted single-user local profile
+
+Fresh local initialization selects `CLUSTERWEAVE_ACCESS_PROFILE=local-owner`.
+The host publication must remain loopback-only and the configured public base
+URL must name that loopback origin. The server validates the profile at startup
+and checks Host/Origin on requests. A same-origin browser automatically pairs
+using an opaque HttpOnly/SameSite=Strict cookie with a 30-day lifetime; HTTPS
+adds Secure. Session records are private, bounded and stored in the job-data
+volume. State-changing cookie-authenticated requests also require a session-bound
+CSRF token. Administrator secrets are not copied into browser storage.
+
+The local **Existing results** list shows retained jobs without per-job code
+entry. **Forget browser access** revokes the current session. A later visit to
+this explicitly trusted local service can pair again. Rotating the instance
+job-token secret invalidates local sessions and also affects existing job read
+credentials; keep backups of the protected configuration. Changing to `hosted`
+disables local elevation immediately. Hosted is the generic Compose default,
+with the existing token and object-level authorization model. This profile does
+not add hosted accounts or tenant management and must not be publicly proxied.
+
+Fresh local setups keep jobs until manually deleted. The initializer sets
+`CLUSTERWEAVE_JOB_RETENTION_DAYS=never` and
+`CLUSTERWEAVE_ALLOW_NEVER_EXPIRE_JOBS=1`. Existing configurations and recorded job
+deadlines are preserved. Hosted installations use an explicit retention period
+(30 days by default). Cache storage limits apply independently.
 
 `docker-compose.yml` uses `CLUSTERWEAVE_RUNTIME_MODE=lab-docker` and
 `ENGINE=docker`. Its worker contains the pinned Docker 29.6.1 CLI, mounts the
@@ -227,8 +251,9 @@ An investigator may need the underlying sequence records after reviewing the
 interactive summaries. Therefore, the authenticated full package retains the
 following sequence-bearing files:
 
-- `input_gbks/<genome>.gbk` is the staged genome used by the downstream
-  analysis. For a bacterial genome, this is the retained feature-free GenBank
+- `input_gbks/<taxon>/<genome>.gbk` is the exported staged genome used by
+  downstream analysis. `<taxon>` is `bacteria`, `fungi` or `unclassified`;
+  internal runtime paths remain flat. For a bacterial genome, this is the retained feature-free GenBank
   file prepared for antiSMASH and Prodigal.
 - `antismash/<genome>/*region<number>.gbk` contains the final antiSMASH region
   records.
@@ -291,7 +316,7 @@ link according to the sensitivity of the submitted genomes.
   not replace an operator capacity review.
 - `CLUSTERWEAVE_MAX_CPUS_PER_JOB` clamps all CPU-related request fields; in the
   initialized local profile its value is 4.
-- Terminal jobs receive a retention deadline (30 days by default). Optional
+- Hosted terminal jobs receive a retention deadline (30 days by default). Optional
   completion email is enabled only through the SMTP settings and sends a private
   fragment result link. Externally served links require a reviewed HTTPS base URL.
 - `python3 web/maintenance.py sweep-expired-jobs` removes expired terminal job

@@ -12,7 +12,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 WEB_DIR = REPO_ROOT / "web"
-REAL_SERVER_PORTS = {"4174", "4175", "4176"}
+REAL_SERVER_PORTS = {"4174", "4175", "4176", "4177"}
 
 
 def _interrupt_server(_signum: int, _frame: object) -> None:
@@ -206,7 +206,7 @@ def main() -> None:
     if port not in REAL_SERVER_PORTS:
         raise RuntimeError("Real-server test port is outside the expected allowlist")
     fixture = os.environ.get("CLUSTERWEAVE_REAL_SERVER_FIXTURE", "")
-    if fixture not in {"", "lifecycle", "admin"}:
+    if fixture not in {"", "lifecycle", "admin", "local"}:
         raise RuntimeError("Unknown real-server test fixture")
     os.environ.update(
         {
@@ -231,12 +231,23 @@ def main() -> None:
     )
     if fixture == "admin":
         os.environ["CLUSTERWEAVE_ADMIN_TOKEN"] = "r01f-admin-browser-token"
+    os.environ["CLUSTERWEAVE_ACCESS_PROFILE"] = "local-owner" if fixture == "local" else "hosted"
+    if fixture == "local":
+        os.environ["CLUSTERWEAVE_PUBLIC_BASE_URL"] = f"http://127.0.0.1:{port}/"
+        os.environ["CLUSTERWEAVE_BIND_ADDRESS"] = "127.0.0.1"
+        os.environ["CLUSTERWEAVE_JOB_TOKEN_SECRET"] = "synthetic-local-instance-secret-for-browser-tests"
     sys.path.insert(0, str(WEB_DIR))
 
     import app
 
-    if fixture == "lifecycle":
+    if fixture in {"lifecycle", "local"}:
         _seed_lifecycle_fixture(app)
+        if fixture == "local":
+            from datetime import datetime
+            worker = data_dir / "worker"
+            worker.mkdir(exist_ok=True)
+            (worker / "status.json").write_text(json.dumps({"ready": True, "state": "idle", "phase": "ready",
+                "progress": 100, "updated_at": datetime.now().isoformat(), "runtime": {}, "worker": {}, "capabilities": {}}))
     elif fixture == "admin":
         _seed_admin_fixture()
     signal.signal(signal.SIGINT, _interrupt_server)

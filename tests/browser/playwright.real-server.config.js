@@ -9,7 +9,8 @@ const statePrefix = path.join(os.tmpdir(), 'clusterweave-playwright-real-server-
 const emptyStateDir = fs.mkdtempSync(statePrefix);
 const lifecycleStateDir = fs.mkdtempSync(statePrefix);
 const adminStateDir = fs.mkdtempSync(statePrefix);
-const stateDirs = [emptyStateDir, lifecycleStateDir, adminStateDir];
+const localStateDir = fs.mkdtempSync(statePrefix);
+const stateDirs = [emptyStateDir, lifecycleStateDir, adminStateDir, localStateDir];
 
 process.once('exit', () => {
   for (const stateDir of stateDirs) {
@@ -37,7 +38,7 @@ function realServer(stateDir, port, fixture = '') {
 
 module.exports = defineConfig({
   testDir: path.join(__dirname, 'real-server'),
-  testMatch: ['idle_public.spec.js', 'job_lifecycle.spec.js', 'admin_access.spec.js'],
+  testMatch: ['idle_public.spec.js', 'job_lifecycle.spec.js', 'admin_access.spec.js', 'local_owner.spec.js'],
   timeout: 30_000,
   retries: 0,
   workers: 1,
@@ -50,5 +51,6 @@ module.exports = defineConfig({
     realServer(emptyStateDir, 4174),
     realServer(lifecycleStateDir, 4175, 'lifecycle'),
     realServer(adminStateDir, 4176, 'admin'),
+    realServer(localStateDir, 4177, 'local'),
   ],
 });

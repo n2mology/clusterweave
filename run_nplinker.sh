@@ -601,6 +601,25 @@ log "Using prepared NPLinker environment: ${VENV_DIR}"
 # Run + export table
 ###############################################################################
 log "Running NPLinker and exporting ranked links table"
+if [[ -f "${PROJECT_DIR}/web/tool_runtime.py" ]]; then
+  observation_runtime="${SIF_PATH}"
+  observation_tag=""
+  if [[ "${ENGINE}" == "docker" ]]; then
+    observation_tag="${NPLINKER_DOCKER_IMAGE##*:}"
+    selected_image="$(timeout 8 docker image inspect --format '{{.Id}}' "${NPLINKER_DOCKER_IMAGE}" 2>/dev/null || true)"
+    [[ "${selected_image}" != sha256:* ]] || NPLINKER_DOCKER_IMAGE="${selected_image}"
+    observation_runtime="${NPLINKER_DOCKER_IMAGE}"
+  fi
+  if [[ "${ENGINE}" == "docker" ]]; then
+    mapfile -d '' -t observation_run_args < <(docker_run_args)
+    observation_command=(docker run "${observation_run_args[@]}" "${NPLINKER_DOCKER_IMAGE}")
+  else
+    observation_command=("${ENGINE}" exec "${BIND_ARGS[@]}" "${SIF_PATH}")
+  fi
+  observed_version="$(timeout --kill-after=2 10 "${observation_command[@]}" "${VENV_DIR}/bin/python" -c 'from importlib.metadata import version; print(version("nplinker"))' 2>/dev/null | head -c 8192 || true)"
+  observed_image="$(printf '%s' "${observed_version}" | python3 "${PROJECT_DIR}/web/tool_runtime.py" --version-stdin --output "${RESULTS_ROOT}/reproducibility/tool_observations" --tool NPLinker --configured-tag "${observation_tag}" --backend "${ENGINE}" --runtime "${observation_runtime}" --python "${VENV_DIR}/bin/python" || true)"
+  [[ "${ENGINE}" != "docker" || "${observed_image}" != sha256:* ]] || NPLINKER_DOCKER_IMAGE="${observed_image}"
+fi
 cexec bash -lc "
 set -euo pipefail
 source '${VENV_DIR}/bin/activate'

@@ -10,6 +10,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 COPY web/app.py /app/app.py
+COPY web/local_owner.py /app/local_owner.py
+COPY web/healthcheck.py /app/healthcheck.py
+COPY web/researcher_report.py web/tool_runtime.py /app/
+COPY CITATION.cff /app/CITATION.cff
+COPY web/accession_catalog.py /app/accession_catalog.py
+COPY web/cache_status.py /app/cache_status.py
 COPY bin/backfill_result_attestations.py /app/backfill_result_attestations.py
 COPY web/bigscape_public_db.py /app/bigscape_public_db.py
 COPY web/genbank_readiness.py /app/genbank_readiness.py

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import multiprocessing
 import os
 from pathlib import Path
 import sys
@@ -13,6 +14,20 @@ from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WEB_DIR = REPO_ROOT / "web"
+
+
+def admit_from_process(data_dir, start, outcomes, index):
+    os.environ["DATA_DIR"] = data_dir
+    sys.path.insert(0, str(WEB_DIR))
+    sys.modules.pop("job_store", None)
+    store = importlib.import_module("job_store")
+    start.wait(timeout=10)
+    with store.queue_admission_lock():
+        pending = sum(job.get("status") == "pending" for job in store.list_jobs())
+        accepted = pending < 2
+        if accepted:
+            store.write_job({"id": f"concurrent-{index}", "status": "pending"})
+    outcomes.put(accepted)
 
 
 class JobStoreAtomicWriteTests(unittest.TestCase):
@@ -39,6 +54,43 @@ class JobStoreAtomicWriteTests(unittest.TestCase):
         else:
             os.environ["DATA_DIR"] = self.old_data_dir
         self.tmp.cleanup()
+
+    def test_queue_admission_serializes_independent_processes(self) -> None:
+        context = multiprocessing.get_context("spawn")
+        start, outcomes = context.Barrier(6), context.Queue()
+        processes = [context.Process(target=admit_from_process,
+                     args=(self.tmp.name, start, outcomes, index)) for index in range(6)]
+        try:
+            for process in processes:
+                process.start()
+            accepted = [outcomes.get(timeout=15) for _ in processes]
+            for process in processes:
+                process.join(timeout=10)
+                self.assertEqual(process.exitcode, 0)
+            self.assertEqual(sum(accepted), 2)
+            self.assertEqual(len(self.job_store.list_jobs()), 2)
+        finally:
+            for process in processes:
+                if process.is_alive():
+                    process.terminate()
+                process.join(timeout=5)
+            outcomes.close()
+
+    def test_queue_admission_releases_after_exception_and_rejects_links(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "interrupted"):
+            with self.job_store.queue_admission_lock():
+                raise RuntimeError("interrupted")
+        with self.job_store.queue_admission_lock():
+            pass
+        lock = self.job_store.QUEUE_DIR / ".admission.lock"
+        lock.unlink()
+        target = Path(self.tmp.name) / "unrelated"
+        target.write_text("unchanged")
+        lock.symlink_to(target)
+        with self.assertRaises(OSError):
+            with self.job_store.queue_admission_lock():
+                self.fail("Linked admission lock was accepted")
+        self.assertEqual(target.read_text(), "unchanged")
 
     def test_write_job_uses_unique_temp_file_for_each_save(self) -> None:
         created = self.job_store.now_iso()
@@ -200,6 +252,24 @@ class JobStoreAtomicWriteTests(unittest.TestCase):
         self.assertEqual((4000, 4500, 5000), (earlier.start, earlier.end, earlier.total))
         self.assertEqual(lines[4000:4500], earlier.lines)
         self.assertEqual(tail.generation, earlier.generation)
+
+    def test_stage_context_survives_marker_free_pages_appends_and_resets(self) -> None:
+        lines = ["[INFO] Stage 1/4: complete", "[INFO] Stage 2/4: running run_bigscape.sh"] + [f"distance {i}" for i in range(5000)]
+        self.job_store.write_logs("contextjob", lines)
+        tail = self.job_store.read_log_window("contextjob", tail=True)
+        self.assertEqual(tail.lines, lines[-500:])
+        self.assertEqual(tail.context, [{"index": 0, "line": lines[0]}, {"index": 1, "line": lines[1]}])
+        earlier = self.job_store.read_log_window("contextjob", before=tail.start)
+        self.assertEqual(earlier.context, tail.context)
+        self.job_store.append_log_lines("contextjob", ["more distances"])
+        appended = self.job_store.read_log_window("contextjob", tail=True)
+        self.assertEqual(appended.context, tail.context); self.assertEqual(appended.generation, tail.generation)
+        self.job_store.write_logs("contextjob", ["[INFO] Stage 1/4: running rerun"] + ["annotation"] * 700)
+        rerun = self.job_store.read_log_window("contextjob", tail=True)
+        self.assertNotEqual(rerun.generation, tail.generation)
+        self.assertEqual(rerun.context, [{"index": 0, "line": "[INFO] Stage 1/4: running rerun"}])
+        self.job_store.write_logs("anotherjob", ["preparing"] * 600)
+        self.assertEqual(self.job_store.read_log_window("anotherjob", tail=True).context, [])
 
     def test_sparse_log_slice_preserves_incremental_admin_cursor_semantics(self) -> None:
         path = self.job_store.job_logs_path("longjob")

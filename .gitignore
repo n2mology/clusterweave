@@ -47,6 +47,8 @@ authorized_keys
 !/data/genomes/
 !/data/genomes/fungi/
 !/data/genomes/fungi/.gitkeep
+!/data/genomes/bacteria/
+!/data/genomes/bacteria/.gitkeep
 !/data/results/
 !/data/results/.gitkeep
 

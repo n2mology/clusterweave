@@ -1,5 +1,57 @@
 # Reproducibility
 
+## Researcher records in result packages
+
+New web result packages include `METHODS.md`, `run_metadata.json`,
+`resources.tsv`, `CITATIONS.bib` and the distribution's `CITATION.cff` when
+available. The methods document lists tools evidenced in the analysis, observed
+versions and software/publication references. Failed current annotation attempts
+retain their recorded versions and outcomes. Its annotation table identifies
+excluded genomes and skipped detection; missing annotation is not evidence of
+BGC absence. The JSON records staged GenBank
+and source-input checksums, the captured source fingerprint, selected effective
+parameters, processing timestamps and accession-cache producer identities.
+The source fingerprint covers processing Python/shell/configuration files;
+cache scientific producer hashes retain their separate contract. A release
+citation alone does not identify modified source.
+
+The package contains no raw environment dump, credentials, host paths or
+producer-job relationships. Cached results retain their original scientific
+producer hashes. A hit does not claim annotation or detection ran again.
+BiG-SCAPE and downstream cohort work remain job-specific.
+
+Detection v3 records the producer's CPU/concurrency allocation separately from
+the current job's allocation. These scheduling values do not change the scientific
+cache key; pinned dependencies, scientific parameters and partition policy do.
+
+`resources.tsv` distinguishes native `wait4` CPU accounting from sampled
+observations. Native CPU includes the stage process and waited descendants;
+it excludes Docker daemon work and sibling tool containers. The native maximum
+RSS is the largest individual-process peak, not the concurrent total. The
+sampler observes the stage process group and containers carrying that job's
+label, at a nominal one-second interval. Container CPU can miss short-lived
+containers and final intervals. Summed RSS can double-count shared pages;
+container memory usage can include filesystem cache. The combined sampled
+memory value is explicitly not an exact physical-memory peak. Container image
+digests are recorded when observed. Missing Docker access is reported as
+unavailable and does not change scientific execution. Operators can disable
+container observations with `CLUSTERWEAVE_RESOURCE_DOCKER_OBSERVATION=0`.
+
+Processing wall time ends before packaging and excludes queue time and ZIP
+compression. A canonical-workflow row combines its internal annotation,
+detection, family analysis and summary tools. Optional follow-up commands have
+separate rows. Resource limits and scheduler reservations remain distinct from
+measured usage. Missing historical measurements are null or blank, never zero.
+Historical tool versions and run releases are not inferred from the currently
+installed distribution. An existing signed ZIP is preserved; an on-demand
+package can add a report containing only available historical evidence.
+
+The ZIP groups staged genomes by taxon under `input_gbks/bacteria/`,
+`input_gbks/fungi/` or `input_gbks/unclassified/`. The internal staged files
+remain at `input_gbks/<genome>.gbk`. The evidence index keeps its runtime-relative
+`path` and adds `package_path`; the package checksum manifest names actual ZIP
+members. Missing or conflicting taxon assignments are not guessed.
+
 `ClusterWeave` is designed as a repo-first workflow, so the main reproducibility anchors are:
 
 - a versioned Git tag or release archive
@@ -42,6 +94,12 @@ The wrapper writes:
 - `data/results/<project-name>/reproducibility/external_artifacts.tsv`
 
 These files capture the stage toggles, target genome, operator-local paths, Git revision information, and checksums for local external artifacts visible to the wrapper at run time. They are private provenance inputs, not automatically public package members.
+
+Staged clinker panels use `--dont_set_origin` only when their GenBank inputs
+prove circular-origin correction is unnecessary. Origin-spanning genes retain
+clinker's correction. Repeated missing-parent-gene messages become one counted
+CDS-coordinate summary per panel; CDS-only annotations are informational.
+Other warnings, errors and unsuccessful exit statuses remain visible.
 
 ## External Artifacts
 
@@ -102,3 +160,5 @@ BIGSCAPE_NETWORK_MAX_NODES=250 bash run_figures.sh
 BIGSCAPE_NETWORK_CANVAS_WIDTH=1200 bash run_figures.sh
 BIGSCAPE_NETWORK_INCLUDE_MIBIG_ONLY=1 bash run_figures.sh
 ```
+
+Executable version observations in `run_metadata.json` come from bounded probes of the selected native, immutable Docker image or SIF runtime. Configured image tags and runtime hashes are recorded separately. Output discovery includes clinker `panel.html` and successful optional-tool manifests; configuration alone does not establish use. New cache producers can retain sanitized version observations with their original execution provenance. A current executable version never fills a missing historical producer version, and existing signed packages remain unchanged.

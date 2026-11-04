@@ -7,7 +7,7 @@ Compose reads `docker-compose.yml` and starts the related containers together.
 You do not need to install the scientific tools one at a time.
 
 Project-hosted access is coming soon. The trusted local Docker profile is the
-only currently available v1.0.4 path. This release has been
+only currently available v1.0.5 path. This release has been
 validated on Linux x86_64, and the sections below explain the corresponding
 Docker Desktop setup for WSL2, Intel macOS, and Apple Silicon.
 
@@ -160,7 +160,7 @@ they are maintained differently:
 - A **tagged archive** is a fixed snapshot downloaded from the GitHub Releases
   page. An archive has no Git history and cannot be updated with `git pull`.
 
-ClusterWeave v1.0.4 is the current public release. Use the
+ClusterWeave v1.0.5 is the current public release. Use the
 [ClusterWeave releases page](https://github.com/n2mology/clusterweave/releases)
 when you need its immutable tag or source archive.
 
@@ -174,10 +174,10 @@ git clone https://github.com/n2mology/clusterweave.git
 cd clusterweave
 ```
 
-For a reproducible v1.0.4 checkout, request the tag explicitly:
+For a reproducible v1.0.5 checkout, request the tag explicitly:
 
 ```bash
-git clone --branch v1.0.4 --depth 1 https://github.com/n2mology/clusterweave.git
+git clone --branch v1.0.5 --depth 1 https://github.com/n2mology/clusterweave.git
 cd clusterweave
 ```
 
@@ -200,6 +200,14 @@ ls
 ```
 
 ## Initialize the private local configuration
+
+Fresh setup enables automatic local browser access. After startup, open the
+printed `http://127.0.0.1:8080/` address; **Existing results** lists retained jobs
+without entering result codes. The private browser session survives new tabs
+and browser restarts for up to 30 days. Keep this single-user profile bound to
+loopback. A later local visit renews expired browser access automatically. Fresh
+local jobs remain until you delete them; keep enough disk for retained results.
+Shared hosting uses the separate hosted access profile and configured expiry.
 
 From the repository root, run:
 
@@ -376,8 +384,10 @@ To reopen a run:
    ID**, paste the result access code under **Access code**, apply the code, and
    load the result.
 
-The **RUN STACK** remembers runs only for the current browser context. Saving the
-private result link outside the browser is therefore the reliable return path.
+On a freshly initialized local instance, **Existing results** also lists retained
+jobs automatically. **RUN STACK** remembers runs only in the current browser
+context. Keep the private result link separately for direct access; an existing
+installation retains its configured access and expiry policy.
 
 ## Stop and restart
 
@@ -446,7 +456,7 @@ actually published and reviewed:
 ```bash
 git fetch --tags origin
 git tag --list
-git switch --detach v1.0.4
+git switch --detach v1.0.5
 docker compose build
 docker compose up -d
 ```

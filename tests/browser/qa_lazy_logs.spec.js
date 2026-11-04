@@ -472,7 +472,15 @@ test('running admin job hydrates sanitized genome progress without QA logs', asy
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ lines: [], total: 32, generation: 'running-generation' }),
+      body: JSON.stringify(new URL(route.request().url()).searchParams.has('since') ? {
+        lines: ['distance calculation continues'], total: 1001, generation: 'running-generation',
+      } : {
+        lines: Array.from({ length: 500 }, (_, index) => `distance ${index}`), start: 500, end: 1000,
+        total: 1000, generation: 'running-generation', progress_context: [
+          { index: 1, line: '[INFO] Stage 1/4: complete' },
+          { index: 2, line: '[INFO] Stage 2/4: running run_bigscape.sh' },
+        ],
+      }),
     });
   });
 
@@ -526,6 +534,12 @@ test('running admin job hydrates sanitized genome progress without QA logs', asy
     currentStepId: 'annotation',
     genomeProgressHandoff: false,
   });
+  await page.getByRole('tab', { name: 'QA Console' }).click();
+  const bigscape = page.locator('#log-terminal [data-tree-key="stage:bigscape"]');
+  await expect(bigscape).toHaveAttribute('data-tree-state', 'running');
+  await expect(page.locator('#log-terminal [data-tree-key="stage:annotation"]')).toHaveAttribute('data-tree-state', 'complete');
+  await page.evaluate(() => syncActiveAdminLogs(false));
+  await expect(page.locator('#log-terminal [data-tree-key="activity:bigscape"]')).toContainText('distance calculation continues');
 });
 
 test('late metadata from an earlier admin selection cannot replace the active job', async ({ page }) => {

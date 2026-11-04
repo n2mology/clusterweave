@@ -470,6 +470,15 @@ fi
 
 mkdir -p "${BIGSCAPE_OUT}"
 
+if [[ -f "${PROJECT_DIR}/web/tool_runtime.py" ]]; then
+  if [[ "${ENGINE}" == "docker" ]]; then
+    observed_image="$(python3 "${PROJECT_DIR}/web/tool_runtime.py" --output "${RESULTS_ROOT}/reproducibility/tool_observations" --tool BiG-SCAPE --backend docker --runtime "${BIGSCAPE_DOCKER_IMAGE}" || true)"
+    [[ "${observed_image}" != sha256:* ]] || BIGSCAPE_DOCKER_IMAGE="${observed_image}"
+  else
+    python3 "${PROJECT_DIR}/web/tool_runtime.py" --output "${RESULTS_ROOT}/reproducibility/tool_observations" --tool BiG-SCAPE --backend "${ENGINE}" --runtime "${SIF_PATH}" >/dev/null || true
+  fi
+  python3 "${PROJECT_DIR}/web/tool_runtime.py" --output "${RESULTS_ROOT}/reproducibility/tool_observations" --tool FastTree --executable "${FASTTREE_HOST}" >/dev/null || true
+fi
 log "Running BiG-SCAPE (inside container) with FastTree on PATH"
 set +e
 cexec env "PATH=${LOCAL_BIN}:$PATH" "${RUN_CMD[@]}" 2>&1 | tee -a "${LOGFILE}"

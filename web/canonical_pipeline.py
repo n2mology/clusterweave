@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import csv
 import hashlib
+import json
 import os
 import re
 import secrets
@@ -12,7 +13,8 @@ import signal
 import sys
 import zipfile
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
+import time
 from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional
@@ -23,6 +25,8 @@ from bigscape_public_db import (
 )
 from genbank_readiness import inspect_genbank_translation_stream
 from result_attestation import write_result_attestation
+from researcher_report import CONFIGURATION, REPORT_FILES, build_report, collect_run_versions, input_fingerprints, package_name, probe_annotation_runtimes, source_fingerprint, taxon_metadata
+from resource_usage import controller_image
 from result_policy import (
     PUBLIC_EVIDENCE_MANIFEST_PATH,
     PUBLIC_RESULTS_MANIFEST_PATH,
@@ -266,6 +270,7 @@ class Job:
     on_change: Optional[Callable[[], None]] = field(default=None, repr=False, compare=False)
     _redacting_private_key: bool = field(default=False, repr=False, compare=False)
     _synced_log_count: int = field(default=0, repr=False, compare=False)
+    _researcher: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
     def add_log(self, line: str) -> None:
         ts = datetime.now().strftime("%H:%M:%S")
@@ -487,6 +492,12 @@ async def _stream_cmd(cmd: list[str], cwd: Path, job: Job, env: dict[str, str]) 
     job.add_log(_safe_command_log(cmd))
     proc_env = _child_process_env(env)
     proc = None
+    metrics = None
+    measured_stage = job.stage
+    if job._researcher.get("metrics_dir"):
+        metrics = Path(job._researcher["metrics_dir"]) / (secrets.token_hex(16) + ".json")
+        cmd = [sys.executable, "-B", str(Path(__file__).with_name("stage_runner.py")),
+               "--metrics", str(metrics), "--job", job.id, "--", *cmd]
     try:
         proc = await asyncio.create_subprocess_exec(
             *[str(item) for item in cmd],
@@ -528,6 +539,17 @@ async def _stream_cmd(cmd: list[str], cwd: Path, job: Job, env: dict[str, str]) 
     except FileNotFoundError as exc:
         job.add_log(f"ERROR: command not found: {exc}")
         return 127
+    finally:
+        if metrics is not None:
+            try:
+                if metrics.is_symlink() or metrics.stat().st_size > 65536:
+                    raise ValueError("Invalid stage accounting")
+                record = json.loads(metrics.read_bytes())
+                record["stage"] = measured_stage
+                if record.get("schema") == 1 and len(job._researcher.setdefault("resources", [])) < 64:
+                    job._researcher["resources"].append(record)
+            except (OSError, ValueError, TypeError):
+                job._researcher.setdefault("unmeasured_stages", []).append(measured_stage)
 
 
 def _public_stage_from_stream_line(line: str) -> str | None:
@@ -1495,7 +1517,9 @@ def _parse_raw_env(raw: str) -> dict[str, str]:
         key = key.strip()
         if (
             ENV_KEY_RE.match(key)
+            and key.upper() != "DATA_DIR"
             and key.upper() not in RESOURCE_ENV_KEYS
+            and not key.upper().startswith("CLUSTERWEAVE_ACCESSION_CACHE_")
             and not _sensitive_env_key(key)
         ):
             overrides[key] = value.strip().strip("\"'")
@@ -2003,29 +2027,9 @@ def _evidence_genome_id(rel_path: str, role: str) -> str:
 
 
 def _evidence_taxon_metadata(layout: ProjectLayout) -> dict[str, tuple[str, str]]:
-    manifest = layout.results_root / "summary_tables" / "genome_taxon_manifest.tsv"
-    try:
-        if manifest.is_symlink() or not manifest.is_file():
-            return {}
-        manifest.resolve(strict=True).relative_to(layout.results_root.resolve(strict=True))
-        rows: dict[str, tuple[str, str]] = {}
-        with manifest.open("r", encoding="utf-8-sig", newline="") as handle:
-            for raw in csv.DictReader(handle, delimiter="\t"):
-                genome_id = _safe_manifest_text(raw.get("genome_id"), limit=120)
-                if not genome_id:
-                    continue
-                taxon_group = _safe_manifest_text(
-                    raw.get("taxon_group"), limit=20
-                ).lower()
-                if taxon_group not in {"fungi", "bacteria"}:
-                    taxon_group = ""
-                source_accession = _public_source_accession(
-                    raw.get("source_accession")
-                )
-                rows[genome_id.casefold()] = (taxon_group, source_accession)
-        return rows
-    except (OSError, ValueError, csv.Error):
-        return {}
+    return {label.casefold(): (record["taxon_group"] if record["taxon_group"] in {"bacteria", "fungi"} else "",
+                               record["accession"] or "")
+            for label, record in taxon_metadata(layout.results_root).items()}
 
 
 def _write_evidence_manifest(
@@ -2047,7 +2051,7 @@ def _write_evidence_manifest(
             evidence.append((path, rel, role))
 
     lines = [
-        "path\trole\tgenome_id\ttaxon_group\tsource_accession\tbytes\tsha256"
+        "path\trole\tgenome_id\ttaxon_group\tsource_accession\tbytes\tsha256\tpackage_path"
     ]
     records: dict[Path, tuple[tuple[int, int, int, int, int], str]] = {}
     for path, rel, role in evidence:
@@ -2059,7 +2063,7 @@ def _write_evidence_manifest(
                 "Scientific evidence changed while its evidence manifest was generated"
             )
         records[path] = (after, digest)
-        genome_id = _safe_manifest_text(_evidence_genome_id(rel, role), limit=120)
+        genome_id = _safe_manifest_text(_evidence_genome_id(rel, role), limit=240)
         taxon_group, source_accession = metadata.get(
             genome_id.casefold(), ("", "")
         )
@@ -2073,6 +2077,7 @@ def _write_evidence_manifest(
                     source_accession,
                     str(after[2]),
                     digest,
+                    package_name(rel, {genome_id: {"taxon_group": taxon_group or "unclassified"}}),
                 ]
             )
         )
@@ -2092,12 +2097,13 @@ def _zip_info(name: str) -> zipfile.ZipInfo:
 def _portable_package_manifest(
     public_entries: list[tuple[Path, str]],
     records: Mapping[Path, tuple[tuple[int, int, int, int, int], str]],
+    taxa: Optional[dict] = None,
 ) -> bytes:
     lines = ["path\tbytes\tsha256"]
     for path, rel in public_entries:
         identity, digest = records[path]
         lines.append(
-            f"{public_archive_entry_name(rel)}\t{identity[2]}\t{digest}"
+            f"{package_name(rel, taxa or {})}\t{identity[2]}\t{digest}"
         )
     return ("\n".join(lines) + "\n").encode("utf-8")
 
@@ -2179,99 +2185,126 @@ def _collect_result_files(
     attested_bigscape_databases: Optional[set[Path]] = None,
     before_publish: Optional[Callable[[], None]] = None,
 ) -> None:
+    if any(p.is_symlink() for p in (layout.results_root, *layout.results_root.parents)):
+        raise ValueError("Unsafe researcher report destination")
     downloads_dir = job_dir / "downloads"
     downloads_dir.mkdir(parents=True, exist_ok=True)
 
     if attested_bigscape_databases is None:
         attested_bigscape_databases = _prepare_public_bigscape_results(job, layout)
     token = secrets.token_hex(8)
-    evidence_path = layout.results_root / PUBLIC_EVIDENCE_MANIFEST_PATH
-    evidence_temp = evidence_path.with_name(f".{evidence_path.name}.{token}.tmp")
-    known_records = _write_evidence_manifest(evidence_temp, layout)
-
-    public_entries: list[tuple[Path, str]] = []
-    if layout.results_root.exists():
-        for path in sorted(layout.results_root.rglob("*")):
-            if not _is_public_result_file(path, layout):
-                continue
-            analysis_rel = path.relative_to(layout.results_root).as_posix()
-            if analysis_rel == PUBLIC_EVIDENCE_MANIFEST_PATH:
-                # Keep the previous published index intact until this refresh
-                # and its package have both passed the publication checks.
-                continue
-            if (
-                result_is_public_bigscape_database(analysis_rel)
-                and path.resolve() not in attested_bigscape_databases
-            ):
-                continue
-            public_entries.append((path, path.relative_to(job_dir).as_posix()))
-    public_entries.append(
-        (evidence_temp, evidence_path.relative_to(job_dir).as_posix())
-    )
-    public_entries.sort(key=lambda entry: entry[1])
-
-    manifest_path = downloads_dir / Path(PUBLIC_RESULTS_MANIFEST_PATH).name
-    archive_path = downloads_dir / f"{layout.project_name}_public_results.zip"
-    manifest_temp = downloads_dir / f".{manifest_path.name}.{token}.tmp"
-    archive_temp = downloads_dir / f".{archive_path.name}.{token}.tmp"
+    report_temporaries = []
     try:
-        records = _write_public_manifest(
-            manifest_temp,
-            public_entries,
-            known_records=known_records,
-        )
-        package_manifest = _portable_package_manifest(public_entries, records)
-        with zipfile.ZipFile(
-            archive_temp,
-            "w",
-            compression=zipfile.ZIP_DEFLATED,
-            compresslevel=1,
-            allowZip64=True,
-        ) as archive:
-            archive.writestr(
-                _zip_info(PUBLIC_RESULTS_MANIFEST_PATH),
-                package_manifest,
-            )
-            for path, rel in public_entries:
-                archive.write(path, public_archive_entry_name(rel))
-                if _file_identity(path) != records[path][0]:
-                    raise RuntimeError(
-                        "Public result changed while its archive was generated"
-                    )
-        _fsync_file(archive_temp)
-        if any(
-            _file_identity(path) != identity
-            for path, (identity, _digest) in records.items()
-        ):
-            raise RuntimeError(
-                "Public result changed before its manifest and archive were published"
-            )
-        if before_publish is not None:
-            before_publish()
-        os.replace(archive_temp, archive_path)
-        os.replace(evidence_temp, evidence_path)
-        os.replace(manifest_temp, manifest_path)
-        # The manifest hashes were produced and identity-checked immediately
-        # above. Sign their compact index now; request handlers never need to
-        # rehash the complete result bundle to render a file list.
-        write_result_attestation(
-            job_dir,
-            job.id,
-            verify_hashes=False,
-            viewer_path=job.bigscape_viewer_database,
-            archive_path=archive_path.relative_to(job_dir).as_posix(),
-        )
+        layout.results_root.mkdir(parents=True, exist_ok=True)
+        for name, data in build_report(layout.results_root, state=job._researcher, root=layout.repo_root,
+                                       status="failed" if job.error else "processing_complete").items():
+            target = layout.results_root / name
+            if any(p.is_symlink() for p in (target, *target.parents)):
+                raise ValueError("Unsafe researcher report destination")
+            temporary = target.with_name(f".{name}.{token}.tmp")
+            with temporary.open("xb") as handle:
+                os.chmod(temporary, 0o600)
+                handle.write(data)
+                handle.flush(); os.fsync(handle.fileno())
+            report_temporaries.append((temporary, target))
+        evidence_path = layout.results_root / PUBLIC_EVIDENCE_MANIFEST_PATH
+        evidence_temp = evidence_path.with_name(f".{evidence_path.name}.{token}.tmp")
+        known_records = _write_evidence_manifest(evidence_temp, layout)
 
+        public_entries: list[tuple[Path, str]] = []
+        if layout.results_root.exists():
+            for path in sorted(layout.results_root.rglob("*")):
+                if not _is_public_result_file(path, layout):
+                    continue
+                analysis_rel = path.relative_to(layout.results_root).as_posix()
+                if analysis_rel == PUBLIC_EVIDENCE_MANIFEST_PATH or analysis_rel in REPORT_FILES:
+                    # Keep the previous published index intact until this refresh
+                    # and its package have both passed the publication checks.
+                    continue
+                if (
+                    result_is_public_bigscape_database(analysis_rel)
+                    and path.resolve() not in attested_bigscape_databases
+                ):
+                    continue
+                public_entries.append((path, path.relative_to(job_dir).as_posix()))
+        public_entries.append(
+            (evidence_temp, evidence_path.relative_to(job_dir).as_posix())
+        )
+        public_entries.extend((temporary, target.relative_to(job_dir).as_posix()) for temporary, target in report_temporaries)
+        public_entries.sort(key=lambda entry: entry[1])
+
+        manifest_path = downloads_dir / Path(PUBLIC_RESULTS_MANIFEST_PATH).name
+        archive_path = downloads_dir / f"{layout.project_name}_public_results.zip"
+        manifest_temp = downloads_dir / f".{manifest_path.name}.{token}.tmp"
+        archive_temp = downloads_dir / f".{archive_path.name}.{token}.tmp"
+        try:
+            records = _write_public_manifest(
+                manifest_temp,
+                public_entries,
+                known_records=known_records,
+            )
+            taxa = taxon_metadata(layout.results_root)
+            package_manifest = _portable_package_manifest(public_entries, records, taxa)
+            with zipfile.ZipFile(
+                archive_temp,
+                "w",
+                compression=zipfile.ZIP_DEFLATED,
+                compresslevel=1,
+                allowZip64=True,
+            ) as archive:
+                archive.writestr(
+                    _zip_info(PUBLIC_RESULTS_MANIFEST_PATH),
+                    package_manifest,
+                )
+                for path, rel in public_entries:
+                    archive.write(path, package_name(rel, taxa))
+                    if _file_identity(path) != records[path][0]:
+                        raise RuntimeError(
+                            "Public result changed while its archive was generated"
+                        )
+            _fsync_file(archive_temp)
+            if any(
+                _file_identity(path) != identity
+                for path, (identity, _digest) in records.items()
+            ):
+                raise RuntimeError(
+                    "Public result changed before its manifest and archive were published"
+                )
+            if before_publish is not None:
+                before_publish()
+            os.replace(archive_temp, archive_path)
+            for temporary, target in report_temporaries:
+                os.replace(temporary, target)
+            os.replace(evidence_temp, evidence_path)
+            os.replace(manifest_temp, manifest_path)
+            # The manifest hashes were produced and identity-checked immediately
+            # above. Sign their compact index now; request handlers never need to
+            # rehash the complete result bundle to render a file list.
+            write_result_attestation(
+                job_dir,
+                job.id,
+                verify_hashes=False,
+                viewer_path=job.bigscape_viewer_database,
+                archive_path=archive_path.relative_to(job_dir).as_posix(),
+            )
+
+        finally:
+            manifest_temp.unlink(missing_ok=True)
+            archive_temp.unlink(missing_ok=True)
+            evidence_temp.unlink(missing_ok=True)
+            for temporary, _target in report_temporaries:
+                temporary.unlink(missing_ok=True)
+
+        job.result_files = [
+            archive_path.relative_to(job_dir).as_posix(),
+            manifest_path.relative_to(job_dir).as_posix(),
+        ]
+        job.result_files.extend(rel for _path, rel in public_entries)
     finally:
-        manifest_temp.unlink(missing_ok=True)
-        archive_temp.unlink(missing_ok=True)
-        evidence_temp.unlink(missing_ok=True)
-
-    job.result_files = [
-        archive_path.relative_to(job_dir).as_posix(),
-        manifest_path.relative_to(job_dir).as_posix(),
-    ]
-    job.result_files.extend(rel for _path, rel in public_entries)
+        for temporary, _target in report_temporaries:
+            temporary.unlink(missing_ok=True)
+        evidence = layout.results_root / PUBLIC_EVIDENCE_MANIFEST_PATH
+        evidence.with_name(f".{evidence.name}.{token}.tmp").unlink(missing_ok=True)
 
 
 async def run_pipeline(
@@ -2307,6 +2340,9 @@ async def run_pipeline(
     layout.work_root.mkdir(parents=True, exist_ok=True)
     job.project_name = project_name
     job.result_root = str(layout.results_root.relative_to(job_dir))
+    processing_start = time.monotonic()
+    job._researcher = {"started_at_utc": datetime.now(timezone.utc).isoformat(),
+                       "metrics_dir": str(layout.work_root / "resource_usage"), "resources": []}
 
     try:
         job.status = JobStatus.RUNNING
@@ -2322,6 +2358,16 @@ async def run_pipeline(
         env = _base_env(layout, cfg, cpus)
         env["CLUSTERWEAVE_JOB_ID"] = job.id
         env["CLUSTERWEAVE_CANCEL_FILE"] = str(_job_cancel_path(job))
+        job._researcher["configuration"] = {key: value for key, value in env.items()
+            if key in CONFIGURATION and re.fullmatch(r"[A-Za-z0-9_.+-]{1,64}", str(value))}
+        job._researcher["observation_run"] = secrets.token_hex(16)
+        env["CLUSTERWEAVE_OBSERVATION_RUN"] = job._researcher["observation_run"]
+        job._researcher["annotation_observations"] = await asyncio.to_thread(probe_annotation_runtimes, env)
+        observation_path = layout.work_root / "annotation_runtime_observations.json"
+        observation_path.write_text(json.dumps(job._researcher["annotation_observations"], sort_keys=True))
+        env["CLUSTERWEAVE_ANNOTATION_OBSERVATIONS"] = str(observation_path)
+        job._researcher["source_sha256"] = await asyncio.to_thread(source_fingerprint, layout.repo_root)
+        job._researcher["controller_image_sha256"] = await asyncio.to_thread(controller_image)
         _raise_if_cancelled(job)
         notify()
 
@@ -2393,6 +2439,7 @@ async def run_pipeline(
             )
 
         job.add_log("Input preparation complete.")
+        job._researcher["source_inputs"] = await asyncio.to_thread(input_fingerprints, layout.genome_roots)
         await _run_required_stage(
             job,
             "Running canonical ClusterWeave workflow",
@@ -2543,6 +2590,12 @@ async def run_pipeline(
                 )
 
         job.set_stage("Collecting result files")
+        job._researcher["finished_at_utc"] = datetime.now(timezone.utc).isoformat()
+        job._researcher["wall_seconds"] = round(time.monotonic() - processing_start, 6)
+        try:
+            await asyncio.to_thread(collect_run_versions, layout.results_root, layout.work_root, env, job._researcher, job.log_lines)
+        except Exception:
+            job.add_log("WARN: Version evidence could not be completed; unavailable fields are retained.")
         _collect_result_files(job, job_dir, layout)
         job.status = JobStatus.SUCCESS
         job.stage = "complete"
@@ -2557,8 +2610,14 @@ async def run_pipeline(
     except Exception as exc:
         job.status = JobStatus.FAILED
         job.error = str(exc)
+        job._researcher["finished_at_utc"] = datetime.now(timezone.utc).isoformat()
+        job._researcher["wall_seconds"] = round(time.monotonic() - processing_start, 6)
         job.add_log(f"FATAL: {exc}")
         try:
+            try:
+                await asyncio.to_thread(collect_run_versions, layout.results_root, layout.work_root, locals().get("env", {}), job._researcher, job.log_lines)
+            except Exception:
+                job.add_log("WARN: Version evidence could not be completed; unavailable fields are retained.")
             _collect_result_files(job, job_dir, layout)
         except Exception as collect_exc:
             job.add_log(f"WARN: could not collect result files: {collect_exc}")

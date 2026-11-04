@@ -477,6 +477,18 @@ fi
 TOTAL="${#FAMILY_ROWS[@]}"
 if [[ "${TOTAL}" -gt "${PHYLOGENY_MAX_FAMILIES}" ]]; then TOTAL="${PHYLOGENY_MAX_FAMILIES}"; fi
 FAILURES=0
+if [[ -f "${SCRIPT_DIR}/web/tool_runtime.py" ]]; then
+  observation_runtime="${PHYLOGENY_SIF_PATH}"
+  [[ "${RUNTIME_KIND}" != "docker" ]] || observation_runtime="${PHYLOGENY_DOCKER_IMAGE}"
+  for observed_tool in MAFFT trimAl IQ-TREE ETE4; do
+    observed_image="$(python3 "${SCRIPT_DIR}/web/tool_runtime.py" --output "${RESULTS_ROOT}/reproducibility/tool_observations" --tool "${observed_tool}" --backend "${RUNTIME_KIND}" --runtime "${observation_runtime}" || true)"
+    if [[ "${RUNTIME_KIND}" == "docker" && "${observed_image}" == sha256:* ]]; then
+      PHYLOGENY_DOCKER_IMAGE="${observed_image}"
+      observation_runtime="${observed_image}"
+      RUNTIME_IDENTITY="${observed_image}"
+    fi
+  done
+fi
 SUCCESSES=0
 TOPOLOGY_FAILURES=0
 

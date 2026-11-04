@@ -78,6 +78,12 @@ class InputStationUiTests(unittest.TestCase):
         cls.controller = CONTROLLER_PATH.read_text(encoding="utf-8")
         cls.css = CSS_PATH.read_text(encoding="utf-8")
 
+    def test_clinker_form_uses_panel_selection_values(self) -> None:
+        self.assertIn('<select id="clinker-mode"><option value="auto" selected>', self.index)
+        self.assertIn('<select id="panel-target-set"><option value="both" selected>', self.index)
+        self.assertIn("fd.append('clinker_mode', document.getElementById('clinker-mode').value)", self.controller)
+        self.assertIn("fd.append('panel_target_set', document.getElementById('panel-target-set').value)", self.controller)
+
     def test_ncbi_only_input_has_no_synthetic_upload_or_acknowledgment_gate(self) -> None:
         renderer = function_source(self.controller, "renderFileList")
         acknowledgment = function_source(self.controller, "uploadedInputRequiresAcknowledgment")
@@ -122,8 +128,8 @@ process.stdout.write(JSON.stringify({
         self.assertFalse(result["adminUpload"])
 
     def test_static_asset_versions_bypass_the_prior_day_cache(self) -> None:
-        self.assertIn("clusterweave.css?v=20260723-timer-utc1-citation-align1", self.index)
-        self.assertIn("clusterweave.js?v=20260902-input-station1", self.index)
+        self.assertIn("clusterweave.css?v=20261104-exclusions1", self.index)
+        self.assertIn("clusterweave.js?v=20261104-release1", self.index)
         self.assertIn("intake-taxon-boundary.js?v=20260902-input-station1", self.js)
         self.assertNotIn("intake-taxon-boundary.js?v=20260727-r12f1-upload-copy1", self.js)
         self.assertNotIn("clusterweave.css?v=20260713-workflow-bars4", self.index)

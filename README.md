@@ -22,10 +22,10 @@ protein features or funannotate when annotation is needed; bacterial genomes use
 feature-free sequence with Prodigal gene finding. antiSMASH and BiG-SCAPE apply
 to both domains, while FunBGCeX applies only to fungi.
 
-> Web-hosted access: **Coming soon.** ClusterWeave v1.0.4 is currently
+> Web-hosted access: **Coming soon.** ClusterWeave v1.0.5 is currently
 > available only for local use through the Docker interface described below.
 
-Version 1.0.4 is the current public ClusterWeave release.
+Version 1.0.5 is the current public ClusterWeave release.
 
 [Watch the ClusterWeave fungal demo on YouTube](https://youtu.be/pCHNmzbBZ0Y).
 
@@ -42,11 +42,14 @@ The results depend on the submitted assemblies, upstream reference data, tool
 versions, and selected settings. Zero predicted BGCs can be a valid result.
 Similarly, a missing FunBGCeX value for a bacterium means that the fungal-only
 tool was not applicable; it should not be interpreted as a failed bacterial
-report. Experimental validation and subject-matter review remain necessary.
+report. A genome without usable annotation can be excluded while the job
+completes with the remaining genomes. Check the exclusion notice and methods;
+missing annotation or skipped detection does not show BGC absence. Experimental
+validation and subject-matter review remain necessary.
 
 ## Run a job
 
-Version 1.0.4 runs through the local interface. After starting a local instance,
+Version 1.0.5 runs through the local interface. After starting a local instance,
 open [http://127.0.0.1:8080](http://127.0.0.1:8080) and follow these steps:
 
 1. In **INPUT STATION**, keep **New run** selected and choose **Fungi**,
@@ -110,6 +113,22 @@ private result link or the job ID plus result access code. The browser keeps the
 result access code in session storage after reading it from the URL fragment;
 treat a saved result link with the same care as the underlying code.
 
+On an initialized local instance, **Existing results** also lists retained jobs
+automatically. The browser pairs with the trusted local instance and keeps a
+private session across tabs and browser restarts. No administrator code is
+needed for normal local use. Shared services retain their configured credentials
+and per-job result access.
+
+New result packages include `METHODS.md`, `run_metadata.json`, `resources.tsv`,
+`CITATIONS.bib` and the distribution's `CITATION.cff`. These identify recorded
+software versions, input checksums, parameters, cache producer provenance and
+processing resources. Missing measurements are explicit. Native CPU accounting
+and sampled container/memory observations have different scopes; configured
+limits are not reported as consumption. See [reproducibility](docs/REPRODUCIBILITY.md).
+Staged GenBank files are grouped under `input_gbks/bacteria/`,
+`input_gbks/fungi/` or `input_gbks/unclassified/` in the ZIP. Internal pipeline
+paths remain flat. Existing signed ZIPs remain unchanged.
+
 ## Local Docker start
 
 The trusted local profile supports Docker Engine with Compose v2 on Linux and
@@ -139,6 +158,17 @@ an existing `.env` unchanged. The initialized profile gives the worker 4 CPUs
 and 16 GiB, and `CLUSTERWEAVE_MAX_CPUS_PER_JOB=4` ensures that a public job
 accepted by the local web service cannot request more than the worker's default
 `CLUSTERWEAVE_WORKER_CPU_LIMIT=4`.
+
+Fresh local setups keep jobs until you delete them. Hosted jobs expire after
+30 days by default; the shared accession cache has separate storage limits.
+
+New configurations select `CLUSTERWEAVE_ACCESS_PROFILE=local-owner` and bind
+only to `127.0.0.1`. Open the exact printed URL. The local-owner profile trusts
+users who can access that local service; it is not a multi-user account system.
+For an existing loopback-only installation, add that setting to `.env` and
+recreate the web service. The generic Compose default remains `hosted`, which
+does not automatically grant browser access. Never expose the local-owner
+profile through a public proxy or network binding.
 
 ### Change local web job input limits
 
@@ -276,6 +306,7 @@ evidence, not biological ground truth.
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Shipped web, queue, worker, taxonomy, and result boundaries |
 | [`docs/WEB_RUNTIME.md`](docs/WEB_RUNTIME.md) | Current runtime, resource admission, result access, and security behavior |
 | [`docs/CADES_SLURM_BACKEND.md`](docs/CADES_SLURM_BACKEND.md) | External Slurm executor setup and validation |
+| [`docs/ACCESSION_CACHE.md`](docs/ACCESSION_CACHE.md) | Optional accession-result reuse, identity, storage limits and operator inspection |
 | [`docs/REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md) | Run provenance, pinned artifacts, and figure outputs |
 | [`examples/`](examples/) | Public-safe accession inputs and selected derived outputs |
 | [`bin/`](bin/) and [`scripts/ncbi/`](scripts/ncbi/) | Focused Python helpers and NCBI preparation scripts |
@@ -320,7 +351,7 @@ DE-AC05-00OR22725.
 Citation metadata is in [`CITATION.cff`](CITATION.cff). The companion software
 record resolves at
 [doi:10.11578/PMI/dc.20260608.2](https://doi.org/10.11578/PMI/dc.20260608.2).
-Version 1.0.4 is the current public release.
+Version 1.0.5 is the current public release.
 
 ClusterWeave's own source is available under the
 [BSD 3-Clause License](LICENSE). Downloaded tools, containers, databases, and

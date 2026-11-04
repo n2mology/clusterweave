@@ -45,6 +45,8 @@ test('public resource guidance and canonical CPU fields use the server limit', a
   await expect(note).not.toContainText('hosted runs use up to');
   await expect(page.locator('#cpus')).toHaveValue('3');
   await expect(page.locator('#anno-cpus')).toHaveValue('3');
+  await expect(page.locator('#clinker-mode')).toHaveValue('auto');
+  await expect(page.locator('#panel-target-set')).toHaveValue('both');
   expect(await page.evaluate(() => effectiveCpuCount())).toBe(3);
   expect(await page.evaluate(() => reducedMotionPreferred())).toBe(true);
 

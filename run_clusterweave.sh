@@ -225,6 +225,23 @@ require_annotation_stage_outputs() {
   [[ -s "${manifest}" ]] || die "Annotation stage did not write ${manifest}; stopping before grouping."
   total="$(annotation_manifest_total_count "${manifest}")"
   usable="$(annotation_manifest_usable_count "${manifest}")"
+  local genome="" reason="" excluded=0
+  while IFS=$'\t' read -r genome reason; do
+    [[ -n "${genome}" ]] || continue
+    warn "GENOME_EXCLUDED genome=${genome} reason=${reason} message=\"Excluded from detection and downstream analysis (${reason})\""
+    excluded=$((excluded + 1))
+  done < <(awk -F '\t' '
+    NR == 1 { for (i = 1; i <= NF; i++) h[$i] = i; next }
+    h["genome_id"] && h["gbk_used"] && h["gbk_status"] && $(h["gbk_used"]) == "" {
+      genome = $(h["genome_id"]); reason = $(h["gbk_status"])
+      if (genome !~ /^[A-Za-z0-9_.-]+$/ || length(genome) > 240) next
+      if (reason !~ /^[A-Za-z0-9_+-]+$/ || length(reason) > 64) reason = "annotation_unavailable"
+      printf "%s\t%s\n", genome, reason
+    }
+  ' "${manifest}")
+  if (( excluded > 0 )); then
+    warn "GENOME_EXCLUSION_SUMMARY excluded=${excluded} total=${total} message=\"${excluded} of ${total} genomes excluded from detection and downstream analysis\""
+  fi
   if [[ "${total}" -gt 0 && "${usable}" -eq 0 ]]; then
     summary="$(annotation_manifest_status_summary "${manifest}")"
     die "Annotation stage produced zero usable genomes (${summary}); stopping before grouping. See ${manifest} and ${RESULTS_ROOT}/logs."

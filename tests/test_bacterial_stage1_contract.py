@@ -30,7 +30,7 @@ class BacterialStageOneContractTests(unittest.TestCase):
         self.assertNotIn('"${ant_input}" -prodigal', self.text)
 
     def test_bacterial_route_sanitizes_input_and_skips_funbgcex(self) -> None:
-        process = self.text.split("process_genome() {", 1)[1]
+        process = self.text.split("compute_genome() {", 1)[1]
         self.assertIn('"${BACTERIAL_GENBANK_SANITIZER}"', process)
         self.assertIn('--record-map "${bacterial_record_map}"', process)
         self.assertIn('bacterial_stage_temp="${staged_gbk}.tmp.${BASHPID:-$$}"', process)

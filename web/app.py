@@ -22,6 +22,7 @@ import shutil
 import sys
 import tempfile
 import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime
 import urllib.parse
@@ -29,11 +30,17 @@ import urllib.error
 import urllib.request
 import uuid
 import zipfile
+from local_owner import LocalOwner
+from researcher_report import build_report, package_name, taxon_metadata
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from genbank_readiness import inspect_genbank_translation_stream
+from accession_catalog import Catalog, CatalogUnavailable, catalog_path
+from cache_status import RequestBudget, owner_provenance
+
+CACHE_REQUEST_BUDGET = RequestBudget()
 from bigscape_public_db import (
     DEFAULT_MAX_VIEWER_BYTES,
     PUBLIC_BIGSCAPE_VIEWER_EXPORT_TABLE,
@@ -50,6 +57,7 @@ from job_store import (
     list_jobs,
     list_job_summaries,
     now_iso,
+    queue_admission_lock,
     read_retention_totals,
     read_job,
     read_log_window,
@@ -206,6 +214,7 @@ WEB_DISABLED_ANNOTATION_FALLBACKS = {"braker3", "braker"}
 WEB_PUBLIC_FUNANNOTATE_BUSCO_DB = "auto"
 WEB_PUBLIC_FUNANNOTATE_ORGANISM_NAME = "auto"
 WEB_DISABLED_RUNTIME_ENV_KEYS = {
+    "DATA_DIR",
     "BRAKER3_ENABLED",
     "BRAKER_BAM",
     "BRAKER_IMAGE_URI",
@@ -649,14 +658,23 @@ def request_has_token(handler: BaseHTTPRequestHandler, expected: str, expected_s
     )
 
 
+LOCAL_OWNER = LocalOwner(DATA_DIR, profile=os.environ.get("CLUSTERWEAVE_ACCESS_PROFILE", "hosted"),
+                         origin=os.environ.get("CLUSTERWEAVE_PUBLIC_BASE_URL", ""),
+                         bind=os.environ.get("CLUSTERWEAVE_BIND_ADDRESS", "127.0.0.1"), secret=JOB_TOKEN_SECRET)
+
+
+def request_has_admin_credential(handler: BaseHTTPRequestHandler) -> bool:
+    return request_has_token(handler, ADMIN_TOKEN, ADMIN_TOKEN_SHA256) or LOCAL_OWNER.authorized(handler.headers)
+
+
 def request_has_any_token(handler: BaseHTTPRequestHandler) -> bool:
-    return bool(request_tokens(handler))
+    return bool(request_tokens(handler)) or LOCAL_OWNER.authorized(handler.headers)
 
 
 def request_is_admin(handler: BaseHTTPRequestHandler) -> bool:
     if not PUBLIC_MODE:
         return True
-    return request_has_token(handler, ADMIN_TOKEN, ADMIN_TOKEN_SHA256)
+    return request_has_admin_credential(handler)
 
 
 def request_can_submit(handler: BaseHTTPRequestHandler) -> bool:
@@ -685,10 +703,10 @@ def attach_job_read_token(job: dict[str, object]) -> str:
     return token
 
 
-def request_can_read_job(handler: BaseHTTPRequestHandler, job: dict[str, object]) -> bool:
-    if not PUBLIC_MODE:
+def request_can_read_job(handler: BaseHTTPRequestHandler, job: dict[str, object], *, strict: bool = False) -> bool:
+    if not PUBLIC_MODE and not strict:
         return True
-    if request_is_admin(handler):
+    if (request_has_admin_credential(handler) if strict else request_is_admin(handler)):
         return True
     expected_hashes = []
     expected = job.get("read_token_hash")
@@ -2313,6 +2331,9 @@ def public_safe_archive_entries(
         tuple[Path, str, str, tuple[int, int, int, int, int]]
     ] = []
     seen: set[str] = set()
+    from cache_status import result_root
+    analysis_root = result_root(job, base_dir)
+    taxa = taxon_metadata(analysis_root) if analysis_root else {}
     if result_file_exists(base_dir, PUBLIC_RESULTS_MANIFEST_PATH):
         candidates = public_manifest_result_records(base_dir)
     else:
@@ -2326,7 +2347,7 @@ def public_safe_archive_entries(
     for rel_path, identity in candidates:
         if not result_file_is_publicly_servable(base_dir, rel_path):
             continue
-        archive_name = public_archive_entry_name(rel_path)
+        archive_name = package_name(rel_path, taxa)
         if not archive_name or archive_name in seen:
             continue
         full = (base_dir / rel_path).resolve()
@@ -2422,6 +2443,21 @@ def build_public_archive(job: dict[str, object], base_dir: Path) -> Path:
                     archive, full, archive_name, identity
                 )
                 manifest_rows.append(f"{archive_name}\t{size}\t{digest}")
+            from cache_status import result_root
+            analysis_root = result_root(job, base_dir)
+            # Historical jobs can receive an honest report without assigning
+            # current software versions or rewriting their stored results.
+            if analysis_root is not None:
+                present = {name for _full, name, _rel, _identity in entries}
+                citation_root = Path(__file__).resolve().parent
+                if not (citation_root / "CITATION.cff").is_file():
+                    citation_root = citation_root.parent
+                reports = build_report(analysis_root, root=citation_root,
+                                       status=str(job.get("status", "unknown")))
+                for name, data in reports.items():
+                    if name not in present:
+                        archive.writestr(_zip_info(name), data)
+                        manifest_rows.append(f"{name}\t{len(data)}\t{hashlib.sha256(data).hexdigest()}")
             manifest_body = ("\n".join(manifest_rows) + "\n").encode("utf-8")
             with archive.open(
                 _zip_info(PUBLIC_RESULTS_MANIFEST_PATH),
@@ -2765,6 +2801,14 @@ def adapt_legacy_public_progress(
     return PublicProgressEvent("legacy_ignored", observed_at, message, {})
 
 
+PUBLIC_PROGRESS_CONTRACT = json.loads((Path(__file__).parent / "static/assets/progress-tree-contract.json").read_text())
+PUBLIC_GENOME_TOOL_STATUSES = next(r["progress_status_by_tool"] for r in PUBLIC_PROGRESS_CONTRACT["records"] if r["kind"] == "genome_progress")
+PUBLIC_GENOME_STATUS_RULES = [
+    (rule, re.compile(rule["pattern"], re.I)) for rule in PUBLIC_PROGRESS_CONTRACT["records"]
+    if rule.get("progress_status")
+]
+
+
 def public_progress_events(lines: list[str]) -> list[PublicProgressEvent]:
     """Decode the bounded log projection once for all public consumers."""
 
@@ -2781,7 +2825,14 @@ def public_progress_events(lines: list[str]) -> list[PublicProgressEvent]:
         if not message:
             continue
         event = None
-        for kind, pattern in structured_patterns:
+        for rule, pattern in PUBLIC_GENOME_STATUS_RULES:
+            match = pattern.match(message)
+            if match:
+                values = dict(zip(rule["fields"], match.groups()))
+                values.update({"accession": values.get("genome", ""), "status": values.get("record_state", "complete"), "percent": values.get("percentage", str(rule.get("percentage", 0))), "message": values.get("display_message", ""), "progress_status": rule["progress_status"], "preserve_progress_status": "1" if rule.get("preserve_progress_status") else "0"})
+                event = PublicProgressEvent(rule["kind"], observed_at, message, values)
+                break
+        for kind, pattern in (() if event else structured_patterns):
             match = re.match(pattern, message, re.IGNORECASE)
             if match:
                 event = PublicProgressEvent(kind, observed_at, message, match.groupdict())
@@ -3071,6 +3122,13 @@ def _public_genome_progress(
             )
         if message is not None:
             state["message"] = public_tool_activity_message(message)
+        if status in {"warning", "failed", "complete_with_warning"} or warning:
+            state.pop("progress_status", None)
+        elif stage and stage != "download":
+            if status == "complete":
+                if state.get("progress_status") != "cached": state["progress_status"] = "complete"
+            elif status == "running":
+                state["progress_status"] = PUBLIC_GENOME_TOOL_STATUSES.get(str(tool or stage).lower(), "annotating")
         if observed_at:
             state["updated_at"] = observed_at
 
@@ -3116,16 +3174,35 @@ def _public_genome_progress(
         if not previous or "exited before producing" in safe_message.lower() or "rejected record" in safe_message.lower():
             state["_warning_message"] = safe_message
 
+    rerun = job.get("last_rerun_settings")
+    if isinstance(rerun, dict) and settings_bool(rerun, "run_annotation", True):
+        boundary = max((i for i, e in enumerate(events) if e.message == "Re-queued existing job with selected stage rerun settings."), default=-1)
+        events = events[boundary + 1:]
+
     for event in events:
         observed_at = event.observed_at
         message = event.message
 
-        if event.kind == "download":
+        if event.kind == "cache_hit":
+            state = ensure_state(event.values["genome"])
+            update_state(state, stage="complete", percent=100, status="complete", message=PUBLIC_PROGRESS_CONTRACT["progress_statuses"]["cached"]["detail"], observed_at=observed_at)
+            state["progress_status"] = "cached"
+            for key in ("genome_acquired", "antismash", "funbgcex", "complete"):
+                if key != "funbgcex" or state.get("taxon_group") != "bacteria":
+                    update_stage_state(state, key, "complete", "Restored from validated cache")
+            continue
+
+        if event.kind in {"download", "input_cache_hit"}:
             values = event.values
             accession = values["accession"].upper()
             genome_id = accession_to_genome.get(accession, accession)
             state = ensure_state(genome_id, values.get("taxon"))
             marker_status = values["status"].lower()
+            incoming = values.get("progress_status", "")
+            if marker_status not in {"complete", "completed", "downloaded", "done", "ready", "success", "succeeded"}:
+                state.pop("progress_status", None)
+            elif incoming and not (values.get("preserve_progress_status") == "1" and state.get("progress_status")):
+                state["progress_status"] = incoming
             downloaded = marker_status in {
                 "complete",
                 "completed",
@@ -3160,7 +3237,7 @@ def _public_genome_progress(
                 tool="NCBI",
                 percent=int(values["percent"]),
                 status=public_status,
-                message="NCBI genome downloaded | queued" if downloaded else values.get("message"),
+                message=("Genome input ready | queued" if state.get("progress_status") == "genome_ready" else "NCBI genome downloaded | queued") if downloaded else values.get("message"),
                 observed_at=observed_at,
                 warning=public_status == "warning",
             )
@@ -3260,6 +3337,7 @@ def _public_genome_progress(
                 int(state.get("percent", 0) or 0) >= 100
                 or str(state.get("status") or "") in {"complete", "complete_with_warning", "warning", "failed"}
             ):
+                state.pop("progress_status", None)
                 state["percent"] = 0
                 state["status"] = "queued"
                 state["_warning"] = False
@@ -3439,6 +3517,9 @@ def _public_genome_progress(
                 message="No terminal genome milestone was reported",
                 warning=str(job.get("status") or "").lower() == "success",
             )
+        definition = PUBLIC_PROGRESS_CONTRACT["progress_statuses"].get(state.get("progress_status"), {})
+        state["progress_label"] = definition.get("label", "")
+        state["progress_detail"] = definition.get("detail", "")
         state["terminal"] = str(state.get("status")) in {
             "complete", "complete_with_warning", "warning", "failed"
         }
@@ -4635,8 +4716,30 @@ def fetch_ncbi_datasets_json(path: str) -> dict[str, object]:
             "User-Agent": "ClusterWeave accession preflight",
         },
     )
-    with urllib.request.urlopen(request, timeout=NCBI_PREFLIGHT_TIMEOUT_SECONDS) as response:
-        return json.loads(response.read().decode("utf-8"))
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(request, timeout=NCBI_PREFLIGHT_TIMEOUT_SECONDS) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            if attempt == 2 or exc.code not in {429, 500, 502, 503, 504}:
+                raise
+            retry_after = exc.headers.get("Retry-After")
+            if retry_after is not None:
+                try:
+                    delay = float(retry_after)
+                except ValueError:
+                    raise exc
+                if not math.isfinite(delay) or not 0 <= delay <= 10:
+                    raise
+            else:
+                delay = 2 ** attempt
+            exc.close()
+        except (TimeoutError, urllib.error.URLError):
+            if attempt == 2:
+                raise
+            delay = 2 ** attempt
+        time.sleep(delay)
+    raise RuntimeError("NCBI preflight retry limit")
 
 
 def ncbi_preflight_unavailable(accession: str) -> str:
@@ -6019,13 +6122,15 @@ class Handler(BaseHTTPRequestHandler):
         if origin != "*":
             self.send_header("Vary", "Origin")
 
-    def _send_json(self, status: int, payload: object) -> None:
+    def _send_json(self, status: int, payload: object, *, cookie: str = "") -> None:
         cleanup_staged_uploads(getattr(self, "_request_staged_uploads", []))
         data = json_bytes(payload)
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
+        if cookie:
+            self.send_header("Set-Cookie", cookie)
         self._send_cors_headers()
         self.end_headers()
         self.wfile.write(data)
@@ -6106,6 +6211,8 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json(status, {"detail": message})
 
     def do_OPTIONS(self) -> None:  # noqa: N802
+        if not self._local_guard():
+            return
         self.send_response(HTTPStatus.NO_CONTENT)
         self._send_cors_headers()
         self.send_header("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS")
@@ -6117,10 +6224,29 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self) -> None:  # noqa: N802
+        if not self._local_guard():
+            return
+        if parse_path(self.path)[0] == "/api/local/session":
+            self._send_json(HTTPStatus.OK, {"enabled": LOCAL_OWNER.enabled,
+                                         "local_owner": LOCAL_OWNER.authorized(self.headers)})
+            return
         self._handle_get()
+
+    def _local_guard(self) -> bool:
+        if not LOCAL_OWNER.trusted_request(self.headers):
+            self._send_json(HTTPStatus.FORBIDDEN, {"detail": "Local access requires the configured browser origin"})
+            return False
+        if (LOCAL_OWNER.enabled and self.command in {"POST", "DELETE", "PUT", "PATCH"}
+                and parse_path(self.path)[0] != "/api/local/session"
+                and LOCAL_OWNER.authorized(self.headers) and not LOCAL_OWNER.csrf_valid(self.headers)):
+            self._send_json(HTTPStatus.FORBIDDEN, {"detail": "Local browser request requires CSRF validation"})
+            return False
+        return True
 
     def _handle_get(self) -> None:
         route, query = parse_path(self.path)
+        if self._handle_cache_provenance_get(route):
+            return
         if self._handle_public_result_get(route, query):
             return
         if self._handle_static_get(route):
@@ -6130,6 +6256,39 @@ class Handler(BaseHTTPRequestHandler):
         if self._handle_access_get(route):
             return
         self._not_found()
+
+    def _cache_budget(self, principal: str) -> bool:
+        if not CACHE_REQUEST_BUDGET.take(principal):
+            self._send_json(HTTPStatus.TOO_MANY_REQUESTS, {"detail": "Cache metadata request limit reached"})
+            return False
+        if not CACHE_REQUEST_BUDGET.slots.acquire(blocking=False):
+            self._send_json(HTTPStatus.TOO_MANY_REQUESTS, {"detail": "Cache metadata lookup is busy"})
+            return False
+        return True
+
+    def _handle_cache_provenance_get(self, route: str) -> bool:
+        match = re.fullmatch(r"/api/results/([A-Za-z0-9_-]+)/cache", route)
+        if not match:
+            return False
+        if not request_has_any_token(self):
+            self._not_found("Result not found")
+            return True
+        job = resolve_public_job(match[1])
+        if job is None or not request_can_read_job(self, job, strict=True):
+            self._not_found("Result not found")
+            return True
+        operator = request_has_admin_credential(self)
+        principal = "operator" if operator else hashlib.sha256(str(job.get("read_token_hash", "")).encode()).hexdigest()
+        if not self._cache_budget(principal):
+            return True
+        try:
+            payload = owner_provenance(job, job_dir(str(job["id"])))
+            self.log_message("cache_metadata operation=job_provenance role=%s records=%s",
+                             "operator" if operator else "job_owner", len(payload["records"]))
+            self._send_json(HTTPStatus.OK, payload)
+        finally:
+            CACHE_REQUEST_BUDGET.slots.release()
+        return True
 
     def _handle_public_result_get(
         self,
@@ -6340,6 +6499,7 @@ class Handler(BaseHTTPRequestHandler):
                             "total": window.total,
                             "generation": window.generation,
                             "has_earlier": window.start > 0,
+                            "progress_context": window.context,
                         },
                     )
                     return True
@@ -6474,13 +6634,35 @@ class Handler(BaseHTTPRequestHandler):
                 if request_has_any_token(self):
                     self._auth_failed("Admin token required for diagnostics")
                     return True
-                self._send_json(HTTPStatus.OK, redacted_system_status())
+                payload = redacted_system_status()
+                if LOCAL_OWNER.enabled:
+                    payload["local_owner_available"] = True
+                self._send_json(HTTPStatus.OK, payload)
                 return True
-            self._send_json(HTTPStatus.OK, full_system_status())
+            payload = full_system_status()
+            if LOCAL_OWNER.enabled:
+                payload["local_owner_available"] = True
+            self._send_json(HTTPStatus.OK, payload)
             return True
         return False
 
     def do_POST(self) -> None:  # noqa: N802
+        if not self._local_guard():
+            return
+        if parse_path(self.path)[0] == "/api/local/session":
+            if (not LOCAL_OWNER.enabled or not LOCAL_OWNER.same_origin(self.headers)
+                    or self.headers.get("Content-Type", "").split(";", 1)[0] != "application/json"
+                    or not 0 < parse_int(self.headers.get("Content-Length", "0"), 0) <= 64):
+                self._send_json(HTTPStatus.FORBIDDEN, {"detail": "Local browser pairing unavailable"})
+                return
+            self.rfile.read(parse_int(self.headers["Content-Length"], 0))
+            try:
+                payload, cookie = LOCAL_OWNER.pair(self.headers)
+            except (OSError, ValueError, TypeError):
+                self._send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"detail": "Local browser session unavailable"})
+                return
+            self._send_json(HTTPStatus.OK, payload, cookie=cookie)
+            return
         self._request_staged_uploads: list[dict[str, object]] = []
         route, _ = parse_path(self.path)
         upload_slot = False
@@ -6509,6 +6691,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _dispatch_post(self) -> None:
         route, _ = parse_path(self.path)
+        if self._handle_cache_availability_post(route):
+            return
         if self._handle_public_result_post(route):
             return
         if self._handle_job_rerun_post(route):
@@ -6519,6 +6703,48 @@ class Handler(BaseHTTPRequestHandler):
             self._not_found()
             return
         self._handle_job_submission_post()
+
+    def _handle_cache_availability_post(self, route: str) -> bool:
+        if route != "/api/cache/availability":
+            return False
+        # Catalog access requires a credential even in the trusted local profile.
+        if not request_has_admin_credential(self):
+            self._auth_failed("Admin token required for cache availability")
+            return True
+        if not self._cache_budget("operator"):
+            return True
+        try:
+            length = parse_int(self.headers.get("Content-Length", "0"), 0)
+            if not 0 < length <= 16384 or self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json":
+                self._bad_request("Expected a bounded JSON cache query")
+                return True
+            body = read_json_body(self)
+            if (not isinstance(body, dict) or set(body) - {"accessions", "stage", "keys"}
+                    or not isinstance(body.get("accessions"), list)
+                    or not 1 <= len(body["accessions"]) <= 50
+                    or any(not isinstance(a, str) or not re.fullmatch(r"GC[AF]_[0-9]+\.[1-9][0-9]*", a)
+                           for a in body["accessions"])
+                    or not isinstance(body.get("stage", "detection"), str)
+                    or body.get("stage", "detection") not in {"retrieval", "detection", "preparation"}
+                    or not isinstance(body.get("keys", {}), dict)
+                    or set(body.get("keys", {})) - set(body["accessions"])
+                    or any(not isinstance(k, str) or not re.fullmatch(r"[0-9a-f]{64}", k)
+                           for k in body.get("keys", {}).values())):
+                self._bad_request("Invalid accession cache query")
+                return True
+            try:
+                payload = Catalog(catalog_path(data_dir=DATA_DIR)).availability(
+                    body["accessions"], stage=body.get("stage", "detection"), keys=body.get("keys"))
+            except (CatalogUnavailable, OSError, ValueError, sqlite3.Error):
+                self._send_json(HTTPStatus.SERVICE_UNAVAILABLE,
+                                {"detail": "Cache catalog unavailable; normal verified lookup remains available",
+                                 "status": "unknown", "advisory": True})
+                return True
+            self.log_message("cache_metadata operation=availability role=operator accessions=%s", len(body["accessions"]))
+            self._send_json(HTTPStatus.OK, payload)
+        finally:
+            CACHE_REQUEST_BUDGET.slots.release()
+        return True
 
     def _handle_input_validation_post(self, route: str) -> bool:
         if route != "/api/inputs/validate":
@@ -6639,26 +6865,36 @@ class Handler(BaseHTTPRequestHandler):
                     genome_count_from_input_summary(job.get("input_summary")),
                 ).bounded_plan()
                 settings.update(rerun_plan.as_settings())
-            append_log(job_id, "Re-queued existing job with selected stage rerun settings.")
-            append_log(job_id, "Queued: waiting for worker slot.")
-            lines = read_logs(job_id)
-            job["status"] = "pending"
-            job["stage"] = "queued"
-            job["error"] = None
-            job["cpus"] = cpus
-            job["settings"] = settings
-            if not isinstance(job.get("submission_settings"), dict):
-                job["submission_settings"] = base_settings
-            job["last_rerun_settings"] = settings
-            job.pop("scheduler", None)
-            job.pop("slurm_job_id", None)
-            job.pop("executor", None)
-            job["log_count"] = len(lines)
-            job["updated_at"] = now_iso()
-            job["rerun_count"] = int(job.get("rerun_count", 0) or 0) + 1
-            write_job(job)
-            enqueue_job(job_id, cpus, settings)
-            self._send_json(HTTPStatus.ACCEPTED, {"job_id": job_id, "status": "pending", "message": "Rerun queued"})
+            with queue_admission_lock():
+                job = read_job(job_id)
+                if job is None:
+                    status, response = HTTPStatus.NOT_FOUND, {"detail": "Job not found"}
+                elif job.get("status") in {"pending", "running"}:
+                    status, response = HTTPStatus.CONFLICT, {"detail": "Job is already queued or running"}
+                elif PUBLIC_MODE and queued_job_count() >= MAX_QUEUED_JOBS:
+                    status, response = HTTPStatus.TOO_MANY_REQUESTS, {"detail": "Public queue is full; try again later"}
+                else:
+                    append_log(job_id, "Re-queued existing job with selected stage rerun settings.")
+                    append_log(job_id, "Queued: waiting for worker slot.")
+                    lines = read_logs(job_id)
+                    job["status"] = "pending"
+                    job["stage"] = "queued"
+                    job["error"] = None
+                    job["cpus"] = cpus
+                    job["settings"] = settings
+                    if not isinstance(job.get("submission_settings"), dict):
+                        job["submission_settings"] = base_settings
+                    job["last_rerun_settings"] = settings
+                    job.pop("scheduler", None)
+                    job.pop("slurm_job_id", None)
+                    job.pop("executor", None)
+                    job["log_count"] = len(lines)
+                    job["updated_at"] = now_iso()
+                    job["rerun_count"] = int(job.get("rerun_count", 0) or 0) + 1
+                    write_job(job)
+                    enqueue_job(job_id, cpus, settings)
+                    status, response = HTTPStatus.ACCEPTED, {"job_id": job_id, "status": "pending", "message": "Rerun queued"}
+            self._send_json(status, response)
             return True
         return False
 
@@ -7047,9 +7283,15 @@ class Handler(BaseHTTPRequestHandler):
         lines = read_logs(job_id)
         job["log_count"] = len(lines)
         job["updated_at"] = now_iso()
-        write_job(job)
-
-        enqueue_job(job_id, cpus, settings)
+        with queue_admission_lock():
+            queue_full = PUBLIC_MODE and queued_job_count() >= MAX_QUEUED_JOBS
+            if not queue_full:
+                write_job(job)
+                enqueue_job(job_id, cpus, settings)
+        if queue_full:
+            shutil.rmtree(out_dir)
+            self._send_json(HTTPStatus.TOO_MANY_REQUESTS, {"detail": "Public queue is full; try again later"})
+            return
         result_url = f"{job.get('public_base_url') or request_public_base_url(self)}#/results/{public_run_id}/{read_token}"
         response_job_id = job_id if request_is_admin(self) else public_run_id
 
@@ -7068,6 +7310,16 @@ class Handler(BaseHTTPRequestHandler):
         )
 
     def do_DELETE(self) -> None:  # noqa: N802
+        if not self._local_guard():
+            return
+        if parse_path(self.path)[0] == "/api/local/session":
+            try:
+                cookie = LOCAL_OWNER.revoke(self.headers)
+            except (OSError, ValueError, TypeError):
+                self._send_json(HTTPStatus.FORBIDDEN, {"detail": "Local session revocation unavailable"})
+                return
+            self._send_json(HTTPStatus.OK, {"local_owner": False}, cookie=cookie)
+            return
         route, _ = parse_path(self.path)
         if not route.startswith("/api/jobs/"):
             self._not_found()
@@ -7116,6 +7368,9 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def validate_startup_binding() -> None:
+    LOCAL_OWNER.validate()
+    if LOCAL_OWNER.enabled and not PUBLIC_MODE:
+        raise ValueError("The local-owner profile requires PUBLIC_MODE=1 to enforce session authentication")
     if PUBLIC_MODE or ALLOW_UNSAFE_LOCAL_MODE:
         return
     if HOST in {"127.0.0.1", "localhost", "::1"}:

@@ -254,6 +254,8 @@ export function createJobLifecycleBoundary({
       stage,
       tool,
       annotationMethod,
+      progressLabel: safeGenomeProgressText(item.progress_label, '', 32),
+      progressDetail: safeGenomeProgressText(item.progress_detail, '', 180),
       message,
       activityMessage,
       warningTool,
@@ -264,6 +266,7 @@ export function createJobLifecycleBoundary({
       terminal,
       warning,
       completedWithWarning,
+      excluded: rawStatus === 'dropped' || /^Dropped\s*:/i.test(message) || /^Dropped\s*:/i.test(warningMessage),
       hasWarning: warning || completedWithWarning || !!warningMessage,
     };
   }
@@ -464,7 +467,7 @@ export function createJobLifecycleBoundary({
     const ribbonText = genomeProgressRibbonText(item, statusMessage, stages);
     const valueText = `${ribbonText} · overall milestone ${item.percent}%`;
     return `
-      <div class="genome-progress-meter-row">
+      <div class="genome-progress-meter-row${item.progressLabel && !item.hasWarning ? ' has-progress-chip' : ''}">
         <div class="genome-progress-track" role="progressbar" aria-label="${escapeHtml(`${item.label} current stage progress`)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${meter.percent}" aria-valuetext="${escapeHtml(valueText)}" style="--genome-stage-count: ${stages.length}">
           ${stages.map(stage => {
             const liveRegionClass = stage.key === 'antismash'
@@ -473,6 +476,7 @@ export function createJobLifecycleBoundary({
             return `<span class="genome-progress-segment ${stage.stateClass}${liveRegionClass}" title="${escapeHtml(`${stage.label}: ${stage.progress}%`)}"><span class="genome-progress-segment-fill" style="--genome-stage-progress: ${stage.progress}%"></span></span>`;
           }).join('')}
         </div>
+        ${item.progressLabel && !item.hasWarning ? `<span class="genome-progress-chip" title="${escapeHtml(item.progressDetail)}">${escapeHtml(item.progressLabel)}</span>` : ''}
       </div>`;
   }
 
@@ -480,6 +484,7 @@ export function createJobLifecycleBoundary({
     const active = GENOME_PROGRESS_ACTIVE_STATES.has(item.status);
     const stateClass = item.warning ? 'is-warning' : item.terminal ? 'is-complete' : active ? 'is-running' : 'is-waiting';
     const advisoryClass = item.completedWithWarning ? ' has-advisory' : '';
+    const chip = item.hasWarning ? '' : item.progressLabel;
     const stateLabel = item.warning ? 'error'
       : item.completedWithWarning ? 'complete with warning'
         : item.terminal ? 'complete' : active ? 'running' : 'queued';
@@ -491,7 +496,7 @@ export function createJobLifecycleBoundary({
     const stageModel = genomeProgressStageModel(item);
     const meter = genomeProgressMeterModel(item, stageModel);
     const ribbonText = genomeProgressRibbonText(item, statusMessage, stageModel);
-    const aria = `${item.label}, ${item.taxon}, ${meter.text}, ${stateLabel}. ${ribbonText}`;
+    const aria = `${item.label}, ${item.taxon}, ${meter.text}, ${stateLabel}${chip ? `, ${chip}. ${item.progressDetail}` : ''}. ${ribbonText}`;
     return `
       <article class="genome-progress-row ${stateClass}${advisoryClass}" role="listitem" data-genome-progress-id="${escapeHtml(item.id)}" aria-label="${escapeHtml(aria)}">
         <div class="genome-progress-row-head">
@@ -590,6 +595,7 @@ export function createJobLifecycleControllerBoundary({
     rememberOpenedRun,
     renderDiagnosticRerunRail,
     renderOpenedRuns,
+    renderLocalJobs,
     renderQaDrawer,
     renderWeaveHelix,
     rerunStageAllowed,
@@ -917,6 +923,7 @@ function renderJobHistory(jobs) {
   if (!el) return;
   const list = (Array.isArray(jobs) ? jobs : []).filter(job => job && job.id);
   state.jobHistoryById = new Map(list.map(job => [String(job.id || ''), job]).filter(([id]) => id));
+  renderLocalJobs?.(list);
   const renderKey = jobHistoryRenderKey(list);
   if (renderKey === state.lastJobHistoryRenderKey) return;
   state.lastJobHistoryRenderKey = renderKey;
@@ -1090,9 +1097,11 @@ async function deleteJob(event, jobId) {
 
 async function loadJob(jobId, autoScroll = false, options = {}) {
   if (options.readToken) state.pendingReadTokens.set(String(jobId), options.readToken);
-  const publicResult = options.publicResult === true
+  const internalJob = options.internalJob === true && canUseAdminSurfaces();
+  if (internalJob) state.publicResultRunIds.delete(String(jobId));
+  const publicResult = !internalJob && (options.publicResult === true
     || state.publicResultRunIds.has(String(jobId))
-    || !/^[0-9a-f]{8}$/i.test(String(jobId || ''));
+    || !/^[0-9a-f]{8}$/i.test(String(jobId || '')));
   if (publicResult) state.publicResultRunIds.add(String(jobId));
   state.activePublicRunId = publicResult ? String(jobId) : '';
   const deferResultsShell = !!options.deferResultsShell;
@@ -1343,14 +1352,20 @@ async function presentAdminLogLines({
   prepend = false,
   append = false,
   autoScroll = false,
+  context = [],
+  stage = '',
+  jobId = state.activeJobId,
+  generation = state.logGeneration,
+  seq = state.jobLoadSeq,
 } = {}) {
   const materialized = Array.isArray(lines) ? lines : [];
   try {
     const consoleView = await PROGRESS_TREE_CONSOLE;
+    if (!currentJobSelection(jobId, seq)) return;
     if (append) {
-      consoleView.append({ lines: materialized, start, autoScroll });
+      consoleView.append({ lines: materialized, start, autoScroll, jobId, logGeneration: generation });
     } else {
-      consoleView.hydrate({ lines: materialized, start, prepend, autoScroll });
+      consoleView.hydrate({ lines: materialized, start, prepend, autoScroll, context, stage, jobId, logGeneration: generation });
     }
     return;
   } catch (error) {
@@ -1410,7 +1425,11 @@ async function hydrateQaLogs({ tail = true, before = null, autoScroll = false } 
       start: Math.max(0, Number(page.start) || 0),
       prepend,
       autoScroll,
+      context: page.progress_context || [],
+      stage: page.progress_context?.length || Number(page.start) === 0 ? '' : (jobCurrentStageKey(state.activeJobMeta) || ''),
+      jobId, generation, seq,
     });
+    if (!currentJobSelection(jobId, seq)) return;
     state.logWindowStart = Math.max(0, Number(page.start) || 0);
     const pageEnd = Math.max(0, Number(page.end) || 0);
     state.logCursor = prepend ? Math.max(state.logCursor, pageEnd) : pageEnd;
@@ -1442,13 +1461,15 @@ async function syncActiveAdminLogs(autoScroll = false) {
     return;
   }
   const jobId = String(state.activeJobId);
+  const seq = state.jobLoadSeq;
   const resp = await apiFetch(
     jobLifecycleBoundary.adminLogsPath(jobId, `since=${encodeURIComponent(state.logCursor)}`),
     {},
     { kind: 'admin' },
   );
-  if (!resp.ok || jobId !== state.activeJobId) return;
+  if (!resp.ok || !currentJobSelection(jobId, seq)) return;
   const page = await resp.json();
+  if (!currentJobSelection(jobId, seq)) return;
   if (state.logGeneration && page.generation && page.generation !== state.logGeneration) {
     state.logHydratedJobId = '';
     state.logGeneration = '';
@@ -1464,7 +1485,9 @@ async function syncActiveAdminLogs(autoScroll = false) {
     start: appendStart,
     append: true,
     autoScroll,
+    jobId, generation: page.generation || state.logGeneration, seq,
   });
+  if (!currentJobSelection(jobId, seq)) return;
   state.logCursor = Math.max(0, Number(page.total) || state.logCursor);
   state.logTotal = state.logCursor;
   if (page.generation) state.logGeneration = page.generation;
@@ -1783,14 +1806,26 @@ function jobElapsedText(job = state.activeJobMeta) {
   return formatDuration(end - start);
 }
 
-function renderJobRuntime(job = state.activeJobMeta) {
+let jobRuntimeTimerId = null;
+let jobRuntimeClockKey = '';
+let jobRuntimeClockJob = null;
+
+function clearJobRuntimeTimer() {
+  if (jobRuntimeTimerId !== null) clearTimeout(jobRuntimeTimerId);
+  jobRuntimeTimerId = null;
+}
+
+function updateJobRuntimeClock() {
+  clearJobRuntimeTimer();
   const timer = document.getElementById('results-job-runtime');
   if (!timer) return;
-  const bounds = jobRuntimeBounds(job);
+  const bounds = jobRuntimeBounds(jobRuntimeClockJob);
   if (!bounds) {
     timer.hidden = true;
-    timer.textContent = '';
+    if (timer.textContent) timer.textContent = '';
     timer.removeAttribute('datetime');
+    timer.removeAttribute('aria-label');
+    timer.removeAttribute('title');
     return;
   }
   const elapsedMs = bounds.end - bounds.start;
@@ -1799,14 +1834,39 @@ function renderJobRuntime(job = state.activeJobMeta) {
   const hours = Math.floor((totalSeconds % 86400) / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
+  const text = formatJobRuntimeClock(elapsedMs);
+  const dateTime = `PT${totalSeconds}S`;
+  const label = `Total job runtime: ${days} days, ${hours} hours, ${minutes} minutes, ${seconds} seconds`;
+  const title = bounds.active ? 'Total job runtime' : 'Final total job runtime';
   timer.hidden = false;
-  timer.textContent = formatJobRuntimeClock(elapsedMs);
-  timer.dateTime = `PT${totalSeconds}S`;
-  timer.setAttribute(
-    'aria-label',
-    `Total job runtime: ${days} days, ${hours} hours, ${minutes} minutes, ${seconds} seconds`,
-  );
-  timer.title = bounds.active ? 'Total job runtime' : 'Final total job runtime';
+  if (timer.textContent !== text) timer.textContent = text;
+  if (timer.dateTime !== dateTime) timer.dateTime = dateTime;
+  if (timer.getAttribute('aria-label') !== label) timer.setAttribute('aria-label', label);
+  if (timer.title !== title) timer.title = title;
+  if (bounds.active) {
+    const key = jobRuntimeClockKey;
+    const delay = 1000 - (Math.max(0, Date.now() - bounds.start) % 1000);
+    jobRuntimeTimerId = setTimeout(() => {
+      if (key === jobRuntimeClockKey) updateJobRuntimeClock();
+    }, delay);
+  }
+}
+
+function renderJobRuntime(job = state.activeJobMeta) {
+  const bounds = jobRuntimeBounds(job);
+  const identity = String(job?.public_run_id || job?.id || '');
+  const key = bounds ? JSON.stringify([identity, bounds.start, bounds.active, bounds.active ? null : bounds.end]) : '';
+  jobRuntimeClockJob = job;
+  // Polling synchronizes job changes; the clock owns active second updates.
+  if (key === jobRuntimeClockKey && bounds) return;
+  jobRuntimeClockKey = key;
+  updateJobRuntimeClock();
+}
+
+if (typeof document.addEventListener === 'function') {
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && jobRuntimeBounds(jobRuntimeClockJob)?.active) updateJobRuntimeClock();
+  });
 }
 
 function stageRuntimeHint(key) {
@@ -2004,8 +2064,15 @@ function renderGenomeProgressLayer(payload) {
   const layer = document.getElementById('bgc-genome-progress-layer');
   const grid = document.getElementById('bgc-genome-progress-grid');
   const summary = document.getElementById('bgc-genome-progress-summary');
-  if (!station || !layer || !grid) return;
   const items = Array.isArray(payload?.genomes) ? payload.genomes : [];
+  const notice = document.getElementById('genome-exclusion-notice');
+  if (notice) {
+    const excluded = items.filter(item => item.excluded).length;
+    const text = excluded ? `${excluded} of ${items.length} genomes excluded from BGC detection and downstream analysis. No usable annotation was produced for these genomes.` : '';
+    if (notice.textContent !== text) notice.textContent = text;
+    notice.hidden = !excluded;
+  }
+  if (!station || !layer || !grid) return;
   const warningCount = items.filter(item => item.warning).length;
   const handoff = !!payload?.genomeProgressHandoff;
   const completed = payload?.state === 'complete';

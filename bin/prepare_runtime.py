@@ -636,7 +636,8 @@ class RuntimePreparer:
             self._changed = True
         if datasets is None or dataformat is None:
             raise PreparationError("NCBI CLI preparation did not produce both tools")
-        self._run_required([str(datasets), "version"], label="datasets version check")
+        # The version subcommand queries NCBI; the flag reports the local binary.
+        self._run_required([str(datasets), "--version"], label="datasets version check")
         self._run_required([str(dataformat), "version"], label="dataformat version check")
         self._record(
             "ncbi_datasets",

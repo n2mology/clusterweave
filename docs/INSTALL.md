@@ -5,7 +5,7 @@ walkthrough. This document is the technical reference for the shipped Docker
 profiles, generated configuration, first-start preparation, routine operations,
 and recovery checks.
 
-Project-hosted access is coming soon. ClusterWeave v1.0.4 is currently
+Project-hosted access is coming soon. ClusterWeave v1.0.5 is currently
 available only for local use. The commands below start a private local instance;
 they do not publish a service.
 
@@ -22,7 +22,7 @@ external executor, such as the shipped Slurm backend, and is not a complete
 laptop workflow. Operators should read [WEB_RUNTIME.md](WEB_RUNTIME.md) and
 [CADES_SLURM_BACKEND.md](CADES_SLURM_BACKEND.md) before using that profile.
 
-Version 1.0.4 targets Linux x86_64. WSL2 and macOS use the same pinned amd64
+Version 1.0.5 targets Linux x86_64. WSL2 and macOS use the same pinned amd64
 images through Docker Desktop, although host integration and Apple Silicon
 emulation can affect performance.
 
@@ -68,10 +68,10 @@ cd clusterweave
 
 For an archival analysis, select the version from the
 [releases page](https://github.com/n2mology/clusterweave/releases) or clone the
-v1.0.4 tag directly:
+v1.0.5 tag directly:
 
 ```bash
-git clone --branch v1.0.4 --depth 1 https://github.com/n2mology/clusterweave.git
+git clone --branch v1.0.5 --depth 1 https://github.com/n2mology/clusterweave.git
 cd clusterweave
 ```
 
@@ -81,6 +81,14 @@ A GitHub source archive has no Git history and cannot be updated with
 expected default project and named-volume names.
 
 ## Initialize the local profile
+
+Fresh initialization selects `CLUSTERWEAVE_ACCESS_PROFILE=local-owner`. The
+browser pairs automatically at the printed loopback URL and lists retained jobs
+under **Existing results**. A persistent private cookie replaces repeated code
+entry for this trusted single-user profile. Existing `.env` files are preserved;
+set this profile explicitly when upgrading a loopback-only installation. The
+generic Compose default remains `hosted`. See [web runtime](WEB_RUNTIME.md) for
+the access boundary and session lifecycle.
 
 Run the initializer once from the repository root:
 
@@ -310,7 +318,7 @@ the version approved by the operator:
 ```bash
 git fetch --tags origin
 git tag --list
-git switch --detach v1.0.4
+git switch --detach v1.0.5
 docker compose build
 docker compose up -d
 ```

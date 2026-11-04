@@ -208,7 +208,7 @@ class RepoLayoutTests(unittest.TestCase):
         sharded = text.split("run_antismash_sharded() {", 1)[1].split(
             "# Per-genome logging sync + manifest", 1
         )[0]
-        process_body = text.split("process_genome() {", 1)[1].split("\n}\n\nidx=0", 1)[0]
+        process_body = text.split("compute_genome() {", 1)[1].split("\n}\n", 1)[0]
         merge_json = text.split("merge_antismash_shard_jsons() {", 1)[1].split("\n}", 1)[0]
         stable_ids = text.split("antismash_record_ids_are_stable() {", 1)[1].split("\n}", 1)[0]
         shard_index = text.split("write_antismash_shard_index() {", 1)[1].split(
@@ -307,7 +307,8 @@ class RepoLayoutTests(unittest.TestCase):
         )
         self.assertIn("ANTISMASH_RECORD_PROGRESS genome=", text)
         self.assertIn('antismash_shard_root="${per_tmp}/antismash_shards"', process_body)
-        self.assertIn('"${ANTISMASH_RECORD_PARALLELISM}" -gt 1', process_body)
+        self.assertNotIn('"${ANTISMASH_RECORD_PARALLELISM}" -gt 1', process_body)
+        self.assertIn('"${antismash_record_count}" -gt 1 && "${antismash_record_ids_stable}" -eq 1', process_body)
         self.assertIn('"${antismash_record_count}" -gt 1', process_body)
         self.assertIn('antiSMASH legacy single-run mode', process_body)
         self.assertIn('--cpus "${ANTISMASH_LEGACY_CPUS}"', process_body)
@@ -1077,6 +1078,7 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("PANEL_TARGET_SET=atlas is a legacy atlas selector; using PANEL_TARGET_SET=both", output)
         self.assertIn("CLINKER_MODE=auto", output)
         self.assertIn("PANEL_TARGET_SET=both", output)
+        self.assertNotIn("[WARN]", output)
         self.assertIn("run_clinker.sh complete.", output)
 
     def test_metadata_template_is_runtime_local_not_repo_rewritten(self) -> None:
@@ -1172,8 +1174,8 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertLess(len(index_text.splitlines()), 1000)
         self.assertIn('href="/favicon.ico', index_text)
         self.assertTrue((static_dir / "favicon.ico").exists())
-        self.assertIn('href="assets/clusterweave.css?v=20260723-timer-utc1-citation-align1"', index_text)
-        self.assertIn('src="assets/clusterweave.js?v=20260902-input-station1"', index_text)
+        self.assertIn('href="assets/clusterweave.css?v=20261104-exclusions1"', index_text)
+        self.assertIn('src="assets/clusterweave.js?v=20261104-release1"', index_text)
         self.assertEqual(index_text.count('name="clusterweave-game-asset"'), 4)
         self.assertNotIn('<link rel="stylesheet" href="assets/clusterweave-game.css', index_text)
         self.assertNotIn('<script src="assets/clusterweave-game', index_text)
@@ -1330,8 +1332,8 @@ class RepoLayoutTests(unittest.TestCase):
             if match:
                 declarations.append((match.group(1), line_number, line))
 
-        self.assertEqual(len(declarations), 852)
-        self.assertEqual(len({name for name, _, _ in declarations}), 852)
+        self.assertEqual(len(declarations), 856)
+        self.assertEqual(len({name for name, _, _ in declarations}), 856)
         expected_delegate_counts = {
             "apiResultBoundary": 12,
             "resultReaderBoundary": 214,
@@ -1364,7 +1366,7 @@ class RepoLayoutTests(unittest.TestCase):
             self.assertEqual(owners, [module_paths[target]], f"{name} -> {target}.{method}")
 
         self.assertEqual(delegate_counts, expected_delegate_counts)
-        self.assertEqual(len(retained), 239)
+        self.assertEqual(len(retained), 243)
         declaration_order = {name: index for index, (name, _, _) in enumerate(declarations)}
         retained_regions = [
             ("layout-shell", "setCardCollapsed", "scheduleDnaOverlaySync"),
@@ -1373,6 +1375,8 @@ class RepoLayoutTests(unittest.TestCase):
             ("workbench-shell", "resetToIdleWorkbench", "escapeJsString"),
             ("identity-access-shell", "updateAccessTokenStatus", "syncResultAccessCollapse"),
             ("submission-receipt-shell", "setResultAccessCollapsed", "openSubmittedRun"),
+            ("local-owner-access", "pairLocalBrowser", "loadSelectedLocalRun"),
+            ("local-job-list", "renderLocalJobs", "renderLocalJobs"),
             ("run-configuration-shell", "envToBool", "figureApplicableToAnalysis"),
             ("lifecycle-result-shell", "moveWorkflowProgressIntoResults", "currentJobSelection"),
             ("pixel-runner-integration", "clusterweaveGamePhase", "wireClusterweaveGameAdapter"),
@@ -3161,7 +3165,7 @@ process.stdout.write(JSON.stringify({{
         self.assertIn("const items = Array.from(reconciled.values());", js_text)
         self.assertIn("function safeGenomeProgressText", js_text)
         self.assertIn("function genomeProgressStages", js_text)
-        self.assertIn('class="genome-progress-meter-row"', js_text)
+        self.assertIn('class="genome-progress-meter-row', js_text)
         self.assertIn('class="genome-progress-track" role="progressbar"', js_text)
         self.assertIn("function genomeProgressSnapshotPrefersPrevious", js_text)
         self.assertIn("function setBgcWorkflowAggregatePresentationSuspended", js_text)

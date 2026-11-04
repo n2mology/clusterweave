@@ -21,6 +21,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 COPY web/worker.py /app/worker.py
+COPY web/researcher_report.py web/tool_runtime.py web/resource_usage.py web/stage_runner.py /app/
+COPY web/accession_catalog.py /app/accession_catalog.py
+COPY web/cache_status.py /app/cache_status.py
 COPY web/bigscape_public_db.py /app/bigscape_public_db.py
 COPY web/canonical_pipeline.py /app/canonical_pipeline.py
 COPY web/genbank_readiness.py /app/genbank_readiness.py
@@ -40,10 +43,13 @@ RUN chmod +x /app/entrypoint.sh
 
 WORKDIR /clusterweave
 COPY *.sh /clusterweave/
+COPY CITATION.cff /clusterweave/CITATION.cff
 COPY bin/ /clusterweave/bin/
 COPY config/ /clusterweave/config/
 COPY scripts/ /clusterweave/scripts/
+COPY web/tool_runtime.py /clusterweave/web/tool_runtime.py
 COPY web/resource_policy.py /clusterweave/web/resource_policy.py
+COPY web/accession_catalog.py /clusterweave/web/accession_catalog.py
 COPY web/static/assets/progress-tree-contract.json /clusterweave/web/static/assets/progress-tree-contract.json
 COPY software/funbgcex/ /clusterweave/software/funbgcex/
 COPY software/funannotate/ /clusterweave/software/funannotate/

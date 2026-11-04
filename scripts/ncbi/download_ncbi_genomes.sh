@@ -7,6 +7,7 @@ PROJECT_ROOT="${PROJECT_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd -P)}"
 PROJECT_NAME="${PROJECT_NAME:-$(basename "${PROJECT_ROOT}")}"
 ACCESSIONS_FILE="${ACCESSIONS_FILE:-${PROJECT_ROOT}/accessions.txt}"
 GENOME_ROOT="${GENOME_ROOT:-${PROJECT_ROOT}/data/genomes/fungi/${PROJECT_NAME}}"
+RESULTS_ROOT="${RESULTS_ROOT:-${PROJECT_ROOT}/data/results/${PROJECT_NAME}}"
 TAXON_GROUP="${TAXON_GROUP:-fungi}"
 NCBI_CLI_ROOT="${NCBI_CLI_ROOT:-${PROJECT_ROOT}/software/ncbi_cli}"
 
@@ -203,6 +204,34 @@ while IFS= read -r acc || [[ -n "${acc}" ]]; do
 
   acc_dir="${GENOME_ROOT}/${acc}"
   mkdir -p "${acc_dir}"
+
+  # Reuse a frozen public snapshot before contacting NCBI. The child runs the
+  # unchanged retrieval path under an accession claim when the snapshot misses.
+  if [[ -n "${CLUSTERWEAVE_ACCESSION_CACHE_ROOT:-}" && "${CLUSTERWEAVE_CACHE_RETRIEVE_CHILD:-0}" != "1" ]]; then
+    route_genome="$(awk -F '\t' -v acc="${acc}" 'NR==1 {for(i=1;i<=NF;i++) h[$i]=i; next} toupper($(h["source_accession"]))==toupper(acc) {print $(h["genome_id"]); exit}' "${GENOME_TAXON_MANIFEST:-/dev/null}" 2>/dev/null || true)"
+    single_accession="$(mktemp "${GENOME_ROOT}/.accession-request.XXXXXX")"
+    printf '%s\n' "${acc}" > "${single_accession}"
+    if "${PYTHON_CMD}" "${PROJECT_ROOT}/bin/cached_accession.py" retrieve \
+        --accession "${acc}" --genome-id "${route_genome}" --taxon "${TAXON_GROUP}" \
+        --datasets "${datasets_cmd}" --route-manifest "${GENOME_TAXON_MANIFEST:-/dev/null}" \
+        --destination "${acc_dir}" \
+        --provenance "${RESULTS_ROOT}/reproducibility/accession_cache/${acc}.retrieval.json" \
+        -- env CLUSTERWEAVE_CACHE_RETRIEVE_CHILD=1 ACCESSIONS_FILE="${single_accession}" bash "${BASH_SOURCE[0]}"; then
+      rm -f "${single_accession}"
+      if [[ "$(get_status "${acc_dir}")" != "none" ]]; then
+        download_completed=$((download_completed + 1))
+        echo "NCBI_DOWNLOAD_PROGRESS accession=${acc} taxon=${TAXON_GROUP} status=complete percent=8 message=\"Accession snapshot ready\""
+      else
+        download_failed=$((download_failed + 1))
+      fi
+      continue
+    fi
+    rm -f "${single_accession}"
+  fi
+
+  if [[ "${FORCE:-0}" == "1" || "${CLUSTERWEAVE_ACCESSION_CACHE_FORCE_MISS:-0}" == "1" ]]; then
+    clean_partial "${acc_dir}"
+  fi
 
   status_now="$(get_status "${acc_dir}")"
   if should_skip "${status_now}"; then

@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import threading
 import uuid
 from collections import OrderedDict
@@ -74,6 +75,7 @@ class LogSlice:
     lines: list[str]
     total: int
     generation: str
+    context: list[dict] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -83,6 +85,7 @@ class LogWindow:
     end: int
     total: int
     generation: str
+    context: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -94,6 +97,8 @@ class _LogFileIndex:
     checkpoints: list[int] = field(default_factory=lambda: [0])
     prefix_guards: list[tuple[int, bytes]] = field(default_factory=list)
     pending_rewrite: tuple[int, int, int] | None = None
+    progress: dict[str, dict] = field(default_factory=dict)
+    progress_checkpoints: list[dict[str, dict]] = field(default_factory=lambda: [{}])
 
 
 _LOG_INDEX_LOCK = threading.RLock()
@@ -120,7 +125,43 @@ def _clone_log_file_index(state: _LogFileIndex) -> _LogFileIndex:
         checkpoints=list(state.checkpoints),
         prefix_guards=list(state.prefix_guards),
         pending_rewrite=state.pending_rewrite,
+        progress=dict(state.progress),
+        progress_checkpoints=list(state.progress_checkpoints),
     )
+
+
+def _progress_rules():
+    # The browser and sparse log index share the same stage grammar.
+    for root in (Path(__file__).parent, Path("/clusterweave/web")):
+        try:
+            contract = json.loads((root / "static/assets/progress-tree-contract.json").read_text())
+            rules = contract["stage_markers"] + [r for r in contract["legacy_records"] if r.get("node_level") == "stage"]
+            return [(re.compile(rule["pattern"], re.I), rule["workflow_stage"]) for rule in rules if rule.get("workflow_stage")]
+        except (OSError, ValueError, KeyError):
+            continue
+    return []
+
+
+_PROGRESS_RULES = _progress_rules()
+_PROGRESS_PATTERN = re.compile("|".join("(?:" + pattern.pattern + ")" for pattern, _ in _PROGRESS_RULES) or r"(?!x)x", re.I)
+
+
+def _remember_progress(progress, line, index):
+    # Tool diagnostic payloads cannot establish a workflow stage transition.
+    if "TOOL_RAW " in line:
+        return
+    message = line.strip()
+    while True:
+        updated = re.sub(r"^\[(?:[0-9]{2}:[0-9]{2}:[0-9]{2}|[0-9]{4}-[0-9]{2}-[0-9]{2}[^\]]*|INFO|WARN|WARNING|ERROR|FAIL|FATAL|OK)\]\s*", "", message, flags=re.I).strip()
+        if updated == message:
+            break
+        message = updated
+    if not _PROGRESS_PATTERN.search(message):
+        return
+    for pattern, stage in _PROGRESS_RULES:
+        if pattern.search(message):
+            progress[stage] = {"index": index, "line": line[:4096]}
+            break
 
 
 def _log_prefix_guard_positions(length: int) -> list[int]:
@@ -175,6 +216,23 @@ def _job_log_write_lock(job_id: str) -> Iterator[None]:
             yield
         finally:
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+@contextmanager
+def queue_admission_lock() -> Iterator[None]:
+    """Serialize pending-job admission across web threads and processes."""
+    fd = os.open(QUEUE_DIR / ".admission.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != os.geteuid():
+            raise OSError("Invalid queue admission lock")
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
 
 
 def configured_retention_days() -> int | None:
@@ -494,10 +552,12 @@ def _refresh_log_file_index(
                     newline = appended_complete.find(b"\n", cursor)
                     if newline < 0:
                         break
+                    _remember_progress(working.progress, appended_complete[cursor:newline].decode("utf-8", errors="replace"), working.total_lines)
                     cursor = newline + 1
                     working.total_lines += 1
                     if working.total_lines % LOG_INDEX_CHECKPOINT_LINES == 0:
                         working.checkpoints.append(base_offset + cursor)
+                        working.progress_checkpoints.append(dict(working.progress))
                 working.scan_offset += complete_end
 
         after = os.fstat(handle.fileno())
@@ -569,49 +629,49 @@ def read_log_slice(
         if target_end <= requested:
             return LogSlice(lines=[], total=total, generation=state.generation)
 
-        if appended_complete and requested >= appended_start_line:
-            data = appended_complete
-            skip = requested - appended_start_line
-        else:
-            checkpoint_index = min(
-                requested // LOG_INDEX_CHECKPOINT_LINES,
-                len(state.checkpoints) - 1,
-            )
-            checkpoint_line = checkpoint_index * LOG_INDEX_CHECKPOINT_LINES
-            start_offset = state.checkpoints[checkpoint_index]
-            end_checkpoint_index = (
-                target_end + LOG_INDEX_CHECKPOINT_LINES - 1
-            ) // LOG_INDEX_CHECKPOINT_LINES
-            end_offset = (
-                state.checkpoints[end_checkpoint_index]
-                if end_checkpoint_index < len(state.checkpoints)
-                else state.scan_offset
-            )
-            try:
-                with path.open("rb") as handle:
-                    current = os.fstat(handle.fileno())
-                    current_identity = (int(current.st_dev), int(current.st_ino))
-                    if (
-                        current_identity != state.identity
-                        or int(current.st_size) < state.scan_offset
-                        or not _log_prefix_guards_match(handle, state)
-                    ):
-                        return LogSlice(
-                            lines=[], total=requested, generation=state.generation
-                        )
-                    handle.seek(start_offset)
-                    data = handle.read(max(0, end_offset - start_offset))
-                    if not _log_prefix_guards_match(handle, state):
-                        return LogSlice(
-                            lines=[], total=requested, generation=state.generation
-                        )
-            except OSError:
-                return LogSlice(lines=[], total=requested, generation=state.generation)
-            skip = requested - checkpoint_line
+        checkpoint_index = min(
+            requested // LOG_INDEX_CHECKPOINT_LINES,
+            len(state.checkpoints) - 1,
+        )
+        checkpoint_line = checkpoint_index * LOG_INDEX_CHECKPOINT_LINES
+        start_offset = state.checkpoints[checkpoint_index]
+        end_checkpoint_index = (
+            target_end + LOG_INDEX_CHECKPOINT_LINES - 1
+        ) // LOG_INDEX_CHECKPOINT_LINES
+        end_offset = (
+            state.checkpoints[end_checkpoint_index]
+            if end_checkpoint_index < len(state.checkpoints)
+            else state.scan_offset
+        )
+        try:
+            with path.open("rb") as handle:
+                current = os.fstat(handle.fileno())
+                current_identity = (int(current.st_dev), int(current.st_ino))
+                if (
+                    current_identity != state.identity
+                    or int(current.st_size) < state.scan_offset
+                    or not _log_prefix_guards_match(handle, state)
+                ):
+                    return LogSlice(
+                        lines=[], total=requested, generation=state.generation
+                    )
+                handle.seek(start_offset)
+                data = handle.read(max(0, end_offset - start_offset))
+                if not _log_prefix_guards_match(handle, state):
+                    return LogSlice(
+                        lines=[], total=requested, generation=state.generation
+                    )
+        except OSError:
+            return LogSlice(lines=[], total=requested, generation=state.generation)
+        skip = requested - checkpoint_line
 
         decoded = data.decode("utf-8", errors="replace").splitlines()
+        context = dict(state.progress_checkpoints[checkpoint_index])
+        for offset, line in enumerate(decoded[:skip]):
+            _remember_progress(context, line, checkpoint_line + offset)
         lines = decoded[skip : skip + (target_end - requested)]
-        return LogSlice(lines=lines, total=total, generation=state.generation)
+        return LogSlice(lines=lines, total=total, generation=state.generation,
+                        context=sorted(context.values(), key=lambda record: record["index"]))
 
 
 def read_log_window(
@@ -649,6 +709,7 @@ def read_log_window(
         end=stable_end,
         total=page.total,
         generation=page.generation,
+        context=page.context,
     )
 
 

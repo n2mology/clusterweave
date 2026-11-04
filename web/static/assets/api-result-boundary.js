@@ -14,6 +14,7 @@ export function createApiResultBoundary({
   resultArtifactDescriptor,
   resultUrlShouldStayExternal,
   resultAssetHashSuffix,
+  localCsrfToken = () => '',
 }) {
   function defaultApiBaseUrl() {
     const url = new URL(currentHref());
@@ -44,6 +45,10 @@ export function createApiResultBoundary({
 
   function authHeadersFor(kind, jobId = null) {
     const headers = {};
+    const csrf = localCsrfToken();
+    if (csrf && new URL(apiUrl('api/jobs')).origin === new URL(currentHref()).origin) {
+      headers['X-ClusterWeave-CSRF'] = csrf;
+    }
     if (kind === 'admin') {
       const admin = adminToken();
       if (admin) headers.Authorization = `Bearer ${admin}`;

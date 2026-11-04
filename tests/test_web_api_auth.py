@@ -7,6 +7,7 @@ import io
 import json
 import os
 from contextlib import redirect_stderr
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import sqlite3
 from http.server import ThreadingHTTPServer
@@ -2603,6 +2604,7 @@ ORIGIN
                 "figures/bgc_overlap.svg",
                 "summary/family_atlas_shortlist.md",
                 "antismash/genome_a/index.html",
+                "METHODS.md", "run_metadata.json", "resources.tsv", "CITATIONS.bib", "CITATION.cff",
             },
         )
         for name in names:
@@ -2823,6 +2825,7 @@ ORIGIN
                 archive_names = set(archive.namelist())
             expected_archive_names = {
                 "downloads/public_results_manifest.tsv",
+                "METHODS.md", "run_metadata.json", "resources.tsv", "CITATIONS.bib", "CITATION.cff",
                 *(path.removeprefix(f"{prefix}/") for path in approved),
             }
             self.assertEqual(archive_names, expected_archive_names)
@@ -3393,6 +3396,24 @@ ORIGIN
         self.assertTrue(genome["terminal"])
 
 
+    def test_cache_progress_labels_are_public_projection_without_raw_provenance(self):
+        self.write_job("jobone", "read-one", status="running")
+        job = self.job_store.read_job("jobone")
+        job["taxon_routes"] = [{"genome_id":"Cached", "taxon_group":"bacteria"}]
+        self.job_store.write_job(job)
+        self.job_store.write_logs("jobone", [
+            '[08:00:00] ACCESSION_CACHE genome=Cached stage=annotation_detection outcome=hit',
+            '[08:00:01] GENOME_PROGRESS genome=Cached stage=annotation percent=100 bar=[##########] message="Reused verified annotation and BGC detection"',
+            '[08:00:02] Stage 2/4: running run_bigscape.sh',
+        ])
+        status, payload, _ = self.request("GET", "/api/jobs/jobone?compact=1", headers=self.auth("read-one"))
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["genome_progress"][0]["progress_label"], "CACHED")
+        self.assertEqual(payload["status"], "running")
+        self.assertNotIn("producer_execution", json.dumps(payload["genome_progress"]))
+        self.assertNotIn("logs", payload)
+        self.assertEqual(self.request("GET", "/api/jobs/jobone?compact=1")[0], 404)
+
     def test_download_completion_is_waiting_until_genome_work_starts(self) -> None:
         self.write_job("jobone", "read-one", status="running")
         job = self.job_store.read_job("jobone")
@@ -3679,6 +3700,8 @@ ORIGIN
         self.assertEqual(500, len(tail["lines"]))
         self.assertEqual((249_501, 250_001), (tail["start"], tail["end"]))
         self.assertTrue(tail["has_earlier"])
+        self.assertIn("progress_context", tail)
+        self.assertLessEqual(len(tail["progress_context"]), 10)
         self.assertEqual(appended, tail["lines"][-1])
 
         status, earlier, _ = self.request(
@@ -5016,6 +5039,91 @@ ORIGIN
         self.assertEqual(status, 429)
         self.assertIn("queue is full", payload["detail"])
 
+    def run_simultaneous_admissions(self, requests):
+        barrier = threading.Barrier(len(requests))
+        validate = self.app.validate_runtime_request
+
+        def validated_together(*args):
+            result = validate(*args)
+            barrier.wait(timeout=3)
+            return result
+
+        with mock.patch.object(self.app, "validate_runtime_request", side_effect=validated_together):
+            with ThreadPoolExecutor(max_workers=len(requests)) as pool:
+                futures = [pool.submit(request) for request in requests]
+                return [future.result(timeout=10) for future in futures]
+
+    def test_simultaneous_submissions_share_last_queue_slot(self) -> None:
+        self.app.MAX_QUEUED_JOBS = 1
+        results = self.run_simultaneous_admissions([
+            lambda: self.submit(fields={"project_name": "concurrent-one"}),
+            lambda: self.submit(fields={"project_name": "concurrent-two"}),
+        ])
+        self.assertEqual(sorted(result[0] for result in results), [201, 429])
+        self.assertEqual(self.app.queued_job_count(), 1)
+        self.assertEqual(len(list(self.job_store.QUEUE_DIR.glob("*.json"))), 1)
+        self.assertEqual(len(list(self.job_store.JOBS_DIR.iterdir())), 1)
+        self.assertFalse(list(self.app.UPLOAD_STAGING_DIR.iterdir()))
+
+        job = self.job_store.list_jobs()[0]
+        (self.job_store.QUEUE_DIR / f"{job['id']}.json").unlink()
+        job["status"] = "running"
+        self.job_store.write_job(job)
+        self.assertEqual(self.submit()[0], 201)
+        self.assertEqual(self.app.queued_job_count(), 1)
+
+    def test_rerun_and_submission_share_last_queue_slot(self) -> None:
+        self.app.MAX_QUEUED_JOBS = 1
+        job = self.write_job("rerun-capacity", "owner")
+        before = self.job_store.job_meta_path(job["id"]).read_bytes()
+        logs = self.job_store.job_logs_path(job["id"]).read_bytes()
+        results = self.run_simultaneous_admissions([
+            lambda: self.submit(),
+            lambda: self.request("POST", "/api/jobs/rerun-capacity/rerun", b'{"run_summary":true}',
+                                 self.auth("admin-secret")),
+        ])
+        self.assertEqual(sum(result[0] in (201, 202) for result in results), 1)
+        self.assertEqual(sum(result[0] == 429 for result in results), 1)
+        self.assertEqual(self.app.queued_job_count(), 1)
+        self.assertEqual(len(list(self.job_store.QUEUE_DIR.glob("*.json"))), 1)
+        if results[1][0] == 429:
+            self.assertEqual(self.job_store.job_meta_path(job["id"]).read_bytes(), before)
+            self.assertEqual(self.job_store.job_logs_path(job["id"]).read_bytes(), logs)
+        else:
+            self.assertEqual(len(list(self.job_store.JOBS_DIR.iterdir())), 1)
+
+    def test_simultaneous_reruns_publish_one_attempt(self) -> None:
+        self.app.MAX_QUEUED_JOBS = 5
+        self.write_job("rerun-once", "owner")
+        def rerun():
+            return self.request("POST", "/api/jobs/rerun-once/rerun", b'{"run_summary":true}', self.auth("admin-secret"))
+        results = self.run_simultaneous_admissions([rerun, rerun])
+        self.assertEqual(sorted(result[0] for result in results), [202, 409])
+        self.assertEqual(self.job_store.read_job("rerun-once")["rerun_count"], 1)
+        lines = self.job_store.read_logs("rerun-once")
+        self.assertEqual(sum("Re-queued existing job" in line for line in lines), 1)
+        self.assertEqual(len(list(self.job_store.QUEUE_DIR.glob("*.json"))), 1)
+
+    def test_full_queue_rerun_preserves_existing_job_and_logs(self) -> None:
+        self.app.MAX_QUEUED_JOBS = 1
+        self.write_job("occupant", "other-owner", status="pending")
+        self.write_job("rerun-denied", "owner")
+        paths = [self.job_store.job_meta_path("rerun-denied"), self.job_store.job_logs_path("rerun-denied")]
+        before = [path.read_bytes() for path in paths]
+        status, payload, _ = self.request("POST", "/api/jobs/rerun-denied/rerun", b'{"run_summary":true}', self.auth("admin-secret"))
+        self.assertEqual(status, 429)
+        self.assertIn("queue is full", payload["detail"])
+        self.assertEqual([path.read_bytes() for path in paths], before)
+        self.assertFalse((self.job_store.QUEUE_DIR / "rerun-denied.json").exists())
+
+    def test_local_admission_preserves_unlimited_queue_policy(self) -> None:
+        self.app.MAX_QUEUED_JOBS = 0
+        with mock.patch.object(self.app, "PUBLIC_MODE", False):
+            self.assertEqual(self.submit()[0], 201)
+            self.write_job("local-rerun", "owner")
+            self.assertEqual(self.request("POST", "/api/jobs/local-rerun/rerun", b'{"run_summary":true}', self.auth("admin-secret"))[0], 202)
+        self.assertEqual(self.app.queued_job_count(), 2)
+
     def test_oversized_multipart_body_is_rejected_before_parsing(self) -> None:
         maximum = (
             self.app.MAX_UPLOAD_TOTAL_MB + self.app.MAX_UPLOAD_BODY_OVERHEAD_MB
@@ -5669,6 +5777,167 @@ ORIGIN
         self.assertIsNotNone(job)
         assert job is not None
         self.assertEqual(job["settings"]["env_overrides"], "SECRET=1")
+
+
+    def test_cache_catalog_requires_explicit_admin_in_local_and_hosted_modes(self):
+        self.write_job("cacheone", "owner-one")
+        body = json.dumps({"accessions": ["GCF_999999999.1"]}).encode()
+        for public in (False, True):
+            with self.subTest(public=public), mock.patch.object(self.app, "PUBLIC_MODE", public):
+                for credential in (None, "submit-secret", "owner-one", "wrong-secret"):
+                    headers = {"Content-Type": "application/json"}
+                    if credential:
+                        headers.update(self.auth(credential))
+                    with mock.patch.object(self.app.Catalog, "availability") as lookup:
+                        status, _, _ = self.request("POST", "/api/cache/availability", body, headers)
+                    self.assertIn(status, (401, 403))
+                    lookup.assert_not_called()
+
+    def test_cache_catalog_reports_legacy_candidates_without_job_context(self):
+        path = self.app.catalog_path(data_dir=Path(self.tmp.name))
+        self.app.Catalog(path).reconcile("a" * 32, [], legacy=[("GCF_999999999.1", "detection")])
+        body = json.dumps({"accessions": ["GCF_999999999.1", "GCF_999999999.2"]}).encode()
+        headers = {"Content-Type": "application/json", **self.auth("admin-secret")}
+        status, value, response_headers = self.request("POST", "/api/cache/availability", body, headers)
+        self.assertEqual(status, 200)
+        self.assertTrue(value["advisory"])
+        self.assertEqual([r["status"] for r in value["results"]], ["legacy_unverified", "absent"])
+        self.assertEqual(response_headers["Cache-Control"], "no-store")
+        self.assertNotIn(self.tmp.name, json.dumps(value))
+
+    def test_cache_catalog_queries_are_bounded_and_cannot_override_policy(self):
+        for value in ({"accessions": ["GCF_999999999.1"] * 51},
+                      {"accessions": ["GCF_999999999"]},
+                      {"accessions": ["GCF_999999999.1"], "root": "/private"},
+                      {"accessions": ["GCF_999999999.1"], "keys": {"GCF_999999999.1": "not-a-digest"}},
+                      {"accessions": ["GCF_999999999.1"], "stage": []},
+                      {"accessions": ["GCF_999999999.1"], "stage": "plant"}):
+            status, _, _ = self.request("POST", "/api/cache/availability", json.dumps(value).encode(),
+                                        {"Content-Type": "application/json", **self.auth("admin-secret")})
+            self.assertEqual(status, 400)
+
+    def test_missing_cache_catalog_is_unknown_not_a_confirmed_miss(self):
+        status, value, _ = self.request("POST", "/api/cache/availability",
+                                        json.dumps({"accessions": ["GCF_999999999.1"]}).encode(),
+                                        {"Content-Type": "application/json", **self.auth("admin-secret")})
+        self.assertEqual(status, 503)
+        self.assertEqual(value["status"], "unknown")
+        self.assertFalse(self.app.catalog_path(data_dir=Path(self.tmp.name)).exists())
+
+    def test_cache_owner_provenance_is_scoped_and_sanitized_in_both_modes(self):
+        job = self.write_job("cacheone", "owner-one")
+        self.write_job("cachetwo", "owner-two")
+        job["result_root"] = "results"; self.job_store.write_job(job)
+        public_id = self.fixture_public_run_id("cacheone")
+        directory = self.job_store.job_dir("cacheone") / "results/reproducibility/accession_cache"
+        directory.mkdir(parents=True)
+        record = {"identity": {"contract": "accession-detection-v2", "accession": "GCF_999999999.1"},
+                  "outcome": "hit", "reason": "verified", "population": "not-attempted",
+                  "entry_manifest": {"secret": "private-source-job"}, "producer_execution": {"path": "/private/path"}}
+        (directory / "genome.detection.json").write_text(json.dumps(record))
+        route = f"/api/results/{public_id}/cache"
+        for public in (False, True):
+            with self.subTest(public=public), mock.patch.object(self.app, "PUBLIC_MODE", public):
+                for credential in (None, "owner-two", "submit-secret"):
+                    status, _, _ = self.request("GET", route, headers=self.auth(credential) if credential else {})
+                    self.assertEqual(status, 404)
+                for credential in ("owner-one", "admin-secret"):
+                    status, value, headers = self.request("GET", route, headers=self.auth(credential))
+                    self.assertEqual(status, 200)
+                    self.assertEqual(value["scope"], "this_job")
+                    self.assertEqual(value["records"][0]["outcome"], "hit")
+                    self.assertEqual(headers["Cache-Control"], "no-store")
+                    for private in ("private-source-job", "/private/path", "entry_manifest", "producer_execution", "cacheone", "owner-one"):
+                        self.assertNotIn(private, json.dumps(value))
+
+    def test_cache_metadata_rate_limit_does_not_reveal_catalog(self):
+        with mock.patch.object(self.app.CACHE_REQUEST_BUDGET, "take", return_value=False):
+            with mock.patch.object(self.app.Catalog, "availability") as lookup:
+                status, _, _ = self.request("POST", "/api/cache/availability",
+                                            json.dumps({"accessions": ["GCF_999999999.1"]}).encode(),
+                                            {"Content-Type": "application/json", **self.auth("admin-secret")})
+            self.assertEqual(status, 429)
+            lookup.assert_not_called()
+
+    def test_cache_catalog_location_cannot_be_overridden_by_a_job(self):
+        with mock.patch.object(self.app, "ALLOW_ENV_OVERRIDES", True):
+            status, value, _ = self.submit(fields={"env_overrides": "DATA_DIR=/tmp/job-choice"}, token="admin-secret")
+        self.assertEqual(status, 400)
+        self.assertIn("DATA_DIR", value["detail"])
+
+    def test_local_browser_pairing_survives_session_manager_restart_and_revokes(self):
+        from local_owner import LocalOwner
+        origin = f"http://{self.base_host}:{self.base_port}"
+        owner = LocalOwner(Path(self.tmp.name), profile="local-owner", origin=origin, secret="x" * 64)
+        self.write_job("localone", "owner-one")
+        with mock.patch.object(self.app, "LOCAL_OWNER", owner):
+            self.assertEqual(self.request("GET", "/api/jobs")[0], 401)
+            code, value, headers = self.request("POST", "/api/local/session", b"{}",
+                {"Origin": origin, "Content-Type": "application/json"})
+            self.assertEqual(code, 200)
+            cookie = headers["Set-Cookie"].split(";", 1)[0]
+            self.assertIn("HttpOnly", headers["Set-Cookie"])
+            self.assertIn("SameSite=Strict", headers["Set-Cookie"])
+            self.assertNotIn("admin-secret", json.dumps(value) + headers["Set-Cookie"])
+            csrf = value["csrf_token"]
+        restarted = LocalOwner(Path(self.tmp.name), profile="local-owner", origin=origin, secret="x" * 64)
+        with mock.patch.object(self.app, "LOCAL_OWNER", restarted):
+            code, jobs, _ = self.request("GET", "/api/jobs", headers={"Cookie": cookie})
+            self.assertEqual(code, 200); self.assertEqual(jobs[0]["id"], "localone")
+            code, _, _ = self.request("DELETE", "/api/local/session", headers={"Cookie": cookie})
+            self.assertEqual(code, 403)
+            code, _, headers = self.request("DELETE", "/api/local/session", headers={"Cookie": cookie,
+                "Origin": origin, "X-ClusterWeave-CSRF": csrf})
+            self.assertEqual(code, 200); self.assertIn("Max-Age=0", headers["Set-Cookie"])
+            self.assertEqual(self.request("GET", "/api/jobs", headers={"Cookie": cookie})[0], 401)
+
+    def test_local_browser_blocks_cross_origin_pairing_and_dns_rebinding(self):
+        from local_owner import LocalOwner
+        origin = f"http://{self.base_host}:{self.base_port}"
+        with mock.patch.object(self.app, "LOCAL_OWNER", LocalOwner(Path(self.tmp.name), profile="local-owner", origin=origin, secret="x" * 64)):
+            for headers in ({"Origin": "https://untrusted.invalid"}, {"Host": "untrusted.invalid"},
+                            {"Origin": "null"}, {"Origin": origin, "Sec-Fetch-Site": "cross-site"}, {}):
+                code, _, _ = self.request("POST", "/api/local/session", b"{}", {"Content-Type": "application/json", **headers})
+                self.assertEqual(code, 403)
+            self.assertEqual(self.request("GET", "/api/jobs", headers={"Host": "untrusted.invalid"})[0], 403)
+
+    def test_hosted_profile_never_pairs_local_browser(self):
+        code, value, _ = self.request("GET", "/api/local/session")
+        self.assertEqual(code, 200); self.assertFalse(value["enabled"])
+        code, _, headers = self.request("POST", "/api/local/session", b"{}",
+            {"Origin": f"http://{self.base_host}:{self.base_port}", "Content-Type": "application/json"})
+        self.assertEqual(code, 403); self.assertNotIn("Set-Cookie", headers)
+        self.assertEqual(self.request("GET", "/api/jobs")[0], 401)
+
+    def test_local_healthcheck_uses_public_hostname_with_internal_listener_port(self):
+        import subprocess
+        from local_owner import LocalOwner
+        origin = "http://127.0.0.1:8080"
+        owner = LocalOwner(Path(self.tmp.name), profile="local-owner", origin=origin, secret="x" * 64)
+        with mock.patch.object(self.app, "LOCAL_OWNER", owner):
+            self.assertEqual(self.request("GET", "/")[0], 403)
+            script = WEB_DIR / "healthcheck.py"
+            if not script.is_file():
+                script = Path(self.app.__file__).with_name("healthcheck.py")
+            result = subprocess.run([sys.executable, "-B", str(script)],
+                env=dict(os.environ, PORT=str(self.base_port), CLUSTERWEAVE_ACCESS_PROFILE="local-owner", CLUSTERWEAVE_PUBLIC_BASE_URL=origin),
+                capture_output=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr.decode())
+
+    def test_local_session_requires_csrf_on_job_mutation_and_authenticates_strict_cache_routes(self):
+        from local_owner import LocalOwner
+        origin = f"http://{self.base_host}:{self.base_port}"
+        with mock.patch.object(self.app, "LOCAL_OWNER", LocalOwner(Path(self.tmp.name), profile="local-owner", origin=origin, secret="x" * 64)):
+            job = self.write_job("localone", "owner-one")
+            code, value, headers = self.request("POST", "/api/local/session", b"{}", {"Origin": origin, "Content-Type": "application/json"})
+            cookie = headers["Set-Cookie"].split(";", 1)[0]
+            self.assertEqual(self.request("DELETE", "/api/jobs/localone", headers={"Cookie": cookie})[0], 403)
+            public_id = self.fixture_public_run_id("localone")
+            self.assertEqual(self.request("GET", f"/api/results/{public_id}/cache", headers={"Cookie": cookie})[0], 200)
+            query = json.dumps({"accessions": ["GCF_999999999.1"]}).encode()
+            code, _, _ = self.request("POST", "/api/cache/availability", query,
+                {"Cookie": cookie, "Origin": origin, "Content-Type": "application/json", "X-ClusterWeave-CSRF": value["csrf_token"]})
+            self.assertEqual(code, 503)  # Authenticated, but no catalog exists in this fixture.
 
 
 if __name__ == "__main__":

@@ -199,7 +199,7 @@ normalize_clinker_selection_settings() {
       CLINKER_MODE="${normalized_clinker_mode}"
       ;;
     docker|local|runtime|singularity|apptainer)
-      warn "CLINKER_MODE=${CLINKER_MODE} is a runtime backend value; using CLINKER_MODE=auto for panel selection."
+      log "CLINKER_MODE=${CLINKER_MODE} is a runtime backend value; using CLINKER_MODE=auto for panel selection."
       CLINKER_MODE="auto"
       ;;
     *)
@@ -213,7 +213,7 @@ normalize_clinker_selection_settings() {
       PANEL_TARGET_SET="${normalized_panel_target_set}"
       ;;
     atlas)
-      warn "PANEL_TARGET_SET=${PANEL_TARGET_SET} is a legacy atlas selector; using PANEL_TARGET_SET=both. Use CLINKER_MODE=atlas for atlas-only runs."
+      log "PANEL_TARGET_SET=${PANEL_TARGET_SET} is a legacy atlas selector; using PANEL_TARGET_SET=both. Use CLINKER_MODE=atlas for atlas-only runs."
       PANEL_TARGET_SET="both"
       ;;
     *)
@@ -847,6 +847,18 @@ if [[ "${RUN_CLINKER}" == "1" ]]; then
     log "Using clinker container via ${CLINKER_ENGINE}: ${CLINKER_SIF_PATH}"
     "${CLINKER_ENGINE}" exec "${CLINKER_SIF_PATH}" clinker --help >/dev/null 2>&1 \
       || die "Clinker container sanity check failed"
+  fi
+  if [[ -f "${PROJECT_DIR}/web/tool_runtime.py" ]]; then
+    observation_args=(--output "${RESULTS_ROOT}/reproducibility/tool_observations" --tool clinker)
+    if command -v clinker >/dev/null 2>&1 && [[ "${PREFER_CLINKER_CONTAINER}" != "1" ]]; then
+      observation_args+=(--backend native)
+    elif [[ "${CLINKER_USE_DOCKER_IMAGE}" == "1" ]]; then
+      observation_args+=(--backend docker --runtime "${CLINKER_DOCKER_IMAGE}")
+    else
+      observation_args+=(--backend "${CLINKER_ENGINE}" --runtime "${CLINKER_SIF_PATH}")
+    fi
+    observed_image="$("${PYTHON_BIN}" "${PROJECT_DIR}/web/tool_runtime.py" "${observation_args[@]}" || true)"
+    [[ "${observed_image}" != sha256:* ]] || export CLINKER_DOCKER_IMAGE="${observed_image}"
   fi
   for track in "${TRACKS[@]}"; do
     run_track "${track}"

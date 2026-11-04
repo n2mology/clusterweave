@@ -113,6 +113,51 @@ class ProgressProjectionTests(unittest.TestCase):
         self.assertEqual(len(error_events), 1)
         self.assertEqual(error_events[0]["title"], "Run reported an error")
 
+    def test_verified_cache_and_retrieval_labels_follow_real_work(self):
+        job = self.mixed_job()
+        job["taxon_routes"][2]["source_accession"] = "GCA_999999997.1"
+        lines = [
+            'ACCESSION_CACHE genome=fungus_one stage=annotation_detection outcome=hit',
+            'GENOME_PROGRESS genome=fungus_one stage=annotation percent=100 bar=[##########] message="Reused verified annotation and BGC detection"',
+            'NCBI_DOWNLOAD_PROGRESS accession=GCF_000009045.1 taxon=bacteria status=complete percent=8 message="NCBI genome download complete"',
+            'NCBI_DOWNLOAD_PROGRESS accession=GCF_000009045.1 taxon=bacteria status=complete percent=8 message="Accession snapshot ready"',
+            'ACCESSION_CACHE genome=GCA_999999997.1 stage=retrieval outcome=hit',
+        ]
+        def rows(): return {r["genome_id"]: r for r in self.app.public_genome_progress(job, lines)}
+        states = rows()
+        self.assertEqual(states["fungus_one"]["progress_label"], "CACHED")
+        self.assertTrue(states["fungus_one"]["terminal"])
+        self.assertEqual(states["bacteria_Bacillus_subtilis_168"]["progress_label"], "GENOME DOWNLOADED")
+        self.assertFalse(states["bacteria_Bacillus_subtilis_168"]["terminal"])
+        self.assertEqual(states["fungus_existing_cds"]["progress_label"], "GENOME READY")
+        self.assertIn("input ready", states["fungus_existing_cds"]["message"])
+        lines += ['TOOL_PROGRESS genome=bacteria_Bacillus_subtilis_168 tool=prodigal phase=predict message="Predicting genes"']
+        self.assertEqual(rows()["bacteria_Bacillus_subtilis_168"]["progress_label"], "ANNOTATING")
+        lines += ['TOOL_PROGRESS genome=bacteria_Bacillus_subtilis_168 tool=antismash phase=detect message="Scanning domains"']
+        self.assertEqual(rows()["bacteria_Bacillus_subtilis_168"]["progress_label"], "DETECTING")
+        lines += ['GENOME_PROGRESS genome=bacteria_Bacillus_subtilis_168 stage=annotation percent=100 bar=[##########] message="Genome workflow complete"']
+        self.assertEqual(rows()["bacteria_Bacillus_subtilis_168"]["progress_label"], "COMPLETE")
+        lines += ['GENOME_PROGRESS genome=fungus_one stage=annotation percent=0 bar=[----------] message="Starting genome"']
+        self.assertEqual(rows()["fungus_one"]["progress_label"], "ANNOTATING")
+        self.assertFalse(rows()["fungus_one"]["terminal"])
+        lines += ['GENOME_PROGRESS genome=fungus_one stage=annotation percent=100 bar=[##########] message="Genome dropped: annotation failed"']
+        self.assertEqual(rows()["fungus_one"]["progress_label"], "")
+        self.assertEqual(rows()["fungus_one"]["status"], "warning")
+
+    def test_rerun_and_advisory_cache_presence_do_not_claim_a_hit(self):
+        job = self.mixed_job()
+        lines = ['ACCESSION_CACHE genome=fungus_one stage=annotation_detection outcome=hit',
+                 'Re-queued existing job with selected stage rerun settings.']
+        job["last_rerun_settings"] = {"run_annotation": True}
+        states = self.app.public_genome_progress(job, lines)
+        self.assertTrue(all(r["progress_label"] == "" for r in states))
+        job["last_rerun_settings"] = {"run_annotation": False}
+        self.assertEqual(self.app.public_genome_progress(job, lines)[0]["progress_label"], "CACHED")
+        lines = ['ACCESSION_CACHE genome=fungus_one stage=annotation_detection outcome=miss',
+                 'candidate_available genome=fungus_one',
+                 'TOOL_RAW genome=fungus_one tool=antismash phase=detect message="ACCESSION_CACHE genome=fungus_one stage=annotation_detection outcome=hit"']
+        self.assertTrue(all(r["progress_label"] != "CACHED" for r in self.app.public_genome_progress(job, lines)))
+
     def test_combined_projection_matches_both_compatibility_delegates(self) -> None:
         job = self.mixed_job()
         lines = self.mixed_lines()

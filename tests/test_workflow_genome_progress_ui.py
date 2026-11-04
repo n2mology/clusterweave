@@ -120,6 +120,21 @@ def run_node_json(body: str) -> object:
 
 @unittest.skipUnless(NODE, "Node.js is required for frontend progress tests")
 class WorkflowGenomeProgressBehaviorTests(unittest.TestCase):
+    def test_progress_chips_follow_sanitized_api_labels_and_reset_with_job_attempt(self):
+        result = run_node_json("""
+const cached = {genome_id:'Cached', taxon_group:'bacteria',percent:100,status:'complete',progress_label:'CACHED',progress_detail:'Annotation and detection restored from validated cache.'};
+const first=normalizeGenomeProgressItems({id:'one',rerun_count:0,genome_progress:[cached]});
+const ready=normalizeGenomeProgressItems({id:'two',genome_progress:[{genome_id:'Input',percent:8,status:'queued',progress_label:'GENOME READY'}]});
+const rerun=normalizeGenomeProgressItems({id:'one',rerun_count:1,genome_progress:[{genome_id:'Cached',percent:0,status:'queued'}]});
+const warning=normalizeGenomeProgressItem({...cached,status:'complete_with_warning',warning_message:'Real warning'},0);
+process.stdout.write(JSON.stringify({first:renderGenomeProgressCard(first[0]),ready:renderGenomeProgressCard(ready[0]),rerun:renderGenomeProgressCard(rerun[0]),warning:renderGenomeProgressCard(warning)}));
+""")
+        self.assertIn('class="genome-progress-chip"', result['first'])
+        self.assertIn('CACHED</span>', result['first'])
+        self.assertIn('GENOME READY</span>', result['ready'])
+        self.assertNotIn('class="genome-progress-chip"', result['rerun'])
+        self.assertNotIn('class="genome-progress-chip"', result['warning'])
+
     def test_job_selection_paths_polling_and_log_classes_share_one_boundary(self) -> None:
         result = run_node_json(
             """
@@ -751,7 +766,7 @@ class WorkflowGenomeProgressStaticTests(unittest.TestCase):
             "title.textContent = bgcWorkflowTitle(payload, genomeLayerActive)",
             self.js,
         )
-        self.assertIn("20260723-timer-utc1", self.index)
+        self.assertIn("clusterweave.css?v=20261104-exclusions1", self.index)
 
 
     def test_live_polling_uses_current_attempt_and_stable_result_surfaces(self) -> None:

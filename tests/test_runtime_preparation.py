@@ -135,6 +135,27 @@ class RuntimePreparationTests(unittest.TestCase):
             prepare_runtime.NPLINKER_VERSION + "\n", encoding="utf-8"
         )
 
+    def test_ncbi_readiness_uses_local_version_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            env = self.local_env(root)
+            ncbi = Path(env["NCBI_CLI_ROOT"])
+            for name, expected in (("datasets", "--version"), ("dataformat", "version")):
+                program = (
+                    "#!/usr/bin/env python3\nimport sys\n"
+                    f"if sys.argv[1:] != [{expected!r}]:\n"
+                    "    print('unexpected network-dependent version probe', file=sys.stderr)\n"
+                    "    raise SystemExit(78)\n"
+                    "print('local client version')\n"
+                )
+                self.write_executable(ncbi / name, program.encode())
+            preparer = prepare_runtime.RuntimePreparer(env=env)
+            preparer._ncbi_cli(mutate=False)
+            self.assertEqual(preparer._assets["ncbi_datasets"]["sha256"],
+                             prepare_runtime.sha256_file(ncbi / "datasets"))
+            self.assertEqual(preparer._assets["ncbi_dataformat"]["sha256"],
+                             prepare_runtime.sha256_file(ncbi / "dataformat"))
+
     def test_local_profile_requires_the_explicit_socket_gate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             env = self.local_env(Path(tmp))

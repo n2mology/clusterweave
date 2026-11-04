@@ -16,6 +16,11 @@ from pathlib import Path
 from typing import Any
 
 try:
+    from cache_status import refresh_catalog, catalog_jobs
+except ImportError:  # pragma: no cover - package-style imports
+    from .cache_status import refresh_catalog, catalog_jobs
+
+try:
     from job_store import (
         DATA_DIR,
         QUEUE_DIR,
@@ -1117,7 +1122,15 @@ async def worker_loop() -> None:
     active: dict[str, asyncio.Task[None]] = {}
     cancelling: set[str] = set()
     next_pending_recovery = time.monotonic() + PENDING_RECOVERY_SECONDS
+    next_catalog_refresh = 0.0
     while True:
+        if os.environ.get("CLUSTERWEAVE_ACCESSION_CACHE_ROOT") and time.monotonic() >= next_catalog_refresh:
+            try:
+                await asyncio.to_thread(lambda: refresh_catalog(catalog_jobs(DATA_DIR), job_dir))
+            except Exception:
+                # Metadata availability must not stop scientific processing.
+                print("Accession catalog refresh unavailable", flush=True)
+            next_catalog_refresh = time.monotonic() + 30
         if time.monotonic() >= next_pending_recovery:
             recover_stranded_pending_jobs()
             next_pending_recovery = time.monotonic() + PENDING_RECOVERY_SECONDS

@@ -338,6 +338,9 @@ if [[ "${RUN_SUMMARY_FIGURES}" == "1" ]] && R_BIN="$(resolve_r_bin)"; then
     PROJECT_DIR_FOR_R="$(native_path_for_windows_exe "${PROJECT_DIR}")"
   fi
 
+  if [[ -f "${PROJECT_DIR}/web/tool_runtime.py" ]]; then
+    python3 "${PROJECT_DIR}/web/tool_runtime.py" --output "${RESULTS_ROOT}/reproducibility/tool_observations" --tool R --executable "${R_BIN}" >/dev/null || true
+  fi
   log "Rendering summary figures for ${PROJECT_NAME}"
   if ! "${R_BIN}" "${RENDER_FIGURES_R_ARG}" \
     --project-root "${PROJECT_DIR_FOR_R}" \
@@ -591,6 +594,9 @@ if [[ "${RUN_TAXON_TREE_FIGURE}" == "1" ]]; then
     [[ -s "${BACTERIAL_CROSSWALK_TSV}" ]] && tree_args+=(--crosswalk "${BACTERIAL_CROSSWALK_TSV}")
     if "${PYTHON_BIN}" -c 'import cairosvg' >/dev/null 2>&1; then
       tree_args+=(--png)
+      if [[ -f "${PROJECT_DIR}/web/tool_runtime.py" ]]; then
+        "${PYTHON_BIN}" "${PROJECT_DIR}/web/tool_runtime.py" --output "${RESULTS_ROOT}/reproducibility/tool_observations" --tool CairoSVG --python "${PYTHON_BIN}" >/dev/null || true
+      fi
     fi
     log "Rendering taxonomy/BGC/GCF context tree for ${PROJECT_NAME}"
     tree_started="${SECONDS}"
@@ -611,4 +617,7 @@ else
 fi
 
 cleanup_redundant_figure_outputs "${BIGSCAPE_NETWORK_OUTPUT_DIR}"
+if [[ -n "${PYTHON_BIN:-}" && -f "${PROJECT_DIR}/web/tool_runtime.py" ]]; then
+  "${PYTHON_BIN}" "${PROJECT_DIR}/web/tool_runtime.py" --output "${RESULTS_ROOT}/reproducibility/tool_observations" --tool Python --python "${PYTHON_BIN}" >/dev/null || true
+fi
 log "run_figures.sh complete."

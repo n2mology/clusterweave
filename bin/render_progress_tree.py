@@ -106,6 +106,10 @@ def _state_from_patterns(
     *,
     allow_complete: bool,
 ) -> tuple[str | None, bool]:
+    failure_count = re.search(r"\bfailed=(\d+)\b", message, re.I)
+    if failure_count and int(failure_count[1]) > 0:
+        return "failed", True
+    message = re.sub(r"\b(?:failed|dropped)=0+\b", "", message, flags=re.I)
     for rule in contract.get("state_patterns") or []:
         state = str(rule.get("state") or "")
         if state == "complete" and not allow_complete:
@@ -171,7 +175,7 @@ def classify_progress_line(
             event["tool"] = normalize_tool(mapped)
             if event["tool"]:
                 event["node_level"] = "tool"
-        raw_percent = values.get("percentage", "")
+        raw_percent = values.get("percentage", rule.get("percentage", ""))
         if str(raw_percent).isdigit():
             event["percentage"] = min(100, max(0, int(raw_percent)))
         raw_elapsed = values.get("elapsed_activity", "")
@@ -187,7 +191,7 @@ def classify_progress_line(
             f"{raw} {event['display_message']}",
             allow_complete=allow_complete,
         )
-        if pattern_state and pattern_state != "complete":
+        if pattern_state and pattern_state != "complete" and event["kind"] != "genome_excluded":
             event["state"] = pattern_state
             event["permanent"] = event["permanent"] or pattern_permanent
         if (
@@ -199,6 +203,9 @@ def classify_progress_line(
             event["permanent"] = True
         if event["state"] in TERMINAL_STATES:
             event["permanent"] = True
+        code = rule.get("progress_status") or ("complete" if event["state"] == "complete" and rule.get("progress_status_by_tool") else (rule.get("progress_status_by_tool") or {}).get(str(values.get("record_stage") or values.get("tool") or event["tool"]).lower()))
+        event["progress_label"] = (contract.get("progress_statuses", {}).get(code) or {}).get("label", "")
+        event["preserve_progress_status"] = bool(rule.get("preserve_progress_status"))
         return event
 
     for rule in contract.get("stage_markers") or []:
@@ -280,6 +287,7 @@ class TreeNode:
     raw_index: int = -1
     order: int = 0
     parent_key: str = ""
+    progress_label: str = ""
 
 
 @dataclass
@@ -368,6 +376,8 @@ class ProgressTreeModel:
         stage_node = self._ensure_stage(stage)
         if event.get("stage_transition"):
             self.current_stage = stage
+        if event.get("stage_transition") and event.get("state") == "running" and stage_node.state in TERMINAL_STATES:
+            self._reset_stage(stage)
         if event.get("state") == "rerun":
             self._reset_stage(stage)
             self._append_permanent_event(event)
@@ -395,6 +405,15 @@ class ProgressTreeModel:
             self.next_order += 1
             self.nodes[key] = node
 
+        if event.get("kind") == "genome_progress" and event.get("node_level") == "genome" and event.get("percentage") == 0:
+            node.state = "running"
+            node.progress_label = ""
+            if stage_node.state in TERMINAL_STATES:
+                stage_node.state = "running"
+                stage_node.percentage = None
+                stage_node.message = "Running"
+            for child_key in [k for k, child in self.nodes.items() if child.parent_key == node.key]:
+                self.nodes.pop(child_key)
         incoming_state = str(event.get("state") or "running")
         if stage_node.state in TERMINAL_STATES and incoming_state == "running":
             incoming_state = stage_node.state
@@ -402,6 +421,11 @@ class ProgressTreeModel:
             return
         previous_message = node.message
         node.state = incoming_state
+        label = str(event.get("progress_label") or "")
+        if incoming_state in {"failed", "warning", "warning_terminal", "skipped"}:
+            node.progress_label = ""
+        elif not (event.get("preserve_progress_status") and node.progress_label) and not (node.progress_label == "CACHED" and incoming_state == "complete"):
+            node.progress_label = label
         if event.get("percentage") is not None:
             node.percentage = int(event["percentage"])
         display_message = str(event.get("display_message") or "").strip()
@@ -411,6 +435,11 @@ class ProgressTreeModel:
         if event.get("elapsed_activity") is not None:
             node.elapsed = int(event["elapsed_activity"])
         node.raw_index = int(event.get("canonical_raw_line_index") or 0)
+
+        if node.level == "tool" and node.parent_key and incoming_state == "running" and node.progress_label:
+            parent = self.nodes.get(node.parent_key)
+            if parent and parent.state not in TERMINAL_STATES:
+                parent.progress_label = node.progress_label
 
         if (
             event.get("kind") == "download"
@@ -424,6 +453,7 @@ class ProgressTreeModel:
                 parent.percentage = node.percentage
                 parent.message = node.message
                 parent.raw_index = node.raw_index
+                parent.progress_label = node.progress_label
 
         if node.level == "stage" and incoming_state in TERMINAL_STATES:
             stage_node.state = incoming_state
@@ -438,6 +468,8 @@ class ProgressTreeModel:
                     child.state = incoming_state
                     child.percentage = 100 if incoming_state == "complete" else None
                     child.message = node.message
+                    if child.progress_label in {"ANNOTATING", "DETECTING"}:
+                        child.progress_label = "COMPLETE" if incoming_state == "complete" else ""
 
     def _append_permanent_event(self, event: dict[str, Any]) -> None:
         raw_index = int(event.get("canonical_raw_line_index") or 0)
@@ -545,12 +577,15 @@ def progress_status(node: TreeNode) -> str:
         "waiting": "Waiting",
         "running": node.message or "Running",
     }
-    label = state_labels.get(node.state, node.message or "Running")
+    progress_label = node.progress_label if node.level != "tool" or node.progress_label in {"GENOME DOWNLOADED", "GENOME READY"} else ""
+    label = progress_label or state_labels.get(node.state, node.message or "Running")
+    if node.level == "genome" and node.message.startswith("Excluded from detection and downstream analysis"):
+        label = node.message
     elapsed = format_elapsed(node.elapsed)
     if elapsed and elapsed.lower() not in label.lower():
         label = f"{label} · {elapsed}"
     if node.state == "complete":
-        return "[##########] 100% - Complete"
+        return "[##########] 100% - " + (progress_label or "Complete")
     if node.state == "skipped":
         return "[----------]   -- - Skipped"
     if node.percentage is not None:

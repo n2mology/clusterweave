@@ -7,7 +7,7 @@
 <meta name="robots" content="index, follow" />
 <title>ClusterWeave</title>
 <link rel="icon" href="/favicon.ico?v=20260722-ui-colors" type="image/x-icon" sizes="16x16 32x32 48x48 64x64 128x128 256x256">
-<link rel="stylesheet" href="assets/clusterweave.css?v=20260723-timer-utc1-citation-align1">
+<link rel="stylesheet" href="assets/clusterweave.css?v=20261104-exclusions1">
 <link rel="stylesheet" href="assets/progress-tree.css?v=20260730-stage-tree1">
 <meta name="clusterweave-game-asset" content="assets/clusterweave-game.css?v=20260721-play-centered2" data-kind="style">
 <meta name="clusterweave-game-asset" content="assets/clusterweave-game-content.js?v=20260714-runner6" data-kind="script">
@@ -183,6 +183,11 @@
 
             <div class="entry-panel" id="entry-panel-existing" role="tabpanel" aria-labelledby="entry-tab-existing" hidden>
               <h2>Existing results</h2>
+              <div class="opened-runs" id="local-jobs-panel" hidden>
+                <label for="local-jobs-select">Jobs on this local instance</label>
+                <select id="local-jobs-select" onchange="loadSelectedLocalRun()"></select>
+                <button class="brutal-button secondary" type="button" onclick="forgetLocalBrowser()">Forget browser access</button>
+              </div>
               <div class="lookup-grid">
                 <div class="lookup-box">
                   <label for="result-link-input">Result link or job ID</label>
@@ -317,12 +322,13 @@
             </div>
             <div class="stage-stack bgc-stage-strip" id="bgc-stage-strip" aria-label="BGC workflow stage status"></div>
           </div>
-          <div class="failure-note" id="failure-note">Compare stage failed validation. Keep workflow central until the reviewer resolves input or rerun policy.</div>
+          <div class="failure-note" id="failure-note">The workflow could not complete. Review the reported error before retrying.</div>
         </div>
       </section>
 
       <aside class="module results-panel" id="results-card" tabindex="-1" aria-label="Result blocks">
         <div class="module-head"><strong>Result blocks</strong><span class="results-run-state"><time class="results-job-runtime" id="results-job-runtime" aria-label="Total job runtime" hidden></time><span id="results-status">Token view</span></span></div>
+        <p class="genome-exclusion-notice" id="genome-exclusion-notice" role="status" aria-live="polite" hidden></p>
         <div class="module-body">
           <div class="clusterweave-results-heading">
             <h3 id="results-title">Outputs</h3>
@@ -394,8 +400,8 @@
       <input type="text" id="annotation-fallback-order" value="funannotate" />
       <input type="text" id="funannotate-busco-db" value="auto" />
       <input type="text" id="funannotate-organism-name" value="auto" />
-      <select id="clinker-mode"><option value="docker" selected>docker</option></select>
-      <select id="panel-target-set"><option value="atlas" selected>atlas</option></select>
+      <select id="clinker-mode"><option value="auto" selected>auto</option></select>
+      <select id="panel-target-set"><option value="both" selected>both</option></select>
       <input type="number" id="clinker-max-regions" value="20" />
       <select id="bigscape-mix-mode"><option value="1" selected>1</option><option value="0">0</option></select>
       <input type="checkbox" id="clinker-use-docker-image" checked />
@@ -554,6 +560,6 @@
   <div class="archive-download-detail" id="archive-download-detail">Preparing the full result package.</div>
 </aside>
 
-<script src="assets/clusterweave.js?v=20260902-input-station1"></script>
+<script src="assets/clusterweave.js?v=20261104-release1"></script>
 </body>
 </html>

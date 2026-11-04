@@ -658,7 +658,8 @@ def write_run_panel_script(
     project_root: Path,
     repo_root: Path,
 ) -> None:
-    input_lines = [f"CLINKER_INPUTS+=('{path.as_posix()}')" for path in staged_files]
+    input_lines = [f"CLINKER_INPUTS+=({shlex.quote(path.as_posix())})" for path in staged_files]
+    shutil.copy2(Path(__file__).with_name("clinker_cli.py"), panel_dir / "clinker_cli.py")
     project_root_literal = shlex.quote(project_root.resolve().as_posix())
     repo_root_literal = shlex.quote(repo_root.resolve().as_posix())
     script_text = "\n".join(
@@ -719,14 +720,14 @@ def write_run_panel_script(
             "}",
             "",
             "if command -v clinker >/dev/null 2>&1 && [[ \"${PREFER_CLINKER_CONTAINER:-0}\" != \"1\" ]]; then",
-            "  clinker \"${CLINKER_INPUTS[@]}\" -p \"${SCRIPT_DIR}/panel.html\" -o \"${SCRIPT_DIR}/alignments.tsv\" -f -ufo",
+            "  python3 \"${SCRIPT_DIR}/clinker_cli.py\" \"${CLINKER_INPUTS[@]}\" -- -p \"${SCRIPT_DIR}/panel.html\" -o \"${SCRIPT_DIR}/alignments.tsv\" -f -ufo",
             "  run_postprocess",
             "  exit 0",
             "fi",
             "",
             "if [[ -n \"${CLINKER_ENGINE:-}\" && -n \"${CLINKER_SIF_PATH:-}\" && -f \"${CLINKER_SIF_PATH}\" ]]; then",
             "  \"${CLINKER_ENGINE}\" exec --bind \"${SCRIPT_DIR}:${SCRIPT_DIR}\" \"${CLINKER_SIF_PATH}\" \\",
-            "    clinker \"${CLINKER_INPUTS[@]}\" -p \"${SCRIPT_DIR}/panel.html\" -o \"${SCRIPT_DIR}/alignments.tsv\" -f -ufo",
+            "    python3 \"${SCRIPT_DIR}/clinker_cli.py\" \"${CLINKER_INPUTS[@]}\" -- -p \"${SCRIPT_DIR}/panel.html\" -o \"${SCRIPT_DIR}/alignments.tsv\" -f -ufo",
             "  run_postprocess",
             "  exit 0",
             "fi",
@@ -755,7 +756,7 @@ def write_run_panel_script(
             "    DOCKER_ARGS+=(-v \"${SCRIPT_DIR}:${SCRIPT_DIR}\")",
             "  fi",
             "  docker run \"${DOCKER_ARGS[@]}\" \"${CLINKER_DOCKER_IMAGE}\" \\",
-            "    clinker \"${CLINKER_INPUTS[@]}\" -p \"${SCRIPT_DIR}/panel.html\" -o \"${SCRIPT_DIR}/alignments.tsv\" -f -ufo",
+            "    python3 \"${SCRIPT_DIR}/clinker_cli.py\" \"${CLINKER_INPUTS[@]}\" -- -p \"${SCRIPT_DIR}/panel.html\" -o \"${SCRIPT_DIR}/alignments.tsv\" -f -ufo",
             "  run_postprocess",
             "  exit 0",
             "fi",
