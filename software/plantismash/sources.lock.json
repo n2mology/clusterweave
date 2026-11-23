@@ -1,0 +1,1487 @@
+{
+  "schema": "plantismash-source-build-v1",
+  "base_image": "ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852",
+  "micromamba": {
+    "url": "https://api.anaconda.org/download/conda-forge/micromamba/2.3.3/linux-64/micromamba-2.3.3-0.tar.bz2",
+    "sha256": "e7274528ceb9c20d048a428d6c22d7e02e268f8ffb762c4c365422347c8b8ba2"
+  },
+  "conda": [
+    {
+      "group": "repeat2",
+      "name": "_openmp_mutex",
+      "version": "4.5",
+      "build": "20_gnu",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda",
+      "sha256": "1dd3fffd892081df9726d7eb7e0dea6198962ba775bd88842135a4ddb4deb3c9",
+      "md5": "a9f577daf3de00bca7c3c76c0ecbd1de",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "group": "repeat2",
+      "name": "bzip2",
+      "version": "1.0.8",
+      "build": "hda65f42_10",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/bzip2-1.0.8-hda65f42_10.conda",
+      "sha256": "1a0d382c515ebf55f8ee1f38c8b81bc95af5c2acc42ad53b66bc5df932032f96",
+      "md5": "e675fabcf81499adc7edf58124fb1e01",
+      "license": "bzip2-1.0.6"
+    },
+    {
+      "group": "repeat2",
+      "name": "ca-certificates",
+      "version": "2026.10.23",
+      "build": "hbd8a1cb_0",
+      "url": "https://conda.anaconda.org/conda-forge/noarch/ca-certificates-2026.10.23-hbd8a1cb_0.conda",
+      "sha256": "95619b9c1184be7175392eeb0ee7eeb5ccf25d280951f4225f2d62e725790be3",
+      "md5": "3fd02989038a1e1cee627c14c2d73f29",
+      "license": "ISC"
+    },
+    {
+      "group": "repeat2",
+      "name": "ld_impl_linux-64",
+      "version": "2.46.1",
+      "build": "default_hbd61a6d_103",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/ld_impl_linux-64-2.46.1-default_hbd61a6d_103.conda",
+      "sha256": "901649b1edbe841fd4ee7e2d491a05184ed540eb01cdae506872f344babc1d28",
+      "md5": "2362c70e7e79827c32db35547d9c179b",
+      "license": "GPL-3.0-only"
+    },
+    {
+      "group": "repeat2",
+      "name": "libffi",
+      "version": "3.7.0",
+      "build": "h81df57d_1",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libffi-3.7.0-h81df57d_1.conda",
+      "sha256": "c8c7583ef063bc3c430f1d48298e5ad24f796a35c22ed5b14183325825a61106",
+      "md5": "6525a0b06aa4fd390795f0740636a9dd",
+      "license": "MIT"
+    },
+    {
+      "group": "repeat2",
+      "name": "libgcc",
+      "version": "16.2.0",
+      "build": "ha9f2e26_7",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libgcc-16.2.0-ha9f2e26_7.conda",
+      "sha256": "e031634c3a928f9594eba868bc46ef5230d6571a364a0c63215b06c4563bfcea",
+      "md5": "735629b400b70eeab21a2ba8f5b1c2ce",
+      "license": "GPL-3.0-only WITH GCC-exception-3.1"
+    },
+    {
+      "group": "repeat2",
+      "name": "libgomp",
+      "version": "16.2.0",
+      "build": "he0feb66_7",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libgomp-16.2.0-he0feb66_7.conda",
+      "sha256": "92a0bb350c7be6a4eedcb4e111c60aefd176018e6b1c009a6e025dbe9bbcd758",
+      "md5": "d904c7ddd95e026254b4b80808ee9e12",
+      "license": "GPL-3.0-only WITH GCC-exception-3.1"
+    },
+    {
+      "group": "repeat2",
+      "name": "liblzma",
+      "version": "5.8.3",
+      "build": "hb03c661_1",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/liblzma-5.8.3-hb03c661_1.conda",
+      "sha256": "9787df8c22a59c9a70d3e5a10db9ad663485e75e9ccc3f09bd092cb7b95e0dab",
+      "md5": "1390b7c5ac0b1d8e447bc5efa6d3c8c2",
+      "license": "0BSD"
+    },
+    {
+      "group": "repeat2",
+      "name": "liblzma-devel",
+      "version": "5.8.3",
+      "build": "hb03c661_1",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/liblzma-devel-5.8.3-hb03c661_1.conda",
+      "sha256": "adef6e8b60afb684110b06b5310977c6836e1c923ce3ec199f45c0f000b42f20",
+      "md5": "6d83d6a332c19424e9e66b69b180ec11",
+      "license": "0BSD"
+    },
+    {
+      "group": "repeat2",
+      "name": "libnsl",
+      "version": "2.0.1",
+      "build": "hb9d3cd8_1",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libnsl-2.0.1-hb9d3cd8_1.conda",
+      "sha256": "927fe72b054277cde6cb82597d0fcf6baf127dcbce2e0a9d8925a68f1265eef5",
+      "md5": "d864d34357c3b65a4b731f78c0801dc4",
+      "license": "LGPL-2.1-only"
+    },
+    {
+      "group": "repeat2",
+      "name": "libsqlite",
+      "version": "3.54.1",
+      "build": "h0737f62_101",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libsqlite-3.54.1-h0737f62_101.conda",
+      "sha256": "c294029f893d05286f1061bbab85b820f1eea73dd859af4bcc619197bcc34810",
+      "md5": "36e097bf5f1e0699e88c8ac801f2dc65",
+      "license": "blessing"
+    },
+    {
+      "group": "repeat2",
+      "name": "libuuid",
+      "version": "2.42.4",
+      "build": "hcfc3c73_1",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libuuid-2.42.4-hcfc3c73_1.conda",
+      "sha256": "0e2e8f2daa9306e67f046e31092d637431d8cf0a26c407ab22401d108c2d4631",
+      "md5": "d852293faea3c04a6e896b908b43aded",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "group": "repeat2",
+      "name": "libxcrypt",
+      "version": "4.4.38",
+      "build": "h280c20c_0",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libxcrypt-4.4.38-h280c20c_0.conda",
+      "sha256": "f7e9292dd219a6435bbb1223da9586c3e70d66d169c5a92f08db3f2127df04e9",
+      "md5": "f7a7ff5a6ab331e037abd34f379a631d",
+      "license": "LGPL-2.1-or-later"
+    },
+    {
+      "group": "repeat2",
+      "name": "libzlib",
+      "version": "1.3.2",
+      "build": "h25fd6f3_3",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libzlib-1.3.2-h25fd6f3_3.conda",
+      "sha256": "eb8a0db0aa570124f7d2a93d7c7f596e3390df5e047818d873baad32985fc736",
+      "md5": "0de0122d9570a8ab637c6b73db268389",
+      "license": "Zlib"
+    },
+    {
+      "group": "repeat2",
+      "name": "ncurses",
+      "version": "6.6",
+      "build": "hdb14827_1",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/ncurses-6.6-hdb14827_1.conda",
+      "sha256": "5d46557214ed184381dafe835b7c94a474a1c3b307a08a250b1ea4779b44ffb3",
+      "md5": "ee6c0cd80a60961a1f48aa3e0b91f986",
+      "license": "X11 AND BSD-3-Clause"
+    },
+    {
+      "group": "repeat2",
+      "name": "openssl",
+      "version": "3.6.5",
+      "build": "h781a0a9_0",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/openssl-3.6.5-h781a0a9_0.conda",
+      "sha256": "9c1533f1cf784f0e250919c0c9762d0b0e6bc727a79290ffb7cea1ceca1d038c",
+      "md5": "5a51a2ea653f120240b1a9bf76e0aae9",
+      "license": "Apache-2.0"
+    },
+    {
+      "group": "repeat2",
+      "name": "pip",
+      "version": "24.3.1",
+      "build": "pyh8b19718_0",
+      "url": "https://conda.anaconda.org/conda-forge/noarch/pip-24.3.1-pyh8b19718_0.conda",
+      "sha256": "499313e72e20225f84c2e9690bbaf5b952c8d7e0bf34b728278538f766b81628",
+      "md5": "5dd546fe99b44fda83963d15f84263b7",
+      "license": "MIT"
+    },
+    {
+      "group": "repeat2",
+      "name": "python",
+      "version": "3.8.20",
+      "build": "h4a871b0_2_cpython",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/python-3.8.20-h4a871b0_2_cpython.conda",
+      "sha256": "8043dcdb29e1e026d0def1056620d81b24c04f71fd98cc45888c58373b479845",
+      "md5": "05ffff2f44ad60b94ecb53d029c6bdf7",
+      "license": "Python-2.0"
+    },
+    {
+      "group": "repeat2",
+      "name": "readline",
+      "version": "8.3",
+      "build": "hd6e31c0_1",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/readline-8.3-hd6e31c0_1.conda",
+      "sha256": "01b3fe073a66e321970d09e04b388708f8cbdca5cdfbfcb7c9eeb470ad10383d",
+      "md5": "69c01c781e7c8190bbdaf79e3848c5ca",
+      "license": "GPL-3.0-only"
+    },
+    {
+      "group": "repeat2",
+      "name": "setuptools",
+      "version": "68.2.2",
+      "build": "pyhd8ed1ab_0",
+      "url": "https://conda.anaconda.org/conda-forge/noarch/setuptools-68.2.2-pyhd8ed1ab_0.conda",
+      "sha256": "851901b1f8f2049edb36a675f0c3f9a98e1495ef4eb214761b048c6f696a06f7",
+      "md5": "fc2166155db840c634a1291a5c35a709",
+      "license": "MIT"
+    },
+    {
+      "group": "repeat2",
+      "name": "tk",
+      "version": "8.6.13",
+      "build": "noxft_h1df4ec4_4",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/tk-8.6.13-noxft_h1df4ec4_4.conda",
+      "sha256": "a1a241d172c1ccab067ba245206dd048bc3c2d1b84504b53c9468e99adfc16a1",
+      "md5": "676a2f9b1c4fcf57b70aa5c65f6c60d0",
+      "license": "TCL"
+    },
+    {
+      "group": "repeat2",
+      "name": "wheel",
+      "version": "0.45.1",
+      "build": "pyhd8ed1ab_0",
+      "url": "https://conda.anaconda.org/conda-forge/noarch/wheel-0.45.1-pyhd8ed1ab_0.conda",
+      "sha256": "24f6851a336a50c53d6b50b142c1654872494a62528d57c3ff40240cbd8b13be",
+      "md5": "bdb2f437ce62fd2f1fef9119a37a12d9",
+      "license": "MIT"
+    },
+    {
+      "group": "repeat2",
+      "name": "xz",
+      "version": "5.8.3",
+      "build": "ha02ee65_1",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/xz-5.8.3-ha02ee65_1.conda",
+      "sha256": "547b2392d8f7b76efd4a0970946f6da2a1136ad5fe3dc936af81e02eb7181076",
+      "md5": "36a079606b3aaf9d726211825f182452",
+      "license": "0BSD AND LGPL-2.1-or-later AND GPL-2.0-or-later"
+    },
+    {
+      "group": "repeat2",
+      "name": "xz-gpl-tools",
+      "version": "5.8.3",
+      "build": "ha02ee65_1",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/xz-gpl-tools-5.8.3-ha02ee65_1.conda",
+      "sha256": "ed6dbec5e4f0f71e7ac629b90dc4c9fba38d194cc88eab891c29e461b408977a",
+      "md5": "137db930adb0b3c5407485e0e1a50cfa",
+      "license": "0BSD AND LGPL-2.1-or-later AND GPL-2.0-or-later"
+    },
+    {
+      "group": "repeat2",
+      "name": "xz-tools",
+      "version": "5.8.3",
+      "build": "hb03c661_1",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/xz-tools-5.8.3-hb03c661_1.conda",
+      "sha256": "c74fa3eddd3ea648456517948f85068d8a07acad7752fd83c7e95b6cebb7114a",
+      "md5": "10d693a2db6e8339e4eebcb3a3dae88d",
+      "license": "0BSD AND LGPL-2.1-or-later"
+    },
+    {
+      "group": "repeat2",
+      "name": "zstd",
+      "version": "1.5.7",
+      "build": "hb78ec9c_7",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/zstd-1.5.7-hb78ec9c_7.conda",
+      "sha256": "47d682b9f6d6ec9eb1a6e6c3e75ea6273e899e78fb7fc59f81d39745009fbc60",
+      "md5": "aa459086047c0e5e27023ab19f8cb86a",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "group": "native-tools",
+      "name": "_openmp_mutex",
+      "version": "4.5",
+      "build": "20_gnu",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda",
+      "sha256": "1dd3fffd892081df9726d7eb7e0dea6198962ba775bd88842135a4ddb4deb3c9",
+      "md5": "a9f577daf3de00bca7c3c76c0ecbd1de",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "group": "native-tools",
+      "name": "blast",
+      "version": "2.12.0",
+      "build": "hf3cf87c_4",
+      "url": "https://conda.anaconda.org/bioconda/linux-64/blast-2.12.0-hf3cf87c_4.tar.bz2",
+      "sha256": "56a35d3bdacec0c264446e8ea004d7bfce549b020fbd410f3b7a01a2452a553c",
+      "md5": "6d6cc04a04362cd9ce97ef5dfc978f28",
+      "license": "Public Domain"
+    },
+    {
+      "group": "native-tools",
+      "name": "boost-cpp",
+      "version": "1.74.0",
+      "build": "h75c5d50_8",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/boost-cpp-1.74.0-h75c5d50_8.tar.bz2",
+      "sha256": "82d7d5c3042baae2cc7ee798612681f72ad348978d72ac17de9f3c41183f0a19",
+      "md5": "9c5996e7741d205bc76a518173ff6b82",
+      "license": "BSL-1.0"
+    },
+    {
+      "group": "native-tools",
+      "name": "bzip2",
+      "version": "1.0.8",
+      "build": "hda65f42_10",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/bzip2-1.0.8-hda65f42_10.conda",
+      "sha256": "1a0d382c515ebf55f8ee1f38c8b81bc95af5c2acc42ad53b66bc5df932032f96",
+      "md5": "e675fabcf81499adc7edf58124fb1e01",
+      "license": "bzip2-1.0.6"
+    },
+    {
+      "group": "native-tools",
+      "name": "c-ares",
+      "version": "1.34.9",
+      "build": "hebe6cf0_0",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/c-ares-1.34.9-hebe6cf0_0.conda",
+      "sha256": "bd95dd25b80b5c4faf5349542377bf89b2794e23d0f7aa7f1c431e4f3b633f3c",
+      "md5": "78b505af04bf7a87ca957ef0cb5946f5",
+      "license": "MIT"
+    },
+    {
+      "group": "native-tools",
+      "name": "ca-certificates",
+      "version": "2026.10.23",
+      "build": "hbd8a1cb_0",
+      "url": "https://conda.anaconda.org/conda-forge/noarch/ca-certificates-2026.10.23-hbd8a1cb_0.conda",
+      "sha256": "95619b9c1184be7175392eeb0ee7eeb5ccf25d280951f4225f2d62e725790be3",
+      "md5": "3fd02989038a1e1cee627c14c2d73f29",
+      "license": "ISC"
+    },
+    {
+      "group": "native-tools",
+      "name": "cd-hit",
+      "version": "4.8.1",
+      "build": "h43eeafb_11",
+      "url": "https://conda.anaconda.org/bioconda/linux-64/cd-hit-4.8.1-h43eeafb_11.tar.bz2",
+      "sha256": "db86a988db42bf6057a65473375829cf98df4e8bb29962e4063745bfa6afd202",
+      "md5": "0a5ce9365ffbf2fb82e2ea98c809bc8d",
+      "license": "GPL-2.0-or-later"
+    },
+    {
+      "group": "native-tools",
+      "name": "curl",
+      "version": "7.88.1",
+      "build": "hdc1c0ab_1",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/curl-7.88.1-hdc1c0ab_1.conda",
+      "sha256": "b52a3b97e4c3d2acca8380d405da49c2fdc2f770fcbb9dd842eb6058f8476def",
+      "md5": "2016c398f234cfa354ea704c6731b5d5",
+      "license": "curl"
+    },
+    {
+      "group": "native-tools",
+      "name": "diamond",
+      "version": "2.0.15",
+      "build": "hb97b32f_1",
+      "url": "https://conda.anaconda.org/bioconda/linux-64/diamond-2.0.15-hb97b32f_1.tar.bz2",
+      "sha256": "788ccf2daef5f7bf5e2cd088c2e3234f263aedc96b5d1fd2c7aee1323e435a39",
+      "md5": "6951be09685f9979086684bfcef47932",
+      "license": "AGPL-3.0"
+    },
+    {
+      "group": "native-tools",
+      "name": "entrez-direct",
+      "version": "26.0",
+      "build": "h1079eea_0",
+      "url": "https://conda.anaconda.org/bioconda/linux-64/entrez-direct-26.0-h1079eea_0.conda",
+      "sha256": "611734d6067084d12a4f5e2a3376ff1a47737d7e563d53677e7ee7d9e6472640",
+      "md5": "eb37fd2fbf2bc8192c550999a3bbc5c3",
+      "license": "Public Domain"
+    },
+    {
+      "group": "native-tools",
+      "name": "fasttree",
+      "version": "2.1.11",
+      "build": "h7b50bb2_5",
+      "url": "https://conda.anaconda.org/bioconda/linux-64/fasttree-2.1.11-h7b50bb2_5.tar.bz2",
+      "sha256": "5cd47049073736e1ce174955bf5d6e3fb20251e932ee44e3527b137cb0ec775f",
+      "md5": "7d4c9a4caffaaa265fec1bc11cf4a884",
+      "license": "GPL-2"
+    },
+    {
+      "group": "native-tools",
+      "name": "glimmer",
+      "version": "3.02",
+      "build": "h87f3376_6",
+      "url": "https://conda.anaconda.org/bioconda/linux-64/glimmer-3.02-h87f3376_6.tar.bz2",
+      "sha256": "81ab55ee5cc59ff9b5ab4faa10388cdd75ba7bd1514f95274d08f8fd4696b8c6",
+      "md5": "dcd508d61df0e502b1f9810e57ac4e65",
+      "license": "Custom"
+    },
+    {
+      "group": "native-tools",
+      "name": "glimmerhmm",
+      "version": "3.0.4",
+      "build": "pl5321h503566f_10",
+      "url": "https://conda.anaconda.org/bioconda/linux-64/glimmerhmm-3.0.4-pl5321h503566f_10.conda",
+      "sha256": "97f2a9b1dde17aeb8c968c0f5532262828be217b5d78f24f37029f068f4fbfd3",
+      "md5": "0a9e50daa0e798ce6c7b06894570a5f7",
+      "license": "Artistic License"
+    },
+    {
+      "group": "native-tools",
+      "name": "hmmer",
+      "version": "3.3.2",
+      "build": "hdbdd923_4",
+      "url": "https://conda.anaconda.org/bioconda/linux-64/hmmer-3.3.2-hdbdd923_4.tar.bz2",
+      "sha256": "e75930cbaeb0ec2d8535bd7699f2e7fb1f0bf3314ebbda4c0a87561eef8f8958",
+      "md5": "805f24f8e8109e5d3d16cfad6799af46",
+      "license": "BSD"
+    },
+    {
+      "group": "native-tools",
+      "name": "icu",
+      "version": "70.1",
+      "build": "h27087fc_0",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/icu-70.1-h27087fc_0.tar.bz2",
+      "sha256": "1d7950f3be4637ab915d886304e57731d39a41ab705ffc95c4681655c459374a",
+      "md5": "87473a15119779e021c314249d4b4aed",
+      "license": "MIT"
+    },
+    {
+      "group": "native-tools",
+      "name": "keyutils",
+      "version": "1.6.3",
+      "build": "h7cc23a3_1",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/keyutils-1.6.3-h7cc23a3_1.conda",
+      "sha256": "dd053c96dcb0dcfd59422aefea9d2fe937a190167f34fba7893ec1e10a7e8963",
+      "md5": "ba55d1b89fd7775e67de8291029b4059",
+      "license": "LGPL-2.1-or-later"
+    },
+    {
+      "group": "native-tools",
+      "name": "krb5",
+      "version": "1.20.1",
+      "build": "h81ceb04_0",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/krb5-1.20.1-h81ceb04_0.conda",
+      "sha256": "51a346807ce981e1450eb04c3566415b05eed705bc9e6c98c198ec62367b7c62",
+      "md5": "89a41adce7106749573d883b2f657d78",
+      "license": "MIT"
+    },
+    {
+      "group": "native-tools",
+      "name": "libcurl",
+      "version": "7.88.1",
+      "build": "hdc1c0ab_1",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libcurl-7.88.1-hdc1c0ab_1.conda",
+      "sha256": "500c08e61871df6dc4fc87913c99cb799f5fa8333db991201be32b657e9dcdb1",
+      "md5": "3d1189864d1c0ed2a5919cb067b5903d",
+      "license": "curl"
+    },
+    {
+      "group": "native-tools",
+      "name": "libedit",
+      "version": "3.1.20260512",
+      "build": "pl5321h373387f_0",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libedit-3.1.20260512-pl5321h373387f_0.conda",
+      "sha256": "45301f14f4eb66da57cfaf2d265f3eeee73f8b07e99614ee3afc5b26eea91126",
+      "md5": "27dbd7e2984b8fe48e069379636ccfdd",
+      "license": "BSD-2-Clause"
+    },
+    {
+      "group": "native-tools",
+      "name": "libev",
+      "version": "4.33",
+      "build": "h280c20c_3",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libev-4.33-h280c20c_3.conda",
+      "sha256": "e4418f68d01a6307c4431b585c71b584f40189877364e542ee87deb777f5e85b",
+      "md5": "7bc31538d6e3fb349e897353969237ec",
+      "license": "BSD-2-Clause OR GPL-2.0-or-later"
+    },
+    {
+      "group": "native-tools",
+      "name": "libgcc",
+      "version": "16.2.0",
+      "build": "ha9f2e26_7",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libgcc-16.2.0-ha9f2e26_7.conda",
+      "sha256": "e031634c3a928f9594eba868bc46ef5230d6571a364a0c63215b06c4563bfcea",
+      "md5": "735629b400b70eeab21a2ba8f5b1c2ce",
+      "license": "GPL-3.0-only WITH GCC-exception-3.1"
+    },
+    {
+      "group": "native-tools",
+      "name": "libgcc-ng",
+      "version": "16.2.0",
+      "build": "h69a702a_7",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libgcc-ng-16.2.0-h69a702a_7.conda",
+      "sha256": "03b54d7008de080a17cc2174b0e4acd6d06e1c981b2eb19846f46d8f59966034",
+      "md5": "2005515ac9340f816fb2ac7e83afe553",
+      "license": "GPL-3.0-only WITH GCC-exception-3.1"
+    },
+    {
+      "group": "native-tools",
+      "name": "libgomp",
+      "version": "16.2.0",
+      "build": "he0feb66_7",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libgomp-16.2.0-he0feb66_7.conda",
+      "sha256": "92a0bb350c7be6a4eedcb4e111c60aefd176018e6b1c009a6e025dbe9bbcd758",
+      "md5": "d904c7ddd95e026254b4b80808ee9e12",
+      "license": "GPL-3.0-only WITH GCC-exception-3.1"
+    },
+    {
+      "group": "native-tools",
+      "name": "libiconv",
+      "version": "1.18",
+      "build": "h0cb94f2_3",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libiconv-1.18-h0cb94f2_3.conda",
+      "sha256": "f943117edb9cd4d9c61cc972eee5a34291dc55ea7a6e9e38da104995841cbcb6",
+      "md5": "f92233bf33e24a25668bb2119e2c51f9",
+      "license": "LGPL-2.1-only"
+    },
+    {
+      "group": "native-tools",
+      "name": "libidn2",
+      "version": "2.3.8",
+      "build": "hfac485b_1",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libidn2-2.3.8-hfac485b_1.conda",
+      "sha256": "cc38c900b9a20fe75e61cbb594e749c57a06d96510722f5ddfa309682062b065",
+      "md5": "842a81de672ddcf476337c8bde3cad33",
+      "license": "LGPL-2.0-only"
+    },
+    {
+      "group": "native-tools",
+      "name": "liblzma",
+      "version": "5.8.3",
+      "build": "hb03c661_1",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/liblzma-5.8.3-hb03c661_1.conda",
+      "sha256": "9787df8c22a59c9a70d3e5a10db9ad663485e75e9ccc3f09bd092cb7b95e0dab",
+      "md5": "1390b7c5ac0b1d8e447bc5efa6d3c8c2",
+      "license": "0BSD"
+    },
+    {
+      "group": "native-tools",
+      "name": "liblzma-devel",
+      "version": "5.8.3",
+      "build": "hb03c661_1",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/liblzma-devel-5.8.3-hb03c661_1.conda",
+      "sha256": "adef6e8b60afb684110b06b5310977c6836e1c923ce3ec199f45c0f000b42f20",
+      "md5": "6d83d6a332c19424e9e66b69b180ec11",
+      "license": "0BSD"
+    },
+    {
+      "group": "native-tools",
+      "name": "libnghttp2",
+      "version": "1.58.0",
+      "build": "h47da74e_1",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libnghttp2-1.58.0-h47da74e_1.conda",
+      "sha256": "1910c5306c6aa5bcbd623c3c930c440e9c77a5a019008e1487810e3c1d3716cb",
+      "md5": "700ac6ea6d53d5510591c4344d5c989a",
+      "license": "MIT"
+    },
+    {
+      "group": "native-tools",
+      "name": "libssh2",
+      "version": "1.11.0",
+      "build": "h0841786_0",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libssh2-1.11.0-h0841786_0.conda",
+      "sha256": "50e47fd9c4f7bf841a11647ae7486f65220cfc988ec422a4475fe8d5a823824d",
+      "md5": "1f5a58e686b13bcfde88b93f547d23fe",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "group": "native-tools",
+      "name": "libstdcxx",
+      "version": "16.2.0",
+      "build": "h934c35e_7",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libstdcxx-16.2.0-h934c35e_7.conda",
+      "sha256": "fa7018298629fc429971fffd6ecba3d27a7b02e4e890d6a93ea01ffebe8cb745",
+      "md5": "9b6707e0caca917fa6ea9ee473f37a5d",
+      "license": "GPL-3.0-only WITH GCC-exception-3.1"
+    },
+    {
+      "group": "native-tools",
+      "name": "libstdcxx-ng",
+      "version": "16.2.0",
+      "build": "hdf11a46_7",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libstdcxx-ng-16.2.0-hdf11a46_7.conda",
+      "sha256": "337f481db36cc357884f05f404ccd1b3a7e0fc1ee48ec5c884e4281d213bc863",
+      "md5": "25a23bde5e26d548374f3e02b4669670",
+      "license": "GPL-3.0-only WITH GCC-exception-3.1"
+    },
+    {
+      "group": "native-tools",
+      "name": "libunistring",
+      "version": "0.9.10",
+      "build": "h7f98852_0",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libunistring-0.9.10-h7f98852_0.tar.bz2",
+      "sha256": "e88c45505921db29c08df3439ddb7f771bbff35f95e7d3103bf365d5d6ce2a6d",
+      "md5": "7245a044b4a1980ed83196176b78b73a",
+      "license": "GPL-3.0-only OR LGPL-3.0-only"
+    },
+    {
+      "group": "native-tools",
+      "name": "libxcrypt",
+      "version": "4.4.38",
+      "build": "h280c20c_0",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libxcrypt-4.4.38-h280c20c_0.conda",
+      "sha256": "f7e9292dd219a6435bbb1223da9586c3e70d66d169c5a92f08db3f2127df04e9",
+      "md5": "f7a7ff5a6ab331e037abd34f379a631d",
+      "license": "LGPL-2.1-or-later"
+    },
+    {
+      "group": "native-tools",
+      "name": "libxml2",
+      "version": "2.10.3",
+      "build": "hca2bb57_4",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libxml2-2.10.3-hca2bb57_4.conda",
+      "sha256": "d4170f1fe356768758b13a51db123f990bff81b0eae0d5a0ba11c7ca6b9536f4",
+      "md5": "bb808b654bdc3c783deaf107a2ffb503",
+      "license": "MIT"
+    },
+    {
+      "group": "native-tools",
+      "name": "libzlib",
+      "version": "1.2.13",
+      "build": "h4ab18f5_6",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libzlib-1.2.13-h4ab18f5_6.conda",
+      "sha256": "8ced4afed6322172182af503f21725d072a589a6eb918f8a58135c1e00d35980",
+      "md5": "27329162c0dc732bcf67a4e0cd488125",
+      "license": "Zlib"
+    },
+    {
+      "group": "native-tools",
+      "name": "muscle",
+      "version": "3.8.31",
+      "build": "0",
+      "url": "https://conda.anaconda.org/bioconda/linux-64/muscle-3.8.31-0.tar.bz2",
+      "sha256": "c46b234fc5ffddfcad86e96908ae586ba717390a90b3a48a65e862d8e289cba7",
+      "md5": "f86eea9d130239096c0b41c270e5c1eb",
+      "license": "http://www.drive5.com/muscle/manual/license.html"
+    },
+    {
+      "group": "native-tools",
+      "name": "ncurses",
+      "version": "6.6",
+      "build": "hdb14827_1",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/ncurses-6.6-hdb14827_1.conda",
+      "sha256": "5d46557214ed184381dafe835b7c94a474a1c3b307a08a250b1ea4779b44ffb3",
+      "md5": "ee6c0cd80a60961a1f48aa3e0b91f986",
+      "license": "X11 AND BSD-3-Clause"
+    },
+    {
+      "group": "native-tools",
+      "name": "openssl",
+      "version": "3.6.5",
+      "build": "h781a0a9_0",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/openssl-3.6.5-h781a0a9_0.conda",
+      "sha256": "9c1533f1cf784f0e250919c0c9762d0b0e6bc727a79290ffb7cea1ceca1d038c",
+      "md5": "5a51a2ea653f120240b1a9bf76e0aae9",
+      "license": "Apache-2.0"
+    },
+    {
+      "group": "native-tools",
+      "name": "pcre",
+      "version": "8.45",
+      "build": "h9c3ff4c_0",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/pcre-8.45-h9c3ff4c_0.tar.bz2",
+      "sha256": "8f35c244b1631a4f31fb1d66ab6e1d9bfac0ca9b679deced1112c7225b3ad138",
+      "md5": "c05d1820a6d34ff07aaaab7a9b7eddaa",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "group": "native-tools",
+      "name": "perl",
+      "version": "5.32.1",
+      "build": "10_h7cc23a3_perl5",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/perl-5.32.1-10_h7cc23a3_perl5.conda",
+      "sha256": "6ab2c89273347c20144c20691f98c3721e930af38e801ec16c737d2e24406010",
+      "md5": "dfa988f7a513f0f441ba36d128b5d327",
+      "license": "GPL-1.0-or-later OR Artistic-1.0-Perl"
+    },
+    {
+      "group": "native-tools",
+      "name": "perl-archive-tar",
+      "version": "3.14",
+      "build": "pl5321hcbfc158_0",
+      "url": "https://conda.anaconda.org/bioconda/noarch/perl-archive-tar-3.14-pl5321hcbfc158_0.conda",
+      "sha256": "66f693e7c2d4ef756ca640b5eede9e76ef98b5b97a7b36e3d194dbdda7b8ecff",
+      "md5": "290aa04cc6fe79133433eb72de48edc0",
+      "license": "Perl_5"
+    },
+    {
+      "group": "native-tools",
+      "name": "perl-carp",
+      "version": "1.50",
+      "build": "pl5321hd8ed1ab_0",
+      "url": "https://conda.anaconda.org/conda-forge/noarch/perl-carp-1.50-pl5321hd8ed1ab_0.tar.bz2",
+      "sha256": "1981e31113e1e77a2cdc13db657c636f047cd3be2a64d9a0bffac03c5427c1bd",
+      "md5": "bdddc03e28019b902da71b722f2288d7",
+      "license": "GPL-1.0-or-later OR Artistic-1.0-Perl"
+    },
+    {
+      "group": "native-tools",
+      "name": "perl-common-sense",
+      "version": "3.75",
+      "build": "pl5321hd8ed1ab_0",
+      "url": "https://conda.anaconda.org/conda-forge/noarch/perl-common-sense-3.75-pl5321hd8ed1ab_0.tar.bz2",
+      "sha256": "38ef218e9b9d55b9fbdce6b31cf81bcf6f1b16f21b8e7cb9279b41399522a320",
+      "md5": "ef70dc77e8b10bbb62f5e843b401ef0e",
+      "license": "GPL-1.0-or-later OR Artistic-1.0-Perl"
+    },
+    {
+      "group": "native-tools",
+      "name": "perl-compress-raw-bzip2",
+      "version": "2.214",
+      "build": "pl5321hda65f42_0",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/perl-compress-raw-bzip2-2.214-pl5321hda65f42_0.conda",
+      "sha256": "2cbd3fcb7028415654057ab3142cee1e5cc4cf9bdd0e590f072e8ecd29cb6382",
+      "md5": "1ec33b9f74a71c17cc5579e35027832a",
+      "license": "GPL-1.0-or-later OR Artistic-1.0-Perl"
+    },
+    {
+      "group": "native-tools",
+      "name": "perl-compress-raw-zlib",
+      "version": "2.214",
+      "build": "pl5321h4dac143_0",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/perl-compress-raw-zlib-2.214-pl5321h4dac143_0.conda",
+      "sha256": "4fd3a11f8dbd2c9d1a1c5547e344ad20412a3f0d36967502d9764e1b2734dd47",
+      "md5": "943e7033e6f709adf0d89a3af51ab81b",
+      "license": "GPL-1.0-or-later OR Artistic-1.0-Perl"
+    },
+    {
+      "group": "native-tools",
+      "name": "perl-encode",
+      "version": "3.24",
+      "build": "pl5321hb03c661_0",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/perl-encode-3.24-pl5321hb03c661_0.conda",
+      "sha256": "c83d8de38ce43ca15af05f76bc933ff76894aef84baed47300e463dae0c11857",
+      "md5": "35776d4c5766e9d98754d1e7530c2961",
+      "license": "GPL-1.0-or-later OR Artistic-1.0-Perl"
+    },
+    {
+      "group": "native-tools",
+      "name": "perl-exporter",
+      "version": "5.74",
+      "build": "pl5321hd8ed1ab_0",
+      "url": "https://conda.anaconda.org/conda-forge/noarch/perl-exporter-5.74-pl5321hd8ed1ab_0.tar.bz2",
+      "sha256": "42271d0b79043a10a89044acb5febea50046b745dd2fc37e02943bc3bc75bf8e",
+      "md5": "fd2eac4e35f8c970870a3961c1df3e29",
+      "license": "GPL-1.0-or-later OR Artistic-1.0-Perl"
+    },
+    {
+      "group": "native-tools",
+      "name": "perl-exporter-tiny",
+      "version": "1.002002",
+      "build": "pl5321hd8ed1ab_0",
+      "url": "https://conda.anaconda.org/conda-forge/noarch/perl-exporter-tiny-1.002002-pl5321hd8ed1ab_0.tar.bz2",
+      "sha256": "abdf86828a12a389d0feb0d70501b267842557bae11820e266526aeb6ab2bebe",
+      "md5": "48d709826875be1f2c108d3d1d8efec7",
+      "license": "GPL-1.0-or-later OR Artistic-1.0-Perl"
+    },
+    {
+      "group": "native-tools",
+      "name": "perl-extutils-makemaker",
+      "version": "7.70",
+      "build": "pl5321hd8ed1ab_0",
+      "url": "https://conda.anaconda.org/conda-forge/noarch/perl-extutils-makemaker-7.70-pl5321hd8ed1ab_0.conda",
+      "sha256": "1d3f342ca74cf2948c3edcfe0d3367b1db0fc64bb163393a2e025336dec3a40c",
+      "md5": "ec3e57ed34f7765bfc7054a05868ce5d",
+      "license": "GPL-1.0-or-later OR Artistic-1.0-Perl"
+    },
+    {
+      "group": "native-tools",
+      "name": "perl-io-compress",
+      "version": "2.216",
+      "build": "pl5321h503566f_0",
+      "url": "https://conda.anaconda.org/bioconda/linux-64/perl-io-compress-2.216-pl5321h503566f_0.conda",
+      "sha256": "5241c33cf55ba0cbfc0ccab96b4a31123761db00310eab4fedd7a95226c4fca7",
+      "md5": "0784cb3c120f934a5fe61961c8238330",
+      "license": "Perl_5"
+    },
+    {
+      "group": "native-tools",
+      "name": "perl-io-zlib",
+      "version": "1.15",
+      "build": "pl5321hdfd78af_1",
+      "url": "https://conda.anaconda.org/bioconda/noarch/perl-io-zlib-1.15-pl5321hdfd78af_1.tar.bz2",
+      "sha256": "771a44b338cac68a22893897450222b886e24bbb291b014897d561f2ba3b588f",
+      "md5": "db92645dabe9467115729e4479841b5d",
+      "license": "GPL-1.0-or-later OR Artistic-1.0-Perl"
+    },
+    {
+      "group": "native-tools",
+      "name": "perl-json",
+      "version": "4.11",
+      "build": "pl5321hdfd78af_0",
+      "url": "https://conda.anaconda.org/bioconda/noarch/perl-json-4.11-pl5321hdfd78af_0.conda",
+      "sha256": "1c1649f491c76f4ae2984b547701df91c8abfda2e3b7b44e0c007f5e78a87c08",
+      "md5": "56411755d21870a9ec16c76fd7b66dba",
+      "license": "GPL-1.0-or-later OR Artistic-1.0-Perl"
+    },
+    {
+      "group": "native-tools",
+      "name": "perl-json-xs",
+      "version": "4.04",
+      "build": "pl5321h9948957_0",
+      "url": "https://conda.anaconda.org/bioconda/linux-64/perl-json-xs-4.04-pl5321h9948957_0.conda",
+      "sha256": "f16cf35917a5d75fb55cfc69d8651dc72ff4e06370142b447a4864f5de7d97c6",
+      "md5": "7916b2e794393b3389535ba750f489da",
+      "license": "GPL-1.0-or-later OR Artistic-1.0-Perl"
+    },
+    {
+      "group": "native-tools",
+      "name": "perl-list-moreutils",
+      "version": "0.430",
+      "build": "pl5321hdfd78af_0",
+      "url": "https://conda.anaconda.org/bioconda/noarch/perl-list-moreutils-0.430-pl5321hdfd78af_0.tar.bz2",
+      "sha256": "2190cc8430bb218ea80f5fc5e2bf75e4e20a27fb83e8c3cb789a18c32854a56c",
+      "md5": "7f04c79d216d0f8e7b6d5a51de4aafa0",
+      "license": "apache_2_0"
+    },
+    {
+      "group": "native-tools",
+      "name": "perl-list-moreutils-xs",
+      "version": "0.430",
+      "build": "pl5321h7b50bb2_5",
+      "url": "https://conda.anaconda.org/bioconda/linux-64/perl-list-moreutils-xs-0.430-pl5321h7b50bb2_5.tar.bz2",
+      "sha256": "fe2d360770fe5b856ee1e625eac6b07cea386c64b0866e323c6535eb62b9ceee",
+      "md5": "9192770eb08524038c3fcf24e915b10c",
+      "license": "apache_2_0"
+    },
+    {
+      "group": "native-tools",
+      "name": "perl-parent",
+      "version": "0.243",
+      "build": "pl5321hd8ed1ab_0",
+      "url": "https://conda.anaconda.org/conda-forge/noarch/perl-parent-0.243-pl5321hd8ed1ab_0.conda",
+      "sha256": "ec57d9e56ba86d840d5a9e65c665365fb6a290851cd13e6719628f3295eabf34",
+      "md5": "314caa3b72d65f8078d426c6721dcacc",
+      "license": "GPL-1.0-or-later OR Artistic-1.0-Perl"
+    },
+    {
+      "group": "native-tools",
+      "name": "perl-pathtools",
+      "version": "3.75",
+      "build": "pl5321hb9d3cd8_2",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/perl-pathtools-3.75-pl5321hb9d3cd8_2.conda",
+      "sha256": "a80bc265aa749ae03fdd6d5f2098312ea6f43cc193ea7aba0e6e4304d84ce8c0",
+      "md5": "03d88c89dfac8a26adcdeff242f94007",
+      "license": "GPL-1.0-or-later OR Artistic-1.0-Perl"
+    },
+    {
+      "group": "native-tools",
+      "name": "perl-scalar-list-utils",
+      "version": "1.70",
+      "build": "pl5321hb03c661_0",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/perl-scalar-list-utils-1.70-pl5321hb03c661_0.conda",
+      "sha256": "00678b34a57df53fa31585ff1579f42a6dfc8b1b059fd1b386c6e89573959a9f",
+      "md5": "046486011bf7674e3c2f2a1513ac4f3d",
+      "license": "GPL-1.0-or-later OR Artistic-1.0-Perl"
+    },
+    {
+      "group": "native-tools",
+      "name": "perl-storable",
+      "version": "3.15",
+      "build": "pl5321hb9d3cd8_2",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/perl-storable-3.15-pl5321hb9d3cd8_2.conda",
+      "sha256": "25beba40154a394189d0ff2afd31683d79c9106d47e77e12d20900d053dffaf6",
+      "md5": "212f63a5c7c753ecf0a74c349b9270c5",
+      "license": "GPL-1.0-or-later OR Artistic-1.0-Perl"
+    },
+    {
+      "group": "native-tools",
+      "name": "perl-types-serialiser",
+      "version": "1.01",
+      "build": "pl5321hdfd78af_0",
+      "url": "https://conda.anaconda.org/bioconda/noarch/perl-types-serialiser-1.01-pl5321hdfd78af_0.tar.bz2",
+      "sha256": "20f61217b16235d0161ad6fa0a234585afcc04ec5a6142c65b5867e26216dfe3",
+      "md5": "cfc65753e827bbef80c00eaa395f6ae7",
+      "license": "perl_5"
+    },
+    {
+      "group": "native-tools",
+      "name": "pplacer",
+      "version": "1.1.alpha17",
+      "build": "h9ee0642_3",
+      "url": "https://conda.anaconda.org/bioconda/linux-64/pplacer-1.1.alpha17-h9ee0642_3.tar.bz2",
+      "sha256": "db38bc837ddba4f4a69924eff91b35c152836c6e10641478bf4a8eb5dcbf06bc",
+      "md5": "d3085f4b73e295d3db63cfbd719df52b",
+      "license": "GPL-3.0"
+    },
+    {
+      "group": "native-tools",
+      "name": "prodigal",
+      "version": "2.6.3",
+      "build": "h7b50bb2_10",
+      "url": "https://conda.anaconda.org/bioconda/linux-64/prodigal-2.6.3-h7b50bb2_10.tar.bz2",
+      "sha256": "05018dce864a23867f302cd78e000358bc585fc5bc082b6e16d5d6200d90447d",
+      "md5": "66cc94ede7d4cd483a0412adaf9532ce",
+      "license": "GPL v3"
+    },
+    {
+      "group": "native-tools",
+      "name": "wget",
+      "version": "1.21.4",
+      "build": "hda4d442_0",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/wget-1.21.4-hda4d442_0.conda",
+      "sha256": "70df4ac8cca488618458af4705706551cef7e402bac9c2c41dd17148f60cbd1f",
+      "md5": "361e96b664eac64a33c20dfd11affbff",
+      "license": "GPL-3.0-or-later"
+    },
+    {
+      "group": "native-tools",
+      "name": "xz",
+      "version": "5.8.3",
+      "build": "ha02ee65_1",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/xz-5.8.3-ha02ee65_1.conda",
+      "sha256": "547b2392d8f7b76efd4a0970946f6da2a1136ad5fe3dc936af81e02eb7181076",
+      "md5": "36a079606b3aaf9d726211825f182452",
+      "license": "0BSD AND LGPL-2.1-or-later AND GPL-2.0-or-later"
+    },
+    {
+      "group": "native-tools",
+      "name": "xz-gpl-tools",
+      "version": "5.8.3",
+      "build": "ha02ee65_1",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/xz-gpl-tools-5.8.3-ha02ee65_1.conda",
+      "sha256": "ed6dbec5e4f0f71e7ac629b90dc4c9fba38d194cc88eab891c29e461b408977a",
+      "md5": "137db930adb0b3c5407485e0e1a50cfa",
+      "license": "0BSD AND LGPL-2.1-or-later AND GPL-2.0-or-later"
+    },
+    {
+      "group": "native-tools",
+      "name": "xz-tools",
+      "version": "5.8.3",
+      "build": "hb03c661_1",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/xz-tools-5.8.3-hb03c661_1.conda",
+      "sha256": "c74fa3eddd3ea648456517948f85068d8a07acad7752fd83c7e95b6cebb7114a",
+      "md5": "10d693a2db6e8339e4eebcb3a3dae88d",
+      "license": "0BSD AND LGPL-2.1-or-later"
+    },
+    {
+      "group": "native-tools",
+      "name": "zlib",
+      "version": "1.2.13",
+      "build": "h4ab18f5_6",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/zlib-1.2.13-h4ab18f5_6.conda",
+      "sha256": "534824ea44939f3e59ca8ebb95e3ece6f50f9d2a0e69999fbc692311252ed6ac",
+      "md5": "559d338a4234c2ad6e676f460a093e67",
+      "license": "Zlib"
+    },
+    {
+      "group": "native-tools",
+      "name": "zstd",
+      "version": "1.5.6",
+      "build": "ha6fb4c9_0",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/zstd-1.5.6-ha6fb4c9_0.conda",
+      "sha256": "c558b9cc01d9c1444031bd1ce4b9cff86f9085765f17627a6cd85fc623c8a02b",
+      "md5": "4d056880988120e29d75bfff282e0f45",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "group": "hmmer2",
+      "name": "_openmp_mutex",
+      "version": "4.5",
+      "build": "20_gnu",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda",
+      "sha256": "1dd3fffd892081df9726d7eb7e0dea6198962ba775bd88842135a4ddb4deb3c9",
+      "md5": "a9f577daf3de00bca7c3c76c0ecbd1de",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "group": "hmmer2",
+      "name": "hmmer2",
+      "version": "2.3.2",
+      "build": "h470a237_3",
+      "url": "https://conda.anaconda.org/bioconda/label/cf201901/linux-64/hmmer2-2.3.2-h470a237_3.tar.bz2",
+      "sha256": "10976d7866aa9893114a00d408dbe8bcb342b9ceb1a29ecd9b25e454e92753cc",
+      "md5": "8e18c8061de82746f1b6c0214dd94e21",
+      "license": "GPLv2"
+    },
+    {
+      "group": "hmmer2",
+      "name": "libgcc",
+      "version": "16.2.0",
+      "build": "ha9f2e26_7",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libgcc-16.2.0-ha9f2e26_7.conda",
+      "sha256": "e031634c3a928f9594eba868bc46ef5230d6571a364a0c63215b06c4563bfcea",
+      "md5": "735629b400b70eeab21a2ba8f5b1c2ce",
+      "license": "GPL-3.0-only WITH GCC-exception-3.1"
+    },
+    {
+      "group": "hmmer2",
+      "name": "libgcc-ng",
+      "version": "16.2.0",
+      "build": "h69a702a_7",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libgcc-ng-16.2.0-h69a702a_7.conda",
+      "sha256": "03b54d7008de080a17cc2174b0e4acd6d06e1c981b2eb19846f46d8f59966034",
+      "md5": "2005515ac9340f816fb2ac7e83afe553",
+      "license": "GPL-3.0-only WITH GCC-exception-3.1"
+    },
+    {
+      "group": "hmmer2",
+      "name": "libgomp",
+      "version": "16.2.0",
+      "build": "he0feb66_7",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libgomp-16.2.0-he0feb66_7.conda",
+      "sha256": "92a0bb350c7be6a4eedcb4e111c60aefd176018e6b1c009a6e025dbe9bbcd758",
+      "md5": "d904c7ddd95e026254b4b80808ee9e12",
+      "license": "GPL-3.0-only WITH GCC-exception-3.1"
+    },
+    {
+      "group": "build-tools",
+      "name": "_openmp_mutex",
+      "version": "4.5",
+      "build": "20_gnu",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda",
+      "sha256": "1dd3fffd892081df9726d7eb7e0dea6198962ba775bd88842135a4ddb4deb3c9",
+      "md5": "a9f577daf3de00bca7c3c76c0ecbd1de",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "group": "build-tools",
+      "name": "binutils_impl_linux-64",
+      "version": "2.46.1",
+      "build": "default_hfdba357_103",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/binutils_impl_linux-64-2.46.1-default_hfdba357_103.conda",
+      "sha256": "98f9ddc6dc5d56a824b7eaea5bab6ad4bb47642288fc70d6b1b4024ac39d5595",
+      "md5": "e86f9dc615d7533c5be8b15b3a1dee8d",
+      "license": "GPL-3.0-only"
+    },
+    {
+      "group": "build-tools",
+      "name": "binutils_linux-64",
+      "version": "2.46.1",
+      "build": "default_h4852527_103",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/binutils_linux-64-2.46.1-default_h4852527_103.conda",
+      "sha256": "606a42c754752fb905fe2012d52ff370d47b5b6adefd5f7befc4ec30ce758f23",
+      "md5": "ca26f0a4f8d04fd83147af557fbd932c",
+      "license": "GPL-3.0-only"
+    },
+    {
+      "group": "build-tools",
+      "name": "gcc_impl_linux-64",
+      "version": "12.4.0",
+      "build": "h26ba24d_2",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/gcc_impl_linux-64-12.4.0-h26ba24d_2.conda",
+      "sha256": "635cd3d70ca6f4c3ad3f4b5837b5badb058f2416392592bd5914aa805f0bc28e",
+      "md5": "f091c5ea6c862ab1796c82465a7c2364",
+      "license": "GPL-3.0-only WITH GCC-exception-3.1"
+    },
+    {
+      "group": "build-tools",
+      "name": "gcc_linux-64",
+      "version": "12.4.0",
+      "build": "h6b7512a_10",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/gcc_linux-64-12.4.0-h6b7512a_10.conda",
+      "sha256": "004d2ed6a3fc79452dec4c6cac556d0b26cf2457d33c4ace95beed4e6e832b55",
+      "md5": "18432a261dca2bb05b45e60adee37d77",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "group": "build-tools",
+      "name": "gxx_impl_linux-64",
+      "version": "12.4.0",
+      "build": "h3ff227c_2",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/gxx_impl_linux-64-12.4.0-h3ff227c_2.conda",
+      "sha256": "548987d77c5d6d648c1166e9a1eb810032f25fb1d61692a0a5a072db126e5f3f",
+      "md5": "5f8ae076e514514aeeb0eb52dac2d55d",
+      "license": "GPL-3.0-only WITH GCC-exception-3.1"
+    },
+    {
+      "group": "build-tools",
+      "name": "gxx_linux-64",
+      "version": "12.4.0",
+      "build": "h8489865_10",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/gxx_linux-64-12.4.0-h8489865_10.conda",
+      "sha256": "6ea7b3957ace8960347069f032851a66755b785a5e34cd845c1b6b1e649b686e",
+      "md5": "f01962bad75d6d68802a1eb56bb70478",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "group": "build-tools",
+      "name": "kernel-headers_linux-64",
+      "version": "6.12.0",
+      "build": "he073ed8_6",
+      "url": "https://conda.anaconda.org/conda-forge/noarch/kernel-headers_linux-64-6.12.0-he073ed8_6.conda",
+      "sha256": "73b11f31db6c9ebe63d900334fa4f46859aa1ddd8f37cfa5f25a043e0a59253c",
+      "md5": "ad5a27ffc9350af2624927dd79edf2be",
+      "license": "LGPL-2.0-or-later AND LGPL-2.0-or-later WITH exceptions AND GPL-2.0-or-later"
+    },
+    {
+      "group": "build-tools",
+      "name": "ld_impl_linux-64",
+      "version": "2.46.1",
+      "build": "default_hbd61a6d_103",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/ld_impl_linux-64-2.46.1-default_hbd61a6d_103.conda",
+      "sha256": "901649b1edbe841fd4ee7e2d491a05184ed540eb01cdae506872f344babc1d28",
+      "md5": "2362c70e7e79827c32db35547d9c179b",
+      "license": "GPL-3.0-only"
+    },
+    {
+      "group": "build-tools",
+      "name": "libgcc",
+      "version": "16.2.0",
+      "build": "ha9f2e26_7",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libgcc-16.2.0-ha9f2e26_7.conda",
+      "sha256": "e031634c3a928f9594eba868bc46ef5230d6571a364a0c63215b06c4563bfcea",
+      "md5": "735629b400b70eeab21a2ba8f5b1c2ce",
+      "license": "GPL-3.0-only WITH GCC-exception-3.1"
+    },
+    {
+      "group": "build-tools",
+      "name": "libgcc-devel_linux-64",
+      "version": "12.4.0",
+      "build": "h1762d19_102",
+      "url": "https://conda.anaconda.org/conda-forge/noarch/libgcc-devel_linux-64-12.4.0-h1762d19_102.conda",
+      "sha256": "4f8486faaa5696a4115a621100acda0f64b49631f2c4bc6046e0f72496348d76",
+      "md5": "5c9ee54252cddf9f83dc48f6ceef0ba4",
+      "license": "GPL-3.0-only WITH GCC-exception-3.1"
+    },
+    {
+      "group": "build-tools",
+      "name": "libgomp",
+      "version": "16.2.0",
+      "build": "he0feb66_7",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libgomp-16.2.0-he0feb66_7.conda",
+      "sha256": "92a0bb350c7be6a4eedcb4e111c60aefd176018e6b1c009a6e025dbe9bbcd758",
+      "md5": "d904c7ddd95e026254b4b80808ee9e12",
+      "license": "GPL-3.0-only WITH GCC-exception-3.1"
+    },
+    {
+      "group": "build-tools",
+      "name": "libsanitizer",
+      "version": "12.4.0",
+      "build": "ha732cd4_2",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libsanitizer-12.4.0-ha732cd4_2.conda",
+      "sha256": "d9a23eee55fc2a901e67565c328c37e7c2336ca805d985ad4a67b7837fb4e40a",
+      "md5": "e729f335fee31fd68429187c9e0f97c2",
+      "license": "GPL-3.0-only WITH GCC-exception-3.1"
+    },
+    {
+      "group": "build-tools",
+      "name": "libstdcxx",
+      "version": "16.2.0",
+      "build": "h934c35e_7",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libstdcxx-16.2.0-h934c35e_7.conda",
+      "sha256": "fa7018298629fc429971fffd6ecba3d27a7b02e4e890d6a93ea01ffebe8cb745",
+      "md5": "9b6707e0caca917fa6ea9ee473f37a5d",
+      "license": "GPL-3.0-only WITH GCC-exception-3.1"
+    },
+    {
+      "group": "build-tools",
+      "name": "libstdcxx-devel_linux-64",
+      "version": "12.4.0",
+      "build": "h1762d19_102",
+      "url": "https://conda.anaconda.org/conda-forge/noarch/libstdcxx-devel_linux-64-12.4.0-h1762d19_102.conda",
+      "sha256": "5e86d884d6877ce428d90a484cdc66d5968bf81dc189393239c43fe9b831da7d",
+      "md5": "aa2ae7befd3d165f3cfc4d3b39cebeb5",
+      "license": "GPL-3.0-only WITH GCC-exception-3.1"
+    },
+    {
+      "group": "build-tools",
+      "name": "libzlib",
+      "version": "1.3.2",
+      "build": "h25fd6f3_3",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libzlib-1.3.2-h25fd6f3_3.conda",
+      "sha256": "eb8a0db0aa570124f7d2a93d7c7f596e3390df5e047818d873baad32985fc736",
+      "md5": "0de0122d9570a8ab637c6b73db268389",
+      "license": "Zlib"
+    },
+    {
+      "group": "build-tools",
+      "name": "sysroot_linux-64",
+      "version": "2.39",
+      "build": "hc4b9eeb_6",
+      "url": "https://conda.anaconda.org/conda-forge/noarch/sysroot_linux-64-2.39-hc4b9eeb_6.conda",
+      "sha256": "7d235e4337f122f3439d0196e1c1c6e715a5b88fcbf24f944510186c84168e45",
+      "md5": "bc073c887526f93b09b8ca490192790b",
+      "license": "LGPL-2.0-or-later AND LGPL-2.0-or-later WITH exceptions AND GPL-2.0-or-later"
+    },
+    {
+      "group": "build-tools",
+      "name": "tzdata",
+      "version": "2026e",
+      "build": "h5d301ff_0",
+      "url": "https://conda.anaconda.org/conda-forge/noarch/tzdata-2026e-h5d301ff_0.conda",
+      "sha256": "2b7ca858879f183ce2dcc65b300f48a0133d5430550f35b23d80d405a0788dbf",
+      "md5": "abccc3810d2b97e570dee487f2b46e38",
+      "license": "LicenseRef-Public-Domain"
+    },
+    {
+      "group": "build-tools",
+      "name": "zstd",
+      "version": "1.5.7",
+      "build": "hb78ec9c_7",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/zstd-1.5.7-hb78ec9c_7.conda",
+      "sha256": "47d682b9f6d6ec9eb1a6e6c3e75ea6273e899e78fb7fc59f81d39745009fbc60",
+      "md5": "aa459086047c0e5e27023ab19f8cb86a",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "group": "native-tools",
+      "name": "openjdk",
+      "version": "8.0.514",
+      "build": "ha29393d_0",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/openjdk-8.0.514-ha29393d_0.conda",
+      "sha256": "f3869a384410aae03d04738b99cc2138018bf3d38a94ba95eb9f48cde2c47084",
+      "md5": "9c4ae38fa23812d1ecd0d7ada1c221b5",
+      "license": "GPL-2.0-or-later WITH Classpath-exception-2.0"
+    }
+  ],
+  "python": [
+    {
+      "name": "MOODS-python",
+      "version": "1.9.4.1",
+      "url": "https://files.pythonhosted.org/packages/f7/34/c623e9b57e3e3f1edf030201603d8110bf9969921790d950836176be4749/MOODS-python-1.9.4.1.tar.gz",
+      "sha256": "b3b5e080cb0cd13c0fd175d0ee0d453fde3e42794fa7ac39a4f6db1ac5ddb4cc",
+      "build_from_source": true,
+      "license": "GPLv3 / Biopython license"
+    },
+    {
+      "name": "appdirs",
+      "version": "1.4.4",
+      "url": "https://files.pythonhosted.org/packages/3b/00/2344469e2084fb287c2e0b57b72910309874c3245463acd6cf5e3db69324/appdirs-1.4.4-py2.py3-none-any.whl",
+      "sha256": "a841dacd6b99318a741b166adb07e19ee71a274450e68237b4650ca1055ab128",
+      "build_from_source": false,
+      "license": "MIT"
+    },
+    {
+      "name": "bcbio-gff",
+      "version": "0.6.7",
+      "url": "https://files.pythonhosted.org/packages/36/ea/43b0b78123aa89b352c401339be0a560c46f3d11b42ad3156a927761037d/bcbio-gff-0.6.7.tar.gz",
+      "sha256": "6e6f70639149612272a3b298a93ac50bba6f9ecece934f2a0ea86d4abde975da",
+      "build_from_source": true,
+      "license": "Biopython License"
+    },
+    {
+      "name": "biopython",
+      "version": "1.76",
+      "url": "https://files.pythonhosted.org/packages/40/5e/3a963cb5b4b4e33db0595ccbddff1df05e11a6664436ad8c9b1584d39e16/biopython-1.76-cp38-cp38-manylinux1_x86_64.whl",
+      "sha256": "b1a29524cbea4eb7d6ef9c2626c8fdc3d21a1a0790b7a5a6725bfc57e129be39",
+      "build_from_source": false,
+      "license": "UNKNOWN"
+    },
+    {
+      "name": "contourpy",
+      "version": "1.1.1",
+      "url": "https://files.pythonhosted.org/packages/8e/71/7f20855592cc929bc206810432b991ec4c702dc26b0567b132e52c85536f/contourpy-1.1.1-cp38-cp38-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "sha256": "41339b24471c58dc1499e56783fedc1afa4bb018bcd035cfb0ee2ad2a7501ef8",
+      "build_from_source": false,
+      "license": "BSD 3-Clause License\n        \n        Copyright (c) 2021-2023, ContourPy Developers.\n        All rights reserved.\n        \n        Redistribution and use in source and binary forms, with or without\n        modification, are permitted provided that the following conditions are met:\n        \n        1. Redistributions of source code must retain the above copyright notice, this\n           list of conditions and the following disclaimer.\n        \n        2. Redistributions in binary form must reproduce the above copyright notice,\n           this list of conditions and the following disclaimer in the documentation\n           and/or other materials provided with the distribution.\n        \n        3. Neither the name of the copyright holder nor the names of its\n           contributors may be used to endorse or promote products derived from\n           this software without specific prior written permission.\n        \n        THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS \"AS IS\"\n        AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE\n        IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE\n        DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE\n        FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL\n        DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR\n        SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER\n        CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,\n        OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE\n        OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE."
+    },
+    {
+      "name": "cssselect",
+      "version": "1.2.0",
+      "url": "https://files.pythonhosted.org/packages/06/a9/2da08717a6862c48f1d61ef957a7bba171e7eefa6c0aa0ceb96a140c2a6b/cssselect-1.2.0-py2.py3-none-any.whl",
+      "sha256": "da1885f0c10b60c03ed5eccbb6b68d6eff248d91976fcde348f395d54c9fd35e",
+      "build_from_source": false,
+      "license": "BSD"
+    },
+    {
+      "name": "cycler",
+      "version": "0.12.1",
+      "url": "https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl",
+      "sha256": "85cef7cff222d8644161529808465972e51340599459b8ac3ccbac5a854e0d30",
+      "build_from_source": false,
+      "license": "Copyright (c) 2015, matplotlib project\n        All rights reserved.\n        \n        Redistribution and use in source and binary forms, with or without\n        modification, are permitted provided that the following conditions are met:\n        \n        * Redistributions of source code must retain the above copyright notice, this\n          list of conditions and the following disclaimer.\n        \n        * Redistributions in binary form must reproduce the above copyright notice,\n          this list of conditions and the following disclaimer in the documentation\n          and/or other materials provided with the distribution.\n        \n        * Neither the name of the matplotlib project nor the names of its\n          contributors may be used to endorse or promote products derived from\n          this software without specific prior written permission.\n        \n        THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS \"AS IS\"\n        AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE\n        IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE\n        DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE\n        FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL\n        DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR\n        SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER\n        CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,\n        OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE\n        OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE."
+    },
+    {
+      "name": "et_xmlfile",
+      "version": "2.0.0",
+      "url": "https://files.pythonhosted.org/packages/c1/8b/5fe2cc11fee489817272089c4203e679c63b570a5aaeb18d852ae3cbba6a/et_xmlfile-2.0.0-py3-none-any.whl",
+      "sha256": "7a91720bc756843502c3b7504c77b8fe44217c85c537d85037f0f536151b2caa",
+      "build_from_source": false,
+      "license": "MIT"
+    },
+    {
+      "name": "ete3",
+      "version": "3.1.3",
+      "url": "https://files.pythonhosted.org/packages/cf/59/f26e8bfab088a3989bf1f61b836637039758a22df2d9fc6be491c5a6ccef/ete3-3.1.3.tar.gz",
+      "sha256": "06a3b7fa8ed90187b076a8dbbe5b1b62acee94201d3c6e822f55f449601ef6f2",
+      "build_from_source": true,
+      "license": "GPLv3"
+    },
+    {
+      "name": "fonttools",
+      "version": "4.57.0",
+      "url": "https://files.pythonhosted.org/packages/a5/0e/b6314a09a4d561aaa7e09de43fa700917be91e701f07df6178865962666c/fonttools-4.57.0-cp38-cp38-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "sha256": "a1968f2a2003c97c4ce6308dc2498d5fd4364ad309900930aa5a503c9851aec8",
+      "build_from_source": false,
+      "license": "MIT"
+    },
+    {
+      "name": "helperlibs",
+      "version": "0.2.2",
+      "url": "https://files.pythonhosted.org/packages/d3/91/afbb9c951da16feabd8ad6dea01577fdaecb22d0e711eb5b51128b58579c/helperlibs-0.2.2-py2.py3-none-any.whl",
+      "sha256": "63ac19875ea3d0706474c8c347b1a83e2e4edbdb7a7d4c0aefbfd1a671de8990",
+      "build_from_source": false,
+      "license": "GPL"
+    },
+    {
+      "name": "importlib_resources",
+      "version": "6.4.5",
+      "url": "https://files.pythonhosted.org/packages/e1/6a/4604f9ae2fa62ef47b9de2fa5ad599589d28c9fd1d335f32759813dfa91e/importlib_resources-6.4.5-py3-none-any.whl",
+      "sha256": "ac29d5f956f01d5e4bb63102a5a19957f1b9175e45649977264a1416783bb717",
+      "build_from_source": false,
+      "license": null
+    },
+    {
+      "name": "kiwisolver",
+      "version": "1.4.7",
+      "url": "https://files.pythonhosted.org/packages/76/36/ae40d7a3171e06f55ac77fe5536079e7be1d8be2a8210e08975c7f9b4d54/kiwisolver-1.4.7-cp38-cp38-manylinux_2_5_x86_64.manylinux1_x86_64.whl",
+      "sha256": "a0f64a48bb81af7450e641e3fe0b0394d7381e342805479178b3d335d60ca7cf",
+      "build_from_source": false,
+      "license": "=========================\n         The Kiwi licensing terms\n        =========================\n        Kiwi is licensed under the terms of the Modified BSD License (also known as\n        New or Revised BSD), as follows:\n        \n        Copyright (c) 2013-2024, Nucleic Development Team\n        \n        All rights reserved.\n        \n        Redistribution and use in source and binary forms, with or without\n        modification, are permitted provided that the following conditions are met:\n        \n        Redistributions of source code must retain the above copyright notice, this\n        list of conditions and the following disclaimer.\n        \n        Redistributions in binary form must reproduce the above copyright notice, this\n        list of conditions and the following disclaimer in the documentation and/or\n        other materials provided with the distribution.\n        \n        Neither the name of the Nucleic Development Team nor the names of its\n        contributors may be used to endorse or promote products derived from this\n        software without specific prior written permission.\n        \n        THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS \"AS IS\" AND\n        ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED\n        WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE\n        DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE\n        FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL\n        DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR\n        SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER\n        CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,\n        OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE\n        OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.\n        \n        About Kiwi\n        ----------\n        Chris Colbert began the Kiwi project in December 2013 in an effort to\n        create a blisteringly fast UI constraint solver. Chris is still the\n        project lead.\n        \n        The Nucleic Development Team is the set of all contributors to the Nucleic\n        project and its subprojects.\n        \n        The core team that coordinates development on GitHub can be found here:\n        http://github.com/nucleic. The current team consists of:\n        \n        * Chris Colbert\n        \n        Our Copyright Policy\n        --------------------\n        Nucleic uses a shared copyright model. Each contributor maintains copyright\n        over their contributions to Nucleic. But, it is important to note that these\n        contributions are typically only changes to the repositories. Thus, the Nucleic\n        source code, in its entirety is not the copyright of any single person or\n        institution. Instead, it is the collective copyright of the entire Nucleic\n        Development Team. If individual contributors want to maintain a record of what\n        changes/contributions they have specific copyright on, they should indicate\n        their copyright in the commit message of the change, when they commit the\n        change to one of the Nucleic repositories.\n        \n        With this in mind, the following banner should be used in any source code file\n        to indicate the copyright and license terms:\n        \n        #------------------------------------------------------------------------------\n        # Copyright (c) 2013-2024, Nucleic Development Team.\n        #\n        # Distributed under the terms of the Modified BSD License.\n        #\n        # The full license is in the file LICENSE, distributed with this software.\n        #------------------------------------------------------------------------------\n        "
+    },
+    {
+      "name": "logomaker",
+      "version": "0.8",
+      "url": "https://files.pythonhosted.org/packages/87/6d/9a9976674e77de3eab157e8c50667a7091058fa355fd7665eb1ab4b93c5a/logomaker-0.8-py2.py3-none-any.whl",
+      "sha256": "6766a0d83de4990ea859366a661ba72c580a7b73ac3c8b526204a0be7d65a50d",
+      "build_from_source": false,
+      "license": "MIT"
+    },
+    {
+      "name": "lxml",
+      "version": "6.1.3",
+      "url": "https://files.pythonhosted.org/packages/c3/87/565830833ee14812e0db14e8c6d128aee211cfd82ddf9624d5827683c8a0/lxml-6.1.3-cp38-cp38-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "302f72413251c03f671e063c9414bed5dc8c927069e5abb69245521e51a4e81b",
+      "build_from_source": false,
+      "license": "BSD-3-Clause"
+    },
+    {
+      "name": "matplotlib",
+      "version": "3.7.5",
+      "url": "https://files.pythonhosted.org/packages/30/33/cc27211d2ffeee4fd7402dca137b6e8a83f6dcae3d4be8d0ad5068555561/matplotlib-3.7.5-cp38-cp38-manylinux_2_12_x86_64.manylinux2010_x86_64.whl",
+      "sha256": "53e64522934df6e1818b25fd48cf3b645b11740d78e6ef765fbb5fa5ce080d02",
+      "build_from_source": false,
+      "license": "PSF"
+    },
+    {
+      "name": "networkx",
+      "version": "3.1",
+      "url": "https://files.pythonhosted.org/packages/a8/05/9d4f9b78ead6b2661d6e8ea772e111fc4a9fbd866ad0c81906c11206b55e/networkx-3.1-py3-none-any.whl",
+      "sha256": "4f33f68cb2afcf86f28a45f43efc27a9386b535d567d2127f8f61d51dec58d36",
+      "build_from_source": false,
+      "license": null
+    },
+    {
+      "name": "numpy",
+      "version": "1.24.4",
+      "url": "https://files.pythonhosted.org/packages/98/5d/5738903efe0ecb73e51eb44feafba32bdba2081263d40c5043568ff60faf/numpy-1.24.4-cp38-cp38-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "sha256": "dd80e219fd4c71fc3699fc1dadac5dcf4fd882bfc6f7ec53d30fa197b8ee22dc",
+      "build_from_source": false,
+      "license": "BSD-3-Clause"
+    },
+    {
+      "name": "openpyxl",
+      "version": "3.1.5",
+      "url": "https://files.pythonhosted.org/packages/c0/da/977ded879c29cbd04de313843e76868e6e13408a94ed6b987245dc7c8506/openpyxl-3.1.5-py2.py3-none-any.whl",
+      "sha256": "5282c12b107bffeef825f4617dc029afaf41d0ea60823bbb665ef3079dc79de2",
+      "build_from_source": false,
+      "license": "MIT"
+    },
+    {
+      "name": "packaging",
+      "version": "26.2",
+      "url": "https://files.pythonhosted.org/packages/df/b2/87e62e8c3e2f4b32e5fe99e0b86d576da1312593b39f47d8ceef365e95ed/packaging-26.2-py3-none-any.whl",
+      "sha256": "5fc45236b9446107ff2415ce77c807cee2862cb6fac22b8a73826d0693b0980e",
+      "build_from_source": false,
+      "license": null
+    },
+    {
+      "name": "pandas",
+      "version": "2.0.3",
+      "url": "https://files.pythonhosted.org/packages/f8/7f/5b047effafbdd34e52c9e2d7e44f729a0655efafb22198c45cf692cdc157/pandas-2.0.3-cp38-cp38-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "sha256": "9eae3dc34fa1aa7772dd3fc60270d13ced7346fcbcfee017d3132ec625e23bb0",
+      "build_from_source": false,
+      "license": "BSD 3-Clause License\n        \n        Copyright (c) 2008-2011, AQR Capital Management, LLC, Lambda Foundry, Inc. and PyData Development Team\n        All rights reserved.\n        \n        Copyright (c) 2011-2023, Open source contributors.\n        \n        Redistribution and use in source and binary forms, with or without\n        modification, are permitted provided that the following conditions are met:\n        \n        * Redistributions of source code must retain the above copyright notice, this\n          list of conditions and the following disclaimer.\n        \n        * Redistributions in binary form must reproduce the above copyright notice,\n          this list of conditions and the following disclaimer in the documentation\n          and/or other materials provided with the distribution.\n        \n        * Neither the name of the copyright holder nor the names of its\n          contributors may be used to endorse or promote products derived from\n          this software without specific prior written permission.\n        \n        THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS \"AS IS\"\n        AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE\n        IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE\n        DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE\n        FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL\n        DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR\n        SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER\n        CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,\n        OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE\n        OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.\n        "
+    },
+    {
+      "name": "pillow",
+      "version": "10.4.0",
+      "url": "https://files.pythonhosted.org/packages/fb/ad/435fe29865f98a8fbdc64add8875a6e4f8c97749a93577a8919ec6f32c64/pillow-10.4.0-cp38-cp38-manylinux_2_28_x86_64.whl",
+      "sha256": "950be4d8ba92aca4b2bb0741285a46bfae3ca699ef913ec8416c1b78eadd64cd",
+      "build_from_source": false,
+      "license": "HPND"
+    },
+    {
+      "name": "plantismash",
+      "version": "2.0.4",
+      "url": "https://files.pythonhosted.org/packages/3c/8f/4b1d3fe97ade54ba6b4a1bbf6afdffbf047b656144dc14550ad03bf60be2/plantismash-2.0.4-py3-none-any.whl",
+      "sha256": "b6895db310a07f86c35b6be8e25cdce3eb464249310662dc211b391d36b097d2",
+      "build_from_source": false,
+      "license": "GNU AFFERO GENERAL PUBLIC LICENSE\n                               Version 3, 19 November 2007\n        \n         Copyright (C) 2007 Free Software Foundation, Inc. <http://fsf.org/>\n         Everyone is permitted to copy and distribute verbatim copies\n         of this license document, but changing it is not allowed.\n        \n                                    Preamble\n        \n          The GNU Affero General Public License is a free, copyleft license for\n        software and other kinds of works, specifically designed to ensure\n        cooperation with the community in the case of network server software.\n        \n          The licenses for most software and other practical works are designed\n        to take away your freedom to share and change the works.  By contrast,\n        our General Public Licenses are intended to guarantee your freedom to\n        share and change all versions of a program--to make sure it remains free\n        software for all its users.\n        \n          When we speak of free software, we are referring to freedom, not\n        price.  Our General Public Licenses are designed to make sure that you\n        have the freedom to distribute copies of free software (and charge for\n        them if you wish), that you receive source code or can get it if you\n        want it, that you can change the software or use pieces of it in new\n        free programs, and that you know you can do these things.\n        \n          Developers that use our General Public Licenses protect your rights\n        with two steps: (1) assert copyright on the software, and (2) offer\n        you this License which gives you legal permission to copy, distribute\n        and/or modify the software.\n        \n          A secondary benefit of defending all users' freedom is that\n        improvements made in alternate versions of the program, if they\n        receive widespread use, become available for other developers to\n        incorporate.  Many developers of free software are heartened and\n        encouraged by the resulting cooperation.  However, in the case of\n        software used on network servers, this result may fail to come about.\n        The GNU General Public License permits making a modified version and\n        letting the public access it on a server without ever releasing its\n        source code to the public.\n        \n          The GNU Affero General Public License is designed specifically to\n        ensure that, in such cases, the modified source code becomes available\n        to the community.  It requires the operator of a network server to\n        provide the source code of the modified version running there to the\n        users of that server.  Therefore, public use of a modified version, on\n        a publicly accessible server, gives the public access to the source\n        code of the modified version.\n        \n          An older license, called the Affero General Public License and\n        published by Affero, was designed to accomplish similar goals.  This is\n        a different license, not a version of the Affero GPL, but Affero has\n        released a new version of the Affero GPL which permits relicensing under\n        this license.\n        \n          The precise terms and conditions for copying, distribution and\n        modification follow.\n        \n                               TERMS AND CONDITIONS\n        \n          0. Definitions.\n        \n          \"This License\" refers to version 3 of the GNU Affero General Public License.\n        \n          \"Copyright\" also means copyright-like laws that apply to other kinds of\n        works, such as semiconductor masks.\n        \n          \"The Program\" refers to any copyrightable work licensed under this\n        License.  Each licensee is addressed as \"you\".  \"Licensees\" and\n        \"recipients\" may be individuals or organizations.\n        \n          To \"modify\" a work means to copy from or adapt all or part of the work\n        in a fashion requiring copyright permission, other than the making of an\n        exact copy.  The resulting work is called a \"modified version\" of the\n        earlier work or a work \"based on\" the earlier work.\n        \n          A \"covered work\" means either the unmodified Program or a work based\n        on the Program.\n        \n          To \"propagate\" a work means to do anything with it that, without\n        permission, would make you directly or secondarily liable for\n        infringement under applicable copyright law, except executing it on a\n        computer or modifying a private copy.  Propagation includes copying,\n        distribution (with or without modification), making available to the\n        public, and in some countries other activities as well.\n        \n          To \"convey\" a work means any kind of propagation that enables other\n        parties to make or receive copies.  Mere interaction with a user through\n        a computer network, with no transfer of a copy, is not conveying.\n        \n          An interactive user interface displays \"Appropriate Legal Notices\"\n        to the extent that it includes a convenient and prominently visible\n        feature that (1) displays an appropriate copyright notice, and (2)\n        tells the user that there is no warranty for the work (except to the\n        extent that warranties are provided), that licensees may convey the\n        work under this License, and how to view a copy of this License.  If\n        the interface presents a list of user commands or options, such as a\n        menu, a prominent item in the list meets this criterion.\n        \n          1. Source Code.\n        \n          The \"source code\" for a work means the preferred form of the work\n        for making modifications to it.  \"Object code\" means any non-source\n        form of a work.\n        \n          A \"Standard Interface\" means an interface that either is an official\n        standard defined by a recognized standards body, or, in the case of\n        interfaces specified for a particular programming language, one that\n        is widely used among developers working in that language.\n        \n          The \"System Libraries\" of an executable work include anything, other\n        than the work as a whole, that (a) is included in the normal form of\n        packaging a Major Component, but which is not part of that Major\n        Component, and (b) serves only to enable use of the work with that\n        Major Component, or to implement a Standard Interface for which an\n        implementation is available to the public in source code form.  A\n        \"Major Component\", in this context, means a major essential component\n        (kernel, window system, and so on) of the specific operating system\n        (if any) on which the executable work runs, or a compiler used to\n        produce the work, or an object code interpreter used to run it.\n        \n          The \"Corresponding Source\" for a work in object code form means all\n        the source code needed to generate, install, and (for an executable\n        work) run the object code and to modify the work, including scripts to\n        control those activities.  However, it does not include the work's\n        System Libraries, or general-purpose tools or generally available free\n        programs which are used unmodified in performing those activities but\n        which are not part of the work.  For example, Corresponding Source\n        includes interface definition files associated with source files for\n        the work, and the source code for shared libraries and dynamically\n        linked subprograms that the work is specifically designed to require,\n        such as by intimate data communication or control flow between those\n        subprograms and other parts of the work.\n        \n          The Corresponding Source need not include anything that users\n        can regenerate automatically from other parts of the Corresponding\n        Source.\n        \n          The Corresponding Source for a work in source code form is that\n        same work.\n        \n          2. Basic Permissions.\n        \n          All rights granted under this License are granted for the term of\n        copyright on the Program, and are irrevocable provided the stated\n        conditions are met.  This License explicitly affirms your unlimited\n        permission to run the unmodified Program.  The output from running a\n        covered work is covered by this License only if the output, given its\n        content, constitutes a covered work.  This License acknowledges your\n        rights of fair use or other equivalent, as provided by copyright law.\n        \n          You may make, run and propagate covered works that you do not\n        convey, without conditions so long as your license otherwise remains\n        in force.  You may convey covered works to others for the sole purpose\n        of having them make modifications exclusively for you, or provide you\n        with facilities for running those works, provided that you comply with\n        the terms of this License in conveying all material for which you do\n        not control copyright.  Those thus making or running the covered works\n        for you must do so exclusively on your behalf, under your direction\n        and control, on terms that prohibit them from making any copies of\n        your copyrighted material outside their relationship with you.\n        \n          Conveying under any other circumstances is permitted solely under\n        the conditions stated below.  Sublicensing is not allowed; section 10\n        makes it unnecessary.\n        \n          3. Protecting Users' Legal Rights From Anti-Circumvention Law.\n        \n          No covered work shall be deemed part of an effective technological\n        measure under any applicable law fulfilling obligations under article\n        11 of the WIPO copyright treaty adopted on 20 December 1996, or\n        similar laws prohibiting or restricting circumvention of such\n        measures.\n        \n          When you convey a covered work, you waive any legal power to forbid\n        circumvention of technological measures to the extent such circumvention\n        is effected by exercising rights under this License with respect to\n        the covered work, and you disclaim any intention to limit operation or\n        modification of the work as a means of enforcing, against the work's\n        users, your or third parties' legal rights to forbid circumvention of\n        technological measures.\n        \n          4. Conveying Verbatim Copies.\n        \n          You may convey verbatim copies of the Program's source code as you\n        receive it, in any medium, provided that you conspicuously and\n        appropriately publish on each copy an appropriate copyright notice;\n        keep intact all notices stating that this License and any\n        non-permissive terms added in accord with section 7 apply to the code;\n        keep intact all notices of the absence of any warranty; and give all\n        recipients a copy of this License along with the Program.\n        \n          You may charge any price or no price for each copy that you convey,\n        and you may offer support or warranty protection for a fee.\n        \n          5. Conveying Modified Source Versions.\n        \n          You may convey a work based on the Program, or the modifications to\n        produce it from the Program, in the form of source code under the\n        terms of section 4, provided that you also meet all of these conditions:\n        \n            a) The work must carry prominent notices stating that you modified\n            it, and giving a relevant date.\n        \n            b) The work must carry prominent notices stating that it is\n            released under this License and any conditions added under section\n            7.  This requirement modifies the requirement in section 4 to\n            \"keep intact all notices\".\n        \n            c) You must license the entire work, as a whole, under this\n            License to anyone who comes into possession of a copy.  This\n            License will therefore apply, along with any applicable section 7\n            additional terms, to the whole of the work, and all its parts,\n            regardless of how they are packaged.  This License gives no\n            permission to license the work in any other way, but it does not\n            invalidate such permission if you have separately received it.\n        \n            d) If the work has interactive user interfaces, each must display\n            Appropriate Legal Notices; however, if the Program has interactive\n            interfaces that do not display Appropriate Legal Notices, your\n            work need not make them do so.\n        \n          A compilation of a covered work with other separate and independent\n        works, which are not by their nature extensions of the covered work,\n        and which are not combined with it such as to form a larger program,\n        in or on a volume of a storage or distribution medium, is called an\n        \"aggregate\" if the compilation and its resulting copyright are not\n        used to limit the access or legal rights of the compilation's users\n        beyond what the individual works permit.  Inclusion of a covered work\n        in an aggregate does not cause this License to apply to the other\n        parts of the aggregate.\n        \n          6. Conveying Non-Source Forms.\n        \n          You may convey a covered work in object code form under the terms\n        of sections 4 and 5, provided that you also convey the\n        machine-readable Corresponding Source under the terms of this License,\n        in one of these ways:\n        \n            a) Convey the object code in, or embodied in, a physical product\n            (including a physical distribution medium), accompanied by the\n            Corresponding Source fixed on a durable physical medium\n            customarily used for software interchange.\n        \n            b) Convey the object code in, or embodied in, a physical product\n            (including a physical distribution medium), accompanied by a\n            written offer, valid for at least three years and valid for as\n            long as you offer spare parts or customer support for that product\n            model, to give anyone who possesses the object code either (1) a\n            copy of the Corresponding Source for all the software in the\n            product that is covered by this License, on a durable physical\n            medium customarily used for software interchange, for a price no\n            more than your reasonable cost of physically performing this\n            conveying of source, or (2) access to copy the\n            Corresponding Source from a network server at no charge.\n        \n            c) Convey individual copies of the object code with a copy of the\n            written offer to provide the Corresponding Source.  This\n            alternative is allowed only occasionally and noncommercially, and\n            only if you received the object code with such an offer, in accord\n            with subsection 6b.\n        \n            d) Convey the object code by offering access from a designated\n            place (gratis or for a charge), and offer equivalent access to the\n            Corresponding Source in the same way through the same place at no\n            further charge.  You need not require recipients to copy the\n            Corresponding Source along with the object code.  If the place to\n            copy the object code is a network server, the Corresponding Source\n            may be on a different server (operated by you or a third party)\n            that supports equivalent copying facilities, provided you maintain\n            clear directions next to the object code saying where to find the\n            Corresponding Source.  Regardless of what server hosts the\n            Corresponding Source, you remain obligated to ensure that it is\n            available for as long as needed to satisfy these requirements.\n        \n            e) Convey the object code using peer-to-peer transmission, provided\n            you inform other peers where the object code and Corresponding\n            Source of the work are being offered to the general public at no\n            charge under subsection 6d.\n        \n          A separable portion of the object code, whose source code is excluded\n        from the Corresponding Source as a System Library, need not be\n        included in conveying the object code work.\n        \n          A \"User Product\" is either (1) a \"consumer product\", which means any\n        tangible personal property which is normally used for personal, family,\n        or household purposes, or (2) anything designed or sold for incorporation\n        into a dwelling.  In determining whether a product is a consumer product,\n        doubtful cases shall be resolved in favor of coverage.  For a particular\n        product received by a particular user, \"normally used\" refers to a\n        typical or common use of that class of product, regardless of the status\n        of the particular user or of the way in which the particular user\n        actually uses, or expects or is expected to use, the product.  A product\n        is a consumer product regardless of whether the product has substantial\n        commercial, industrial or non-consumer uses, unless such uses represent\n        the only significant mode of use of the product.\n        \n          \"Installation Information\" for a User Product means any methods,\n        procedures, authorization keys, or other information required to install\n        and execute modified versions of a covered work in that User Product from\n        a modified version of its Corresponding Source.  The information must\n        suffice to ensure that the continued functioning of the modified object\n        code is in no case prevented or interfered with solely because\n        modification has been made.\n        \n          If you convey an object code work under this section in, or with, or\n        specifically for use in, a User Product, and the conveying occurs as\n        part of a transaction in which the right of possession and use of the\n        User Product is transferred to the recipient in perpetuity or for a\n        fixed term (regardless of how the transaction is characterized), the\n        Corresponding Source conveyed under this section must be accompanied\n        by the Installation Information.  But this requirement does not apply\n        if neither you nor any third party retains the ability to install\n        modified object code on the User Product (for example, the work has\n        been installed in ROM).\n        \n          The requirement to provide Installation Information does not include a\n        requirement to continue to provide support service, warranty, or updates\n        for a work that has been modified or installed by the recipient, or for\n        the User Product in which it has been modified or installed.  Access to a\n        network may be denied when the modification itself materially and\n        adversely affects the operation of the network or violates the rules and\n        protocols for communication across the network.\n        \n          Corresponding Source conveyed, and Installation Information provided,\n        in accord with this section must be in a format that is publicly\n        documented (and with an implementation available to the public in\n        source code form), and must require no special password or key for\n        unpacking, reading or copying.\n        \n          7. Additional Terms.\n        \n          \"Additional permissions\" are terms that supplement the terms of this\n        License by making exceptions from one or more of its conditions.\n        Additional permissions that are applicable to the entire Program shall\n        be treated as though they were included in this License, to the extent\n        that they are valid under applicable law.  If additional permissions\n        apply only to part of the Program, that part may be used separately\n        under those permissions, but the entire Program remains governed by\n        this License without regard to the additional permissions.\n        \n          When you convey a copy of a covered work, you may at your option\n        remove any additional permissions from that copy, or from any part of\n        it.  (Additional permissions may be written to require their own\n        removal in certain cases when you modify the work.)  You may place\n        additional permissions on material, added by you to a covered work,\n        for which you have or can give appropriate copyright permission.\n        \n          Notwithstanding any other provision of this License, for material you\n        add to a covered work, you may (if authorized by the copyright holders of\n        that material) supplement the terms of this License with terms:\n        \n            a) Disclaiming warranty or limiting liability differently from the\n            terms of sections 15 and 16 of this License; or\n        \n            b) Requiring preservation of specified reasonable legal notices or\n            author attributions in that material or in the Appropriate Legal\n            Notices displayed by works containing it; or\n        \n            c) Prohibiting misrepresentation of the origin of that material, or\n            requiring that modified versions of such material be marked in\n            reasonable ways as different from the original version; or\n        \n            d) Limiting the use for publicity purposes of names of licensors or\n            authors of the material; or\n        \n            e) Declining to grant rights under trademark law for use of some\n            trade names, trademarks, or service marks; or\n        \n            f) Requiring indemnification of licensors and authors of that\n            material by anyone who conveys the material (or modified versions of\n            it) with contractual assumptions of liability to the recipient, for\n            any liability that these contractual assumptions directly impose on\n            those licensors and authors.\n        \n          All other non-permissive additional terms are considered \"further\n        restrictions\" within the meaning of section 10.  If the Program as you\n        received it, or any part of it, contains a notice stating that it is\n        governed by this License along with a term that is a further\n        restriction, you may remove that term.  If a license document contains\n        a further restriction but permits relicensing or conveying under this\n        License, you may add to a covered work material governed by the terms\n        of that license document, provided that the further restriction does\n        not survive such relicensing or conveying.\n        \n          If you add terms to a covered work in accord with this section, you\n        must place, in the relevant source files, a statement of the\n        additional terms that apply to those files, or a notice indicating\n        where to find the applicable terms.\n        \n          Additional terms, permissive or non-permissive, may be stated in the\n        form of a separately written license, or stated as exceptions;\n        the above requirements apply either way.\n        \n          8. Termination.\n        \n          You may not propagate or modify a covered work except as expressly\n        provided under this License.  Any attempt otherwise to propagate or\n        modify it is void, and will automatically terminate your rights under\n        this License (including any patent licenses granted under the third\n        paragraph of section 11).\n        \n          However, if you cease all violation of this License, then your\n        license from a particular copyright holder is reinstated (a)\n        provisionally, unless and until the copyright holder explicitly and\n        finally terminates your license, and (b) permanently, if the copyright\n        holder fails to notify you of the violation by some reasonable means\n        prior to 60 days after the cessation.\n        \n          Moreover, your license from a particular copyright holder is\n        reinstated permanently if the copyright holder notifies you of the\n        violation by some reasonable means, this is the first time you have\n        received notice of violation of this License (for any work) from that\n        copyright holder, and you cure the violation prior to 30 days after\n        your receipt of the notice.\n        \n          Termination of your rights under this section does not terminate the\n        licenses of parties who have received copies or rights from you under\n        this License.  If your rights have been terminated and not permanently\n        reinstated, you do not qualify to receive new licenses for the same\n        material under section 10.\n        \n          9. Acceptance Not Required for Having Copies.\n        \n          You are not required to accept this License in order to receive or\n        run a copy of the Program.  Ancillary propagation of a covered work\n        occurring solely as a consequence of using peer-to-peer transmission\n        to receive a copy likewise does not require acceptance.  However,\n        nothing other than this License grants you permission to propagate or\n        modify any covered work.  These actions infringe copyright if you do\n        not accept this License.  Therefore, by modifying or propagating a\n        covered work, you indicate your acceptance of this License to do so.\n        \n          10. Automatic Licensing of Downstream Recipients.\n        \n          Each time you convey a covered work, the recipient automatically\n        receives a license from the original licensors, to run, modify and\n        propagate that work, subject to this License.  You are not responsible\n        for enforcing compliance by third parties with this License.\n        \n          An \"entity transaction\" is a transaction transferring control of an\n        organization, or substantially all assets of one, or subdividing an\n        organization, or merging organizations.  If propagation of a covered\n        work results from an entity transaction, each party to that\n        transaction who receives a copy of the work also receives whatever\n        licenses to the work the party's predecessor in interest had or could\n        give under the previous paragraph, plus a right to possession of the\n        Corresponding Source of the work from the predecessor in interest, if\n        the predecessor has it or can get it with reasonable efforts.\n        \n          You may not impose any further restrictions on the exercise of the\n        rights granted or affirmed under this License.  For example, you may\n        not impose a license fee, royalty, or other charge for exercise of\n        rights granted under this License, and you may not initiate litigation\n        (including a cross-claim or counterclaim in a lawsuit) alleging that\n        any patent claim is infringed by making, using, selling, offering for\n        sale, or importing the Program or any portion of it.\n        \n          11. Patents.\n        \n          A \"contributor\" is a copyright holder who authorizes use under this\n        License of the Program or a work on which the Program is based.  The\n        work thus licensed is called the contributor's \"contributor version\".\n        \n          A contributor's \"essential patent claims\" are all patent claims\n        owned or controlled by the contributor, whether already acquired or\n        hereafter acquired, that would be infringed by some manner, permitted\n        by this License, of making, using, or selling its contributor version,\n        but do not include claims that would be infringed only as a\n        consequence of further modification of the contributor version.  For\n        purposes of this definition, \"control\" includes the right to grant\n        patent sublicenses in a manner consistent with the requirements of\n        this License.\n        \n          Each contributor grants you a non-exclusive, worldwide, royalty-free\n        patent license under the contributor's essential patent claims, to\n        make, use, sell, offer for sale, import and otherwise run, modify and\n        propagate the contents of its contributor version.\n        \n          In the following three paragraphs, a \"patent license\" is any express\n        agreement or commitment, however denominated, not to enforce a patent\n        (such as an express permission to practice a patent or covenant not to\n        sue for patent infringement).  To \"grant\" such a patent license to a\n        party means to make such an agreement or commitment not to enforce a\n        patent against the party.\n        \n          If you convey a covered work, knowingly relying on a patent license,\n        and the Corresponding Source of the work is not available for anyone\n        to copy, free of charge and under the terms of this License, through a\n        publicly available network server or other readily accessible means,\n        then you must either (1) cause the Corresponding Source to be so\n        available, or (2) arrange to deprive yourself of the benefit of the\n        patent license for this particular work, or (3) arrange, in a manner\n        consistent with the requirements of this License, to extend the patent\n        license to downstream recipients.  \"Knowingly relying\" means you have\n        actual knowledge that, but for the patent license, your conveying the\n        covered work in a country, or your recipient's use of the covered work\n        in a country, would infringe one or more identifiable patents in that\n        country that you have reason to believe are valid.\n        \n          If, pursuant to or in connection with a single transaction or\n        arrangement, you convey, or propagate by procuring conveyance of, a\n        covered work, and grant a patent license to some of the parties\n        receiving the covered work authorizing them to use, propagate, modify\n        or convey a specific copy of the covered work, then the patent license\n        you grant is automatically extended to all recipients of the covered\n        work and works based on it.\n        \n          A patent license is \"discriminatory\" if it does not include within\n        the scope of its coverage, prohibits the exercise of, or is\n        conditioned on the non-exercise of one or more of the rights that are\n        specifically granted under this License.  You may not convey a covered\n        work if you are a party to an arrangement with a third party that is\n        in the business of distributing software, under which you make payment\n        to the third party based on the extent of your activity of conveying\n        the work, and under which the third party grants, to any of the\n        parties who would receive the covered work from you, a discriminatory\n        patent license (a) in connection with copies of the covered work\n        conveyed by you (or copies made from those copies), or (b) primarily\n        for and in connection with specific products or compilations that\n        contain the covered work, unless you entered into that arrangement,\n        or that patent license was granted, prior to 28 March 2007.\n        \n          Nothing in this License shall be construed as excluding or limiting\n        any implied license or other defenses to infringement that may\n        otherwise be available to you under applicable patent law.\n        \n          12. No Surrender of Others' Freedom.\n        \n          If conditions are imposed on you (whether by court order, agreement or\n        otherwise) that contradict the conditions of this License, they do not\n        excuse you from the conditions of this License.  If you cannot convey a\n        covered work so as to satisfy simultaneously your obligations under this\n        License and any other pertinent obligations, then as a consequence you may\n        not convey it at all.  For example, if you agree to terms that obligate you\n        to collect a royalty for further conveying from those to whom you convey\n        the Program, the only way you could satisfy both those terms and this\n        License would be to refrain entirely from conveying the Program.\n        \n          13. Remote Network Interaction; Use with the GNU General Public License.\n        \n          Notwithstanding any other provision of this License, if you modify the\n        Program, your modified version must prominently offer all users\n        interacting with it remotely through a computer network (if your version\n        supports such interaction) an opportunity to receive the Corresponding\n        Source of your version by providing access to the Corresponding Source\n        from a network server at no charge, through some standard or customary\n        means of facilitating copying of software.  This Corresponding Source\n        shall include the Corresponding Source for any work covered by version 3\n        of the GNU General Public License that is incorporated pursuant to the\n        following paragraph.\n        \n          Notwithstanding any other provision of this License, you have\n        permission to link or combine any covered work with a work licensed\n        under version 3 of the GNU General Public License into a single\n        combined work, and to convey the resulting work.  The terms of this\n        License will continue to apply to the part which is the covered work,\n        but the work with which it is combined will remain governed by version\n        3 of the GNU General Public License.\n        \n          14. Revised Versions of this License.\n        \n          The Free Software Foundation may publish revised and/or new versions of\n        the GNU Affero General Public License from time to time.  Such new versions\n        will be similar in spirit to the present version, but may differ in detail to\n        address new problems or concerns.\n        \n          Each version is given a distinguishing version number.  If the\n        Program specifies that a certain numbered version of the GNU Affero General\n        Public License \"or any later version\" applies to it, you have the\n        option of following the terms and conditions either of that numbered\n        version or of any later version published by the Free Software\n        Foundation.  If the Program does not specify a version number of the\n        GNU Affero General Public License, you may choose any version ever published\n        by the Free Software Foundation.\n        \n          If the Program specifies that a proxy can decide which future\n        versions of the GNU Affero General Public License can be used, that proxy's\n        public statement of acceptance of a version permanently authorizes you\n        to choose that version for the Program.\n        \n          Later license versions may give you additional or different\n        permissions.  However, no additional obligations are imposed on any\n        author or copyright holder as a result of your choosing to follow a\n        later version.\n        \n          15. Disclaimer of Warranty.\n        \n          THERE IS NO WARRANTY FOR THE PROGRAM, TO THE EXTENT PERMITTED BY\n        APPLICABLE LAW.  EXCEPT WHEN OTHERWISE STATED IN WRITING THE COPYRIGHT\n        HOLDERS AND/OR OTHER PARTIES PROVIDE THE PROGRAM \"AS IS\" WITHOUT WARRANTY\n        OF ANY KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING, BUT NOT LIMITED TO,\n        THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR\n        PURPOSE.  THE ENTIRE RISK AS TO THE QUALITY AND PERFORMANCE OF THE PROGRAM\n        IS WITH YOU.  SHOULD THE PROGRAM PROVE DEFECTIVE, YOU ASSUME THE COST OF\n        ALL NECESSARY SERVICING, REPAIR OR CORRECTION.\n        \n          16. Limitation of Liability.\n        \n          IN NO EVENT UNLESS REQUIRED BY APPLICABLE LAW OR AGREED TO IN WRITING\n        WILL ANY COPYRIGHT HOLDER, OR ANY OTHER PARTY WHO MODIFIES AND/OR CONVEYS\n        THE PROGRAM AS PERMITTED ABOVE, BE LIABLE TO YOU FOR DAMAGES, INCLUDING ANY\n        GENERAL, SPECIAL, INCIDENTAL OR CONSEQUENTIAL DAMAGES ARISING OUT OF THE\n        USE OR INABILITY TO USE THE PROGRAM (INCLUDING BUT NOT LIMITED TO LOSS OF\n        DATA OR DATA BEING RENDERED INACCURATE OR LOSSES SUSTAINED BY YOU OR THIRD\n        PARTIES OR A FAILURE OF THE PROGRAM TO OPERATE WITH ANY OTHER PROGRAMS),\n        EVEN IF SUCH HOLDER OR OTHER PARTY HAS BEEN ADVISED OF THE POSSIBILITY OF\n        SUCH DAMAGES.\n        \n          17. Interpretation of Sections 15 and 16.\n        \n          If the disclaimer of warranty and limitation of liability provided\n        above cannot be given local legal effect according to their terms,\n        reviewing courts shall apply local law that most closely approximates\n        an absolute waiver of all civil liability in connection with the\n        Program, unless a warranty or assumption of liability accompanies a\n        copy of the Program in return for a fee.\n        \n                             END OF TERMS AND CONDITIONS\n        \n                    How to Apply These Terms to Your New Programs\n        \n          If you develop a new program, and you want it to be of the greatest\n        possible use to the public, the best way to achieve this is to make it\n        free software which everyone can redistribute and change under these terms.\n        \n          To do so, attach the following notices to the program.  It is safest\n        to attach them to the start of each source file to most effectively\n        state the exclusion of warranty; and each file should have at least\n        the \"copyright\" line and a pointer to where the full notice is found.\n        \n            <one line to give the program's name and a brief idea of what it does.>\n            Copyright (C) <year>  <name of author>\n        \n            This program is free software: you can redistribute it and/or modify\n            it under the terms of the GNU Affero General Public License as published by\n            the Free Software Foundation, either version 3 of the License, or\n            (at your option) any later version.\n        \n            This program is distributed in the hope that it will be useful,\n            but WITHOUT ANY WARRANTY; without even the implied warranty of\n            MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the\n            GNU Affero General Public License for more details.\n        \n            You should have received a copy of the GNU Affero General Public License\n            along with this program.  If not, see <http://www.gnu.org/licenses/>.\n        \n        Also add information on how to contact you by electronic and paper mail.\n        \n          If your software can interact with users remotely through a computer\n        network, you should also make sure that it provides a way for users to\n        get its source.  For example, if your program is a web application, its\n        interface could display a \"Source\" link that leads users to an archive\n        of the code.  There are many ways you could offer source, and different\n        solutions will be better for different programs; see section 13 for the\n        specific requirements.\n        \n          You should also get your employer (if you work as a programmer) or school,\n        if any, to sign a \"copyright disclaimer\" for the program, if necessary.\n        For more information on this, and how to apply and follow the GNU AGPL, see\n        <http://www.gnu.org/licenses/>.\n        "
+    },
+    {
+      "name": "pyparsing",
+      "version": "3.1.4",
+      "url": "https://files.pythonhosted.org/packages/e5/0c/0e3c05b1c87bb6a1c76d281b0f35e78d2d80ac91b5f8f524cebf77f51049/pyparsing-3.1.4-py3-none-any.whl",
+      "sha256": "a6a7ee4235a3f944aa1fa2249307708f893fe5717dc603503c6c7969c070fb7c",
+      "build_from_source": false,
+      "license": null
+    },
+    {
+      "name": "pyquery",
+      "version": "1.2.9",
+      "url": "https://files.pythonhosted.org/packages/e6/50/f8cf0676a12d25e77c95b96b34d7e1edf36559c048d95fa3dbb8d399b298/pyquery-1.2.9.zip",
+      "sha256": "46c51eb878b787e814ee8f9737b0a62111034aeb4d1c06450ac5a8ea5a70e602",
+      "build_from_source": true,
+      "license": "BSD"
+    },
+    {
+      "name": "python-dateutil",
+      "version": "3.0.0",
+      "url": "https://files.pythonhosted.org/packages/5a/17/cebee01d1c0c1441174cf0456ddc91b280d79acb65340c05e41d77866ee8/python_dateutil-3.0.0-py2.py3-none-any.whl",
+      "sha256": "3c79630202e4152c6add678446984236efe4f57e84d8e892aab0637bab82e9fd",
+      "build_from_source": false,
+      "license": "Dual License"
+    },
+    {
+      "name": "python-louvain",
+      "version": "0.16",
+      "url": "https://files.pythonhosted.org/packages/7c/0d/8787b021d52eb8764c0bb18ab95f720cf554902044c6a5cb1865daf45763/python-louvain-0.16.tar.gz",
+      "sha256": "b7ba2df5002fd28d3ee789a49532baad11fe648e4f2117cf0798e7520a1da56b",
+      "build_from_source": true,
+      "license": "BSD"
+    },
+    {
+      "name": "pytz",
+      "version": "2026.6",
+      "url": "https://files.pythonhosted.org/packages/b6/25/564f3fc5b70c1398d706c51f2b1470d0ea0b1b2f96fee67877b6f5bdf3b6/pytz-2026.6-py2.py3-none-any.whl",
+      "sha256": "7fed3fee8fd6bd4a2b7b75a8d56021d0624127bf69bd5691f115db929ac570b3",
+      "build_from_source": false,
+      "license": "MIT"
+    },
+    {
+      "name": "six",
+      "version": "1.17.0",
+      "url": "https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl",
+      "sha256": "4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274",
+      "build_from_source": false,
+      "license": "MIT"
+    },
+    {
+      "name": "straight.plugin",
+      "version": "1.4.0.post1",
+      "url": "https://files.pythonhosted.org/packages/9d/41/bd205fad35b94c03a8f214bd58b5213e1ceaca42f5045e544e05ba5df559/straight.plugin-1.4.0-post-1.tar.gz",
+      "sha256": "74b4442de9d3df756613a83c457e5ead5264c1163d90909dfe95e74b57862510",
+      "build_from_source": true,
+      "license": null
+    },
+    {
+      "name": "svgwrite",
+      "version": "1.4.3",
+      "url": "https://files.pythonhosted.org/packages/84/15/640e399579024a6875918839454025bb1d5f850bb70d96a11eabb644d11c/svgwrite-1.4.3-py3-none-any.whl",
+      "sha256": "bb6b2b5450f1edbfa597d924f9ac2dd099e625562e492021d7dd614f65f8a22d",
+      "build_from_source": false,
+      "license": "MIT License"
+    },
+    {
+      "name": "tqdm",
+      "version": "4.67.1",
+      "url": "https://files.pythonhosted.org/packages/d0/30/dc54f88dd4a2b5dc8a0279bdd7270e735851848b762aeb1c1184ed1f6b14/tqdm-4.67.1-py3-none-any.whl",
+      "sha256": "26445eca388f82e72884e0d580d5464cd801a3ea01e63e5601bdff9ba6a48de2",
+      "build_from_source": false,
+      "license": "MPL-2.0 AND MIT"
+    },
+    {
+      "name": "tzdata",
+      "version": "2026.6",
+      "url": "https://files.pythonhosted.org/packages/0a/66/9a06c2227fedfd4919f0eaaa8b94377d9730882a7e4f95823c9a331ab5e1/tzdata-2026.6-py2.py3-none-any.whl",
+      "sha256": "0a10eec6e13ef16b627fabed9a5f2ba61a62b1c67f327305f4e7e412a70b4aec",
+      "build_from_source": false,
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "zipp",
+      "version": "3.20.2",
+      "url": "https://files.pythonhosted.org/packages/62/8b/5ba542fa83c90e09eac972fc9baca7a88e7e7ca4b221a89251954019308b/zipp-3.20.2-py3-none-any.whl",
+      "sha256": "a817ac80d6cf4b23bf7f2828b7cabf326f15a001bea8b1f9b49631780ba28350",
+      "build_from_source": false,
+      "license": null
+    },
+    {
+      "name": "graphlan",
+      "version": "1.1.3.1",
+      "git_commit": "dc97f4feb0bb0bf3fa210e2699a86c5e476a647e",
+      "url": "https://codeload.github.com/biobakery/graphlan/tar.gz/dc97f4feb0bb0bf3fa210e2699a86c5e476a647e",
+      "filename": "graphlan-dc97f4feb0bb0bf3fa210e2699a86c5e476a647e.tar.gz",
+      "sha256": "a0dcf91295c99eb94352c8a6a980b78f298f8a364dcad1b38f93211df5a4eadb",
+      "build_from_source": true,
+      "license": "MIT"
+    }
+  ],
+  "scientific_producer": "plantismash-2.0.4-private-repeat2",
+  "profile_sha256": "f8bce449f75d78eddb5d9a15faf95de73625c9936af41d3e7faa52f7949dd0d3",
+  "prior_accepted_sif_sha256": "6c057b048752333a1860a1dcbcd9a44b285b7f4717c8e705f0b10215a5522406"
+}

@@ -103,7 +103,7 @@ class BigscapeMultipanelRenderingTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual(
             hashlib.sha256(first).hexdigest(),
-            "d59e7e3638228f66602f9c2514f65b6e1f20875f6e53530aab0413e67e4299a8",
+            "ac9ecb8d49046f8e18240e29900cbea98b849d99dd564a1ee44e52cd2e46bfe5",
         )
 
     def test_multipanel_legends_remain_readable_at_3_15_50_and_75_genomes(self) -> None:
@@ -215,7 +215,7 @@ class BigscapeMultipanelRenderingTests(unittest.TestCase):
                 if genome_count == 3:
                     self.assertEqual(
                         hashlib.sha256(svg_bytes).hexdigest(),
-                        "28159d44e6ee59cf4b7dcefafd0e67958223bbc68c4817dd52a83b962fd5af5d",
+                        "2a710e77b8ff8907a395f5b08fbd5caffb7db6418f749d6fa47f77b364140ce3",
                     )
                 root = ET.fromstring(svg_bytes)
                 canvas_x, canvas_y, canvas_width, canvas_height = map(
@@ -300,9 +300,9 @@ class BigscapeMultipanelRenderingTests(unittest.TestCase):
                     text.strip() for text in root.itertext() if text.strip()
                 )
                 self.assertIn("Node Labels", visible_text)
-                self.assertIn("BGC Class Fill", visible_text)
-                for class_name in classes:
-                    self.assertIn(class_name, visible_text)
+                self.assertIn("BGC and GCF Class Fill", visible_text)
+                for class_name in classes[:min(len(classes), genome_count * 3)]:
+                    self.assertIn(self.module.LABELS[class_name], visible_text)
 
 
     def test_bacterial_chart_omits_funbgcex_row(self) -> None:

@@ -12,6 +12,16 @@ from pathlib import Path
 from typing import Iterable
 
 
+WEB_ROOT = Path(__file__).resolve().parents[1] / "web"
+if str(WEB_ROOT) not in sys.path:
+    sys.path.insert(0, str(WEB_ROOT))
+
+from scientific_profiles import (  # noqa: E402
+    default_detector_profile,
+    default_prediction_method,
+)
+
+
 FASTA_EXTENSIONS = ("fna", "fa", "fsa", "fasta")
 GENBANK_EXTENSIONS = ("gbk", "gb", "gbff")
 INPUT_EXTENSIONS = FASTA_EXTENSIONS + GENBANK_EXTENSIONS
@@ -82,7 +92,7 @@ def discover_legacy_stems(fungi_root: Path, mapping_file: Path) -> list[str]:
 
 
 def _route_rows(
-    manifest: Path, fungi_root: Path, bacteria_root: Path
+    manifest: Path, fungi_root: Path, bacteria_root: Path, plants_root: Path | None = None
 ) -> tuple[list[tuple[str, ...]], bool, bool]:
     routes: list[tuple[str, ...]] = []
     seen: set[str] = set()
@@ -115,19 +125,22 @@ def _route_rows(
             if taxon_group == "fungi":
                 has_fungal = True
                 root = fungi_root
-                prediction_method = prediction_method or "funannotate"
-                detector_profile = detector_profile or "antismash+funbgcex"
             elif taxon_group == "bacteria":
                 has_bacterial = True
                 root = bacteria_root
-                prediction_method = prediction_method or "prodigal"
-                detector_profile = detector_profile or "antismash"
+            elif taxon_group == "plants" and plants_root is not None:
+                root = plants_root
             else:
                 raise ValueError(
                     f"Invalid taxon_group='{taxon_group}' for genome {genome_id} "
                     f"in {manifest}"
                 )
 
+            prediction_method = prediction_method or default_prediction_method(taxon_group)
+            detector_profile = detector_profile or default_detector_profile(taxon_group)
+
+            if taxon_group == "plants" and (prediction_method not in {"existing_cds", "annotation_required"} or detector_profile != "plantismash"):
+                raise ValueError("Plant routes require supplied CDS and the plantiSMASH profile")
             if genome_id in seen:
                 raise ValueError(
                     f"Duplicate genome_id in canonical taxon manifest: {genome_id}"
@@ -147,20 +160,35 @@ def _route_rows(
     return routes, has_fungal, has_bacterial
 
 
-def emit_routes(manifest: Path, fungi_root: Path, bacteria_root: Path) -> None:
-    if not manifest.is_file() or manifest.stat().st_size == 0:
+def emit_routes(manifest: Path, fungi_root: Path, bacteria_root: Path, plants_root: Path | None = None) -> None:
+    # A dangling link is a present manifest that cannot be read.
+    scope = os.environ.get("ANALYSIS_SCOPE", "").strip()
+    if scope:
+        from taxon_routing import normalize_analysis_scope
+        scope = normalize_analysis_scope(scope)
+    try:
+        manifest.lstat()
+    except FileNotFoundError:
+        if scope and scope != "fungi":
+            raise ValueError("Non-fungal CLI scopes require a validated per-genome taxon manifest")
         print("meta\t0\t1\t0")
         return
 
     routes, has_fungal, has_bacterial = _route_rows(
-        manifest, fungi_root, bacteria_root
+        manifest, fungi_root, bacteria_root, plants_root
     )
-    active = bool(routes)
-    if not active:
-        has_fungal = True
+    if scope:
+        from taxon_routing import _scope_allows
+        if any(not _scope_allows(scope, row[1]) for row in routes):
+            raise ValueError("Taxon route conflicts with analysis scope; both means fungi plus bacteria")
+    if not routes:
+        raise ValueError(
+            f"Canonical taxon manifest has no accepted inputs: {manifest}. "
+            "Historical fungal discovery is allowed only when the manifest is absent."
+        )
     print(
         "meta\t{}\t{}\t{}".format(
-            int(active), int(has_fungal), int(has_bacterial)
+            1, int(has_fungal), int(has_bacterial)
         )
     )
     for route in routes:
@@ -179,10 +207,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    subparsers.add_parser("profile-defaults")
+
     routes = subparsers.add_parser("routes")
     routes.add_argument("--manifest", type=Path, required=True)
     routes.add_argument("--fungi-root", type=Path, required=True)
     routes.add_argument("--bacteria-root", type=Path, required=True)
+    routes.add_argument("--plants-root", type=Path)
 
     discover = subparsers.add_parser("discover")
     discover.add_argument("--fungi-root", type=Path, required=True)
@@ -210,8 +241,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
-    if args.command == "routes":
-        emit_routes(args.manifest, args.fungi_root, args.bacteria_root)
+    if args.command == "profile-defaults":
+        for group in ("fungi", "bacteria", "plants"):
+            print("\t".join((group, default_prediction_method(group),
+                             default_detector_profile(group))))
+    elif args.command == "routes":
+        emit_routes(args.manifest, args.fungi_root, args.bacteria_root, args.plants_root)
     elif args.command == "discover":
         for stem in discover_legacy_stems(args.fungi_root, args.mapping_file):
             print(stem)

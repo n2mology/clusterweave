@@ -1101,7 +1101,7 @@ class RuntimePreparer:
         if scope == "startup":
             return
         defaults = {
-            "ANTISMASH_SIF": self.software_root / "antismash" / "antismash_8.0.4.sif",
+            "ANTISMASH_SIF": self.software_root / "antismash" / "antismash_standalone.sif",
             "FUNBGCEX_SIF": self.software_root / "funbgcex" / "funbgcex_bundle.sif",
             "FUNANNOTATE_SIF": self.software_root / "funannotate" / "funannotate_v1.8.17.sif",
             "BIGSCAPE_SIF_PATH": self.software_root / "big_scape" / "bigscape_2.0.0-beta.6.sif",
@@ -1240,6 +1240,19 @@ class RuntimePreparer:
                 lambda: self._validate_manifest_scope(existing, scope),
             )
 
+        plantismash_sif = _env_path(self.env, "PLANTISMASH_SIF", self.software_root / "plantismash/plant.sif")
+        if self.env.get("PLANTISMASH_SIF") or plantismash_sif.exists():
+            def check_plantismash():
+                import sys
+                sys.path.insert(0, str(self.root / "bin") if hasattr(self, "root") else str(Path(__file__).resolve().parent))
+                from plantismash_runtime import check_runtime, runtime_identity
+                try:
+                    check_runtime(plantismash_sif, self.env.get("PLANTISMASH_ENGINE", "apptainer"))
+                except (ValueError, OSError, subprocess.SubprocessError) as exc:
+                    raise PreparationError(str(exc)) from exc
+                identity = runtime_identity(plantismash_sif, self.env.get("PLANTISMASH_ENGINE", "apptainer"))
+                self._record("plantismash", sha256=identity["sif_sha256"], producer="plantismash-2.0.4-clusterweave-extras-v3", acquisition="explicit pinned source build or accepted pre-provisioned SIF", engine=identity)
+            run_step("plantiSMASH", check_plantismash)
         if self.profile == "external":
             run_step("external profile", lambda: self._external_assets(scope))
         else:

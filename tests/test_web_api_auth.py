@@ -3089,7 +3089,7 @@ ORIGIN
         self.assertEqual(genomes["bacteria_demo"]["taxon_group"], "bacteria")
         self.assertEqual(genomes["bacteria_demo"]["stage"], "complete")
         self.assertEqual(genomes["bacteria_demo"]["tool"], "antiSMASH")
-        self.assertEqual(genomes["bacteria_demo"]["message"], "BGC detection complete")
+        self.assertEqual(genomes["bacteria_demo"]["message"], "Genome workflow complete")
         self.assertEqual(genomes["Rhizopus_stolonifer_PRFJ01"]["status"], "warning")
         self.assertTrue(genomes["Rhizopus_stolonifer_PRFJ01"]["terminal"])
         rendered = json.dumps(payload["genome_progress"])
@@ -3267,7 +3267,7 @@ ORIGIN
         self.assertEqual(genome["tool"], "antiSMASH")
         self.assertEqual(genome["percent"], 100)
         self.assertEqual(genome["status"], "complete")
-        self.assertEqual(genome["message"], "BGC detection complete")
+        self.assertEqual(genome["message"], "Genome workflow complete")
         self.assertTrue(genome["terminal"])
 
     def test_bacterial_legacy_success_marker_cannot_overwrite_failure(self) -> None:
@@ -3386,7 +3386,7 @@ ORIGIN
         self.assertEqual(genome["status"], "complete_with_warning")
         self.assertEqual(genome["stage"], "complete")
         self.assertEqual(genome["tool"], "FunBGCeX")
-        self.assertEqual(genome["message"], "FunBGCeX complete")
+        self.assertEqual(genome["message"], "Genome workflow complete")
         self.assertEqual(genome["warning_tool"], "antiSMASH")
         self.assertIn("NC_003424.3", genome["warning_message"])
         self.assertEqual(genome["stage_states"]["genome_acquired"]["status"], "complete")
@@ -3555,7 +3555,7 @@ ORIGIN
         self.assertEqual(genome["status"], "complete")
         self.assertEqual(genome["percent"], 100)
         self.assertEqual(genome["stage"], "complete")
-        self.assertEqual(genome["message"], "FunBGCeX complete")
+        self.assertEqual(genome["message"], "Genome workflow complete")
         self.assertTrue(genome["terminal"])
 
     def test_live_job_status_payload_skips_result_index_hydration(self) -> None:
@@ -3896,6 +3896,44 @@ ORIGIN
         self.assertEqual(status, 200)
         self.assertEqual(payload["id"], public_id)
 
+    def test_terminal_notifications_follow_accepted_reruns_only(self) -> None:
+        self.write_job("notice-rerun", "read-notice")
+        job = self.job_store.read_job("notice-rerun")
+        job["notify_email"] = "user@example.org"
+        self.job_store.write_job(job)
+        retained = self.job_store.job_dir("notice-rerun") / "results" / "figure.svg"
+        before_bytes = retained.read_bytes()
+        original_settings = job["submission_settings"]
+        headers = {"Content-Type": "application/json", **self.auth("admin-secret")}
+        body = b'{"run_summary":true}'
+        route = "/api/jobs/notice-rerun/rerun"
+        with mock.patch.dict(os.environ, {"CLUSTERWEAVE_SMTP_ENABLED": "1"}), \
+             mock.patch.object(self.notifications, "deliver_email") as delivery:
+            self.assertEqual(self.notifications.maybe_send_terminal_notification("notice-rerun")["attempt"], 0)
+            for token, payload, expected in [("read-notice", body, 403), ("admin-secret", b"{}", 400)]:
+                code, _, _ = self.request("POST", route, payload, {"Content-Type": "application/json", **self.auth(token)})
+                self.assertEqual(code, expected)
+            with mock.patch.object(self.app, "MAX_QUEUED_JOBS", 0):
+                self.assertEqual(self.request("POST", route, body, headers)[0], 429)
+            self.assertNotIn("rerun_count", self.job_store.read_job("notice-rerun"))
+            self.notifications.maybe_send_terminal_notification("notice-rerun")
+            self.assertEqual(delivery.call_count, 1)
+            for attempt in (1, 2):
+                self.assertEqual(self.request("POST", route, body, headers)[0], 202)
+                self.assertIsNone(self.notifications.maybe_send_terminal_notification("notice-rerun"))
+                self.assertEqual(self.request("POST", route, body, headers)[0], 409)
+                job = self.job_store.read_job("notice-rerun")
+                self.assertEqual(job["rerun_count"], attempt)
+                job.update(status="success", stage="complete")
+                self.job_store.write_job(job)
+                self.assertEqual(self.notifications.maybe_send_terminal_notification("notice-rerun")["attempt"], attempt)
+                self.notifications.maybe_send_terminal_notification("notice-rerun")
+            self.assertEqual(delivery.call_count, 3)
+        job = self.job_store.read_job("notice-rerun")
+        self.assertEqual(retained.read_bytes(), before_bytes)
+        self.assertEqual(job["submission_settings"], original_settings)
+        self.assertEqual(job["read_token_hash"], self.app.job_token_hash("read-notice"))
+
     def test_success_notification_email_is_concise_result_message(self) -> None:
         job = {
             "id": "donejob",
@@ -3992,6 +4030,56 @@ ORIGIN
         self.assertEqual(status, 204)
         self.assertIsNone(self.job_store.read_job("jobone"))
 
+    def test_rerun_cancelled_job_clears_previous_marker_and_preserves_results_and_access(self):
+        self.write_job("retrycancel", "read-cancel", status="failed")
+        job = self.job_store.read_job("retrycancel")
+        job["stage"] = "cancelled"
+        self.job_store.write_job(job)
+        result = self.job_store.job_dir("retrycancel") / "retained.txt"
+        result.write_bytes(b"retained scientific output")
+        self.job_store.request_job_cancel("retrycancel", delete_after_cancel=False)
+        before = self.job_store.read_job("retrycancel")
+        code, payload, _ = self.request("POST", "/api/jobs/retrycancel/rerun",
+            json.dumps({"run_summary": True, "cpus": 1}).encode(),
+            {"Content-Type": "application/json", **self.auth("admin-secret")})
+        self.assertEqual(code, 202)
+        self.assertFalse(self.job_store.job_cancel_path("retrycancel").exists())
+        self.assertEqual(result.read_bytes(), b"retained scientific output")
+        after = self.job_store.read_job("retrycancel")
+        self.assertEqual(after["status"], "pending")
+        self.assertEqual(after["read_token_hash"], before["read_token_hash"])
+        self.assertEqual(self.request("GET", "/api/jobs/retrycancel", headers=self.auth("read-cancel"))[0], 200)
+        self.assertTrue(list(self.job_store.QUEUE_DIR.glob("*.json")))
+
+    def test_rerun_pending_deletion_is_rejected_without_clearing_markers(self):
+        self.write_job("deletepending", "read-delete", status="failed")
+        self.job_store.request_job_cancel("deletepending", delete_after_cancel=True)
+        before = self.job_store.read_job("deletepending")
+        code, _, _ = self.request("POST", "/api/jobs/deletepending/rerun",
+            json.dumps({"run_summary": True}).encode(),
+            {"Content-Type": "application/json", **self.auth("admin-secret")})
+        self.assertEqual(code, 409)
+        self.assertTrue(self.job_store.job_cancel_path("deletepending").exists())
+        self.assertTrue(self.job_store.job_delete_path("deletepending").exists())
+        self.assertEqual(self.job_store.read_job("deletepending"), before)
+        self.assertFalse(list(self.job_store.QUEUE_DIR.glob("*.json")))
+
+    def test_rejected_rerun_keeps_cancellation_marker_and_prior_state(self):
+        self.write_job("rejectedretry", "read-rejected", status="failed")
+        self.job_store.request_job_cancel("rejectedretry", delete_after_cancel=False)
+        before = self.job_store.read_job("rejectedretry")
+        body = json.dumps({"run_summary": True}).encode()
+        headers = {"Content-Type": "application/json"}
+        self.assertEqual(self.request("POST", "/api/jobs/rejectedretry/rerun", body, headers)[0], 401)
+        with mock.patch.object(self.app, "MAX_QUEUED_JOBS", 0):
+            self.assertEqual(self.request("POST", "/api/jobs/rejectedretry/rerun", body,
+                {**headers, **self.auth("admin-secret")})[0], 429)
+        self.assertEqual(self.request("POST", "/api/jobs/rejectedretry/rerun", b"{}",
+            {**headers, **self.auth("admin-secret")})[0], 400)
+        self.assertTrue(self.job_store.job_cancel_path("rejectedretry").exists())
+        self.assertEqual(self.job_store.read_job("rejectedretry"), before)
+        self.assertFalse(list(self.job_store.QUEUE_DIR.glob("*.json")))
+
     def test_worker_status_normalizes_naive_and_timezone_aware_timestamps(self) -> None:
         worker_status_path = Path(self.tmp.name) / "worker" / "status.json"
         cases = [
@@ -4054,6 +4142,66 @@ ORIGIN
         )
         self.assertEqual(status, 403)
         self.assertIn("not accepted", payload["detail"])
+
+    def test_slurm_delete_retains_unconfirmed_terminal_or_missing_id_jobs(self):
+        for job_id, state, scheduler_id in [("slurm-old", "CANCELLED", "42"), ("slurm-noid", "SUBMITTED", "")]:
+            self.write_job(job_id, "read-slurm", status="failed")
+            job = self.job_store.read_job(job_id)
+            job.update(executor="slurm", slurm_job_id=scheduler_id,
+                       scheduler={"kind": "slurm", "job_id": scheduler_id, "state": state})
+            self.job_store.write_job(job)
+            before = (self.job_store.job_dir(job_id) / "results" / "figure.svg").read_bytes()
+            for _ in range(2):
+                self.assertEqual(self.request("DELETE", f"/api/jobs/{job_id}", headers=self.auth("admin-secret"))[0], 202)
+                self.assertTrue(self.job_store.job_delete_path(job_id).exists())
+                self.assertEqual((self.job_store.job_dir(job_id) / "results" / "figure.svg").read_bytes(), before)
+            self.assertEqual(self.request("GET", f"/api/jobs/{job_id}", headers=self.auth("read-slurm"))[0], 200)
+
+    def test_slurm_rerun_waits_for_confirmation_then_preserves_existing_access(self):
+        self.write_job("slurm-retry", "read-slurm")
+        job = self.job_store.read_job("slurm-retry")
+        job.update(executor="slurm", slurm_job_id="42", scheduler={"kind": "slurm", "job_id": "42", "state": "RUNNING"})
+        self.job_store.write_job(job)
+        before = self.job_store.job_meta_path("slurm-retry").read_bytes()
+        body = b'{"run_summary":true}'
+        headers = {"Content-Type": "application/json", **self.auth("admin-secret")}
+        self.assertEqual(self.request("POST", "/api/jobs/slurm-retry/rerun", body, headers)[0], 409)
+        self.assertEqual(self.job_store.job_meta_path("slurm-retry").read_bytes(), before)
+        job["scheduler"].update(state="COMPLETED", terminal_confirmed_at=self.job_store.now_iso())
+        self.job_store.write_job(job)
+        self.assertEqual(self.request("POST", "/api/jobs/slurm-retry/rerun", body, headers)[0], 202)
+        job = self.job_store.read_job("slurm-retry")
+        self.assertEqual(job["rerun_count"], 1)
+        self.assertNotIn("scheduler", job)
+        self.assertEqual(job["read_token_hash"], self.app.job_token_hash("read-slurm"))
+
+    def test_slurm_delete_accepts_confirmed_terminal_evidence(self):
+        self.write_job("slurm-done", "read-slurm")
+        job = self.job_store.read_job("slurm-done")
+        job.update(executor="slurm", slurm_job_id="42", scheduler={"kind": "slurm", "job_id": "42", "state": "COMPLETED", "terminal_confirmed_at": self.job_store.now_iso()})
+        self.job_store.write_job(job)
+        self.assertEqual(self.request("DELETE", "/api/jobs/slurm-done", headers=self.auth("admin-secret"))[0], 204)
+        self.assertIsNone(self.job_store.read_job("slurm-done"))
+
+    def test_slurm_expiry_requires_confirmation_and_rechecks_current_attempt(self):
+        self.write_job("slurm-expired", "read-slurm")
+        job = self.job_store.read_job("slurm-expired")
+        job.update(completed_at="2000-01-01T00:00:00", executor="slurm", slurm_job_id="42",
+                   scheduler={"kind": "slurm", "job_id": "42", "state": "COMPLETED"})
+        self.job_store.write_job(job)
+        self.assertEqual(self.job_store.sweep_expired_jobs()["deleted_jobs"], 0)
+        job["scheduler"]["terminal_confirmed_at"] = self.job_store.now_iso()
+        self.job_store.write_job(job)
+        stale = self.job_store.read_job("slurm-expired")
+        current = dict(stale)
+        current.update(status="pending", stage="queued", rerun_count=1)
+        current.pop("scheduler");current.pop("slurm_job_id");current.pop("executor")
+        self.job_store.write_job(current)
+        with mock.patch.object(self.job_store, "list_jobs", return_value=[stale]):
+            self.assertEqual(self.job_store.sweep_expired_jobs()["deleted_jobs"], 0)
+        self.assertEqual(self.job_store.read_job("slurm-expired")["status"], "pending")
+        self.job_store.write_job(stale)
+        self.assertEqual(self.job_store.sweep_expired_jobs()["deleted_jobs"], 1)
 
     def test_admin_delete_running_job_requests_cancellation_before_removal(self) -> None:
         self.write_job("activejob", "read-active", status="running")
@@ -4657,6 +4805,7 @@ ORIGIN
                 self.assertEqual(list((Path(self.tmp.name) / "jobs").glob("*")), [])
 
     def test_public_genome_content_checker_records_valid_fasta_and_genbank_readiness(self) -> None:
+        self.set_worker_resource_budget(8, memory_budget_mb=131072)
         self.app.PUBLIC_GENOME_PARALLELISM = 8
         genbank = b"""LOCUS       DemoGenome              24 bp    DNA     linear   PLN 01-JAN-2026
 FEATURES             Location/Qualifiers
@@ -4741,6 +4890,26 @@ ORIGIN
         self.assertEqual(status, 400)
         self.assertIn("FEATURES", payload["detail"])
         self.assertEqual(list((Path(self.tmp.name) / "jobs").glob("*")), [])
+
+    def test_public_genbank_same_kind_case_and_extension_duplicates_remain_rejected(self) -> None:
+        genbank = b"""LOCUS       PairedGenome            24 bp    DNA     linear   PLN 01-JAN-2026
+FEATURES             Location/Qualifiers
+     CDS             1..24
+                     /translation="MKT"
+ORIGIN
+        1 atgcatgcat gcatgcatgc atgc
+//
+"""
+        for names in (("pair.gbk", "pair.gb"), ("pair.gbff", "PAIR.GBK")):
+            for reverse in (False, True):
+                with self.subTest(names=names, reverse=reverse):
+                    ordered = list(reversed(names)) if reverse else names
+                    status, payload, _ = self.submit(
+                        files=[("files", name, genbank) for name in ordered],
+                    )
+                    self.assertEqual(status, 400)
+                    self.assertIn("duplicate GENBANK", payload["detail"])
+                    self.assertEqual(list((Path(self.tmp.name) / "jobs").glob("*")), [])
 
     def test_public_genome_stems_must_be_safe_and_unique(self) -> None:
         fasta = b">contig1\nATGCATGCATGC\n"
@@ -5188,8 +5357,8 @@ ORIGIN
         self.assertEqual(job["cpus"], min(8, os.cpu_count() or 8))
         self.assertEqual(job["settings"]["genome_count"], 1)
         self.assertEqual(job["settings"]["genome_parallelism"], 1)
-        self.assertEqual(job["settings"]["antismash_record_parallelism"], 1)
-        self.assertEqual(job["settings"]["antismash_shard_cpus"], job["cpus"])
+        self.assertEqual(job["settings"]["antismash_record_parallelism"], min(2, job["cpus"]))
+        self.assertEqual(job["settings"]["antismash_shard_cpus"], max(1, job["cpus"] // 2))
         self.assertEqual(job["settings"]["antismash_legacy_cpus"], job["cpus"])
         self.assertEqual(job["settings"]["anno_cpus"], min(4, job["cpus"]))
         self.assertEqual(job["settings"]["workers"], min(2, job["cpus"]))
@@ -5227,6 +5396,24 @@ ORIGIN
         assert completed is not None
         self.assertEqual(completed["completed_at"], "2026-01-01T00:00:00")
         self.assertEqual(completed["expires_at"], "2026-01-31T00:00:00")
+
+    def test_hosted_plan_divides_worker_capacity_between_configured_jobs(self):
+        from resource_policy import MemoryFormula
+        from dataclasses import asdict
+        formula = MemoryFormula(base_memory_mb=1024, per_genome_memory_mb=1024,
+            per_antismash_shard_memory_mb=1792, per_annotation_cpu_memory_mb=128,
+            per_funbgcex_worker_memory_mb=64, safety_factor=1.2, minimum_memory_mb=8192)
+        status = {'ready':True, 'stale':False, 'worker':{'concurrency':3,
+            'resource_admission':{'cpu_budget':63,'memory_budget_mb':90000,'memory_formula':asdict(formula)}}}
+        self.app.MAX_CPUS_PER_JOB = 63
+        self.app.PUBLIC_GENOME_PARALLELISM = 3
+        self.app.PUBLIC_ANTISMASH_RECORD_PARALLELISM = 3
+        with mock.patch.object(self.app, 'worker_status', return_value=status), mock.patch.object(self.app.os, 'cpu_count', return_value=64):
+            self.assertEqual(self.app.public_cpu_limit(),21)
+            self.assertEqual(self.app.public_cpu_limit(status),21)
+            plan = self.app.hosted_resource_plan(21,3,{})
+        self.assertEqual((plan.genome_parallelism, plan.antismash_record_parallelism, plan.antismash_shard_cpus), (3,3,2))
+        self.assertLessEqual(formula.estimate_mb(plan)*3,90000)
 
     def test_live_worker_budget_is_public_cpu_authority_and_accepted_plan_fits_admission(
         self,
@@ -5272,7 +5459,32 @@ ORIGIN
         )
         self.assertIsNone(admission.capacity_reason(reservation))
 
+    def test_public_plan_fits_worker_memory_and_persists_the_same_queue_shape(self) -> None:
+        self.set_worker_resource_budget(4, memory_budget_mb=13107)
+        self.app.PUBLIC_GENOME_PARALLELISM = 2
+        self.app.PUBLIC_ANTISMASH_RECORD_PARALLELISM = 2
+        path = Path(self.tmp.name) / "worker" / "status.json"
+        worker = json.loads(path.read_text())
+        formula = dict(base_memory_mb=1024, per_genome_memory_mb=1024,
+                       per_antismash_shard_memory_mb=1792, per_annotation_cpu_memory_mb=128,
+                       per_funbgcex_worker_memory_mb=64, safety_factor=1.2, minimum_memory_mb=8192)
+        worker["worker"]["resource_admission"]["memory_formula"] = formula
+        path.write_text(json.dumps(worker))
+        status, payload, _ = self.submit(files=[
+            ("files", f"bounded-{i}.fna", b">seq\nATGCATGC\n") for i in range(3)])
+        self.assertEqual(status, 201)
+        job = self.read_submitted_job(payload)
+        settings = job["settings"]
+        self.assertEqual((settings["genome_parallelism"], settings["antismash_record_parallelism"],
+                          settings["antismash_shard_cpus"]), (1, 2, 2))
+        estimate = self.app.ResourceRequest.from_settings(4, settings, 3).estimate(self.app.MemoryFormula(**formula))
+        self.assertLessEqual(estimate.memory_mb, 13107)
+        queue = json.loads((Path(self.tmp.name) / "queue" / f"{self.submitted_internal_job_id(payload)}.json").read_text())
+        self.assertEqual(queue["settings"], settings)
+        self.assertEqual(job["submission_settings"], settings)
+
     def test_public_operator_targets_are_bounded_after_input_count_is_known(self) -> None:
+        self.set_worker_resource_budget(8, memory_budget_mb=131072)
         self.app.PUBLIC_GENOME_PARALLELISM = 4
         self.app.PUBLIC_ANTISMASH_RECORD_PARALLELISM = 3
         self.app.PUBLIC_FUNANNOTATE_CPUS_PER_GENOME = 4
@@ -5322,6 +5534,7 @@ ORIGIN
         )
 
     def test_public_legacy_antismash_fallback_respects_genome_fanout_budget(self) -> None:
+        self.app.PUBLIC_ANTISMASH_RECORD_PARALLELISM = 1
         status, payload, _ = self.submit(
             fields={
                 "project_name": "public-legacy-antismash-budget",
@@ -5348,7 +5561,7 @@ ORIGIN
 
     def test_hosted_admin_normal_webui_uses_operator_default_fanout(self) -> None:
         self.app.MAX_CPUS_PER_JOB = 12
-        self.set_worker_resource_budget(12)
+        self.set_worker_resource_budget(12, memory_budget_mb=131072)
         self.app.PUBLIC_GENOME_PARALLELISM = 3
         self.app.PUBLIC_ANTISMASH_RECORD_PARALLELISM = 3
         self.app.PUBLIC_FUNANNOTATE_CPUS_PER_GENOME = 4
@@ -5908,6 +6121,32 @@ ORIGIN
             {"Origin": f"http://{self.base_host}:{self.base_port}", "Content-Type": "application/json"})
         self.assertEqual(code, 403); self.assertNotIn("Set-Cookie", headers)
         self.assertEqual(self.request("GET", "/api/jobs")[0], 401)
+
+    def test_setup_settings_require_local_pairing_and_never_expose_secrets_or_paths(self):
+        from local_owner import LocalOwner
+        from local_setup import DEFAULTS
+        origin = f"http://{self.base_host}:{self.base_port}"
+        for headers in ({}, self.auth("admin-secret")):
+            code, payload, _ = self.request("GET", "/api/system/status", headers=headers)
+            self.assertEqual(code, 200)
+            self.assertNotIn("local_setup", payload)
+        owner = LocalOwner(Path(self.tmp.name), profile="local-owner", origin=origin, secret="x" * 64)
+        settings = {**DEFAULTS, "HOST_PORT": str(self.base_port), "CLUSTERWEAVE_PUBLIC_BASE_URL": origin + "/",
+                    "CLUSTERWEAVE_ACCESSION_CACHE_ROOT": "/private/operator/cache"}
+        with mock.patch.dict(os.environ, settings), mock.patch.object(self.app, "LOCAL_OWNER", owner):
+            self.assertNotIn("local_setup", self.request("GET", "/api/system/status")[1])
+            code, _, headers = self.request("POST", "/api/local/session", b"{}",
+                {"Origin": origin, "Content-Type": "application/json"})
+            self.assertEqual(code, 200)
+            cookie = headers["Set-Cookie"].split(";", 1)[0]
+            code, payload, headers = self.request("GET", "/api/system/status", headers={"Cookie": cookie})
+            self.assertEqual(code, 200)
+            self.assertEqual(headers["Cache-Control"], "no-store")
+            self.assertEqual(payload["local_setup"]["url"], origin + "/")
+            self.assertTrue(payload["local_setup"]["cache_enabled"])
+            for private in ("/private/operator/cache", "admin-secret", "job-token-secret"):
+                self.assertNotIn(private, json.dumps(payload))
+            self.assertEqual(self.request("GET", "/api/system/status", headers={"Cookie": cookie, "Origin": "https://untrusted.invalid"})[0], 403)
 
     def test_local_healthcheck_uses_public_hostname_with_internal_listener_port(self):
         import subprocess

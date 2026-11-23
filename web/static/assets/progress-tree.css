@@ -36,22 +36,22 @@
 }
 
 .log-terminal[data-log-view="tree"] {
-  overflow-x: auto;
-  overflow-wrap: normal;
+  overflow-x: hidden;
+  overflow-wrap: anywhere;
   word-break: normal;
 }
 
 .progress-tree-row {
-  min-width: max-content;
+  min-width: 0;
+  width: 100%;
   display: grid;
-  grid-template-columns: max-content minmax(9rem, .42fr) minmax(22rem, 1fr);
+  grid-template-columns: 8ch minmax(0, .42fr) minmax(0, 1fr);
   align-items: baseline;
   gap: .45rem;
   line-height: 1.45;
 }
 
-.progress-tree-glyph,
-.progress-tree-meter {
+.progress-tree-glyph {
   white-space: pre;
 }
 
@@ -66,19 +66,31 @@
 }
 
 .progress-tree-meter {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   color: #f7fff4;
 }
 
 .progress-tree-row.state-complete .progress-tree-meter {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   color: #bfffcb;
 }
 
 .progress-tree-row.state-warning .progress-tree-meter,
 .progress-tree-row.state-warning_terminal .progress-tree-meter {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   color: #fff1a6;
 }
 
 .progress-tree-row.state-failed .progress-tree-meter {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   color: #ff9bbb;
 }
 
@@ -97,9 +109,12 @@
   }
 
   .progress-tree-row {
-    grid-template-columns: max-content minmax(7rem, .4fr) minmax(18rem, 1fr);
+    grid-template-columns: 8ch minmax(0, 1fr);
     gap: .3rem;
-    font-size: .62rem;
+    font-size: .72rem;
+  }
+  .progress-tree-meter {
+    grid-column: 2;
   }
 }
 
@@ -110,3 +125,13 @@
     transition: none;
   }
 }
+
+/* Continuous connectors span wrapped desktop and mobile rows. Corners describe
+   sibling position, independently of running/terminal state. */
+.progress-tree-glyph { align-self: stretch; display: flex; min-height: 1.45em; }
+.tree-connector { position: relative; display: block; width: 2ch; flex: 0 0 2ch; }
+.tree-connector::before { content: ""; position: absolute; left: .5ch; top: 0; bottom: 0; border-left: 1px solid currentColor; }
+.tree-connector.ancestor.last::before { display: none; }
+.tree-connector.corner.last::before { bottom: auto; height: .75em; }
+.tree-connector.corner::after { content: ""; position: absolute; left: .5ch; right: 0; top: .75em; border-top: 1px solid currentColor; }
+@media (max-width: 760px) { .progress-tree-glyph { grid-row: span 2; } }

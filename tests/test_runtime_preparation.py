@@ -135,6 +135,20 @@ class RuntimePreparationTests(unittest.TestCase):
             prepare_runtime.NPLINKER_VERSION + "\n", encoding="utf-8"
         )
 
+    def test_default_plant_sif_is_execution_checked_during_preparation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env = self.local_env(root)
+            env['CLUSTERWEAVE_ENABLE_DOCKER_SOCKET'] = '0'
+            sif = Path(env['CLUSTERWEAVE_SOFTWARE_ROOT']) / 'plantismash/plant.sif'
+            sif.parent.mkdir(parents=True)
+            sif.write_bytes(b'configured but unusable SIF')
+            preparer = prepare_runtime.RuntimePreparer(env=env, profile='external')
+            with mock.patch('plantismash_runtime.check_runtime', side_effect=ValueError('namespace denied')) as probe:
+                with self.assertRaisesRegex(prepare_runtime.PreparationError, 'namespace denied'):
+                    preparer.prepare(scope='startup')
+            probe.assert_called_once_with(sif, 'apptainer')
+
     def test_ncbi_readiness_uses_local_version_commands(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -523,6 +537,10 @@ class RuntimePreparationTests(unittest.TestCase):
             }
             with mock.patch.dict(os.environ, inherited, clear=False):
                 env = canonical_pipeline._base_env(layout, settings, cpus=4)
+            # Hosted form defaults must not override the prepared operator backend.
+            with mock.patch.dict(os.environ, {**inherited, "CLINKER_USE_DOCKER_IMAGE": "0"}, clear=False):
+                confined_env = canonical_pipeline._base_env(layout, settings, cpus=4)
+            self.assertEqual(confined_env["CLINKER_USE_DOCKER_IMAGE"], "0")
 
         self.assertEqual(env["ENGINE"], "apptainer")
         self.assertEqual(env["AUTO_PULL_IMAGES"], "never")

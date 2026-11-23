@@ -388,6 +388,22 @@ def create_viewer_assets(tool_root: Path) -> str:
 
 
 class BigscapePublicDatabaseTests(unittest.TestCase):
+    def test_web_accepts_supported_output_name_only_after_sanitization(self):
+        import os
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {'DATA_DIR': tmp}):
+            import app
+            source = Path(tmp) / 'output.db'
+            create_source_database(source)
+            before = file_sha256(source)
+            self.assertFalse(app.public_bigscape_database_export_valid(source))
+            exported = sanitize_bigscape_database(source)
+            self.assertTrue(app.public_bigscape_database_export_valid(exported.public_path))
+            self.assertEqual(file_sha256(source), before)
+            with sqlite3.connect(exported.public_path) as db:
+                db.execute(f"UPDATE {PUBLIC_EXPORT_TABLE} SET source_name='unsupported.db'")
+            self.assertFalse(app.public_bigscape_database_export_valid(exported.public_path))
+
+
     def test_sanitized_copy_is_loss_minimized_redacted_and_source_immutable(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "big_scape.db"

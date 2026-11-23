@@ -109,7 +109,7 @@ def canonical_gcf_threshold(value: object) -> str:
 
 
 def clustering_view(path: Path) -> tuple[str, str]:
-    match = re.match(r"(.+)_clustering_c([^/]+)\.tsv$", path.name)
+    match = re.match(r"(.+)_clustering_c?([^/]+)\.tsv$", path.name)
     if match is None:
         return canonical_gcf_category(path.parent.name), ""
     return (

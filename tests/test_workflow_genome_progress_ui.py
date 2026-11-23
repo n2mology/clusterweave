@@ -120,6 +120,18 @@ def run_node_json(body: str) -> object:
 
 @unittest.skipUnless(NODE, "Node.js is required for frontend progress tests")
 class WorkflowGenomeProgressBehaviorTests(unittest.TestCase):
+    def test_plant_admission_failure_card_never_claims_complete(self):
+        result = run_node_json("""
+const item=normalizeGenomeProgressItem({genome_id:'Arabidopsis_thaliana',taxon_group:'plants',stage:'plantismash',percent:100,message:'Supplied plant annotation incompatible; plantiSMASH not run'},0);
+process.stdout.write(JSON.stringify({warning:item.warning,terminal:item.terminal,card:renderGenomeProgressCard(item)}));
+""")
+        self.assertTrue(result['warning'])
+        self.assertTrue(result['terminal'])
+        self.assertIn('plantiSMASH not run',result['card'])
+        self.assertNotIn('Funannotate',result['card'])
+        self.assertNotIn('Genome workflow complete',result['card'])
+        self.assertIn('is-warning',result['card'])
+
     def test_progress_chips_follow_sanitized_api_labels_and_reset_with_job_attempt(self):
         result = run_node_json("""
 const cached = {genome_id:'Cached', taxon_group:'bacteria',percent:100,status:'complete',progress_label:'CACHED',progress_detail:'Annotation and detection restored from validated cache.'};
@@ -215,7 +227,7 @@ process.stdout.write(JSON.stringify({ribbon, html, stages}));
         )
         self.assertEqual(
             result["ribbon"],
-            "Region (2/7) · 3 active · Scanning protein domains",
+            "Record shards: 2/7 complete · 3 active · Scanning protein domains",
         )
         self.assertNotIn("Still running", result["html"])
         self.assertNotIn('class="genome-progress-percent"', result["html"])
@@ -494,13 +506,13 @@ process.stdout.write(JSON.stringify({
         self.assertNotIn("genome-progress-fill", result["queuedHtml"])
         self.assertEqual(
             result["lateAntismashMeter"],
-            {"label": "antiSMASH", "percent": 89, "text": "antiSMASH 89%"},
+            {"label": "antiSMASH", "percent": 66, "text": "Genome workflow 66% · antiSMASH"},
         )
         self.assertEqual(
             [(stage["label"], stage["progress"]) for stage in result["lateAntismashStages"]],
             [("Genome acquired", 100), ("antiSMASH", 89), ("FunBGCeX", 0), ("Complete", 0)],
         )
-        self.assertIn("antiSMASH 89%", result["lateAntismashHtml"])
+        self.assertIn("Genome workflow 66% · antiSMASH", result["lateAntismashHtml"])
         self.assertIn("FunBGCeX: 0%", result["lateAntismashHtml"])
         self.assertIn('class="genome-progress-meter-row"', result["queuedHtml"])
         header = result["queuedHtml"].split(
@@ -649,6 +661,12 @@ class WorkflowGenomeProgressStaticTests(unittest.TestCase):
         self.assertIn(".results-run-state", self.css)
         self.assertIn("font-variant-numeric: tabular-nums", self.css)
 
+    def test_station_has_no_redundant_activity_box(self) -> None:
+        self.assertNotIn('id="bgc-tool-activity-chip"', self.index)
+        self.assertNotIn("document.getElementById('bgc-tool-activity-chip')", self.lifecycle_js)
+        self.assertIn('id="bgc-genome-progress-grid"', self.index)
+        self.assertNotIn('.genome-progress-layer { top: 3.5rem;', self.css)
+
     def test_pre_grouping_rows_are_the_only_visible_progress_presentation(self) -> None:
         self.assertIn(
             ".has-genome-progress:not(.is-genome-progress-handoff) > .workflow-tool-status",
@@ -766,7 +784,7 @@ class WorkflowGenomeProgressStaticTests(unittest.TestCase):
             "title.textContent = bgcWorkflowTitle(payload, genomeLayerActive)",
             self.js,
         )
-        self.assertIn("clusterweave.css?v=20261104-exclusions1", self.index)
+        self.assertRegex(self.index, r'clusterweave\.css\?v=\d{8}-[A-Za-z0-9_-]+["\']')
 
 
     def test_live_polling_uses_current_attempt_and_stable_result_surfaces(self) -> None:

@@ -39,6 +39,11 @@ class LocalProfileCpuCompositionTests(unittest.TestCase):
             local_bin.mkdir(parents=True)
             local_init = local_bin / INIT_SCRIPT.name
             shutil.copy2(INIT_SCRIPT, local_init)
+            shutil.copy2(REPO_ROOT / "bin/local_instance.py", local_bin / "local_instance.py")
+            shutil.copy2(REPO_ROOT / "bin/local_resources.py", local_bin / "local_resources.py")
+            shutil.copy2(REPO_ROOT / "bin/bootstrap_versions.py", local_bin / "bootstrap_versions.py")
+            (local_root / "web").mkdir()
+            shutil.copy2(REPO_ROOT / "web/local_setup.py", local_root / "web/local_setup.py")
             subprocess.run(
                 ["bash", str(local_init)],
                 cwd=local_root,

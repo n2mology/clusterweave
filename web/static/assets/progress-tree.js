@@ -46,6 +46,7 @@ function normalizeTool(value) {
   const key = raw.toLowerCase().replaceAll('_', '').replaceAll('-', '');
   return {
     antismash: 'antiSMASH',
+    plantismash: 'plantiSMASH',
     funbgcex: 'FunBGCeX',
     funannotate: 'funannotate',
     prodigal: 'Prodigal',
@@ -99,6 +100,8 @@ export function classifyProgressTreeLine(
     stage_transition: false,
   };
 
+  if ((contract.ignored_patterns || []).some(pattern => new RegExp(pattern, 'i').test(message))) return {...base, kind: 'diagnostic'};
+
   for (const rule of (contract.records || [])) {
     const match = message.match(new RegExp(rule.pattern, 'i'));
     if (!match) continue;
@@ -132,10 +135,10 @@ export function classifyProgressTreeLine(
     );
     const patternState = stateFromPatterns(
       contract,
-      `${raw} ${event.display_message}`,
+      event.display_message,
       !!rule.terminal_on_percent,
     );
-    if (patternState && patternState.state !== 'complete' && event.kind !== 'genome_excluded') {
+    if (patternState && patternState.state !== 'complete' && ['genome_progress', 'tool_progress', 'antismash_record'].includes(event.kind)) {
       event.state = patternState.state;
       event.permanent ||= patternState.permanent;
     }
@@ -143,9 +146,28 @@ export function classifyProgressTreeLine(
       event.state = 'complete';
       event.permanent = true;
     }
+    if (event.kind === 'genome_progress' && event.percentage === 0 && event.state === 'rerun') { event.state = 'running'; event.permanent = false; }
     if (TERMINAL_STATES.has(event.state)) event.permanent = true;
     const code = rule.progress_status || (event.state === 'complete' && rule.progress_status_by_tool ? 'complete' : rule.progress_status_by_tool?.[String(values.record_stage || values.tool || event.tool).toLowerCase()]);
     event.progress_label = contract.progress_statuses?.[code]?.label || '';
+    if (['antismash_record', 'plant_record'].includes(event.kind)) {
+      event.record = values.record || values.ordinal;
+      event.recordTotal = Number(values.total);
+      event.recordState = /failed|invalid|cancelled/i.test(values.record_state || event.display_message) ? 'failed' : /complete/i.test(values.record_state || event.display_message) ? 'complete' : 'active';
+      event.state = 'running'; event.permanent = false;
+      // The legacy percentage is based on record ordinal, not completion count.
+      // Parallel records finish out of order; never present it as tool progress.
+      event.percentage = null;
+      event.display_message = `Record ${values.ordinal}/${values.total}: ${event.display_message}`;
+    }
+    if (event.kind === 'genome_progress' && event.state === 'complete' && event.tool === 'plantiSMASH') {
+      event.node_level = 'genome';
+      event.display_message = 'Genome workflow complete';
+    }
+    if (event.kind === 'taxon_route') event.display_message = 'Preparing genome';
+    if (event.kind === 'annotation_decision' && values.required === 'no') {
+      event.node_level = 'genome'; event.tool = ''; event.display_message = 'Using supplied gene annotations';
+    }
     event.preserve_progress_status = !!rule.preserve_progress_status;
     return event;
   }
@@ -173,6 +195,9 @@ export function classifyProgressTreeLine(
     };
   }
 
+  // Unknown structured payloads are diagnostics, never keyword stage evidence.
+  if (!/^NCBI_DOWNLOAD_SUMMARY\b/.test(message) && (/^(?:[A-Z][A-Z0-9_]+\s+)?[\[{]/.test(message) || /^[A-Z][A-Z0-9_]+\s+\w+=/.test(message))) return {...base, kind: 'diagnostic'};
+
   for (const rule of (contract.legacy_records || [])) {
     const match = message.match(new RegExp(rule.pattern, 'i'));
     if (!match) continue;
@@ -195,6 +220,8 @@ export function classifyProgressTreeLine(
     base.state = patternState.state;
     base.permanent = patternState.permanent;
   }
+  if (['complete', 'skipped'].includes(base.state)) base.permanent = false;
+  base.display_message = ({failed: 'Workflow error; see Raw for diagnostics', warning: 'Workflow warning; see Raw for details', complete: 'Step complete', skipped: 'Step not applicable'})[base.state] || 'Processing analysis output';
   return base;
 }
 
@@ -223,16 +250,18 @@ export function progressTreeStatus(node) {
     skipped: 'Skipped',
     warning: 'Warning',
     waiting: 'Waiting',
+    ended: 'Run ended; terminal detail is absent from this history',
     running: node.message || 'Running',
   };
-  const progressLabel = node.level !== 'tool' || ['GENOME DOWNLOADED', 'GENOME READY'].includes(node.progressLabel) ? node.progressLabel : '';
+  const progressCode = node.level !== 'tool' || ['GENOME DOWNLOADED', 'GENOME READY'].includes(node.progressLabel) ? node.progressLabel : '';
+  const progressLabel = ({'GENOME DOWNLOADED': 'Genome downloaded', 'GENOME READY': 'Genome ready', 'ANNOTATING': 'Annotating genes', 'DETECTING': 'Detecting BGCs', 'COMPLETE': 'Complete', 'CACHED': 'Cached results'})[progressCode] || progressCode;
   let label = progressLabel || labelByState[node.state] || node.message || 'Running';
-  if (node.level === 'genome' && node.message?.startsWith('Excluded from detection and downstream analysis')) label = node.message;
+  if (node.level === 'genome' && /^(Excluded from detection and downstream analysis|Validating supplied plant CDS|Preparing genome|Queued genome)/.test(node.message || '')) label = node.message;
   const elapsed = elapsedText(node.elapsed);
   if (elapsed && !label.toLowerCase().includes(elapsed.toLowerCase())) {
     label = `${label} · ${elapsed}`;
   }
-  if (node.state === 'complete') return `[##########] 100% - ${progressLabel || 'Complete'}`;
+  if (node.state === 'complete') return `[##########] 100% - ${node.level === 'genome' && node.stage === 'annotation' ? `Genome workflow complete${progressCode === 'CACHED' ? ' · Cached results' : ''}` : (progressLabel || 'Complete')}`;
   if (node.state === 'skipped') return '[----------]   -- - Skipped';
   if (node.percentage !== null && node.percentage !== undefined) {
     const percent = Math.max(0, Math.min(100, Math.round(Number(node.percentage) || 0)));
@@ -243,10 +272,11 @@ export function progressTreeStatus(node) {
   return `[          ]  --% - ${label}`;
 }
 
-export function buildProgressTree(contract, records, { context = [], initialStage = '' } = {}) {
+export function buildProgressTree(contract, records, { context = [], initialStage = '', jobStatus = '' } = {}) {
   const workflow = Array.isArray(contract.workflow) ? contract.workflow : [];
   const workflowByKey = new Map(workflow.map(item => [item.key, item]));
   const nodes = new Map();
+  const shardStates = new Map();
   const permanentEvents = [];
   const observedOptionalStages = new Set();
   let currentStage = workflowByKey.has(initialStage) ? initialStage : 'prep';
@@ -331,6 +361,7 @@ export function buildProgressTree(contract, records, { context = [], initialStag
   }
 
   function resetStage(stage) {
+    for (const key of shardStates.keys()) if (key.startsWith(`${stage}:`)) shardStates.delete(key);
     [...nodes.entries()].forEach(([key, node]) => {
       if (node.stage === stage && node.level !== 'stage') nodes.delete(key);
     });
@@ -352,6 +383,11 @@ export function buildProgressTree(contract, records, { context = [], initialStag
       record.index,
       currentStage,
     );
+    if (event.kind === 'diagnostic') continue;
+    if (event.kind === 'workflow_complete') {
+      const packaged = ensureStage('package');
+      if (!['failed', 'warning_terminal', 'skipped'].includes(packaged.state)) Object.assign(packaged, {state:'complete', percentage:100, message:'Complete'});
+    }
     const stage = event.workflow_stage || currentStage || 'prep';
     const stageNode = ensureStage(stage);
     if (event.stage_transition || event.node_level === 'stage') currentStage = stage;
@@ -370,6 +406,10 @@ export function buildProgressTree(contract, records, { context = [], initialStag
     if (event.permanent && event.node_level === 'activity') {
       appendPermanentEvent(event);
       continue;
+    }
+    if (event.kind === 'genome_progress' && event.state === 'complete' && event.tool === 'plantiSMASH') {
+      const tool = nodes.get(`tool:${stage}:${event.genome}:plantiSMASH`);
+      if (tool && !['failed', 'warning_terminal'].includes(tool.state)) Object.assign(tool, {state: 'complete', percentage: 100, message: 'Complete', elapsed: null});
     }
     const key = eventNodeKey(event);
     let node = nodes.get(key);
@@ -392,6 +432,7 @@ export function buildProgressTree(contract, records, { context = [], initialStag
     if (event.kind === 'genome_progress' && event.node_level === 'genome' && event.percentage === 0) {
       node.state = 'running';
       node.progressLabel = '';
+      for (const shardKey of shardStates.keys()) if (shardKey.startsWith(`${stage}:${event.genome}:`)) shardStates.delete(shardKey);
       if (TERMINAL_STATES.has(stageNode.state)) Object.assign(stageNode, {state: 'running', percentage: null, message: 'Running'});
       for (const [childKey, child] of nodes) if (child.parentKey === node.key) nodes.delete(childKey);
     }
@@ -400,12 +441,23 @@ export function buildProgressTree(contract, records, { context = [], initialStag
       incomingState = stageNode.state;
     }
     if (TERMINAL_STATES.has(node.state) && incomingState === 'running') continue;
+    if (['antismash_record', 'plant_record'].includes(event.kind)) {
+      const shardKey = `${stage}:${event.genome}:${event.tool}`;
+      const shards = shardStates.get(shardKey) || {total: 0, records: new Map()};
+      shards.total = Math.max(shards.total, event.recordTotal);
+      if (!shards.records.has(event.record) || event.recordState !== 'active') shards.records.set(event.record, event.recordState);
+      shardStates.set(shardKey, shards);
+      const completed = [...shards.records.values()].filter(value => value === 'complete').length;
+      const failed = [...shards.records.values()].filter(value => value === 'failed').length;
+      event.percentage = 35 + Math.min(34, Math.floor(((completed + failed) * 34 + Math.floor(shards.total / 2)) / shards.total));
+      event.display_message = `${event.tool} record shards: ${completed}/${shards.total} complete; genome processing continues`;
+    }
     const previousMessage = node.message;
     node.state = incomingState;
     if (['failed', 'warning', 'warning_terminal', 'skipped'].includes(incomingState)) node.progressLabel = '';
     else if (!(event.preserve_progress_status && node.progressLabel) && !(node.progressLabel === 'CACHED' && incomingState === 'complete')) node.progressLabel = event.progress_label || '';
     if (event.percentage !== null && event.percentage !== undefined) {
-      node.percentage = event.percentage;
+      node.percentage = event.percentage === 0 ? 0 : Math.max(node.percentage || 0, event.percentage);
     }
     let displayMessage = String(event.display_message || '').trim();
     if (event.heartbeat && !['', 'Waiting', 'Running'].includes(previousMessage)) {
@@ -416,9 +468,16 @@ export function buildProgressTree(contract, records, { context = [], initialStag
       node.elapsed = event.elapsed_activity;
     }
     node.rawIndex = event.canonical_raw_line_index;
+    if (node.level === 'tool' && node.parentKey && event.workflow_stage === 'annotation' && event.percentage !== null && event.percentage !== undefined) {
+      const parent = nodes.get(node.parentKey);
+      if (parent && !TERMINAL_STATES.has(parent.state)) parent.percentage = Math.max(parent.percentage || 0, node.percentage);
+    }
     if (node.level === 'tool' && node.parentKey && incomingState === 'running' && node.progressLabel) {
       const parent = nodes.get(node.parentKey);
-      if (parent && !TERMINAL_STATES.has(parent.state)) parent.progressLabel = node.progressLabel;
+      if (parent && !TERMINAL_STATES.has(parent.state)) {
+        parent.progressLabel = node.progressLabel;
+        if (parent.percentage === 0 && incomingState === 'running') parent.percentage = null;
+      }
     }
     if (
       event.kind === 'download'
@@ -454,6 +513,12 @@ export function buildProgressTree(contract, records, { context = [], initialStag
     }
   }
 
+  const terminalStatus = {success:'complete', completed:'complete', completed_with_exclusions:'warning_terminal', failed:'failed', error:'failed', cancelled:'failed', canceled:'failed', awaiting_decision:'waiting', awaiting_exclusion_decision:'waiting'}[jobStatus];
+  if (terminalStatus) Object.assign(ensureStage('workflow'), {state:terminalStatus, percentage:terminalStatus === 'complete' ? 100 : null, message:terminalStatus === 'waiting' ? 'Awaiting owner decision' : jobStatus, rawIndex:-1});
+  if (TERMINAL_STATES.has(nodes.get('stage:workflow')?.state) || terminalStatus === 'waiting') {
+    for (const node of nodes.values()) if (node.stage !== 'workflow' && !TERMINAL_STATES.has(node.state)) Object.assign(node, {state:terminalStatus === 'waiting' ? 'waiting' : 'ended', percentage:null, progressLabel:'', elapsed:null});
+  }
+
   const rows = [];
   for (const item of workflow) {
     const stage = item.key;
@@ -462,6 +527,15 @@ export function buildProgressTree(contract, records, { context = [], initialStag
     const stageNode = nodes.get(stageKey);
     if (!stageNode) continue;
     rows.push({ ...stageNode, depth: 0 });
+    [...nodes.values()]
+      .filter(node => (
+        node.stage === stage
+        && ['tool', 'activity'].includes(node.level)
+        && node.parentKey === stageKey
+      ))
+      .sort((left, right) => left.order - right.order)
+      .forEach(node => rows.push({ ...node, depth: 1 }));
+
     const genomes = [...nodes.values()]
       .filter(node => node.stage === stage && node.level === 'genome')
       .sort((left, right) => left.order - right.order);
@@ -472,18 +546,21 @@ export function buildProgressTree(contract, records, { context = [], initialStag
         .sort((left, right) => left.order - right.order)
         .forEach(node => rows.push({ ...node, depth: 2 }));
     }
-    [...nodes.values()]
-      .filter(node => (
-        node.stage === stage
-        && ['tool', 'activity'].includes(node.level)
-        && node.parentKey === stageKey
-      ))
-      .sort((left, right) => left.order - right.order)
-      .forEach(node => rows.push({ ...node, depth: 1 }));
     permanentEvents
       .filter(node => node.stage === stage)
       .sort((left, right) => left.order - right.order)
       .forEach(node => rows.push({ ...node, depth: 1 }));
+  }
+  const byKey = new Map(rows.map(row => [row.key, row]));
+  const lastChild = new Map(rows.map(row => [row.parentKey, row.key]));
+  for (const row of rows) {
+    row.lastSibling = lastChild.get(row.parentKey) === row.key;
+    row.ancestors = [];
+    let parent = byKey.get(row.parentKey);
+    while (parent) {
+      row.ancestors.unshift(lastChild.get(parent.parentKey) === parent.key);
+      parent = byKey.get(parent.parentKey);
+    }
   }
   return { rows, currentStage };
 }
@@ -499,6 +576,7 @@ export function createProgressTreeConsole({
   let initialStage = '';
   let selection = '';
   let generation = '';
+  let jobStatus = '';
 
   function terminal() {
     return documentImpl.getElementById('log-terminal');
@@ -516,19 +594,13 @@ export function createProgressTreeConsole({
   }
 
   function updateTreeRow(element, row) {
-    const terminalState = TERMINAL_STATES.has(row.state);
-    const glyphs = {
-      0: terminalState ? '└─' : '├─',
-      1: terminalState ? '│  └─' : '│  ├─',
-      2: terminalState ? '│     └─' : '│     ├─',
-    };
     const status = progressTreeStatus(row);
     const signature = JSON.stringify([
       row.label,
       status,
       row.state,
       row.depth,
-      row.rawIndex,
+      row.rawIndex, row.lastSibling, row.ancestors,
     ]);
     if (element.dataset.treeSignature === signature) return;
     element.dataset.treeSignature = signature;
@@ -539,7 +611,14 @@ export function createProgressTreeConsole({
     const glyph = documentImpl.createElement('span');
     glyph.className = 'progress-tree-glyph';
     glyph.setAttribute('aria-hidden', 'true');
-    glyph.textContent = glyphs[row.depth] || glyphs[1];
+    for (const last of row.ancestors || []) {
+      const segment = documentImpl.createElement('span');
+      segment.className = `tree-connector ancestor${last ? ' last' : ''}`;
+      glyph.append(segment);
+    }
+    const corner = documentImpl.createElement('span');
+    corner.className = `tree-connector corner${row.lastSibling ? ' last' : ''}`;
+    glyph.append(corner);
     const label = documentImpl.createElement('span');
     label.className = 'progress-tree-label';
     label.textContent = row.label;
@@ -554,7 +633,7 @@ export function createProgressTreeConsole({
     term.setAttribute('aria-live', 'off');
     term.setAttribute('aria-label', 'Selected run progress tree');
     term.dataset.logView = 'tree';
-    const model = buildProgressTree(contract, canonicalRecords, { context: stageContext, initialStage });
+    const model = buildProgressTree(contract, canonicalRecords, { context: stageContext, initialStage, jobStatus });
     const existing = new Map(
       [...term.querySelectorAll('[data-tree-key]')]
         .map(element => [element.dataset.treeKey, element]),
@@ -617,12 +696,13 @@ export function createProgressTreeConsole({
       initialStage = '';
       selection = '';
       generation = '';
+      jobStatus = '';
       mode = 'tree';
       render();
     },
     hydrate({ lines, start, prepend = false, autoScroll = false, context = [], stage = '', jobId = '', logGeneration = '' }) {
       const sameRun = selection === jobId && generation === logGeneration;
-      if (!sameRun) canonicalRecords = [];
+      if (!sameRun) { canonicalRecords = []; jobStatus = ''; }
       selection = jobId;
       generation = logGeneration;
       if (!prepend || !sameRun) {
@@ -641,6 +721,11 @@ export function createProgressTreeConsole({
       const following = term && term.scrollHeight - term.clientHeight - term.scrollTop <= 24;
       merge(lines, start, false);
       render({ autoScroll: autoScroll && following });
+    },
+    setJobStatus(value, jobId = selection) {
+      if (selection && jobId !== selection) return;
+      jobStatus = String(value || '');
+      render({preserveScroll:true});
     },
     setMode(value) {
       const next = value === 'raw' ? 'raw' : 'tree';

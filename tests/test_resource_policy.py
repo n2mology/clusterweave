@@ -146,6 +146,21 @@ class ResourcePolicyTests(unittest.TestCase):
             (12, 5, 2, 2, 2, 2, 1, 2, 12, 24576, 0, 10, 10, 10, 10),
         )
 
+    def test_explicit_cli_cpus_still_fit_the_runtime_cgroup(self) -> None:
+        result = build_annotation_resource_plan(
+            mode="conservative", requested_cpus=16, cpus_explicit=True,
+            effective_cpus=4, effective_memory_mb=16384, total_genomes=3,
+            genome_parallelism=2, anno_cpus=8, funbgcex_workers=2,
+            antismash_record_parallelism=2, antismash_shard_cpus=4,
+            antismash_legacy_cpus=16, memory_budget_mb=None,
+            auto_max_cpus=32, auto_max_genome_parallelism=4,
+            auto_min_cpus_per_genome=2, auto_memory_percent=70,
+            auto_memory_per_genome_mb=8192, auto_max_anno_cpus=8,
+            auto_max_funbgcex_workers=2, auto_max_antismash_record_parallelism=3)
+        self.assertEqual(result.plan.job_cpus, 4)
+        self.assertLessEqual(result.plan.antismash_sharded_cpu_slots, 4)
+        self.assertLessEqual(result.plan.annotation_cpu_slots, 4)
+
     def test_annotation_runtime_auto_plan_preserves_cgroup_memory_shape(self) -> None:
         result = build_annotation_resource_plan(
             mode="auto",
@@ -173,7 +188,7 @@ class ResourcePolicyTests(unittest.TestCase):
 
         self.assertEqual(
             result.shell_fields(),
-            (12, 2, 6, 6, 2, 3, 2, 6, 12, 24576, 24576, 12, 4, 12, 12),
+            (12, 1, 12, 8, 2, 3, 4, 12, 12, 24576, 24576, 8, 2, 12, 12),
         )
 
     def test_cpu_limit_uses_narrowest_configured_effective_and_worker_budget(self) -> None:

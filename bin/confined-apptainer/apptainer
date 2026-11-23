@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# The confined worker dispatches prepared local SIFs only. Lifecycle operations
+# belong to explicit operator preparation, outside the application service.
+set -euo pipefail
+case "${1:-}" in
+  --version|version) exec /usr/bin/apptainer "$@" ;;
+  exec)
+    shift
+    exec /usr/bin/apptainer exec --userns --cleanenv --containall --no-home \
+      --net --network none --disable-cache \
+      --env OMP_NUM_THREADS=1,OPENBLAS_NUM_THREADS=1,MKL_NUM_THREADS=1,NUMEXPR_NUM_THREADS=1 "$@"
+    ;;
+  *) echo "Confined worker supports execution of prepared SIF assets only." >&2; exit 64 ;;
+esac

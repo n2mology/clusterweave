@@ -1,3 +1,4 @@
+from annotation_source import annotation_source, shell_function
 import base64
 import csv
 import json
@@ -200,7 +201,7 @@ class RepoLayoutTests(unittest.TestCase):
             self.assertTrue((package_dir / f"{accession}.fna").exists())
 
     def test_annotation_supports_bounded_antismash_record_sharding(self) -> None:
-        text = (REPO_ROOT / "run_annotation_and_detection.sh").read_text(encoding="utf-8")
+        text = annotation_source()
         record_ids = text.split("list_genbank_record_ids() {", 1)[1].split("\n}", 1)[0]
         shard_call = text.split("run_antismash_record_shard() {", 1)[1].split(
             "write_antismash_shard_index() {", 1
@@ -249,7 +250,7 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn('while [[ "${active_jobs}" -gt 0 ]]', sharded)
         helper_runtime = text.split("repository_helper_python_exec() {", 1)[1].split("\n}", 1)[0]
         self.assertIn('if [[ "${ENGINE}" == "docker" ]]', helper_runtime)
-        self.assertIn('"$(resolve_python_cmd)" "$@"', helper_runtime)
+        self.assertIn('"${helper_python}" "$@"', helper_runtime)
         antismash_adapter = text.split("antismash_input_python_exec() {", 1)[1].split("\n}", 1)[0]
         self.assertEqual(
             antismash_adapter.strip(), 'repository_helper_python_exec "$@"'
@@ -274,7 +275,7 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("--merge-output", merge_json)
         self.assertIn("def merge_shards(", compactor)
         self.assertEqual(compactor.count("def _target_record("), 1)
-        self.assertIn('return antismash_root / genome / f"{antismash_region}.gbk"', clinker_stage)
+        self.assertIn('return native if native.is_file() else antismash_root / genome / f"{antismash_region}.gbk"', clinker_stage)
         self.assertIn("tr -c 'A-Za-z0-9._-' '_'", text)
         self.assertIn('find "${shard_dirs[${index}]}" -type f -name \'*region*.gbk\'', sharded)
         self.assertIn('render_antismash_shard_web_bundle', sharded)
@@ -315,7 +316,7 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn('cp -f "${ant_filtered_input}" "${fbx_input}"', process_body)
 
     def test_antismash_record_id_stability_gate_executes_safe_transform_exactly(self) -> None:
-        text = (REPO_ROOT / "run_annotation_and_detection.sh").read_text(encoding="utf-8")
+        text = annotation_source()
         helper_block = text.split("safe_antismash_record_id() {", 1)[1].split(
             "sanitize_antismash_duplicate_cds_locations() {", 1
         )[0]
@@ -353,13 +354,9 @@ class RepoLayoutTests(unittest.TestCase):
                     self.assertEqual(result.returncode, 0 if expected_stable else 3, result.stderr)
 
     def test_antismash_done_requires_complete_browseable_output(self) -> None:
-        text = (REPO_ROOT / "run_annotation_and_detection.sh").read_text(encoding="utf-8")
-        validators = text.split("antismash_outputs_valid() {", 1)[1].split(
-            "funbgcex_outputs_valid()", 1
-        )[0]
-        done = text.split("antismash_done() {", 1)[1].split(
-            "mark_antismash_done()", 1
-        )[0]
+        text = annotation_source()
+        validators = shell_function(text, "antismash_outputs_valid")
+        done = shell_function(text, "antismash_done")
         self.assertIn('[[ -f "${outdir}/.done" ]] || return 1', done)
         self.assertIn('antismash_outputs_valid "${outdir}"', done)
         self.assertIn("[[ -s \"${outdir}/index.html\" ]] || return 1", validators)
@@ -369,10 +366,10 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertNotIn("##antiSMASH-Data-START##", validators)
 
     def test_annotation_completion_markers_require_valid_outputs(self) -> None:
-        text = (REPO_ROOT / "run_annotation_and_detection.sh").read_text(encoding="utf-8")
-        funbgcex = text.split("funbgcex_outputs_valid() {", 1)[1].split(
-            "# GBK diagnostics/filtering", 1
-        )[0]
+        text = annotation_source()
+        funbgcex = "\n".join(shell_function(text, name) for name in (
+            "funbgcex_outputs_valid", "funbgcex_done", "mark_funbgcex_done",
+        ))
         self.assertIn('[[ -f "${outdir}/.done" ]] || return 1', funbgcex)
         self.assertIn('-name "allBGCs.csv"', funbgcex)
         self.assertNotIn('funbgcex_in.log', funbgcex)
@@ -389,10 +386,11 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn('Path("/app")', checker)
 
     def test_annotation_completion_helpers_reject_partial_artifacts(self) -> None:
-        text = (REPO_ROOT / "run_annotation_and_detection.sh").read_text(encoding="utf-8")
-        completion_helpers = "antismash_outputs_valid() {" + text.split(
-            "antismash_outputs_valid() {", 1
-        )[1].split("# GBK diagnostics/filtering", 1)[0]
+        text = annotation_source()
+        completion_helpers = "\n".join(shell_function(text, name) for name in (
+            "antismash_outputs_valid", "antismash_done", "mark_antismash_done",
+            "funbgcex_outputs_valid", "funbgcex_done", "mark_funbgcex_done",
+        ))
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1010,9 +1008,10 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("annotation_manifest_usable_count()", text)
         self.assertIn("Annotation stage produced zero usable genomes", text)
         self.assertIn("stopping before grouping", text)
-        self.assertIn('antismash_status == "ran_ok"', text)
-        self.assertIn('antismash_status == "ran_ok_sanitized"', text)
-        self.assertIn('antismash_status == "skipped_done"', text)
+        self.assertIn('bin/annotation_stage_outputs.py', text)
+        helper = (REPO_ROOT / "bin/annotation_stage_outputs.py").read_text(encoding="utf-8")
+        for accepted_status in ('ran_ok', 'ran_ok_sanitized', 'skipped_done'):
+            self.assertIn(repr(accepted_status), helper)
         stage_block = text.split('log "Stage 1/4: running run_annotation_and_detection.sh"', 1)[1].split('if [[ "${RUN_STAGE_BIGSCAPE}" == "1" ]]', 1)[0]
         self.assertIn('bash "${RUN_ANNOTATION_STAGE}"', stage_block)
         self.assertIn("require_annotation_stage_outputs", stage_block)
@@ -1174,8 +1173,8 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertLess(len(index_text.splitlines()), 1000)
         self.assertIn('href="/favicon.ico', index_text)
         self.assertTrue((static_dir / "favicon.ico").exists())
-        self.assertIn('href="assets/clusterweave.css?v=20261104-exclusions1"', index_text)
-        self.assertIn('src="assets/clusterweave.js?v=20261104-release1"', index_text)
+        self.assertRegex(index_text, r'href="assets/clusterweave\.css\?v=[A-Za-z0-9-]+"')
+        self.assertRegex(index_text, r'src="assets/clusterweave\.js\?v=[A-Za-z0-9-]+"')
         self.assertEqual(index_text.count('name="clusterweave-game-asset"'), 4)
         self.assertNotIn('<link rel="stylesheet" href="assets/clusterweave-game.css', index_text)
         self.assertNotIn('<script src="assets/clusterweave-game', index_text)
@@ -1249,7 +1248,7 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn('.upload-card .dropbox', css_text)
         self.assertIn('max-height: min(22vh, 118px);', css_text)
         self.assertIn("PUBLIC_WEB_FAQ_URL", intake_text)
-        self.assertIn('id="bgc-tool-activity-chip"', index_text)
+        self.assertNotIn('id="bgc-tool-activity-chip"', index_text)
         self.assertIn(".tool-activity-chip", css_text)
         self.assertIn("function bgcActivityChipPayload", js_text)
         self.assertNotIn("data-progress-label", index_text)
@@ -1332,8 +1331,8 @@ class RepoLayoutTests(unittest.TestCase):
             if match:
                 declarations.append((match.group(1), line_number, line))
 
-        self.assertEqual(len(declarations), 856)
-        self.assertEqual(len({name for name, _, _ in declarations}), 856)
+        self.assertEqual(len(declarations), 857)
+        self.assertEqual(len({name for name, _, _ in declarations}), 857)
         expected_delegate_counts = {
             "apiResultBoundary": 12,
             "resultReaderBoundary": 214,
@@ -1366,7 +1365,7 @@ class RepoLayoutTests(unittest.TestCase):
             self.assertEqual(owners, [module_paths[target]], f"{name} -> {target}.{method}")
 
         self.assertEqual(delegate_counts, expected_delegate_counts)
-        self.assertEqual(len(retained), 243)
+        self.assertEqual(len(retained), 244)
         declaration_order = {name: index for index, (name, _, _) in enumerate(declarations)}
         retained_regions = [
             ("layout-shell", "setCardCollapsed", "scheduleDnaOverlaySync"),
@@ -1393,6 +1392,7 @@ class RepoLayoutTests(unittest.TestCase):
                     self.assertNotIn(name, classifications)
                     classifications[name] = category
         self.assertEqual(set(classifications), {name for name, _ in retained})
+        self.assertEqual(classifications["renderLocalSetupGuide"], "public-bootstrap")
         for name, _ in retained:
             canonical_re = re.compile(
                 rf"^\s*(?:async\s+)?function\s+{re.escape(name)}\s*\(",
@@ -1415,16 +1415,15 @@ class RepoLayoutTests(unittest.TestCase):
 
         selector = index_text.split('id="analysis-scope-selector"', 1)[1].split("</fieldset>", 1)[0]
         self.assertIn("<legend>Analysis scope</legend>", selector)
-        self.assertIn('name="analysis-scope" value="fungi" checked', selector)
-        self.assertIn('name="analysis-scope" value="both"', selector)
+        self.assertIn('name="analysis-scope" value="mixed" checked', selector)
+        self.assertNotIn('name="analysis-scope" value="both"', selector)
         self.assertIn('name="analysis-scope" value="bacteria"', selector)
-        self.assertLess(selector.index('value="fungi"'), selector.index('value="both"'))
-        self.assertLess(selector.index('value="both"'), selector.index('value="bacteria"'))
+        self.assertLess(selector.index('value="fungi"'), selector.index('value="bacteria"'))
         self.assertNotIn("Both mode needs one Fungi or Bacteria declaration per ambiguous logical genome.", index_text)
         self.assertNotIn("a same-stem FASTA inherits that route", index_text)
         self.assertIn('id="run-setup-analysis-scope"', index_text)
 
-        self.assertIn("let stagedAnalysisScope = 'fungi';", js_text)
+        self.assertIn("let stagedAnalysisScope = 'mixed';", js_text)
         self.assertIn("let activeSavedAnalysisContext = null;", js_text)
         self.assertIn("function normalizeAnalysisScope(value, fallback = 'fungi')", js_text)
         self.assertIn("function analysisContextFromJob(job)", js_text)
@@ -1447,7 +1446,7 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("isTaxonAssignmentsSidecarName(f.name)", js_text)
         self.assertIn("Contradictory duplicate assignment", js_text)
         self.assertIn("Unknown taxon assignment key", js_text)
-        self.assertIn("Both mode requires a Fungi or Bacteria declaration", js_text)
+        self.assertIn("Mixed intake requires a Fungi, Bacteria or Plants declaration", js_text)
         self.assertIn("Feature-free bacterial GenBank accepted", js_text)
         self.assertIn("supplied features will be removed", js_text)
         self.assertIn("Authoritative bacterial GenBank taxonomy accepted", js_text)
@@ -1462,7 +1461,7 @@ class RepoLayoutTests(unittest.TestCase):
 
         self.assertIn(".analysis-scope-options input:checked + span", css_text)
         self.assertIn(".analysis-scope-options input:focus-visible + span", css_text)
-        self.assertIn("fungal, bacterial, or mixed biosynthetic gene cluster discovery", index_text)
+        self.assertIn("fungal, bacterial, plant, or mixed biosynthetic gene cluster discovery", index_text)
 
     def test_frontend_phylogeny_figure_discovery_and_accessibility_contract(self) -> None:
         static_dir = REPO_ROOT / "web" / "static"
@@ -1725,7 +1724,7 @@ class RepoLayoutTests(unittest.TestCase):
         self.assertIn("const BACKBONE_OVERLAP = 1.08;", dna_text)
         self.assertIn("new THREE.CylinderGeometry(0.055, 0.055, 1, 18, 1, true)", dna_text)
         self.assertIn("length * axialScale", dna_text)
-        self.assertIn("workflow-dna-progress.js?v=20260713-fanout-ui1", ui_text)
+        self.assertRegex(ui_text, r"workflow-dna-progress\.js\?v=[A-Za-z0-9-]+")
         self.assertNotIn("tmp/node_geometry_render", ui_text + dna_text)
         self.assertNotIn("data-segment=", ui_text)
 
@@ -2868,11 +2867,11 @@ async function resolveResultArtifact(jobId, ownerArtifact, reference) {{
   const kineticCopy = new FakeScript({{ src: 'html_content/js/kinetic-v5.1.0-copy.min.js' }});
   const external = new FakeScript({{ src: 'https://example.invalid/remote.js' }});
   const scripts = [first, second, kinetic, kineticCopy, external];
-  const doc = {{ querySelectorAll: selector => selector === 'script[src]' ? scripts : [] }};
+  const doc = {{ getElementById: () => null, querySelectorAll: selector => selector === 'script[src]' ? scripts : [] }};
   await inlineBigscapeResultScripts(doc, 'job', owner, portable);
   async function rejectedLocalScript(attrs) {{
     const script = new FakeScript(attrs);
-    const singleDoc = {{ querySelectorAll: () => [script] }};
+    const singleDoc = {{ getElementById: () => null, querySelectorAll: () => [script] }};
     try {{
       await inlineBigscapeResultScripts(singleDoc, 'job', owner, portable);
       return false;
@@ -3491,7 +3490,7 @@ process.stdout.write(JSON.stringify({{
         self.assertIn('id="tool-credit-support-panel" role="tabpanel"', text)
         self.assertIn('src="assets/pmi-logo.png" alt="Plant Microbe Interfaces (PMI)"', text)
         self.assertIn('class="pmi-support-link" href="https://pmiweb.ornl.gov/" target="_blank" rel="noopener"', text)
-        self.assertIn("const names = ['support', 'web', 'local'];", text)
+        self.assertIn("const names = ['support', 'web', 'local', 'base'];", text)
         self.assertIn("switchToolCreditTab('support');", text)
         self.assertIn('href="https://github.com/n2mology/clusterweave"', text)
         self.assertNotIn('id="primary-nav"', text)
@@ -3863,7 +3862,7 @@ console.log(JSON.stringify({{
 
     def test_clinker_postprocess_uses_repo_root(self) -> None:
         text = (REPO_ROOT / "bin" / "stage_clinker_panels.py").read_text(encoding="utf-8")
-        self.assertIn('POSTPROCESS_PY=\\"${PROJECT_ROOT}/bin/postprocess_clinker_html.py\\"', text)
+        self.assertIn('POSTPROCESS_PY=\\"${SCRIPT_DIR}/postprocess_clinker_html.py\\"', text)
         self.assertIn('POSTPROCESS_FALLBACK_PY=\\"${REPO_ROOT}/bin/postprocess_clinker_html.py\\"', text)
         self.assertIn("project_root.resolve().as_posix()", text)
         self.assertIn("repo_root.resolve().as_posix()", text)

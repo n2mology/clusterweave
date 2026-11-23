@@ -25,6 +25,15 @@ class DatasetFamilyAtlasTests(unittest.TestCase):
             "export_shared_family_shortlist", SHARED_MODULE_PATH
         )
 
+    def test_plant_reported_reference_is_eligible_without_promoting_unmatched_genomes(self):
+        rows=[{'genome':'plant','manual_review_bucket':'atlas_context',
+               'plantismash_knowncluster_accession':'BGC0001315.3_c1'},
+              {'genome':'unmatched','manual_review_bucket':'atlas_context'}]
+        self.module.include_reference_panels(rows,3)
+        self.assertEqual(rows[0]['manual_review_bucket'],'atlas_now')
+        self.assertEqual(rows[1]['manual_review_bucket'],'atlas_context')
+        self.assertIn('product identity is not assigned',rows[0]['recommended_followup'])
+
     def test_atlas_now_skips_representatives_already_covered_by_prior_cc(self) -> None:
         rows = [
             {

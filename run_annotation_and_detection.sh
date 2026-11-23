@@ -20,6 +20,10 @@ BACTERIA_GENOME_ROOT="${BACTERIA_GENOME_ROOT:-${DATA_ROOT}/genomes/bacteria/${PR
 RESULTS_ROOT="${RESULTS_ROOT:-${RESULTS_BASE}/${PROJECT_NAME}}"
 GENOME_TAXON_MANIFEST="${GENOME_TAXON_MANIFEST:-${RESULTS_ROOT}/summary_tables/genome_taxon_manifest.tsv}"
 
+PLANTS_GENOME_ROOT="${PLANTS_GENOME_ROOT:-${DATA_ROOT}/genomes/plants/${PROJECT_NAME}}"
+PLANTISMASH_SIF="${PLANTISMASH_SIF:-${SOFTWARE_ROOT}/plantismash/plant.sif}"
+PLANTISMASH_ENGINE="${PLANTISMASH_ENGINE:-apptainer}"
+
 ANTISMASH_SIF="${ANTISMASH_SIF:-${SOFTWARE_ROOT}/antismash/antismash_standalone.sif}"
 FUNBGCEX_SIF="${FUNBGCEX_SIF:-${SOFTWARE_ROOT}/funbgcex/funbgcex_bundle.sif}"
 BRAKER_SIF="${BRAKER_SIF:-${SOFTWARE_ROOT}/braker/braker3.sif}"
@@ -158,7 +162,11 @@ BIND_ARGS=(
 # Helper: exec inside a Singularity/Apptainer container safely
 sing_exec() {
   local image="$1"; shift
-  "${ENGINE}" exec "${BIND_ARGS[@]}" "${image}" "$@"
+  local -a workdir_args=()
+  if [[ -n "${CLUSTERWEAVE_CHILD_SIF_WORKDIR:-}" ]]; then
+    workdir_args+=(--pwd "${CLUSTERWEAVE_CHILD_SIF_WORKDIR}")
+  fi
+  "${ENGINE}" exec "${workdir_args[@]}" "${BIND_ARGS[@]}" "${image}" "$@"
 }
 
 docker_image_from_uri() {
@@ -184,6 +192,9 @@ bounded_docker_cpu_limit() {
 
 docker_run_args() {
   local -a args=(--rm -i --user 0:0 --entrypoint "")
+  if [[ -n "${CLUSTERWEAVE_CHILD_DOCKER_WORKDIR:-}" ]]; then
+    args+=(--workdir "${CLUSTERWEAVE_CHILD_DOCKER_WORKDIR}")
+  fi
   local child_cpus=""
   local child_memory="${CLUSTERWEAVE_CHILD_DOCKER_MEMORY:-${CLUSTERWEAVE_TOOL_DOCKER_MEMORY}}"
   local child_pids="${CLUSTERWEAVE_CHILD_DOCKER_PIDS_LIMIT:-${CLUSTERWEAVE_TOOL_DOCKER_PIDS_LIMIT}}"
@@ -253,14 +264,23 @@ ensure_docker_image() {
 }
 
 antismash_exec() {
+  # Every invocation, including overlapping shards, owns its writable cache.
+  local scratch
+  mkdir -p "${WORK_ROOT}/tmp"
+  scratch="$(mktemp -d "${WORK_ROOT}/tmp/antismash-exec.XXXXXXXX")" || return 1
+  local -a scratch_env=("TMPDIR=${scratch}" "TMP=${scratch}" "TEMP=${scratch}"
+    "MPLCONFIGDIR=${scratch}/matplotlib" "XDG_CACHE_HOME=${scratch}/cache")
   if [[ "${ENGINE}" == "docker" ]]; then
     if have antismash; then
-      ANTISMASH_DB_DIR="${ANTISMASH_DB_DIR}" "$@"
+      env "ANTISMASH_DB_DIR=${ANTISMASH_DB_DIR}" "${scratch_env[@]}" "$@"
     else
-      docker_exec "${ANTISMASH_DOCKER_IMAGE}" "$@"
+      docker_exec "${ANTISMASH_DOCKER_IMAGE}" env "${scratch_env[@]}" "$@"
     fi
   else
-    sing_exec "${ANTISMASH_SIF}" "$@"
+    # Prodigal also writes piped training input into its current directory.
+    # The repository and SIF stay read-only inside the existing confinement.
+    "${ENGINE}" exec "${BIND_ARGS[@]}" --pwd "${scratch}" "${ANTISMASH_SIF}" \
+      env "${scratch_env[@]}" "$@"
   fi
 }
 
@@ -468,6 +488,7 @@ tool_activity_limit_line() {
 
 tool_activity_display_name() {
   case "${1:-}" in
+    plantismash) printf '%s\n' "plantiSMASH" ;;
     antismash) printf '%s\n' "antiSMASH" ;;
     funannotate) printf '%s\n' "funannotate" ;;
     funbgcex) printf '%s\n' "FunBGCeX" ;;
@@ -488,7 +509,39 @@ tool_activity_public_message() {
   error_scan="${error_scan//0 errors/}"
   error_scan="${error_scan//0 error/}"
   case "${tool}" in
+    plantismash)
+      if [[ "${lower}" == plant_phase* ]]; then
+        case "${lower}" in
+          *phase=merging*) printf '%s\n' "Merging plantiSMASH record outputs" ;;
+          *phase=validating*) printf '%s\n' "Validating plantiSMASH genome outputs" ;;
+          *phase=exporting*) printf '%s\n' "Exporting plantiSMASH native reports" ;;
+          *) return 1 ;;
+        esac
+        return 0
+      fi
+      if [[ "${lower}" =~ ^plant_shard.*completed=([0-9]+)/([0-9]+) ]]; then
+        local completed="${BASH_REMATCH[1]}" total="${BASH_REMATCH[2]}"
+        if [[ "${lower}" =~ state=(failed|invalid|cancelled) ]]; then
+          printf '%s\n' "plantiSMASH record shard failed or cancelled; ${completed}/${total} complete"
+        else
+          printf '%s\n' "plantiSMASH record shards: ${completed}/${total} complete; genome processing continues"
+        fi
+        return 0
+      fi
+      if [[ "${lower}" == plant_shard* ]]; then
+        if [[ "${lower}" == *state=failed* || "${lower}" == *state=invalid* || "${lower}" == *state=cancelled* ]]; then printf '%s\n' "plantiSMASH record shard failed or cancelled";
+        elif [[ "${lower}" == *state=complete* ]]; then printf '%s\n' "plantiSMASH record shard complete";
+        else printf '%s\n' "Running plantiSMASH record shards"; fi
+        return 0
+      fi
+      ;;
     antismash)
+      # Matplotlib falls back to a temporary cache after this specific warning.
+      # Raw stderr remains retained; exit status and output validation are authoritative.
+      if [[ "${lower}" == *matplotlib* && ( "${lower}" == *"mkdir -p failed for path"* || "${lower}" == *"created a temporary"* ) ]]; then
+        printf '%s\n' "antiSMASH reported a recoverable Matplotlib cache warning"; return 0
+      fi
+      if [[ "${error_scan}" =~ (error|failed|exception|traceback) ]]; then printf '%s\n' "antiSMASH reported an error"; return 0; fi
       if [[ "${lower}" =~ running[[:space:]]+whole-genome[[:space:]]+pfam[[:space:]]+search ]]; then printf '%s\n' "Running whole-genome PFAM search"; return 0; fi
       if [[ "${lower}" =~ (database|databases|schema|download) ]]; then printf '%s\n' "Checking antiSMASH databases"; return 0; fi
       if [[ "${lower}" =~ (domain|hmmer|hmm|pfam|blast|diamond|smcog) ]]; then printf '%s\n' "Scanning protein domains"; return 0; fi
@@ -544,8 +597,12 @@ tool_activity_stream() {
   fi
   while IFS= read -r line; do
     raw="$(tool_activity_limit_line "${line}")"
-    printf '%s\n' "${raw}" >> "${dest}"
+    # Keep exact tool text privately; central/public presentation remains bounded.
+    printf '%s\n' "${line}" >> "${dest}"
     raw_line_count=$((raw_line_count + 1))
+    if [[ "${tool}" == plantismash && "${raw}" =~ ^PLANT_SHARD[[:space:]]ordinal=([0-9]+)[[:space:]]state=([a-z]+)[[:space:]]completed=([0-9]+)/([0-9]+)$ ]]; then
+      log "PLANT_RECORD_PROGRESS genome=${genome} record=${BASH_REMATCH[1]} ordinal=${BASH_REMATCH[1]}/${BASH_REMATCH[4]} state=${BASH_REMATCH[2]}"
+    fi
     if [[ "${central_raw_count}" -lt "${central_raw_limit}" ]]; then
       log "TOOL_RAW genome=${genome} tool=${tool} stream=${stream} ${raw}"
       central_raw_count=$((central_raw_count + 1))
@@ -606,8 +663,10 @@ run_tool_with_activity() {
     wait "${heartbeat_pid}" 2>/dev/null || true
   fi
   if [[ "${rc}" -eq 0 ]]; then
+    log "TOOL_EXECUTION genome=${genome} tool=${tool} state=complete exit_code=0"
     tool_activity_emit_progress "${genome}" "${tool}" "${phase}" "$(tool_activity_display_name "${tool}") finished"
   else
+    log "TOOL_EXECUTION genome=${genome} tool=${tool} state=failed exit_code=${rc}"
     tool_activity_emit_progress "${genome}" "${tool}" "${phase}" "$(tool_activity_display_name "${tool}") reported an error"
   fi
   return "${rc}"
@@ -649,62 +708,11 @@ annotation_runtime_argv() {
     || die "Annotation runtime helper returned an empty argv for $1"
 }
 
-braker3_exec() {
-  if [[ "${ENGINE}" == "docker" ]]; then
-    CLUSTERWEAVE_CHILD_DOCKER_CPUS="${ANNO_CPUS}" \
-      docker_exec "$(docker_image_from_uri "${BRAKER_IMAGE_URI}")" "$@"
-  elif [[ -f "${BRAKER_SIF}" ]]; then
-    sing_exec "${BRAKER_SIF}" "$@"
-  else
-    "$@"
-  fi
-}
-
-funannotate_exec() {
-  local use_docker="$1"
-  local use_sif="$2"
-  shift 2
-  if [[ "${use_docker}" -eq 1 ]]; then
-    CLUSTERWEAVE_CHILD_DOCKER_CPUS="${ANNO_CPUS}" \
-      docker_exec "$(docker_image_from_uri "${FUNANNOTATE_IMAGE_URI}")" "$@"
-  elif [[ "${use_sif}" -eq 1 ]]; then
-    sing_exec "${FUNANNOTATE_SIF}" "$@"
-  else
-    "$@"
-  fi
-}
-
-funannotate_exec_with_activity() {
-  local use_docker="$1"
-  local use_sif="$2"
-  local genome_id="$3"
-  local fun_log="$4"
-  shift 4
-  if [[ "${use_docker}" -eq 1 ]]; then
-    CLUSTERWEAVE_CHILD_DOCKER_CPUS="${ANNO_CPUS}" \
-      run_tool_with_activity "${genome_id}" "funannotate" "predict" "${fun_log}" "${fun_log}" \
-      docker_exec "$(docker_image_from_uri "${FUNANNOTATE_IMAGE_URI}")" "$@"
-  elif [[ "${use_sif}" -eq 1 ]]; then
-    run_tool_with_activity "${genome_id}" "funannotate" "predict" "${fun_log}" "${fun_log}" \
-      sing_exec "${FUNANNOTATE_SIF}" "$@"
-  else
-    run_tool_with_activity "${genome_id}" "funannotate" "predict" "${fun_log}" "${fun_log}" "$@"
-  fi
-}
-
 ###############################################################################
 # Tracked GFF3-to-GenBank converter
 ###############################################################################
 CONVERT_PY="${CONVERT_PY:-${PROJECT_DIR}/bin/gff3_to_gbk_with_translations.py}"
 GENBANK_TRANSLATION_CHECKER="${GENBANK_TRANSLATION_CHECKER:-${PROJECT_DIR}/bin/check_genbank_translations.py}"
-
-setup_converter() {
-  if [[ -s "${CONVERT_PY}" ]]; then
-    log "Using existing converter: ${CONVERT_PY}"
-    return 0
-  fi
-  die "GFF3-to-GenBank converter not found: ${CONVERT_PY}. Restore the tracked helper or set CONVERT_PY to an existing compatible converter."
-}
 
 ###############################################################################
 # Input discovery/resolution
@@ -712,6 +720,8 @@ setup_converter() {
 GENOME_MAPPING_FILE="${GENOME_MAPPING_FILE:-${GENOME_ROOT}/accessions_fungusID_taxonomyID.txt}"
 VENV_PY="${VENV_PY:-python3}"
 ANNOTATION_INPUT_HELPER="${ANNOTATION_INPUT_HELPER:-${SCRIPT_DIR:-.}/bin/annotation_input.py}"
+declare -A DEFAULT_PREDICTION_BY_TAXON=()
+declare -A DEFAULT_DETECTOR_BY_TAXON=()
 declare -A ROUTE_TAXON_BY_GENOME=()
 declare -A ROUTE_ROOT_BY_GENOME=()
 declare -A ROUTE_PREDICTION_BY_GENOME=()
@@ -721,16 +731,25 @@ declare -A ROUTE_STATUS_BY_GENOME=()
 ROUTE_MANIFEST_ACTIVE=0
 HAS_FUNGAL_ROUTES=0
 HAS_BACTERIAL_ROUTES=0
+HAS_PLANT_ROUTES=0
 
 load_taxon_routes() {
   local kind genome_id taxon_group root prediction_method detector_profile taxon_source route_status
-  local route_output=""
+  local route_output="" profile_defaults=""
   route_output="$(
     "${VENV_PY}" "${ANNOTATION_INPUT_HELPER}" routes \
       --manifest "${GENOME_TAXON_MANIFEST}" \
       --fungi-root "${FUNGI_GENOME_ROOT}" \
-      --bacteria-root "${BACTERIA_GENOME_ROOT}"
+      --bacteria-root "${BACTERIA_GENOME_ROOT}" \
+      --plants-root "${PLANTS_GENOME_ROOT:-${FUNGI_GENOME_ROOT%/*}/plants}"
   )" || die "Failed to load canonical taxon manifest: ${GENOME_TAXON_MANIFEST}"
+  profile_defaults="$(
+    "${VENV_PY}" "${ANNOTATION_INPUT_HELPER}" profile-defaults
+  )" || die "Failed to load scientific profile defaults"
+  while IFS=$'\t' read -r taxon_group prediction_method detector_profile; do
+    DEFAULT_PREDICTION_BY_TAXON["${taxon_group}"]="${prediction_method}"
+    DEFAULT_DETECTOR_BY_TAXON["${taxon_group}"]="${detector_profile}"
+  done <<< "${profile_defaults}"
   while IFS=$'\034' read -r \
       kind genome_id taxon_group root prediction_method detector_profile \
       taxon_source route_status; do
@@ -741,6 +760,7 @@ load_taxon_routes() {
       continue
     fi
     [[ "${kind}" == "route" ]] || continue
+    [[ "${taxon_group}" == "plants" ]] && HAS_PLANT_ROUTES=1
     ROUTE_TAXON_BY_GENOME["${genome_id}"]="${taxon_group}"
     ROUTE_ROOT_BY_GENOME["${genome_id}"]="${root}"
     ROUTE_PREDICTION_BY_GENOME["${genome_id}"]="${prediction_method}"
@@ -748,6 +768,29 @@ load_taxon_routes() {
     ROUTE_SOURCE_BY_GENOME["${genome_id}"]="${taxon_source}"
     ROUTE_STATUS_BY_GENOME["${genome_id}"]="${route_status}"
   done <<< "${route_output//$'\t'/$'\034'}"
+}
+
+persist_taxon_routes() {
+  # Downstream readers use the result-local route manifest. Preserve the
+  # validated external CLI manifest there before any native work starts.
+  local canonical_routes="${RESULTS_ROOT}/summary_tables/genome_taxon_manifest.tsv"
+  if [[ "${ROUTE_MANIFEST_ACTIVE}" == "1" ]] && \
+     [[ "$(realpath -m "${GENOME_TAXON_MANIFEST}")" != "$(realpath -m "${canonical_routes}")" ]]; then
+    mkdir -p "$(dirname "${canonical_routes}")"
+    [[ ! -L "${canonical_routes}" ]] || die "Canonical taxon manifest must not be a symbolic link"
+    if [[ -e "${canonical_routes}" ]]; then
+      cmp -s "${GENOME_TAXON_MANIFEST}" "${canonical_routes}" || \
+        die "Existing result taxon manifest differs from supplied routes; use a fresh results directory"
+    else
+      local route_copy
+      route_copy="$(mktemp "${canonical_routes}.tmp.XXXXXX")"
+      cp "${GENOME_TAXON_MANIFEST}" "${route_copy}"
+      mv -n "${route_copy}" "${canonical_routes}"
+      rm -f "${route_copy}"
+      cmp -s "${GENOME_TAXON_MANIFEST}" "${canonical_routes}" || die "Concurrent taxon manifest change"
+    fi
+    GENOME_TAXON_MANIFEST="${canonical_routes}"
+  fi
 }
 
 route_taxon_for_genome() {
@@ -762,14 +805,14 @@ route_prediction_for_genome() {
   local genome_id="$1"
   local taxon_group=""
   taxon_group="$(route_taxon_for_genome "${genome_id}")"
-  printf '%s\n' "${ROUTE_PREDICTION_BY_GENOME[${genome_id}]:-$([[ "${taxon_group}" == "bacteria" ]] && printf prodigal || printf funannotate)}"
+  printf '%s\n' "${ROUTE_PREDICTION_BY_GENOME[${genome_id}]:-${DEFAULT_PREDICTION_BY_TAXON[${taxon_group}]}}"
 }
 
 route_detector_for_genome() {
   local genome_id="$1"
   local taxon_group=""
   taxon_group="$(route_taxon_for_genome "${genome_id}")"
-  printf '%s\n' "${ROUTE_DETECTOR_BY_GENOME[${genome_id}]:-$([[ "${taxon_group}" == "bacteria" ]] && printf antismash || printf antismash+funbgcex)}"
+  printf '%s\n' "${ROUTE_DETECTOR_BY_GENOME[${genome_id}]:-${DEFAULT_DETECTOR_BY_TAXON[${taxon_group}]}}"
 }
 
 route_source_for_genome() {
@@ -782,7 +825,9 @@ route_status_for_genome() {
 
 mapping_file_for_taxon() {
   local taxon_group="$1"
-  if [[ "${taxon_group}" == "bacteria" ]]; then
+  if [[ "${taxon_group}" == "plants" ]]; then
+    printf '%s\n' "${PLANTS_GENOME_ROOT}/accessions_plantsID_taxonomyID.txt"
+  elif [[ "${taxon_group}" == "bacteria" ]]; then
     printf '%s\n' "${BACTERIA_GENOME_ROOT}/accessions_bacteriaID_taxonomyID.txt"
   else
     printf '%s\n' "${FUNGI_GENOME_ROOT}/accessions_fungusID_taxonomyID.txt"
@@ -797,349 +842,11 @@ mapped_canonical_stem() {
   "${VENV_PY}" "${ANNOTATION_INPUT_HELPER}" mapped-canonical --mapping-file "${GENOME_MAPPING_FILE}" --stem "$1"
 }
 
-funannotate_trim() {
-  printf '%s\n' "${1:-}" | awk '{$1=$1; print}'
-}
+source "${SCRIPT_DIR}/annotation_funannotate.sh"
 
-funannotate_lower() {
-  printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]'
-}
+source "${SCRIPT_DIR}/annotation_braker3.sh"
 
-funannotate_env_value() {
-  local key="$1"
-  local default="${2:-}"
-  local value="${!key:-}"
-  value="$(funannotate_trim "${value}")"
-  [[ -n "${value}" ]] || value="${default}"
-  printf '%s\n' "${value}"
-}
-
-funannotate_busco_env_value() {
-  local key="$1"
-  local default="${2:-}"
-  local value=""
-  value="$(funannotate_env_value "${key}" "${default}")"
-  case "$(funannotate_lower "${value}")" in
-    auto-lineage|auto_lineage|auto-lineage-euk|auto-lineage-prok)
-      value="${default}"
-      ;;
-  esac
-  printf '%s\n' "${value}"
-}
-
-funannotate_is_auto_busco() {
-  case "$(funannotate_lower "${1:-}")" in
-    ""|auto|taxonomy|lineage|from-taxonomy) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
-funannotate_is_auto_organism() {
-  case "$(funannotate_lower "${1:-}")" in
-    ""|"{}"|none|null|auto|taxonomy|lineage|from-taxonomy|fungal_sp|"fungal sp") return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
-funannotate_species_from_text() {
-  local value="${1:-}"
-  local first=""
-  local second=""
-  value="${value//_/ }"
-  value="$(funannotate_trim "${value}")"
-  if [[ -z "${value}" ]]; then
-    printf '%s\n' "Fungal sp"
-    return 0
-  fi
-  read -r first second _ <<< "${value}"
-  if [[ -n "${second}" ]]; then
-    printf '%s %s\n' "${first}" "${second%.}"
-  else
-    printf '%s sp\n' "${first}"
-  fi
-}
-
-funannotate_mapping_row() {
-  local genome_id="$1"
-  [[ -s "${GENOME_MAPPING_FILE}" ]] || return 1
-  awk -F '\t' -v target="${genome_id}" '
-    BEGIN { t = tolower(target) }
-    tolower($1) == "accession" { next }
-    {
-      accession = tolower($1)
-      genome = tolower($2)
-      split(accession, accession_parts, /\./)
-      accession_base = accession_parts[1]
-      if (t == genome || t == accession || (t != "" && t == accession_base)) {
-        print
-        exit
-      }
-    }
-  ' "${GENOME_MAPPING_FILE}"
-}
-
-funannotate_lineage_has_id() {
-  local blob="${1:-}"
-  local taxid="$2"
-  local normalized=""
-  normalized="${blob//[^0-9]/,}"
-  [[ ",${normalized}," == *",${taxid},"* ]]
-}
-
-resolve_funannotate_policy() {
-  local genome_id="$1"
-  local row=""
-  local map_accession=""
-  local map_genome_id=""
-  local map_taxid=""
-  local map_size=""
-  local map_organism=""
-  local map_lineage_ids=""
-  local map_lineage_names=""
-  local lineage_blob=""
-  local db_setting=""
-  local default_db=""
-  local fungi_db=""
-  local dikarya_db=""
-  local mucoromycota_db=""
-
-  FUNANNOTATE_RESOLVED_BUSCO_DB="${FUNANNOTATE_BUSCO_DB}"
-  FUNANNOTATE_RESOLVED_SPECIES="${FUNANNOTATE_ORGANISM_NAME}"
-  FUNANNOTATE_RESOLVED_SOURCE="explicit"
-
-  row="$(funannotate_mapping_row "${genome_id}" || true)"
-  if [[ -n "${row}" ]]; then
-    IFS=$'\t' read -r map_accession map_genome_id map_taxid map_size map_organism map_lineage_ids map_lineage_names <<< "${row}"
-    lineage_blob="${map_lineage_ids},${map_taxid}"
-  fi
-
-  if funannotate_is_auto_organism "${FUNANNOTATE_ORGANISM_NAME}"; then
-    if [[ -n "${map_organism}" ]]; then
-      FUNANNOTATE_RESOLVED_SPECIES="$(funannotate_species_from_text "${map_organism}")"
-    else
-      FUNANNOTATE_RESOLVED_SPECIES="$(funannotate_species_from_text "${genome_id}")"
-    fi
-  else
-    FUNANNOTATE_RESOLVED_SPECIES="${FUNANNOTATE_ORGANISM_NAME%.}"
-  fi
-
-  db_setting="$(funannotate_env_value FUNANNOTATE_BUSCO_DB auto)"
-  if ! funannotate_is_auto_busco "${db_setting}"; then
-    FUNANNOTATE_RESOLVED_BUSCO_DB="${db_setting}"
-    FUNANNOTATE_RESOLVED_SOURCE="explicit"
-  elif [[ -n "${row}" ]]; then
-    default_db="$(funannotate_busco_env_value FUNANNOTATE_BUSCO_DB_DEFAULT dikarya)"
-    fungi_db="$(funannotate_busco_env_value FUNANNOTATE_BUSCO_DB_FUNGI fungi)"
-    dikarya_db="$(funannotate_busco_env_value FUNANNOTATE_BUSCO_DB_DIKARYA dikarya)"
-    if funannotate_lineage_has_id "${lineage_blob}" "4827"; then
-      mucoromycota_db="$(funannotate_busco_env_value FUNANNOTATE_BUSCO_DB_MUCOROMYCOTA "${fungi_db}")"
-      FUNANNOTATE_RESOLVED_BUSCO_DB="$(funannotate_busco_env_value FUNANNOTATE_BUSCO_DB_MUCORALES "${mucoromycota_db}")"
-      FUNANNOTATE_RESOLVED_SOURCE="taxonomy:mucorales"
-    elif funannotate_lineage_has_id "${lineage_blob}" "1913637"; then
-      FUNANNOTATE_RESOLVED_BUSCO_DB="$(funannotate_busco_env_value FUNANNOTATE_BUSCO_DB_MUCOROMYCOTA "${fungi_db}")"
-      FUNANNOTATE_RESOLVED_SOURCE="taxonomy:mucoromycota"
-    elif funannotate_lineage_has_id "${lineage_blob}" "6029"; then
-      FUNANNOTATE_RESOLVED_BUSCO_DB="$(funannotate_busco_env_value FUNANNOTATE_BUSCO_DB_MICROSPORIDIA microsporidia)"
-      FUNANNOTATE_RESOLVED_SOURCE="taxonomy:microsporidia"
-    elif funannotate_lineage_has_id "${lineage_blob}" "4890"; then
-      FUNANNOTATE_RESOLVED_BUSCO_DB="$(funannotate_busco_env_value FUNANNOTATE_BUSCO_DB_ASCOMYCOTA ascomycota)"
-      FUNANNOTATE_RESOLVED_SOURCE="taxonomy:ascomycota"
-    elif funannotate_lineage_has_id "${lineage_blob}" "5204"; then
-      FUNANNOTATE_RESOLVED_BUSCO_DB="$(funannotate_busco_env_value FUNANNOTATE_BUSCO_DB_BASIDIOMYCOTA basidiomycota)"
-      FUNANNOTATE_RESOLVED_SOURCE="taxonomy:basidiomycota"
-    elif funannotate_lineage_has_id "${lineage_blob}" "451864"; then
-      FUNANNOTATE_RESOLVED_BUSCO_DB="${dikarya_db}"
-      FUNANNOTATE_RESOLVED_SOURCE="taxonomy:dikarya"
-    elif funannotate_lineage_has_id "${lineage_blob}" "4751" || [[ -n "${map_taxid}" ]]; then
-      FUNANNOTATE_RESOLVED_BUSCO_DB="${fungi_db}"
-      FUNANNOTATE_RESOLVED_SOURCE="taxonomy:fungi"
-    else
-      FUNANNOTATE_RESOLVED_BUSCO_DB="$(funannotate_busco_env_value FUNANNOTATE_BUSCO_DB_NO_TAXONOMY "${default_db}")"
-      FUNANNOTATE_RESOLVED_SOURCE="fallback:no-taxonomy"
-    fi
-  else
-    default_db="$(funannotate_busco_env_value FUNANNOTATE_BUSCO_DB_DEFAULT dikarya)"
-    FUNANNOTATE_RESOLVED_BUSCO_DB="$(funannotate_busco_env_value FUNANNOTATE_BUSCO_DB_NO_TAXONOMY "${default_db}")"
-    FUNANNOTATE_RESOLVED_SOURCE="fallback:no-taxonomy"
-  fi
-
-  FUNANNOTATE_RESOLVED_BUSCO_DB="$(printf '%s' "${FUNANNOTATE_RESOLVED_BUSCO_DB}" | tr -d '[:space:]')"
-  case "${FUNANNOTATE_RESOLVED_BUSCO_DB}" in
-    ""|"{}"|none|null|auto|taxonomy|lineage|from-taxonomy|auto-lineage|auto_lineage|auto-lineage-euk|auto-lineage-prok)
-      FUNANNOTATE_RESOLVED_BUSCO_DB="dikarya"
-      ;;
-  esac
-
-  case "${FUNANNOTATE_RESOLVED_SPECIES}" in
-    ""|"{}"|none|null|auto|taxonomy|lineage|from-taxonomy|Fungal_sp|"Fungal sp")
-      FUNANNOTATE_RESOLVED_SPECIES="Fungal_sp"
-      ;;
-  esac
-}
-
-funannotate_busco_db_available() {
-  local db="$1"
-  local fun_cmd="${2:-funannotate}"
-  local use_docker="${3:-0}"
-  local use_sif="${4:-0}"
-  local db_root="${FUNANNOTATE_DB:-/opt/databases}"
-
-  case "${db}" in
-    ""|"{}"|none|null|auto|taxonomy|lineage|from-taxonomy|auto-lineage|auto_lineage|auto-lineage-euk|auto-lineage-prok)
-      return 1
-      ;;
-  esac
-
-  if [[ "${use_docker}" -eq 1 ]]; then
-    CLUSTERWEAVE_CHILD_DOCKER_CPUS=1 docker_exec "$(docker_image_from_uri "${FUNANNOTATE_IMAGE_URI}")" sh -lc \
-      'db="$1"; base="${FUNANNOTATE_DB:-/opt/databases}"; test -d "${base}/${db}/hmms" && find "${base}/${db}/hmms" -type f -print -quit | grep -q .' \
-      sh "${db}" >/dev/null 2>&1
-    return $?
-  fi
-
-  if [[ "${use_sif}" -eq 1 ]]; then
-    sing_exec "${FUNANNOTATE_SIF}" sh -lc \
-      'db="$1"; base="${FUNANNOTATE_DB:-/opt/databases}"; test -d "${base}/${db}/hmms" && find "${base}/${db}/hmms" -type f -print -quit | grep -q .' \
-      sh "${db}" >/dev/null 2>&1
-    return $?
-  fi
-
-  [[ -d "${db_root}/${db}/hmms" ]] || return 1
-  find "${db_root}/${db}/hmms" -type f -print -quit 2>/dev/null | grep -q .
-}
-
-validate_funannotate_busco_db() {
-  local db="$1"
-  local source="$2"
-  local genome_id="$3"
-  local fun_cmd="$4"
-  local use_docker="$5"
-  local use_sif="$6"
-  local fallback_db
-
-  if funannotate_busco_db_available "${db}" "${fun_cmd}" "${use_docker}" "${use_sif}"; then
-    printf '%s\n' "${db}"
-    return 0
-  fi
-
-  if [[ "${source}" == "explicit" ]]; then
-    warn "${genome_id}: explicit FUNANNOTATE_BUSCO_DB='${db}' is not installed in the active funannotate runtime"
-    return 1
-  fi
-
-  fallback_db="$(printf '%s' "${FUNANNOTATE_BUSCO_DB_DEFAULT:-dikarya}" | tr -d '[:space:]')"
-  case "${fallback_db}" in
-    ""|"{}"|none|null|auto|taxonomy|lineage|from-taxonomy|auto-lineage|auto_lineage|auto-lineage-euk|auto-lineage-prok)
-      fallback_db="dikarya"
-      ;;
-  esac
-
-  if [[ "${db}" != "${fallback_db}" ]] && funannotate_busco_db_available "${fallback_db}" "${fun_cmd}" "${use_docker}" "${use_sif}"; then
-    warn "${genome_id}: auto-selected BUSCO db '${db}' for ${source} is not installed in the active funannotate runtime; falling back to broad '${fallback_db}'"
-    printf '%s\n' "${fallback_db}"
-    return 0
-  fi
-
-  warn "${genome_id}: selected BUSCO db '${db}' and fallback '${fallback_db}' are not installed in the active funannotate runtime"
-  return 1
-}
-
-
-funannotate_predict_failed_in_p2g() {
-  local fun_log="$1"
-  [[ -s "${fun_log}" ]] || return 1
-  grep -Eiq \
-    'CMD ERROR:[[:space:]]*diamond blastx|funannotate-p2g\.py.*(error|failed|exception|traceback)|p2g\.diamond.*(error|failed|missing|no such file)|protein_alignments\.gff3.*(error|failed|missing|no such file)|(error|failed|exception|traceback|missing|no such file).*(funannotate-p2g\.py|p2g\.diamond|protein_alignments\.gff3)' \
-    "${fun_log}"
-}
-
-funannotate_predict_failure_status() {
-  local fun_log="$1"
-  local not_enough_line=""
-  local validated_line=""
-  local training_models=""
-  local required_models=""
-  local validated_buscos=""
-  [[ -s "${fun_log}" ]] || return 1
-
-  not_enough_line="$(grep -E "Not enough gene models [0-9,]+ to train Augustus \([0-9,]+ required\)" "${fun_log}" | tail -n1 || true)"
-  [[ -n "${not_enough_line}" ]] || return 1
-
-  training_models="$(printf '%s\n' "${not_enough_line}" | sed -E 's/.*Not enough gene models ([0-9,]+) to train Augustus \(([0-9,]+) required\).*/\1/' | tr -d ',')"
-  required_models="$(printf '%s\n' "${not_enough_line}" | sed -E 's/.*Not enough gene models ([0-9,]+) to train Augustus \(([0-9,]+) required\).*/\2/' | tr -d ',')"
-  validated_line="$(grep -Eo "[0-9,]+ BUSCO predictions validated" "${fun_log}" | tail -n1 || true)"
-  if [[ -n "${validated_line}" ]]; then
-    validated_buscos="$(printf '%s\n' "${validated_line}" | sed -E 's/ .*//' | tr -d ',')"
-  fi
-
-  if [[ -n "${validated_buscos}" && "${validated_buscos}" == "${training_models}" ]]; then
-    printf 'funannotate_busco_training_insufficient\tvalidated_busco_models=%s required_training_models=%s\n' "${validated_buscos}" "${required_models}"
-  else
-    printf 'funannotate_training_models_insufficient\ttraining_models=%s required_training_models=%s\n' "${training_models}" "${required_models}"
-  fi
-}
-
-funannotate_normalize_min_training_models_fallback() {
-  local value="${1:-150}"
-  case "${value}" in
-    ''|*[!0-9]*) value=150 ;;
-    *)
-      value="$(printf '%s\n' "${value}" | sed -E 's/^0+//')"
-      [[ -n "${value}" ]] || value=0
-      if [[ "${#value}" -gt 3 ]]; then
-        value=200
-      fi
-      ;;
-  esac
-  if (( value < 100 )); then
-    value=100
-  elif (( value >= 200 )); then
-    value=199
-  fi
-  printf '%s\n' "${value}"
-}
-
-funannotate_busco_training_fallback_threshold() {
-  local fun_log="$1"
-  local parsed=""
-  local status=""
-  local detail=""
-  local validated_models=""
-  local required_models=""
-  local fallback_floor=""
-
-  parsed="$(funannotate_predict_failure_status "${fun_log}" || true)"
-  [[ -n "${parsed}" ]] || return 1
-  IFS=$'\t' read -r status detail <<< "${parsed}"
-  [[ "${status}" == "funannotate_busco_training_insufficient" ]] || return 1
-
-  validated_models="$(printf '%s\n' "${detail}" | grep -Eo 'validated_busco_models=[0-9]+' | tail -n1 | cut -d= -f2 || true)"
-  required_models="$(printf '%s\n' "${detail}" | grep -Eo 'required_training_models=[0-9]+' | tail -n1 | cut -d= -f2 || true)"
-  [[ "${validated_models}" =~ ^[0-9]+$ && "${required_models}" =~ ^[0-9]+$ ]] || return 1
-
-  fallback_floor="$(funannotate_normalize_min_training_models_fallback "${FUNANNOTATE_MIN_TRAINING_MODELS_FALLBACK:-150}")"
-  (( validated_models >= fallback_floor && required_models > fallback_floor )) || return 1
-  printf '%s\n' "${fallback_floor}"
-}
-
-funannotate_record_predict_failure() {
-  local genome_id="$1"
-  local fun_log="$2"
-  local busco_db="$3"
-  local source="$4"
-  local parsed=""
-  local status=""
-  local detail=""
-  FUNANNOTATE_LAST_FAILURE_STATUS=""
-  FUNANNOTATE_LAST_FAILURE_DETAIL=""
-
-  if parsed="$(funannotate_predict_failure_status "${fun_log}")"; then
-    IFS=$'\t' read -r status detail <<< "${parsed}"
-    FUNANNOTATE_LAST_FAILURE_STATUS="${status}"
-    FUNANNOTATE_LAST_FAILURE_DETAIL="${detail} busco_db=${busco_db} policy=${source}"
-    warn "${genome_id}: funannotate could not train AUGUSTUS; ${FUNANNOTATE_LAST_FAILURE_DETAIL}"
-  fi
-}
+source "${SCRIPT_DIR}/annotation_prepare.sh"
 
 should_skip_discovered_stem() {
   local stem="$1"
@@ -1169,57 +876,6 @@ resolve_fasta_for_stem() {
 
 resolve_genbank_for_stem() {
   "${VENV_PY}" "${ANNOTATION_INPUT_HELPER}" resolve --kind genbank --root "${2:-${GENOME_ROOT}}" --stem "$1"
-}
-
-###############################################################################
-# GBK checks
-###############################################################################
-gbk_has_cds_and_translation() {
-  local gbk="$1"
-  [[ -s "${gbk}" ]] || return 1
-  [[ -s "${GENBANK_TRANSLATION_CHECKER}" ]] || return 1
-  "${VENV_PY}" "${GENBANK_TRANSLATION_CHECKER}" "${gbk}" >/dev/null 2>&1
-}
-
-gbk_has_cds() {
-  local gbk="$1"
-  [[ -s "${gbk}" ]] || return 1
-  awk '
-    /^LOCUS[[:space:]]/ { loci++ }
-    /^[[:space:]]+CDS[[:space:]]/ { cds=1 }
-    /^\/\/[[:space:]\r]*$/ { terminators++ }
-    NF { last=$0 }
-    END {
-      sub(/\r$/, "", last)
-      exit !(cds && loci > 0 && terminators == loci && last ~ /^\/\/[[:space:]]*$/)
-    }
-  ' "${gbk}"
-}
-
-backfill_gbk_translations_from_existing_cds() {
-  local in_gbk="$1"
-  local out_gbk="$2"
-  repository_helper_python_exec "${ANNOTATION_GENBANK_HELPER}" \
-    backfill-translations "${in_gbk}" "${out_gbk}"
-}
-
-normalize_gbk_record_headers() {
-  local in_gbk="$1"
-  local out_gbk="$2"
-  repository_helper_python_exec "${ANNOTATION_GENBANK_HELPER}" \
-    normalize-headers "${in_gbk}" "${out_gbk}"
-}
-
-normalize_gbk_record_headers_in_place() {
-  local gbk="$1"
-  local tmp="${gbk}.headers_norm"
-  [[ -s "${gbk}" ]] || return 1
-  if normalize_gbk_record_headers "${gbk}" "${tmp}" >/dev/null 2>&1; then
-    mv -f "${tmp}" "${gbk}"
-    return 0
-  fi
-  rm -f "${tmp}" 2>/dev/null || true
-  return 1
 }
 
 
@@ -1252,110 +908,23 @@ ensure_prepared_sif() {
   return 1
 }
 
-funbgcex_host_deps_ok() {
-  local dep=""
-  local missing=()
-  for dep in hmmscan hmmfetch hmmpress diamond; do
-    if ! have "${dep}"; then
-      missing+=("${dep}")
-    fi
-  done
-  if [[ ${#missing[@]} -gt 0 ]]; then
-    warn "Host FunBGCeX mode requires external binaries on PATH: $(join_by ', ' "${missing[@]}")"
-    return 1
-  fi
-  return 0
-}
-
-configure_funbgcex_host_runtime() {
-  local cmd="$1"
-  local py="$2"
-
-  [[ -x "${cmd}" ]] || die "FunBGCeX command not executable: ${cmd}"
-  if [[ "${py}" == */* ]]; then
-    [[ -x "${py}" ]] || die "FunBGCeX python not executable: ${py}"
-  else
-    have "${py}" || die "FunBGCeX python not found in PATH: ${py}"
-  fi
-  funbgcex_host_deps_ok || die "Install HMMER and DIAMOND on the host, or prepare the configured FunBGCeX runtime."
-  "${py}" -c "import Bio" >/dev/null 2>&1 || die "FunBGCeX python is missing Biopython support: ${py}"
-
-  FUNBGCEX_RUNTIME="host"
-  FUNBGCEX_CMD="${cmd}"
-  FUNBGCEX_PYTHON_CMD="${py}"
-  log "FunBGCeX runtime configured from host/venv: ${FUNBGCEX_CMD}"
-}
-
-ensure_funbgcex_runtime() {
-  local cmd_path=""
-  local py=""
-
-  if [[ "${ENGINE}" == "docker" || "${FUNBGCEX_USE_DOCKER_IMAGE}" == "1" ]]; then
-    if docker image inspect "${FUNBGCEX_DOCKER_IMAGE}" >/dev/null 2>&1; then
-      log "FunBGCeX Docker image present: ${FUNBGCEX_DOCKER_IMAGE}"
-      FUNBGCEX_RUNTIME="docker"
-      FUNBGCEX_CMD="run_funbgcex"
-      FUNBGCEX_PYTHON_CMD="python3"
-      log "FunBGCeX runtime configured from Docker image: ${FUNBGCEX_DOCKER_IMAGE}"
-      return 0
-    fi
-    warn "FunBGCeX Docker image is unavailable: ${FUNBGCEX_DOCKER_IMAGE}"
-    if [[ "${ENGINE}" == "docker" ]]; then
-      runtime_preparation_hint
-      return 1
-    fi
-  fi
-
-  if [[ -s "${FUNBGCEX_SIF}" ]]; then
-    FUNBGCEX_RUNTIME="sif"
-    FUNBGCEX_CMD="funbgcex"
-    FUNBGCEX_PYTHON_CMD="python3"
-    log "FunBGCeX SIF present: ${FUNBGCEX_SIF}"
-    return 0
-  fi
-
-  if [[ -x "${FUNBGCEX_VENV_DIR}/bin/funbgcex" && -x "${FUNBGCEX_VENV_DIR}/bin/python" ]]; then
-    if funbgcex_host_deps_ok; then
-      configure_funbgcex_host_runtime "${FUNBGCEX_VENV_DIR}/bin/funbgcex" "${FUNBGCEX_VENV_DIR}/bin/python"
-      return 0
-    fi
-    warn "Ignoring existing FunBGCeX venv because host dependencies are incomplete."
-  fi
-
-  if have funbgcex; then
-    cmd_path="$(command -v funbgcex)"
-    py="$(resolve_python_cmd)"
-    if funbgcex_host_deps_ok && "${py}" -c "import Bio" >/dev/null 2>&1; then
-      configure_funbgcex_host_runtime "${cmd_path}" "${py}"
-      return 0
-    fi
-    warn "Host funbgcex found at ${cmd_path}, but its dependencies are incomplete."
-  fi
-
-  warn "FunBGCeX SIF missing: ${FUNBGCEX_SIF}"
-  warn "AUTO_BUILD_FUNBGCEX_SIF=${AUTO_BUILD_FUNBGCEX_SIF}, AUTO_BUILD_FUNBGCEX_DOCKER=${AUTO_BUILD_FUNBGCEX_DOCKER}, and FUNBGCEX_BOOTSTRAP=${FUNBGCEX_BOOTSTRAP} are accepted compatibility inputs; canonical jobs do not acquire runtimes."
-  [[ -n "${FUNBGCEX_IMAGE_URI}" ]] && warn "Configured FunBGCeX image source: ${FUNBGCEX_IMAGE_URI}"
-  runtime_preparation_hint
-  return 1
-}
-
-funbgcex_python_exec() {
-  case "${FUNBGCEX_RUNTIME}" in
-    sif) sing_exec "${FUNBGCEX_SIF}" "${FUNBGCEX_PYTHON_CMD}" "$@" ;;
-    docker) CLUSTERWEAVE_CHILD_DOCKER_CPUS=1 docker_exec "${FUNBGCEX_DOCKER_IMAGE}" "${FUNBGCEX_PYTHON_CMD}" "$@" ;;
-    host) "${FUNBGCEX_PYTHON_CMD}" "$@" ;;
-    *) die "FunBGCeX runtime not configured before python exec" ;;
-  esac
-}
+source "${SCRIPT_DIR}/detection_funbgcex.sh"
 
 repository_helper_python_exec() {
   # The Docker worker is built from the pinned antiSMASH image and already
   # carries Biopython plus this repository. A sibling FunBGCeX container sees
   # the named /data volume but cannot see the worker-only /clusterweave path,
-  # so preparation helpers must run in the worker process in Docker mode.
-  if [[ "${ENGINE}" == "docker" ]]; then
-    "$(resolve_python_cmd)" "$@"
+  # so preparation helpers use the prepared application Python when available.
+  # This also applies to a nonroot SIF worker; a plant-only route never bootstraps
+  # the fungal detector. Standalone HPC users retain the prepared SIF fallback.
+  local helper_python
+  helper_python="$(resolve_python_cmd)"
+  if [[ "${ENGINE}" == "docker" ]] || "${helper_python}" -c 'import Bio' >/dev/null 2>&1; then
+    "${helper_python}" "$@"
   else
+    if [[ -z "${FUNBGCEX_RUNTIME:-}" ]]; then
+      ensure_funbgcex_runtime
+    fi
     funbgcex_python_exec "$@"
   fi
 }
@@ -1364,60 +933,10 @@ antismash_input_python_exec() {
   repository_helper_python_exec "$@"
 }
 
-run_funbgcex_cli() {
-  local gbk_dir="$1"
-  local out_dir="$2"
-
-  case "${FUNBGCEX_RUNTIME}" in
-    sif)
-      sing_exec "${FUNBGCEX_SIF}" bash -lc "
-        set -euo pipefail
-        export CUDA_VISIBLE_DEVICES=''
-        export TF_CPP_MIN_LOG_LEVEL=2
-        funbgcex '${gbk_dir}' '${out_dir}' --workers '${WORKERS}'
-      "
-      ;;
-    docker)
-      CLUSTERWEAVE_CHILD_DOCKER_CPUS="${WORKERS}" docker_exec "${FUNBGCEX_DOCKER_IMAGE}" run_funbgcex "${gbk_dir}" "${out_dir}" "${WORKERS}"
-      ;;
-    host)
-      CUDA_VISIBLE_DEVICES="" TF_CPP_MIN_LOG_LEVEL=2 "${FUNBGCEX_CMD}" "${gbk_dir}" "${out_dir}" --workers "${WORKERS}"
-      ;;
-    *)
-      die "FunBGCeX runtime not configured before CLI execution"
-      ;;
-  esac
-}
-
-ensure_funannotate_docker_runtime() {
-  local image=""
-  image="$(docker_image_from_uri "${FUNANNOTATE_IMAGE_URI}")"
-  [[ -n "${image}" ]] || return 1
-
-  if docker image inspect "${image}" >/dev/null 2>&1; then
-    log "funannotate Docker image present: ${image}"
-    return 0
-  fi
-
-  warn "funannotate Docker image missing: ${image}"
-  warn "AUTO_BUILD_FUNANNOTATE_DOCKER=${AUTO_BUILD_FUNANNOTATE_DOCKER} is accepted for compatibility; canonical jobs do not build images."
-  runtime_preparation_hint
-  return 1
-}
-
-ensure_funannotate_sif_runtime() {
-  if [[ -s "${FUNANNOTATE_SIF}" ]]; then
-    log "funannotate SIF present: ${FUNANNOTATE_SIF}"
-    return 0
-  fi
-
-  warn "funannotate SIF missing: ${FUNANNOTATE_SIF}"
-  warn "AUTO_BUILD_FUNANNOTATE_SIF=${AUTO_BUILD_FUNANNOTATE_SIF} is accepted for compatibility; canonical jobs do not build images."
-  runtime_preparation_hint
-  return 1
-}
-
 ensure_primary_tooling() {
+  if [[ "${HAS_FUNGAL_ROUTES}" == "0" && "${HAS_BACTERIAL_ROUTES}" == "0" && "${HAS_PLANT_ROUTES}" == "1" ]]; then
+    return 0
+  fi
   if [[ "${ENGINE}" == "docker" ]]; then
     if have antismash; then
       log "antiSMASH available on worker PATH."
@@ -1437,968 +956,9 @@ ensure_primary_tooling() {
   fi
 }
 
-ensure_annotation_tooling() {
-  local braker_ok=0
-  local fun_ok=0
-  local need_braker=0
-  local need_fun=0
-  local method
-  local old_ifs="$IFS"
-  local methods=()
+source "${SCRIPT_DIR}/detection_plantismash.sh"
 
-  IFS=','
-  read -r -a methods <<< "${ANNOTATION_FALLBACK_ORDER}"
-  IFS="$old_ifs"
-
-  for method in "${methods[@]}"; do
-    method="$(echo "${method}" | tr -d '[:space:]')"
-    case "${method}" in
-      braker3)
-        if [[ "${BRAKER3_ENABLED}" == "1" ]]; then
-          need_braker=1
-        else
-          warn "BRAKER3 appears in ANNOTATION_FALLBACK_ORDER but BRAKER3_ENABLED=0; BRAKER3 will be skipped."
-        fi
-        ;;
-      funannotate) need_fun=1 ;;
-      none|skip|off) ;;
-      "") ;;
-      *) warn "Unknown annotation fallback method in ANNOTATION_FALLBACK_ORDER: ${method}" ;;
-    esac
-  done
-
-  if [[ "${need_braker}" -eq 1 ]]; then
-    if command -v braker.pl >/dev/null 2>&1; then
-      braker_ok=1
-      log "BRAKER3 available on host PATH (braker.pl)."
-    elif [[ "${ENGINE}" == "docker" ]] && ensure_docker_image "BRAKER3" "$(docker_image_from_uri "${BRAKER_IMAGE_URI}")"; then
-      braker_ok=1
-    elif [[ "${ENGINE}" != "docker" ]] && ensure_prepared_sif "BRAKER3" "${BRAKER_SIF}" "${BRAKER_IMAGE_URI}"; then
-      braker_ok=1
-    fi
-  fi
-
-  if [[ "${need_fun}" -eq 1 ]]; then
-    if command -v funannotate >/dev/null 2>&1; then
-      fun_ok=1
-      log "funannotate available on host PATH."
-    elif [[ "${ENGINE}" == "docker" ]] && ensure_funannotate_docker_runtime; then
-      fun_ok=1
-    elif [[ "${ENGINE}" != "docker" ]] && ensure_funannotate_sif_runtime; then
-      fun_ok=1
-    fi
-  fi
-
-  if [[ "${need_braker}" -eq 1 && "${braker_ok}" -eq 0 ]]; then
-    die "BRAKER3 is required by ANNOTATION_FALLBACK_ORDER but unavailable after runtime preparation. Remove braker3 from the order only if it is not required."
-  fi
-  if [[ "${need_fun}" -eq 1 && "${fun_ok}" -eq 0 ]]; then
-    die "funannotate is required by ANNOTATION_FALLBACK_ORDER but unavailable after runtime preparation. Provide FUNANNOTATE_SIF or a prepared Docker image."
-  fi
-  if [[ "${need_braker}" -eq 0 && "${need_fun}" -eq 0 ]]; then
-    warn "No annotation fallback methods configured. Annotated GenBank inputs can still run; FASTA-only inputs may be dropped."
-  fi
-}
-
-run_braker3_to_gbk() {
-  local genome_id="$1"
-  local fasta="$2"
-  local out_gbk="$3"
-  [[ -s "${fasta}" ]] || return 1
-
-  local braker_out="${RESULTS_ROOT}/braker3/${genome_id}"
-  local braker_log="${WORK_ROOT}/logs/${genome_id}.braker3.log"
-  local braker_species="${BRAKER_SPECIES_PREFIX}_${genome_id}"
-  local gff3=""
-  local tmp_out="${out_gbk}.tmp"
-  local evidence_kind=""
-  local evidence_path=""
-
-  if [[ -z "${BRAKER_BAM}" && -z "${BRAKER_PROT_SEQ}" ]]; then
-    warn "${genome_id}: BRAKER3 requires evidence (--bam or --prot_seq). Set BRAKER_BAM or BRAKER_PROT_SEQ; skipping BRAKER3."
-    return 3
-  fi
-  if [[ -n "${BRAKER_BAM}" ]]; then
-    evidence_kind="bam"
-    evidence_path="${BRAKER_BAM}"
-  else
-    evidence_kind="prot_seq"
-    evidence_path="${BRAKER_PROT_SEQ}"
-  fi
-
-  : > "${braker_log}"
-  mkdir -p "${braker_out}"
-  rm -f "${tmp_out}" 2>/dev/null || true
-  log "${genome_id}: trying BRAKER3 annotation (outdir=${braker_out})"
-
-  if [[ "${ENGINE}" != "docker" && ! -f "${BRAKER_SIF}" ]] \
-      && ! command -v braker.pl >/dev/null 2>&1; then
-    warn "${genome_id}: BRAKER3 unavailable (missing BRAKER_SIF and braker.pl); skipping BRAKER3"
-    return 3
-  fi
-  annotation_runtime_argv braker3 \
-    --fasta "${fasta}" \
-    --evidence-kind "${evidence_kind}" \
-    --evidence-path "${evidence_path}" \
-    --working-dir "${braker_out}" \
-    --species "${braker_species}" \
-    --cpus "${ANNO_CPUS}"
-  if ! braker3_exec "${ANNOTATION_RUNTIME_ARGV[@]}" >> "${braker_log}" 2>&1; then
-    warn "${genome_id}: BRAKER3 failed (see ${braker_log})"
-    return 2
-  fi
-
-  gff3="$(find "${braker_out}" -type f \( -name 'braker.gff3' -o -name '*.gff3' \) | head -n1)"
-  if [[ -z "${gff3}" || ! -s "${gff3}" ]]; then
-    warn "${genome_id}: BRAKER3 produced no GFF3 (see ${braker_log})"
-    return 4
-  fi
-
-  if ! "${VENV_PY}" "${CONVERT_PY}" --fasta "${fasta}" --gff3 "${gff3}" --out_gbk "${tmp_out}" >> "${braker_log}" 2>&1; then
-    warn "${genome_id}: BRAKER3 GFF3->GBK conversion failed (see ${braker_log})"
-    return 5
-  fi
-
-  if [[ -s "${tmp_out}" ]] && gbk_has_cds_and_translation "${tmp_out}"; then
-    mv -f "${tmp_out}" "${out_gbk}"
-    log "${genome_id}: BRAKER3 produced staged GBK with CDS+translations"
-    return 0
-  fi
-
-  warn "${genome_id}: BRAKER3 output GBK lacks CDS/translations"
-  return 6
-}
-
-remap_gbk_ids_from_fasta_hashes() {
-  local original_fasta="$1"
-  local renamed_fasta="$2"
-  local in_gbk="$3"
-  local out_gbk="$4"
-  local map_tsv="$5"
-  repository_helper_python_exec "${ANNOTATION_GENBANK_HELPER}" remap-ids \
-    "${original_fasta}" "${renamed_fasta}" "${in_gbk}" "${out_gbk}" "${map_tsv}"
-}
-run_funannotate_predict_to_gbk() {
-  local genome_id="$1"
-  local fasta="$2"
-  local out_gbk="$3"
-  [[ -s "${fasta}" ]] || return 1
-
-  local fun_out="${RESULTS_ROOT}/funannotate/${genome_id}"
-  local fun_run="${WORK_ROOT}/tmp/${genome_id}/funannotate_run"
-  local fun_tmp="${WORK_ROOT}/tmp/${genome_id}/funannotate_tmp"
-  local fun_log="${WORK_ROOT}/logs/${genome_id}.funannotate.log"
-  local tmp_out="${out_gbk}.tmp"
-  local remap_out="${out_gbk}.remap"
-  local pred_gbk=""
-  local pred_gff3=""
-  local prep_dir="${WORK_ROOT}/tmp/${genome_id}/funannotate_prep"
-  local sorted_fa="${prep_dir}/${genome_id}.sorted.fna"
-  local cleaned_fa="${prep_dir}/${genome_id}.clean.fna"
-  local predict_fa="${cleaned_fa}"
-  local id_map_tsv="${WORK_ROOT}/tmp/${genome_id}/funannotate_id_map.tsv"
-  local safe_name="${genome_id//_/}"
-  resolve_funannotate_policy "${genome_id}"
-  local species_name="${FUNANNOTATE_RESOLVED_SPECIES%.}"
-  local busco_db="${FUNANNOTATE_RESOLVED_BUSCO_DB}"
-  local busco_seed_species="${FUNANNOTATE_BUSCO_SEED_SPECIES}"
-  local fun_predict_extra=()
-  busco_db="$(printf '%s' "${busco_db}" | tr -d '[:space:]')"
-  if [[ -z "${busco_db}" || "${busco_db}" == "{}" || "${busco_db}" == "none" || "${busco_db}" == "null" ]]; then
-    warn "${genome_id}: invalid FUNANNOTATE_BUSCO_DB='${busco_db}'; using dikarya"
-    busco_db="dikarya"
-  fi
-  busco_seed_species="$(printf '%s' "${busco_seed_species}" | tr -d '[:space:]')"
-  if [[ -n "${busco_seed_species}" ]]; then
-    case "${busco_seed_species}" in
-      "{}"|none|null)
-        warn "${genome_id}: ignoring invalid FUNANNOTATE_BUSCO_SEED_SPECIES='${busco_seed_species}'"
-        ;;
-      *)
-        fun_predict_extra+=(--busco_seed_species "${busco_seed_species}")
-        log "${genome_id}: using BUSCO seed species override: ${busco_seed_species}"
-        ;;
-    esac
-  fi
-  if [[ "${species_name}" == "Fungal_sp" || "${species_name}" == "Fungal sp" ]]; then
-    local gnorm="${genome_id//[^A-Za-z0-9_]/_}"
-    local g1="${gnorm%%_*}"
-    local rest="${gnorm#*_}"
-    local g2="${rest%%_*}"
-    if [[ -n "${g1}" && -n "${g2}" ]]; then
-      species_name="${g1} ${g2}"
-    fi
-  fi
-  : > "${fun_log}"
-  mkdir -p "${fun_out}" "${prep_dir}" "${fun_tmp}"
-  rm -rf "${fun_run}" 2>/dev/null || true
-  mkdir -p "${fun_run}"
-  rm -f "${tmp_out}" "${remap_out}" "${sorted_fa}" "${cleaned_fa}" "${id_map_tsv}" 2>/dev/null || true
-
-  local fun_cmd="funannotate"
-  local use_sif=0
-  local use_docker=0
-
-  if [[ "${ENGINE}" == "docker" ]]; then
-    use_docker=1
-  elif [[ -f "${FUNANNOTATE_SIF}" ]]; then
-    use_sif=1
-    if sing_exec "${FUNANNOTATE_SIF}" test -x "/venv/bin/funannotate" >/dev/null 2>&1; then
-      fun_cmd="/venv/bin/funannotate"
-    fi
-  elif ! command -v funannotate >/dev/null 2>&1; then
-    warn "${genome_id}: funannotate unavailable (missing FUNANNOTATE_SIF and funannotate binary); skipping funannotate"
-    return 3
-  fi
-
-  if ! busco_db="$(validate_funannotate_busco_db "${busco_db}" "${FUNANNOTATE_RESOLVED_SOURCE}" "${genome_id}" "${fun_cmd}" "${use_docker}" "${use_sif}")"; then
-    warn "${genome_id}: no installed funannotate BUSCO database available for predict"
-    return 2
-  fi
-  log "${genome_id}: funannotate policy ${FUNANNOTATE_RESOLVED_SOURCE}: species='${species_name}' busco_db='${busco_db}'"
-
-  log "${genome_id}: running funannotate prepare workflow (sort + clean)"
-  tool_activity_emit_progress "${genome_id}" "funannotate" "prepare" "Preparing assembly"
-  annotation_runtime_argv funannotate-sort \
-    --tool-command "${fun_cmd}" --input "${fasta}" --output "${sorted_fa}"
-  if ! funannotate_exec "${use_docker}" "${use_sif}" "${ANNOTATION_RUNTIME_ARGV[@]}" >> "${fun_log}" 2>&1; then
-    warn "${genome_id}: funannotate sort failed (see ${fun_log})"
-    return 2
-  fi
-  annotation_runtime_argv funannotate-clean \
-    --tool-command "${fun_cmd}" --input "${sorted_fa}" --output "${cleaned_fa}"
-  if ! funannotate_exec "${use_docker}" "${use_sif}" "${ANNOTATION_RUNTIME_ARGV[@]}" >> "${fun_log}" 2>&1; then
-    warn "${genome_id}: funannotate clean failed; using sorted FASTA for predict"
-    cp -f "${sorted_fa}" "${cleaned_fa}"
-  fi
-
-  [[ -s "${predict_fa}" ]] || { warn "${genome_id}: prepared FASTA missing for funannotate predict"; return 2; }
-
-  local no_protein_alignments="${WORK_ROOT}/tmp/${genome_id}/funannotate_no_protein_alignments.gff3"
-  funannotate_predict_attempt() {
-    local attempt_label="$1"
-    shift
-    local attempt_extra=("$@")
-    rm -rf "${fun_run}" 2>/dev/null || true
-    mkdir -p "${fun_run}"
-    log "${genome_id}: trying funannotate predict (${attempt_label}, outdir=${fun_run})"
-    tool_activity_emit_progress "${genome_id}" "funannotate" "predict" "Predicting genes"
-    annotation_runtime_argv funannotate-predict \
-      --tool-command "${fun_cmd}" \
-      --input "${predict_fa}" \
-      --output-dir "${fun_run}" \
-      --species "${species_name}" \
-      --busco-db "${busco_db}" \
-      --cpus "${ANNO_CPUS}" \
-      --name "${safe_name}_" \
-      --temp-dir "${fun_tmp}" \
-      -- "${fun_predict_extra[@]}" "${attempt_extra[@]}"
-    funannotate_exec_with_activity \
-      "${use_docker}" "${use_sif}" "${genome_id}" "${fun_log}" \
-      "${ANNOTATION_RUNTIME_ARGV[@]}"
-  }
-
-  local predict_succeeded=0
-  local training_fallback_floor=""
-  local -a training_retry_args=()
-  if funannotate_predict_attempt "standard"; then
-    predict_succeeded=1
-  else
-    # Classify the structured AUGUSTUS/BUSCO failure before considering the
-    # independent protein-to-genome retry. A bare protein_alignments.gff3 path
-    # in normal funannotate output is not evidence of a p2g failure.
-    if training_fallback_floor="$(funannotate_busco_training_fallback_threshold "${fun_log}")"; then
-      training_retry_args=(--min_training_models "${training_fallback_floor}")
-      warn "${genome_id}: validated BUSCO models meet the bounded fallback floor; retrying funannotate with --min_training_models ${training_fallback_floor}"
-      if funannotate_predict_attempt "reduced-training-model-threshold" "${training_retry_args[@]}"; then
-        predict_succeeded=1
-      fi
-    fi
-
-    if [[ "${predict_succeeded}" -eq 0 && "${FUNANNOTATE_RETRY_WITHOUT_PROTEIN_EVIDENCE}" == "1" ]] && funannotate_predict_failed_in_p2g "${fun_log}"; then
-      warn "${genome_id}: funannotate protein-to-genome evidence mapping failed; retrying without default UniProt protein-to-genome evidence"
-      printf '%s\n' '##gff-version 3' > "${no_protein_alignments}"
-      if [[ -n "${training_fallback_floor}" ]]; then
-        if funannotate_predict_attempt "reduced-training-and-no-protein-evidence" "${training_retry_args[@]}" --protein_alignments "${no_protein_alignments}"; then
-          predict_succeeded=1
-        fi
-      elif funannotate_predict_attempt "no-protein-evidence" --protein_alignments "${no_protein_alignments}"; then
-        predict_succeeded=1
-      fi
-    fi
-  fi
-
-  if [[ "${predict_succeeded}" -eq 0 ]]; then
-    rsync -a --delete "${fun_run}/" "${fun_out}/" >/dev/null 2>&1 || true
-    funannotate_record_predict_failure "${genome_id}" "${fun_log}" "${busco_db}" "${FUNANNOTATE_RESOLVED_SOURCE}"
-    if [[ -n "${training_fallback_floor}" && -n "${FUNANNOTATE_LAST_FAILURE_DETAIL}" ]]; then
-      FUNANNOTATE_LAST_FAILURE_DETAIL="${FUNANNOTATE_LAST_FAILURE_DETAIL} fallback_min_training_models=${training_fallback_floor}"
-    fi
-    warn "${genome_id}: funannotate predict failed after eligible bounded retries (see ${fun_log})"
-    return 2
-  fi
-
-  pred_gbk="$(find "${fun_run}" -type f -path '*/predict_results/*.gbk' | head -n1)"
-  if [[ -n "${pred_gbk}" && -s "${pred_gbk}" ]] && gbk_has_cds_and_translation "${pred_gbk}"; then
-    cp -f "${pred_gbk}" "${out_gbk}"
-    if remap_gbk_ids_from_fasta_hashes "${fasta}" "${predict_fa}" "${out_gbk}" "${remap_out}" "${id_map_tsv}" >> "${fun_log}" 2>&1; then
-      mv -f "${remap_out}" "${out_gbk}"
-      log "${genome_id}: remapped final GBK record IDs to original FASTA IDs (map=${id_map_tsv})"
-    else
-      warn "${genome_id}: could not remap GBK record IDs to original FASTA IDs; keeping funannotate IDs"
-    fi
-    rsync -a --delete "${fun_run}/" "${fun_out}/" >/dev/null 2>&1 || true
-    log "${genome_id}: funannotate produced GBK with CDS+translations"
-    return 0
-  fi
-
-  pred_gff3="$(find "${fun_run}" -type f -path '*/predict_results/*.gff3' | head -n1)"
-  if [[ -n "${pred_gff3}" && -s "${pred_gff3}" ]]; then
-    if "${VENV_PY}" "${CONVERT_PY}" --fasta "${predict_fa}" --gff3 "${pred_gff3}" --out_gbk "${tmp_out}" >> "${fun_log}" 2>&1; then
-      if [[ -s "${tmp_out}" ]] && gbk_has_cds_and_translation "${tmp_out}"; then
-        mv -f "${tmp_out}" "${out_gbk}"
-        if remap_gbk_ids_from_fasta_hashes "${fasta}" "${predict_fa}" "${out_gbk}" "${remap_out}" "${id_map_tsv}" >> "${fun_log}" 2>&1; then
-          mv -f "${remap_out}" "${out_gbk}"
-          log "${genome_id}: remapped converted GBK record IDs to original FASTA IDs (map=${id_map_tsv})"
-        else
-          warn "${genome_id}: could not remap converted GBK record IDs to original FASTA IDs; keeping funannotate IDs"
-        fi
-        rsync -a --delete "${fun_run}/" "${fun_out}/" >/dev/null 2>&1 || true
-        log "${genome_id}: funannotate GFF3 converted to GBK with CDS+translations"
-        return 0
-      fi
-    fi
-  fi
-
-  rsync -a --delete "${fun_run}/" "${fun_out}/" >/dev/null 2>&1 || true
-  warn "${genome_id}: funannotate did not yield usable GBK with CDS+translations"
-  return 4
-}
-
-annotate_genome_with_fallbacks() {
-  local genome_id="$1"
-  local fasta="$2"
-  local out_gbk="$3"
-  local method
-  local order_csv="${ANNOTATION_FALLBACK_ORDER}"
-  local old_ifs="$IFS"
-  ANNOTATION_FALLBACK_METHOD=""
-  ANNOTATION_FALLBACK_FAILURE_REASON=""
-  ANNOTATION_FALLBACK_FAILURE_DETAIL=""
-  IFS=','
-  read -r -a methods <<< "${order_csv}"
-  IFS="$old_ifs"
-
-  for method in "${methods[@]}"; do
-    method="$(echo "${method}" | tr -d '[:space:]')"
-    case "${method}" in
-      braker3)
-        if [[ "${BRAKER3_ENABLED}" != "1" ]]; then
-          warn "${genome_id}: BRAKER3 disabled (BRAKER3_ENABLED=0); skipping braker3 fallback."
-          continue
-        fi
-        genome_annotation_decision "${genome_id}" "yes" "braker3" "BRAKER3 annotation required"
-        if run_braker3_to_gbk "${genome_id}" "${fasta}" "${out_gbk}"; then
-          ANNOTATION_FALLBACK_METHOD="braker3"
-          return 0
-        fi
-        ;;
-      funannotate)
-        genome_annotation_decision "${genome_id}" "yes" "funannotate" "Funannotate annotation required"
-        if run_funannotate_predict_to_gbk "${genome_id}" "${fasta}" "${out_gbk}"; then
-          ANNOTATION_FALLBACK_METHOD="funannotate"
-          return 0
-        fi
-        if [[ -n "${FUNANNOTATE_LAST_FAILURE_STATUS}" ]]; then
-          ANNOTATION_FALLBACK_FAILURE_REASON="${FUNANNOTATE_LAST_FAILURE_STATUS}"
-          ANNOTATION_FALLBACK_FAILURE_DETAIL="${FUNANNOTATE_LAST_FAILURE_DETAIL}"
-        fi
-        ;;
-      "") ;;
-      *)
-        warn "${genome_id}: unknown annotation fallback method in ANNOTATION_FALLBACK_ORDER: ${method}"
-        ;;
-    esac
-  done
-  return 1
-}
-
-###############################################################################
-# antiSMASH flag helper (unchanged from your script)
-###############################################################################
-ANTISMASH_FLAGS_CANDIDATES=(
-  --verbose
-  --fullhmmer
-  --asf
-  --clusterhmmer
-  --tigrfam
-  --cc-mibig
-  --cb-general
-  --cb-knownclusters
-  --cb-subclusters
-  --pfam2go
-  --smcog-trees
-  --tfbs
-  --rre
-  --allow-long-headers
-)
-
-antismash_supported_flags() {
-  local taxon_group="${1:-fungi}"
-  local genefinding_tool="${2:-none}"
-  local help
-  help="$(antismash_exec antismash --help-showall 2>&1 || true)"
-
-  # antiSMASH 8.0.4 supports both arguments and they define the scientific
-  # prediction route, so never silently omit them.
-  local out=(--taxon "${taxon_group}" --genefinding-tool "${genefinding_tool}")
-  local i=0
-  while [[ $i -lt ${#ANTISMASH_FLAGS_CANDIDATES[@]} ]]; do
-    local tok="${ANTISMASH_FLAGS_CANDIDATES[$i]}"
-    if [[ "${tok}" == --* ]]; then
-      if grep -Fq -- "${tok}" <<< "${help}"; then out+=("${tok}"); fi
-    fi
-    i=$((i+1))
-  done
-
-  printf "%s\n" "${out[@]}"
-}
-
-###############################################################################
-# Done checks (RESULTS_ROOT canonical)
-###############################################################################
-antismash_outputs_valid() {
-  local outdir="$1"
-  [[ -d "${outdir}" ]] || return 1
-  [[ -s "${outdir}/index.html" ]] || return 1
-
-  if [[ -n "$(find "${outdir}" -maxdepth 3 -type f \( -name "regions.js" -o -name "*.antismash.json" -o -name "overview*.js" \) -print -quit 2>/dev/null)" ]]; then
-    return 0
-  fi
-  return 1
-}
-
-antismash_done() {
-  local outdir="$1"
-  [[ -f "${outdir}/.done" ]] || return 1
-  antismash_outputs_valid "${outdir}"
-}
-
-mark_antismash_done() {
-  local outdir="$1"
-  rm -f "${outdir}/.done" 2>/dev/null || true
-  antismash_outputs_valid "${outdir}" || return 1
-  touch "${outdir}/.done"
-}
-
-funbgcex_outputs_valid() {
-  local outdir="$1"
-  [[ -d "${outdir}" ]] || return 1
-  [[ -n "$(find "${outdir}" -maxdepth 4 -type f \
-    \( -name "allBGCs.csv" -o -name "allBGCs.html" -o -name "BGCs.csv" -o -name "results.html" \) \
-    -size +0c -print -quit 2>/dev/null)" ]]
-}
-
-funbgcex_done() {
-  local outdir="$1"
-  [[ -f "${outdir}/.done" ]] || return 1
-  funbgcex_outputs_valid "${outdir}"
-}
-
-mark_funbgcex_done() {
-  local outdir="$1"
-  rm -f "${outdir}/.done" 2>/dev/null || true
-  funbgcex_outputs_valid "${outdir}" || return 1
-  touch "${outdir}/.done"
-}
-
-###############################################################################
-# GBK diagnostics/filtering (run via the configured FunBGCeX runtime)
-###############################################################################
-gbk_diag_summary() {
-  local gbk="$1"
-  local label="${2:-GBK}"
-  repository_helper_python_exec "${ANNOTATION_GENBANK_HELPER}" diagnose "${gbk}" "${label}"
-}
-
-filter_gbk_drop_gene_less_records() {
-  local in_gbk="$1"
-  local out_gbk="$2"
-  repository_helper_python_exec "${ANNOTATION_GENBANK_HELPER}" \
-    drop-gene-less "${in_gbk}" "${out_gbk}"
-}
-
-
-list_genbank_record_ids() {
-  local gbk="$1"
-  local min_record_bp="${2:-${ANTISMASH_MIN_RECORD_BP:-1000}}"
-  repository_helper_python_exec "${ANNOTATION_GENBANK_HELPER}" \
-    list-record-ids "${gbk}" "${min_record_bp}"
-}
-
-
-safe_antismash_record_id() {
-  local record_id="${1:-record}"
-  local safe_id=""
-  safe_id="$(printf '%s' "${record_id}" | LC_ALL=C tr -c 'A-Za-z0-9._-' '_')"
-  safe_id="${safe_id:0:120}"
-  case "${safe_id}" in
-    ""|.|..) safe_id="record" ;;
-  esac
-  if [[ "${safe_id}" == -* || "${safe_id}" == .* ]]; then
-    safe_id="record_${safe_id}"
-  fi
-  printf '%s\n' "${safe_id}"
-}
-
-
-antismash_record_ids_are_stable() {
-  local record_ids_file="$1"
-  local record_id=""
-  local safe_record_id=""
-
-  ANTISMASH_UNSTABLE_RECORD_ID=""
-  ANTISMASH_UNSTABLE_SAFE_ID=""
-  while IFS= read -r record_id || [[ -n "${record_id}" ]]; do
-    safe_record_id="$(safe_antismash_record_id "${record_id}")"
-    if [[ "${safe_record_id}" != "${record_id}" ]]; then
-      ANTISMASH_UNSTABLE_RECORD_ID="${record_id}"
-      ANTISMASH_UNSTABLE_SAFE_ID="${safe_record_id}"
-      return 1
-    fi
-  done < "${record_ids_file}"
-}
-
-antismash_public_failure_message() {
-  local error_log="${1:-}"
-  local record_id=""
-  if [[ -s "${error_log}" ]] && grep -qi 'location contains overlapping exons' "${error_log}"; then
-    record_id="$(sed -nE 's/^([A-Za-z0-9_.-]+): location contains overlapping exons.*$/\1/p' "${error_log}" | head -n1)"
-    if [[ -n "${record_id}" ]]; then
-      printf 'antiSMASH rejected record %s: overlapping exon coordinates in an annotated feature\n' "${record_id}"
-    else
-      printf 'antiSMASH rejected an annotated feature with overlapping exon coordinates\n'
-    fi
-  elif [[ -s "${error_log}" ]] && grep -Eqi 'no space left on device|disk quota exceeded' "${error_log}"; then
-    printf 'antiSMASH could not write its results because storage was exhausted\n'
-  elif [[ -s "${error_log}" ]] && grep -Eqi 'out of memory|cannot allocate memory|killed' "${error_log}"; then
-    printf 'antiSMASH exceeded the available memory for this genome\n'
-  elif [[ -s "${error_log}" ]] && grep -Eqi 'invalid.*(genbank|location|feature)|malformed.*(genbank|location|feature)' "${error_log}"; then
-    printf 'antiSMASH rejected an invalid GenBank annotation feature\n'
-  else
-    printf 'antiSMASH exited before producing a valid result; verify the assembly annotations and retry\n'
-  fi
-}
-
-
-sanitize_antismash_duplicate_cds_locations() {
-  local in_gbk="$1"
-  local out_gbk="$2"
-  local genome_id="${3:-genome}"
-
-  antismash_input_python_exec "${ANTISMASH_INPUT_PREPARER}" sanitize \
-    "${in_gbk}" "${out_gbk}" --genome-id "${genome_id}"
-}
-
-run_antismash_record_shard() {
-  local genome_id="$1"
-  local ant_input="$2"
-  local record_id="$3"
-  local safe_record_id="$4"
-  local ordinal="$5"
-  local total_records="$6"
-  local shard_dir="$7"
-  local row_file="$8"
-  local stdout_log="$9"
-  local stderr_log="${10}"
-  local started_at finished_at elapsed region_count status rc start_percent end_percent compactor_python
-
-  mkdir -p "${shard_dir}"
-  started_at="$(date +%s)"
-  start_percent=$(((ordinal - 1) * 100 / total_records))
-  end_percent=$((ordinal * 100 / total_records))
-  antismash_record_progress "${genome_id}" "${record_id}" "${ordinal}" "${total_records}" "${start_percent}" "Starting antiSMASH record shard"
-
-  rc=0
-  status="ok"
-  if CLUSTERWEAVE_CHILD_DOCKER_CPUS="${ANTISMASH_SHARD_CPUS}" run_tool_with_activity "${genome_id}" "antismash" "record_${ordinal}" "${stdout_log}" "${stderr_log}" antismash_exec antismash \
-      "${ant_input}" \
-      --minlength "${ANTISMASH_MIN_RECORD_BP}" \
-      --output-dir "${shard_dir}" \
-      --output-basename "${safe_record_id}" \
-      --cpus "${ANTISMASH_SHARD_CPUS}" \
-      "${ANT_FLAGS_ARRAY[@]}"; then
-    compactor_python="$(resolve_python_cmd)"
-    if "${compactor_python}" "${ANTISMASH_SHARD_COMPACTOR}" \
-        --shard-dir "${shard_dir}" \
-        --record-id "${record_id}" \
-        --json-name "${safe_record_id}.json" \
-        --retain "${ANTISMASH_RETAIN_SHARD_WORK}" \
-        >> "${stdout_log}" 2>> "${stderr_log}"; then
-      antismash_record_progress "${genome_id}" "${record_id}" "${ordinal}" "${total_records}" "${end_percent}" "antiSMASH record shard complete"
-    else
-      rc=$?
-      status="failed"
-      antismash_record_progress "${genome_id}" "${record_id}" "${ordinal}" "${total_records}" "${end_percent}" "antiSMASH record shard compaction failed"
-    fi
-  else
-    rc=$?
-    if [[ -s "${stderr_log}" ]] \
-        && grep -Eqi 'No CDS features found in record' "${stderr_log}" \
-        && grep -Eqi 'No genes found, skipping record' "${stderr_log}" \
-        && grep -Eqi '(^|[[:space:]])all records skipped([[:space:]]|$)' "${stderr_log}" \
-        && [[ -z "$(find "${shard_dir}" -mindepth 1 -print -quit 2>/dev/null)" ]]; then
-      # A one-record shard with no CDS and no predicted genes has no scientific
-      # antiSMASH result to merge.  Preserve it explicitly as empty only when
-      # antiSMASH emitted the complete diagnostic and no partial output exists.
-      rc=0
-      status="empty"
-      antismash_record_progress "${genome_id}" "${record_id}" "${ordinal}" "${total_records}" "${end_percent}" "antiSMASH record shard empty (no genes)"
-    else
-      status="failed"
-      antismash_record_progress "${genome_id}" "${record_id}" "${ordinal}" "${total_records}" "${end_percent}" "antiSMASH record shard failed"
-    fi
-  fi
-
-  finished_at="$(date +%s)"
-  elapsed=$((finished_at - started_at))
-  region_count="$(find "${shard_dir}" -type f -name '*region*.gbk' -print 2>/dev/null | wc -l | tr -d '[:space:]')"
-  region_count="${region_count:-0}"
-  if ! printf '%s\t%s\t%s\t%s\t%s\n' \
-      "${record_id}" "${shard_dir}" "${status}" "${elapsed}" "${region_count}" > "${row_file}"; then
-    return 1
-  fi
-  return "${rc}"
-}
-
-merge_antismash_shard_jsons() {
-  local output_json="$1"
-  local python_cmd=""
-  local -a merge_args=()
-  shift
-  [[ "$#" -gt 0 ]] || return 1
-  if declare -F resolve_python_cmd >/dev/null 2>&1; then
-    python_cmd="$(resolve_python_cmd)" || return 1
-  elif command -v python3 >/dev/null 2>&1; then
-    python_cmd="python3"
-  elif command -v python >/dev/null 2>&1; then
-    python_cmd="python"
-  else
-    return 1
-  fi
-  while [[ "$#" -gt 0 ]]; do
-    [[ "$#" -ge 2 ]] || return 1
-    merge_args+=(--record-json-pair "$1" "$2")
-    shift 2
-  done
-  "${python_cmd}" "${ANTISMASH_SHARD_COMPACTOR}" \
-    --merge-output "${output_json}" "${merge_args[@]}"
-}
-
-render_antismash_shard_web_bundle() {
-  local genome_id="$1"
-  local canonical_json="$2"
-  local ant_out="$3"
-  local shard_root="$4"
-  local aggregate_stdout="$5"
-  local aggregate_stderr="$6"
-  local render_json="${shard_root}/assembled_web_results.json"
-  local render_dir="${shard_root}/assembled_web_bundle"
-  local region_record_count=""
-  local preparer_python=""
-
-  preparer_python="$(resolve_python_cmd)"
-  rm -rf "${render_dir}" "${render_json}" 2>/dev/null || true
-  region_record_count="$(
-    "${preparer_python}" "${ANTISMASH_WEB_RESULTS_PREPARER}" \
-      "${canonical_json}" "${render_json}" 2>> "${aggregate_stderr}"
-  )" || return 1
-  [[ "${region_record_count}" =~ ^[0-9]+$ ]] || return 1
-  if [[ "${region_record_count}" -eq 0 ]]; then
-    return 2
-  fi
-
-  log "${genome_id}: rendering complete antiSMASH web bundle from ${region_record_count} region-bearing record(s)"
-  if ! CLUSTERWEAVE_CHILD_DOCKER_CPUS="${ANTISMASH_SHARD_CPUS}" \
-      antismash_exec antismash \
-        --reuse-results "${render_json}" \
-        --output-dir "${render_dir}" \
-        --output-basename "${genome_id}" \
-        --cpus "${ANTISMASH_SHARD_CPUS}" \
-        >> "${aggregate_stdout}" 2>> "${aggregate_stderr}"; then
-    rm -rf "${render_dir}" "${render_json}" 2>/dev/null || true
-    return 1
-  fi
-  if [[ ! -s "${render_dir}/index.html" || ! -s "${render_dir}/regions.js" ]]; then
-    rm -rf "${render_dir}" "${render_json}" 2>/dev/null || true
-    return 1
-  fi
-  # Keep the already assembled canonical JSON and region GBKs byte-for-byte;
-  # only genuinely missing web-bundle files are copied into the result root.
-  cp -a -n "${render_dir}/." "${ant_out}/" || {
-    rm -rf "${render_dir}" "${render_json}" 2>/dev/null || true
-    return 1
-  }
-  # The sharded placeholder index is intentionally replaced by antiSMASH's
-  # real landing page; canonical JSON and assembled region GBKs remain intact.
-  cp -f "${render_dir}/index.html" "${ant_out}/index.html" || {
-    rm -rf "${render_dir}" "${render_json}" 2>/dev/null || true
-    return 1
-  }
-  rm -rf "${render_dir}" "${render_json}" 2>/dev/null || true
-  [[ -s "${ant_out}/index.html" && -s "${ant_out}/regions.js" ]]
-}
-
-html_escape() {
-  printf '%s' "${1:-}" | sed \
-    -e 's/&/\&amp;/g' \
-    -e 's/</\&lt;/g' \
-    -e 's/>/\&gt;/g' \
-    -e 's/"/\&quot;/g' \
-    -e "s/'/\\&#39;/g"
-}
-
-write_antismash_shard_index() {
-  local genome_id="$1"
-  local ant_out="$2"
-  local record_count="$3"
-  local region_count="$4"
-  local display_genome region_name display_region
-  display_genome="$(html_escape "$(safe_antismash_record_id "${genome_id}")")"
-
-  {
-    printf '%s\n' '<!doctype html>'
-    printf '%s\n' '<html lang="en"><head><meta charset="utf-8">'
-    printf '<title>antiSMASH record shards - %s</title></head><body>\n' "${display_genome}"
-    printf '<h1>antiSMASH results: %s</h1>\n' "${display_genome}"
-    printf '<p>Completed %s record shard(s); assembled %s region file(s).</p>\n' "${record_count}" "${region_count}"
-    printf '%s\n' '<p>Shard manifest: <code>shard_manifest.tsv</code></p>'
-    printf '%s\n' '<h2>Region GenBank files</h2><ul>'
-    while IFS= read -r region_name; do
-      [[ -n "${region_name}" ]] || continue
-      display_region="$(html_escape "${region_name}")"
-      printf '<li><code>%s</code></li>\n' "${display_region}"
-    done < <(find "${ant_out}" -maxdepth 1 -type f -name '*region*.gbk' -printf '%f\n' 2>/dev/null | LC_ALL=C sort)
-    printf '%s\n' '</ul></body></html>'
-  } > "${ant_out}/index.html"
-}
-
-cleanup_antismash_assembled_outputs() {
-  local ant_out="$1"
-  local canonical_json="$2"
-  find "${ant_out}" -maxdepth 1 -type f -name '*region*.gbk' -delete 2>/dev/null || true
-  rm -f \
-    "${canonical_json}" \
-    "${canonical_json}.tmp" \
-    "${ant_out}/index.html" \
-    "${ant_out}/.done" \
-    2>/dev/null || true
-}
-
-run_antismash_sharded() {
-  local genome_id="$1"
-  local ant_input="$2"
-  local ant_out="$3"
-  local record_ids_file="$4"
-  local shard_root="$5"
-  local aggregate_stdout="$6"
-  local aggregate_stderr="$7"
-  local total_records active_jobs shard_failure assembled_count successful_shards empty_shards
-  local index ordinal record_id base_safe safe_record_id suffix shard_input shard_dir row_file split_manifest
-  local shard_stdout shard_stderr row_status row_elapsed row_regions row_record row_dir
-  local region_file source_name destination_name destination collision expected_json canonical_json
-  local -a record_ids=() safe_record_ids=() shard_inputs=() shard_dirs=() row_files=() stdout_logs=() stderr_logs=()
-  local -a shard_json_args=() fallback_json_files=()
-  local -A used_safe_record_ids=()
-
-  mapfile -t record_ids < "${record_ids_file}"
-  total_records="${#record_ids[@]}"
-  canonical_json="${ant_out}/${genome_id}.antismash.json"
-  if [[ "${total_records}" -le 1 ]]; then
-    cleanup_antismash_assembled_outputs "${ant_out}" "${canonical_json}"
-    return 2
-  fi
-
-  rm -rf "${shard_root}" 2>/dev/null || true
-  mkdir -p "${shard_root}/manifest_rows" "${shard_root}/record_inputs"
-  : > "${aggregate_stdout}"
-  : > "${aggregate_stderr}"
-
-  for index in "${!record_ids[@]}"; do
-    ordinal=$((index + 1))
-    record_id="${record_ids[${index}]}"
-    base_safe="$(safe_antismash_record_id "${record_id}")"
-    safe_record_id="${base_safe}"
-    suffix=1
-    while [[ -n "${used_safe_record_ids[${safe_record_id}]+set}" ]]; do
-      suffix=$((suffix + 1))
-      safe_record_id="${base_safe}_${suffix}"
-    done
-    used_safe_record_ids["${safe_record_id}"]=1
-    shard_dir="${shard_root}/$(printf '%06d' "${ordinal}")_${safe_record_id}"
-    shard_input="${shard_root}/record_inputs/$(printf '%06d' "${ordinal}")_${safe_record_id}.gbk"
-    row_file="${shard_root}/manifest_rows/$(printf '%06d' "${ordinal}").tsv"
-    shard_stdout="${WORK_ROOT}/logs/${genome_id}.antismash.shard.$(printf '%06d' "${ordinal}").stdout.log"
-    shard_stderr="${WORK_ROOT}/logs/${genome_id}.antismash.shard.$(printf '%06d' "${ordinal}").stderr.log"
-    safe_record_ids+=("${safe_record_id}")
-    shard_inputs+=("${shard_input}")
-    shard_dirs+=("${shard_dir}")
-    row_files+=("${row_file}")
-    stdout_logs+=("${shard_stdout}")
-    stderr_logs+=("${shard_stderr}")
-  done
-
-  split_manifest="${shard_root}/record_inputs.tsv"
-  : > "${split_manifest}"
-  for index in "${!record_ids[@]}"; do
-    printf '%s\t%s\n' "${record_ids[${index}]}" "${shard_inputs[${index}]}" >> "${split_manifest}"
-  done
-  if ! antismash_input_python_exec "${ANTISMASH_INPUT_PREPARER}" split-records \
-      "${ant_input}" "${split_manifest}" >> "${aggregate_stdout}" 2>> "${aggregate_stderr}"; then
-    warn "${genome_id}: failed to isolate antiSMASH record inputs"
-    return 1
-  fi
-
-  active_jobs=0
-  shard_failure=0
-  for index in "${!record_ids[@]}"; do
-    ordinal=$((index + 1))
-    run_antismash_record_shard \
-      "${genome_id}" "${shard_inputs[${index}]}" "${record_ids[${index}]}" "${safe_record_ids[${index}]}" \
-      "${ordinal}" "${total_records}" "${shard_dirs[${index}]}" "${row_files[${index}]}" \
-      "${stdout_logs[${index}]}" "${stderr_logs[${index}]}" &
-    active_jobs=$((active_jobs + 1))
-    while [[ "${active_jobs}" -ge "${ANTISMASH_RECORD_PARALLELISM}" ]]; do
-      if ! wait_for_antismash_shard_job; then shard_failure=1; fi
-      active_jobs=$((active_jobs - 1))
-    done
-  done
-  while [[ "${active_jobs}" -gt 0 ]]; do
-    if ! wait_for_antismash_shard_job; then shard_failure=1; fi
-    active_jobs=$((active_jobs - 1))
-  done
-
-  for index in "${!record_ids[@]}"; do
-    printf '\n===== record %s (%s) =====\n' "$((index + 1))" "${record_ids[${index}]}" >> "${aggregate_stdout}"
-    if [[ -f "${stdout_logs[${index}]}" ]]; then
-      cat "${stdout_logs[${index}]}" >> "${aggregate_stdout}" || true
-    fi
-    printf '\n===== record %s (%s) =====\n' "$((index + 1))" "${record_ids[${index}]}" >> "${aggregate_stderr}"
-    if [[ -f "${stderr_logs[${index}]}" ]]; then
-      cat "${stderr_logs[${index}]}" >> "${aggregate_stderr}" || true
-    fi
-  done
-
-  if ! printf 'record_id\tshard_dir\tstatus\telapsed_seconds\tregion_count\n' > "${ant_out}/shard_manifest.tsv"; then
-    cleanup_antismash_assembled_outputs "${ant_out}" "${canonical_json}"
-    return 1
-  fi
-  for index in "${!record_ids[@]}"; do
-    if [[ ! -s "${row_files[${index}]}" ]]; then
-      shard_failure=1
-      printf '%s\t%s\t%s\t%s\t%s\n' \
-        "${record_ids[${index}]}" "${shard_dirs[${index}]}" "failed" "0" "0" > "${row_files[${index}]}"
-    fi
-    if ! cat "${row_files[${index}]}" >> "${ant_out}/shard_manifest.tsv"; then
-      cleanup_antismash_assembled_outputs "${ant_out}" "${canonical_json}"
-      return 1
-    fi
-  done
-
-  assembled_count=0
-  successful_shards=0
-  empty_shards=0
-  for index in "${!record_ids[@]}"; do
-    row_record=""
-    row_dir=""
-    row_status="failed"
-    row_elapsed="0"
-    row_regions="0"
-    IFS=$'\t' read -r row_record row_dir row_status row_elapsed row_regions < "${row_files[${index}]}" || true
-    case "${row_status}" in
-      empty)
-        empty_shards=$((empty_shards + 1))
-        continue
-        ;;
-      ok)
-        successful_shards=$((successful_shards + 1))
-        ;;
-      *)
-        shard_failure=1
-        continue
-        ;;
-    esac
-    expected_json="${shard_dirs[${index}]}/${safe_record_ids[${index}]}.json"
-    if [[ ! -s "${expected_json}" ]]; then
-      fallback_json_files=()
-      mapfile -d '' -t fallback_json_files < <(
-        find "${shard_dirs[${index}]}" -maxdepth 1 -type f -name '*.antismash.json' -print0 2>/dev/null
-      )
-      if [[ "${#fallback_json_files[@]}" -eq 1 && -s "${fallback_json_files[0]}" ]]; then
-        expected_json="${fallback_json_files[0]}"
-      else
-        warn "${genome_id}: missing expected antiSMASH shard JSON for record=${record_ids[${index}]} shard=${shard_dirs[${index}]}"
-        shard_failure=1
-        continue
-      fi
-    fi
-    shard_json_args+=("${record_ids[${index}]}" "${expected_json}")
-    while IFS= read -r -d '' region_file; do
-      source_name="${region_file##*/}"
-      destination_name="${source_name}"
-      case "${destination_name}" in
-        "${safe_record_ids[${index}]}".*) ;;
-        *) destination_name="${safe_record_ids[${index}]}.${destination_name}" ;;
-      esac
-      destination="${ant_out}/${destination_name}"
-      if [[ -e "${destination}" ]]; then
-        if cmp -s "${region_file}" "${destination}"; then
-          log "${genome_id}: deduplicated assembled antiSMASH region ${destination_name}"
-          continue
-        fi
-        warn "${genome_id}: conflicting antiSMASH region collision at ${destination}"
-        shard_failure=1
-        continue
-      fi
-      if cp -f "${region_file}" "${destination}"; then
-        assembled_count=$((assembled_count + 1))
-      else
-        shard_failure=1
-      fi
-    done < <(find "${shard_dirs[${index}]}" -type f -name '*region*.gbk' -print0 2>/dev/null)
-  done
-
-  if [[ "${successful_shards}" -eq 0 ]]; then
-    warn "${genome_id}: every antiSMASH record shard was empty; no sibling result is available to assemble"
-    shard_failure=1
-  fi
-  if [[ "${shard_failure}" -eq 0 ]]; then
-    if ! merge_antismash_shard_jsons "${canonical_json}" "${shard_json_args[@]}" 2>> "${aggregate_stderr}"; then
-      warn "${genome_id}: failed to merge antiSMASH shard JSON into ${canonical_json}"
-      shard_failure=1
-    fi
-  fi
-  if [[ "${shard_failure}" -ne 0 ]]; then
-    cleanup_antismash_assembled_outputs "${ant_out}" "${canonical_json}"
-    return 1
-  fi
-  if [[ "${empty_shards}" -gt 0 ]]; then
-    log "${genome_id}: retained ${empty_shards} antiSMASH record shard(s) as empty after no-gene diagnostics"
-  fi
-  if [[ "${assembled_count}" -gt 0 ]]; then
-    if ! render_antismash_shard_web_bundle \
-        "${genome_id}" "${canonical_json}" "${ant_out}" "${shard_root}" \
-        "${aggregate_stdout}" "${aggregate_stderr}"; then
-      warn "${genome_id}: failed to render the complete antiSMASH web bundle"
-      cleanup_antismash_assembled_outputs "${ant_out}" "${canonical_json}"
-      return 1
-    fi
-  elif ! write_antismash_shard_index "${genome_id}" "${ant_out}" "${total_records}" "${assembled_count}"; then
-    cleanup_antismash_assembled_outputs "${ant_out}" "${canonical_json}"
-    return 1
-  fi
-  return 0
-}
+source "${SCRIPT_DIR}/detection_antismash.sh"
 
 ###############################################################################
 # Per-genome logging sync + manifest
@@ -2439,6 +999,9 @@ Annotation env vars:
   FUNANNOTATE_BUSCO_DB_DEFAULT=... Conservative auto fallback (default: dikarya)
   FUNANNOTATE_BUSCO_DB_NO_TAXONOMY=... Optional broad fallback when mapping lacks taxonomy; auto-lineage is ignored
   FUNANNOTATE_RETRY_WITHOUT_PROTEIN_EVIDENCE=0|1 Retry predict without default UniProt protein-to-genome mapping if p2g fails (default: ${FUNANNOTATE_RETRY_WITHOUT_PROTEIN_EVIDENCE})
+  PLANTS_GENOME_ROOT=...        Translated plant GenBank root; requires explicit plants routes
+  PLANTISMASH_SIF=...           Prepared accepted plantiSMASH SIF (no job-time acquisition)
+  PLANTISMASH_ENGINE=...        apptainer or singularity for the plant runtime
   GENOME_MAPPING_FILE=...        Mapping file written by genome prep (default: ${GENOME_MAPPING_FILE})
   BRAKER_BAM=...                Optional RNA-seq BAM for BRAKER3
   BRAKER_PROT_SEQ=...           Optional protein FASTA for BRAKER3
@@ -2542,6 +1105,7 @@ esac
 [[ -s "${GENBANK_TRANSLATION_CHECKER}" ]] || die "GenBank translation checker not found: ${GENBANK_TRANSLATION_CHECKER}"
 
 load_taxon_routes
+persist_taxon_routes
 ensure_primary_tooling
 
 log "Run started: PID $$"
@@ -2576,8 +1140,11 @@ if [[ "${HAS_FUNGAL_ROUTES}" -eq 1 ]]; then
 fi
 log "WORK_ROOT=${WORK_ROOT}"
 
+ANT_FLAGS_ARRAY=()
 log "Detecting supported antiSMASH flags..."
-mapfile -t ANT_FLAGS_ARRAY < <(antismash_supported_flags fungi none)
+if [[ "${HAS_FUNGAL_ROUTES}" == "1" || "${HAS_BACTERIAL_ROUTES}" == "1" ]]; then
+  mapfile -t ANT_FLAGS_ARRAY < <(antismash_supported_flags fungi none)
+fi
 if [[ ${#ANT_FLAGS_ARRAY[@]} -eq 0 ]]; then
   log "antiSMASH flags enabled: none"
 else
@@ -2613,40 +1180,7 @@ for genome_id in "${GEN_ARR[@]}"; do
 done
 log "TAXON_SUMMARY scope=${ANALYSIS_SCOPE} fungi=${taxon_summary_fungi} bacteria=${taxon_summary_bacteria} unresolved=${taxon_summary_unresolved}"
 
-fungal_annotation_fallback_needed() {
-  local candidate root staged source_gbk source_fasta
-  for candidate in "$@"; do
-    [[ "$(route_taxon_for_genome "${candidate}")" == "fungi" ]] || continue
-    root="$(route_root_for_genome "${candidate}")"
-    staged="${RESULTS_ROOT}/input_gbks/${candidate}.gbk"
-    if [[ "${FORCE}" != "1" && -s "${staged}" ]] && gbk_has_cds_and_translation "${staged}"; then
-      continue
-    fi
-    source_gbk=""
-    if source_gbk="$(resolve_genbank_for_stem "${candidate}" "${root}")" \
-        && gbk_has_cds_and_translation "${source_gbk}"; then
-      continue
-    fi
-    source_fasta=""
-    if source_fasta="$(resolve_fasta_for_stem "${candidate}" "${root}")" && [[ -s "${source_fasta}" ]]; then
-      return 0
-    fi
-  done
-  return 1
-}
-
-FUNGAL_ANNOTATION_FALLBACK_NEEDED=0
-if [[ "${HAS_FUNGAL_ROUTES}" -eq 1 ]] \
-    && fungal_annotation_fallback_needed "${GEN_ARR[@]}"; then
-  FUNGAL_ANNOTATION_FALLBACK_NEEDED=1
-  log "Fungal input inspection selected an annotation fallback; bootstrapping configured annotation tooling."
-  setup_converter
-  ensure_annotation_tooling
-elif [[ "${HAS_FUNGAL_ROUTES}" -eq 1 ]]; then
-  log "Skipping fungal annotation runtime bootstrap: every reusable fungal GenBank already has complete non-empty CDS translations, or no fallback-capable FASTA is present."
-else
-  log "Skipping fungal annotation runtime bootstrap: no fungal routes are present."
-fi
+prepare_annotation_tooling "${GEN_ARR[@]}"
 freeze_resource_plan "${#GEN_ARR[@]}"
 
 ###############################################################################
@@ -2654,39 +1188,17 @@ freeze_resource_plan "${#GEN_ARR[@]}"
 ###############################################################################
 total=0; dropped=0; processed=0
 MANIFEST_ROW_DIR="${WORK_ROOT}/tmp/manifest_rows"
+if [[ -d "${MANIFEST_ROW_DIR}" ]]; then
+  mv "${MANIFEST_ROW_DIR}" "${MANIFEST_ROW_DIR}.previous.$(date -u +%Y%m%dT%H%M%S).$$"
+fi
 mkdir -p "${MANIFEST_ROW_DIR}"
-rm -f "${MANIFEST_ROW_DIR}"/*.tsv 2>/dev/null || true
 MANIFEST_ROW_FILES=()
 
 write_genome_manifest_row() {
   local row_file="$1"
   shift
-  printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" "$@" > "${row_file}"
-}
-
-bacterial_genbank_prepare() {
-  local python_cmd="$1" sanitizer="$2" manifest="$3" input_root="$4" provenance="$5"
-  shift 5
-  if [[ "${sanitizer}" == "${SCRIPT_DIR}/bin/sanitize_bacterial_genbank.py" ]]; then
-    FORCE="${FORCE:-0}" "${python_cmd}" "${SCRIPT_DIR}/bin/cached_genbank.py" bacteria \
-      --route-manifest "${manifest}" --acquired-root "${input_root}" \
-      --provenance "${provenance}" "$@"
-  else
-    "${python_cmd}" "${sanitizer}" "$@"
-  fi
-}
-
-prepare_original_fungal_genbank() {
-  local source="$1" destination="$2" genome_id="$3" input_root="$4"
-  if [[ "${ENGINE}" == "docker" && "${ANNOTATION_GENBANK_HELPER}" == "${SCRIPT_DIR}/bin/annotation_genbank.py" ]]; then
-    FORCE="${FORCE:-0}" repository_helper_python_exec "${SCRIPT_DIR}/bin/cached_genbank.py" fungi \
-      --input "${source}" --output "${destination}" --genome-id "${genome_id}" \
-      --route-manifest "${GENOME_TAXON_MANIFEST}" --acquired-root "${input_root}" \
-      --provenance "${RESULTS_ROOT}/reproducibility/accession_cache/${genome_id}.fungi.json" >/dev/null
-  else
-    cp -f "${source}" "${destination}"
-    normalize_gbk_record_headers_in_place "${destination}" || true
-  fi
+  printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" "$@" > "${row_file}.tmp"
+  mv "${row_file}.tmp" "${row_file}"
 }
 
 compute_genome() {
@@ -2695,12 +1207,11 @@ compute_genome() {
   local row_file="$3"
   local total_genomes="$4"
   local GENLOG fasta gb_src staged_gbk ant_out fbx_out ant_err ant_stdout fbx_err fbx_stdout
-  local gbk_used gbk_status fallback_method antismash_status funbgcex_status ant_done fbx_done
+  local gbk_used gbk_status antismash_status funbgcex_status ant_done fbx_done
   local per_tmp ant_filtered_input ant_input antismash_input_sanitized ant_sanitize_summary
   local antismash_duplicate_cds_dropped antismash_invalid_non_cds_dropped antismash_codon_start_removed
-  local fbx_input gbk_dir antismash_record_ids_file antismash_record_count antismash_record_ids_stable antismash_shard_root antismash_run_mode antismash_run_ok
+  local fbx_input antismash_record_ids_file antismash_record_count antismash_record_ids_stable antismash_shard_root antismash_run_mode antismash_run_ok
   local taxon_group taxon_source route_status prediction_method detector_profile funbgcex_applicability genome_input_root
-  local bacteria_source bacterial_record_map bacterial_sanitize_summary bacterial_stage_temp python_cmd
   local GENOME_ROOT GENOME_MAPPING_FILE
   local -a antismash_record_ids=()
   local -a ANT_FLAGS_ARRAY=()
@@ -2712,7 +1223,11 @@ compute_genome() {
   detector_profile="$(route_detector_for_genome "${genome_id}")"
   GENOME_ROOT="${genome_input_root}"
   GENOME_MAPPING_FILE="$(mapping_file_for_taxon "${taxon_group}")"
-  if [[ "${taxon_group}" == "bacteria" ]]; then
+  if [[ "${taxon_group}" == "plants" ]]; then
+    prediction_method="existing_cds"
+    detector_profile="plantismash"
+    funbgcex_applicability="not_applicable_taxon"
+  elif [[ "${taxon_group}" == "bacteria" ]]; then
     prediction_method="prodigal"
     detector_profile="antismash"
     funbgcex_applicability="not_applicable_taxon"
@@ -2727,7 +1242,7 @@ compute_genome() {
 
   GENLOG="${WORK_ROOT}/logs/${genome_id}.log"
   : > "${GENLOG}"
-  genome_stage_progress "${genome_id}" "annotation" 0 "Queued genome ${ordinal}/${total_genomes}"
+  genome_stage_progress "${genome_id}" "annotation" 0 "Preparing genome ${ordinal}/${total_genomes}"
 
   fasta=""
   if ! fasta="$(resolve_fasta_for_stem "${genome_id}")"; then
@@ -2761,116 +1276,16 @@ compute_genome() {
 
   fi
 
-  gbk_used=""
-  gbk_status="missing"
   per_tmp="${WORK_ROOT}/tmp/${genome_id}"
   mkdir -p "${per_tmp}"
 
-  if [[ "${taxon_group}" == "bacteria" ]]; then
-    ant_input="${per_tmp}/${genome_id}.bacteria.antismash.gbk"
-    antismash_record_ids_file="${per_tmp}/antismash_record_ids.txt"
-    bacterial_record_map="${RESULTS_ROOT}/summary_tables/bacterial_record_maps/${genome_id}.record_map.tsv"
-    bacteria_source=""
-    if [[ -n "${gb_src}" && -s "${gb_src}" ]]; then
-      bacteria_source="${gb_src}"
-    elif [[ -n "${fasta}" && -s "${fasta}" ]]; then
-      bacteria_source="${fasta}"
-    fi
-    if [[ -z "${bacteria_source}" ]]; then
-      gbk_status="no_bacterial_sequence_input"
-    else
-      python_cmd="$(resolve_python_cmd)" || true
-      if [[ -n "${python_cmd}" ]] && bacterial_sanitize_summary="$(
-          bacterial_genbank_prepare "${python_cmd}" "${BACTERIAL_GENBANK_SANITIZER}" \
-            "${GENOME_TAXON_MANIFEST}" "${genome_input_root}" \
-            "${RESULTS_ROOT}/reproducibility/accession_cache/${genome_id}.bacteria.json" \
-            --input "${bacteria_source}" \
-            --output "${ant_input}" \
-            --record-map "${bacterial_record_map}" \
-            --record-ids "${antismash_record_ids_file}" \
-            --genome-id "${genome_id}" \
-            --min-record-bp "${ANTISMASH_MIN_RECORD_BP}" \
-            --max-record-bp "${ANTISMASH_MAX_RECORD_BP}" 2>> "${GENLOG}"
-        )"; then
-        printf '%s\n' "${bacterial_sanitize_summary}" | tee -a "${GENLOG}"
-        bacterial_stage_temp="${staged_gbk}.tmp.${BASHPID:-$$}"
-        if cp -f "${ant_input}" "${bacterial_stage_temp}" \
-            && mv -f "${bacterial_stage_temp}" "${staged_gbk}"; then
-          gbk_used="${staged_gbk}"
-          gbk_status="bacterial_sequence_sanitized"
-          antismash_input_sanitized=1
-          genome_stage_progress "${genome_id}" "annotation" 25 "Feature-free bacterial GenBank ready"
-        else
-          rm -f "${bacterial_stage_temp}" 2>/dev/null || true
-          gbk_status="bacterial_staging_failed"
-        fi
-      else
-        gbk_status="bacterial_sanitizer_failed"
-      fi
-    fi
-  else
-
-  # 1) Reuse staged GBK if present
-  if [[ -s "${staged_gbk}" ]] && gbk_has_cds_and_translation "${staged_gbk}"; then
-    normalize_gbk_record_headers_in_place "${staged_gbk}" || true
-    gbk_used="${staged_gbk}"
-    gbk_status="staged_ok"
-    prediction_method="existing_cds"
-    log "${genome_id}: using staged GBK: ${staged_gbk}" | tee -a "${GENLOG}"
-    genome_annotation_decision "${genome_id}" "no" "existing_cds" "Complete CDS translations already available"
-    genome_stage_progress "${genome_id}" "annotation" 20 "Staged GenBank ready"
+  if [[ "${taxon_group}" == "plants" ]]; then
+    run_plantismash_genome "${genome_id}" "${gb_src}" "${fasta}" "${staged_gbk}" "${row_file}"
+    return $?
   fi
 
-  # 2) If no staged GBK, try original annotated GenBank, else annotation fallback chain
-  if [[ -z "${gbk_used}" ]]; then
-    if [[ -n "${gb_src}" && -s "${gb_src}" ]]; then
-      if gbk_has_cds_and_translation "${gb_src}"; then
-        if ! prepare_original_fungal_genbank "${gb_src}" "${staged_gbk}" "${genome_id}" "${genome_input_root}"; then
-          cp -f "${gb_src}" "${staged_gbk}"
-          normalize_gbk_record_headers_in_place "${staged_gbk}" || true
-        fi
-        gbk_used="${staged_gbk}"
-        gbk_status="original_ok"
-        prediction_method="existing_cds"
-        log "${genome_id}: staged original GBK (has CDS+translation): ${gb_src}" | tee -a "${GENLOG}"
-        genome_annotation_decision "${genome_id}" "no" "existing_cds" "Complete CDS translations already available"
-      else
-        gbk_status="original_missing_translations"
-        log "${genome_id}: original GBK lacks usable CDS translations; using annotation workflow (${ANNOTATION_FALLBACK_ORDER})" | tee -a "${GENLOG}"
-      fi
-    else
-      gbk_status="missing_genbank"
-      log "${genome_id}: no original GBK detected; will try fallback annotation chain (${ANNOTATION_FALLBACK_ORDER}) if FASTA available" | tee -a "${GENLOG}"
-    fi
-
-    if [[ -z "${gbk_used}" ]]; then
-      if [[ -n "${fasta}" && -s "${fasta}" ]]; then
-        fallback_method=""
-        genome_stage_progress "${genome_id}" "annotation" 10 "Running annotation fallback"
-        if annotate_genome_with_fallbacks "${genome_id}" "${fasta}" "${staged_gbk}"; then
-          fallback_method="${ANNOTATION_FALLBACK_METHOD:-annotation}"
-          prediction_method="${fallback_method}"
-          normalize_gbk_record_headers_in_place "${staged_gbk}" || true
-          if gbk_has_cds_and_translation "${staged_gbk}"; then
-            gbk_used="${staged_gbk}"
-            gbk_status="${fallback_method}_fixed"
-            genome_stage_progress "${genome_id}" "annotation" 25 "Annotation fallback produced GenBank"
-          else
-            gbk_status="${fallback_method}_no_translations"
-            rm -f "${staged_gbk}" 2>/dev/null || true
-          fi
-        else
-          gbk_status="${ANNOTATION_FALLBACK_FAILURE_REASON:-annotation_fallbacks_failed}"
-          if [[ -n "${ANNOTATION_FALLBACK_FAILURE_DETAIL}" ]]; then
-            log "${genome_id}: annotation fallback detail: ${ANNOTATION_FALLBACK_FAILURE_DETAIL}" | tee -a "${GENLOG}"
-          fi
-        fi
-      else
-        gbk_status="no_fasta_for_annotation"
-      fi
-    fi
-  fi
-  fi
+  prepare_genome_genbank "${genome_id}" "${taxon_group}" "${genome_input_root}" \
+    "${fasta}" "${gb_src}" "${staged_gbk}" "${per_tmp}" "${GENLOG}"
 
   antismash_status="skipped"
   if [[ "${taxon_group}" == "bacteria" ]]; then
@@ -3046,31 +1461,9 @@ compute_genome() {
         genome_stage_progress "${genome_id}" "antismash" 100 "antiSMASH failed"
         ;;
     esac
-  elif [[ "${fbx_done}" -eq 1 ]]; then
-    funbgcex_status="skipped_done"
-    log "${genome_id}: FunBGCeX already done -> ${fbx_out}" | tee -a "${GENLOG}"
-    genome_stage_progress "${genome_id}" "funbgcex" 100 "FunBGCeX already complete"
   else
-    rm -rf "${fbx_out}" 2>/dev/null || true
-    mkdir -p "${fbx_out}"
-
-    gbk_dir="${per_tmp}/funbgcex_in"
-    rm -rf "${gbk_dir}" 2>/dev/null || true
-    mkdir -p "${gbk_dir}"
-    cp -f "${fbx_input}" "${gbk_dir}/"
-
-    log "${genome_id}: running FunBGCeX (outdir=${fbx_out})" | tee -a "${GENLOG}"
-    genome_stage_progress "${genome_id}" "funbgcex" 80 "Running FunBGCeX"
-    if run_funbgcex_cli "${gbk_dir}" "${fbx_out}" >"${fbx_stdout}" 2>"${fbx_err}" \
-        && mark_funbgcex_done "${fbx_out}"; then
-      funbgcex_status="ran_ok"
-      log "${genome_id}: FunBGCeX OK" | tee -a "${GENLOG}"
-      genome_stage_progress "${genome_id}" "funbgcex" 100 "FunBGCeX complete"
-    else
-      funbgcex_status="failed"
-      warn "${genome_id}: FunBGCeX FAILED (see ${fbx_err})" | tee -a "${GENLOG}"
-      genome_stage_progress "${genome_id}" "funbgcex" 100 "FunBGCeX failed"
-    fi
+    run_funbgcex_detection "${genome_id}" "${fbx_done}" "${fbx_input}" "${fbx_out}" \
+      "${per_tmp}" "${fbx_stdout}" "${fbx_err}" "${GENLOG}" funbgcex_status
   fi
 
   write_genome_manifest_row "${row_file}" \
@@ -3140,6 +1533,10 @@ process_genome() (
   local genome_id="$1" row_file="$3" cache_claim="" cache_fd cache_rc=0
   local taxon="$(route_taxon_for_genome "$1")"
   local input_root="$(route_root_for_genome "$1")"
+  if [[ "${taxon}" == "plants" ]]; then
+    compute_genome "$@"
+    return $?
+  fi
   local state="${WORK_ROOT}/tmp/${genome_id}.accession-cache-state.json"
   local provenance="${RESULTS_ROOT}/reproducibility/accession_cache/${genome_id}.detection.json"
   local -a adapter=("$(resolve_python_cmd)" "${SCRIPT_DIR}/bin/cached_accession.py")
@@ -3176,32 +1573,50 @@ process_genome() (
   return "${cache_rc}"
 )
 
+# Each subshell retains an exit receipt even when a helper exits before writing
+# its scientific row. Unknown failures remain ineligible for continuation.
+finish_genome_task() {
+  local rc="$1" genome="$2" row="$3"
+  trap - EXIT
+  if [[ ! -s "${row}" ]]; then
+    write_genome_manifest_row "${row}" "${genome}" "" "" "unclassified_failure" \
+      "blocked" "blocked" "$(route_taxon_for_genome "${genome}")" \
+      "$(route_prediction_for_genome "${genome}")" "$(route_detector_for_genome "${genome}")" "unknown"
+    rc=1
+  fi
+  printf '%s\n' "${rc}" > "${row}.exit.tmp"
+  mv "${row}.exit.tmp" "${row}.exit"
+  sync_logs_genome "${genome}"
+  exit "${rc}"
+}
+run_genome_task() (
+  trap 'finish_genome_task "$?" "$1" "$3"' EXIT
+  process_genome "$@"
+)
 idx=0
 genome_job_failure=0
+genome_pids=()
 for genome_id in "${GEN_ARR[@]}"; do
   idx=$((idx + 1))
   row_file="${MANIFEST_ROW_DIR}/$(printf '%06d' "${idx}").tsv"
   MANIFEST_ROW_FILES+=("${row_file}")
-  if [[ "${GENOME_PARALLELISM}" -gt 1 ]]; then
-    process_genome "${genome_id}" "${idx}" "${row_file}" "${#GEN_ARR[@]}" &
-    while [[ "$(running_genome_job_count)" -ge "${GENOME_PARALLELISM}" ]]; do
-      if ! wait_for_genome_job; then genome_job_failure=1; fi
-    done
-  else
-    if ! process_genome "${genome_id}" "${idx}" "${row_file}" "${#GEN_ARR[@]}"; then
-      genome_job_failure=1
-    fi
-  fi
+  run_genome_task "${genome_id}" "${idx}" "${row_file}" "${#GEN_ARR[@]}" &
+  genome_pids+=("$!")
+  while [[ "$(running_genome_job_count)" -ge "${GENOME_PARALLELISM}" ]]; do
+    if ! wait_for_genome_job; then genome_job_failure=1; fi
+  done
+done
+# wait -n may observe only a subset of already exited children. Explicit waits
+# bind every scheduled genome, including failures that finished between polls.
+for genome_pid in "${genome_pids[@]}"; do
+  if ! wait "${genome_pid}"; then genome_job_failure=1; fi
 done
 
-while [[ "$(running_genome_job_count)" -gt 0 ]]; do
-  if ! wait_for_genome_job; then genome_job_failure=1; fi
-done
-
-if [[ "${genome_job_failure}" -ne 0 ]]; then
-  die "One or more per-genome annotation jobs failed before manifest regroup; see ${WORK_ROOT}/logs"
+if [[ "${HAS_PLANT_ROUTES}" == "1" ]]; then
+  repository_helper_python_exec "${SCRIPT_DIR}/bin/plantismash_runtime.py" collect --results "${RESULTS_ROOT}" || genome_job_failure=1
 fi
 
+detector_failure=0
 for row_file in "${MANIFEST_ROW_FILES[@]}"; do
   [[ -s "${row_file}" ]] || die "Missing per-genome manifest row: ${row_file}"
   cat "${row_file}" >> "${MANIFEST}"
@@ -3210,6 +1625,9 @@ for row_file in "${MANIFEST_ROW_FILES[@]}"; do
     row_genome row_fasta row_gbk row_gbk_status row_antismash row_funbgcex \
     row_taxon row_prediction row_detector row_funbgcex_applicability \
     <<< "${row_line//$'\t'/$'\034'}" || true
+  if [[ "${row_antismash}" == "failed" || "${row_funbgcex}" == "failed" ]]; then
+    detector_failure=1
+  fi
   total=$((total + 1))
   if [[ -n "${row_gbk:-}" ]]; then
     processed=$((processed + 1))
@@ -3218,6 +1636,17 @@ for row_file in "${MANIFEST_ROW_FILES[@]}"; do
   fi
 done
 rsync -a "${MANIFEST}" "${RESULTS_ROOT}/summary_tables/" >/dev/null 2>&1 || true
+
+if [[ -d "${RESULTS_ROOT}/reproducibility/genome_attempts" ]]; then
+  mv "${RESULTS_ROOT}/reproducibility/genome_attempts" "${RESULTS_ROOT}/reproducibility/genome_attempts.previous.$(date -u +%Y%m%dT%H%M%S).$$"
+fi
+mkdir -p "${RESULTS_ROOT}/reproducibility/genome_attempts"
+cp "${MANIFEST_ROW_DIR}"/*.tsv "${MANIFEST_ROW_DIR}"/*.exit "${RESULTS_ROOT}/reproducibility/genome_attempts/"
+rsync -a "${WORK_ROOT}/logs/" "${RESULTS_ROOT}/logs/" >/dev/null 2>&1 || true
+
+if [[ "${genome_job_failure}" -ne 0 || "${detector_failure}" -ne 0 ]]; then
+  die "Required BGC detection failed; partial outputs and run manifest retained. See ${WORK_ROOT}/logs"
+fi
 
 log "Complete."
 log "summary_tables: ${RESULTS_ROOT}/summary_tables"

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import re
 import shlex
 import shutil
@@ -122,6 +123,7 @@ def first_product_candidate(value: str) -> str:
 def expected_putative_product(target_row: dict[str, str]) -> str:
     for key in [
         "antismash_knowncluster_product",
+        "plantismash_knowncluster_product",
         "funbgcex_putative_product",
         "nearest_mibig_or_annotation_if_available",
     ]:
@@ -146,7 +148,7 @@ def load_genome_metadata(path: Path) -> dict[str, dict[str, str]]:
         if not genome:
             continue
         taxon_group = clean(row.get("taxon_group")).lower()
-        if taxon_group not in {"fungi", "bacteria"}:
+        if taxon_group not in {"fungi", "bacteria", "plants"}:
             taxon_group = "fungi"
         metadata[genome] = {
             "organism_name": clean(row.get("organism_name")),
@@ -196,7 +198,7 @@ def panel_genome_metadata(
     genome = clean(row.get("genome"))
     canonical = metadata_by_genome.get(genome, {})
     taxon_group = clean(row.get("taxon_group") or canonical.get("taxon_group")).lower()
-    if taxon_group not in {"fungi", "bacteria"}:
+    if taxon_group not in {"fungi", "bacteria", "plants"}:
         # Historical jobs without a routing manifest retain the fungal default.
         taxon_group = "fungi"
     return {
@@ -244,6 +246,18 @@ def find_mibig_file(mibig_root: Path | None, accession: str) -> Path | None:
     return None
 
 
+def materialized_mibig_identity(path: Path, matched_accession: str) -> dict[str, str]:
+    """Keep the detector's hit version separate from the materialized library record."""
+    from Bio import SeqIO
+    record = SeqIO.read(path, 'genbank')
+    match = re.fullmatch(r'BGC[0-9]{7}(?:\.[0-9]+)?', record.id)
+    if not match or record.id.split('.', 1)[0] != matched_accession.split('.', 1)[0]:
+        raise ValueError(f'MIBiG reference record does not match requested accession: {path.name}')
+    return {'matched_reference_accession': matched_accession,
+            'reference_record_id': record.id,
+            'reference_sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
+
+
 def mibig_root_has_gbks(mibig_root: Path | None) -> bool:
     if mibig_root is None or not mibig_root.exists():
         return False
@@ -261,7 +275,8 @@ def default_mibig_root(project_root: Path) -> Path | None:
 
 
 def region_gbk_path(antismash_root: Path, genome: str, antismash_region: str) -> Path:
-    return antismash_root / genome / f"{antismash_region}.gbk"
+    native = antismash_root.parent / "native_bgc" / genome / f"{antismash_region}.gbk"
+    return native if native.is_file() else antismash_root / genome / f"{antismash_region}.gbk"
 
 
 def shortlist_bucket_column(rows: list[dict[str, str]]) -> str:
@@ -523,6 +538,8 @@ def panel_dir_name(target_row: dict[str, str], used_names: set[str]) -> str:
     if not base_name:
         base_name = antismash_region or "unassigned_bgc"
 
+    if len(base_name) > 120:
+        base_name = base_name[:100] + "_" + hashlib.sha256(base_name.encode()).hexdigest()[:16]
     candidate = base_name
     if candidate in used_names:
         # A shared compound annotation does not imply a shared GCF. Qualify
@@ -658,8 +675,9 @@ def write_run_panel_script(
     project_root: Path,
     repo_root: Path,
 ) -> None:
-    input_lines = [f"CLINKER_INPUTS+=({shlex.quote(path.as_posix())})" for path in staged_files]
+    input_lines = [f'CLINKER_INPUTS+=("${{SCRIPT_DIR}}"/{shlex.quote((path.relative_to(panel_dir) if path.is_absolute() else path).as_posix())})' for path in staged_files]
     shutil.copy2(Path(__file__).with_name("clinker_cli.py"), panel_dir / "clinker_cli.py")
+    shutil.copy2(Path(__file__).with_name("postprocess_clinker_html.py"), panel_dir / "postprocess_clinker_html.py")
     project_root_literal = shlex.quote(project_root.resolve().as_posix())
     repo_root_literal = shlex.quote(repo_root.resolve().as_posix())
     script_text = "\n".join(
@@ -672,7 +690,7 @@ def write_run_panel_script(
             "cd \"${SCRIPT_DIR}\"",
             f"PROJECT_ROOT={project_root_literal}",
             f"REPO_ROOT={repo_root_literal}",
-            "POSTPROCESS_PY=\"${PROJECT_ROOT}/bin/postprocess_clinker_html.py\"",
+            "POSTPROCESS_PY=\"${SCRIPT_DIR}/postprocess_clinker_html.py\"",
             "POSTPROCESS_FALLBACK_PY=\"${REPO_ROOT}/bin/postprocess_clinker_html.py\"",
             "POSTPROCESS_MANIFEST=\"${SCRIPT_DIR}/panel_manifest.tsv\"",
             "POSTPROCESS_HTML=\"${SCRIPT_DIR}/panel.html\"",
@@ -726,7 +744,7 @@ def write_run_panel_script(
             "fi",
             "",
             "if [[ -n \"${CLINKER_ENGINE:-}\" && -n \"${CLINKER_SIF_PATH:-}\" && -f \"${CLINKER_SIF_PATH}\" ]]; then",
-            "  \"${CLINKER_ENGINE}\" exec --bind \"${SCRIPT_DIR}:${SCRIPT_DIR}\" \"${CLINKER_SIF_PATH}\" \\",
+            "  \"${CLINKER_ENGINE}\" exec --pwd \"${SCRIPT_DIR}\" --bind \"${SCRIPT_DIR}:${SCRIPT_DIR}\" \"${CLINKER_SIF_PATH}\" \\",
             "    python3 \"${SCRIPT_DIR}/clinker_cli.py\" \"${CLINKER_INPUTS[@]}\" -- -p \"${SCRIPT_DIR}/panel.html\" -o \"${SCRIPT_DIR}/alignments.tsv\" -f -ufo",
             "  run_postprocess",
             "  exit 0",
@@ -738,7 +756,7 @@ def write_run_panel_script(
             "    echo \"Warning: CLINKER_DOCKER_CPUS=${CLINKER_DOCKER_CPUS} is not a positive CPU number; using 1\" >&2",
             "    CLINKER_DOCKER_CPUS=1",
             "  fi",
-            "  DOCKER_ARGS=(--rm -i --user 0:0 --entrypoint \"\" --cpus \"${CLINKER_DOCKER_CPUS}\")",
+            "  DOCKER_ARGS=(--rm --pull=never --network=none -i --user 0:0 --entrypoint \"\" --cpus \"${CLINKER_DOCKER_CPUS}\")",
             "  DOCKER_ARGS+=(-e OMP_NUM_THREADS=1 -e OPENBLAS_NUM_THREADS=1 -e MKL_NUM_THREADS=1 -e NUMEXPR_NUM_THREADS=1)",
             "  if [[ -n \"${CLINKER_DOCKER_MEMORY:-}\" ]]; then",
             "    DOCKER_ARGS+=(--memory \"${CLINKER_DOCKER_MEMORY}\")",
@@ -1024,12 +1042,27 @@ def main() -> None:
         mibig_accessions = extract_mibig_accessions(
             clean(target_row.get("nearest_mibig_or_annotation_if_available")),
             clean(target_row.get("reference_annotation")),
+            clean(target_row.get("plantismash_knowncluster_accession")),
         )
         mibig_files: list[tuple[str, Path]] = []
         for accession in mibig_accessions[:2]:
             mibig_file = find_mibig_file(mibig_root, accession)
             if mibig_file is not None:
                 mibig_files.append((accession, mibig_file))
+
+        if not comparators and not mibig_files:
+            # A target alone is not comparative synteny evidence. Keep the
+            # exclusion in the manifest, but do not schedule or publish a panel.
+            panel_rows.append({
+                "panel_id": panel_id, "panel_label": display_label,
+                "target_rank": shortlist_rank, "target_genome": target_genome,
+                "target_taxon": target_taxon, "target_organism": target_metadata["organism_name"],
+                "target_region": antismash_region, "compound_label": compound_label,
+                "status": "skipped_no_comparator",
+                "staged_input_count": 0, "comparator_count": 0, "mibig_count": 0,
+                **materialized_gcf_provenance(target_row),
+            })
+            continue
 
         manifest_rows: list[dict[str, object]] = []
         staged_files: list[Path] = []
@@ -1041,6 +1074,7 @@ def main() -> None:
             {
                 "order": 1,
                 "role": "target",
+                "producer": (clean(target_row.get("producer")) or "plantismash") if target_taxon == "plants" else "antismash",
                 "genome": target_genome,
                 **target_metadata,
                 "ecofun_primary": clean(target_row.get("ecofun_primary")),
@@ -1072,6 +1106,7 @@ def main() -> None:
                 {
                     "order": order,
                     "role": "comparator",
+                    "producer": (clean(comparator.get("producer")) or "plantismash") if comparator_metadata.get("taxon_group") == "plants" else "antismash",
                     "genome": comparator_genome,
                     **comparator_metadata,
                     "ecofun_primary": clean(comparator.get("ecofun_primary")),
@@ -1090,6 +1125,8 @@ def main() -> None:
             order += 1
 
         for accession, mibig_file in mibig_files:
+            reference_identity = materialized_mibig_identity(mibig_file, accession)
+            materialized_accession = reference_identity['reference_record_id']
             staged_path = inputs_dir / f"{order:02d}_mibig_{sanitize_token(accession)}.gbk"
             shutil.copy2(mibig_file, staged_path)
             staged_files.append(staged_path.relative_to(panel_dir))
@@ -1097,7 +1134,8 @@ def main() -> None:
                 {
                     "order": order,
                     "role": "mibig_reference",
-                    "genome": accession,
+                    "producer": "MIBiG reference",
+                    "genome": materialized_accession,
                     "organism_name": "",
                     "taxon_group": "",
                     "taxon_source": "mibig",
@@ -1105,8 +1143,9 @@ def main() -> None:
                     "ecofun_secondary": "",
                     "ecology_group": "",
                     "ecology_display": "",
-                    "antismash_region": accession,
-                    "scaffold_id": accession,
+                    "antismash_region": materialized_accession,
+                    "scaffold_id": materialized_accession,
+                    **reference_identity,
                     **materialized_gcf_provenance(target_row),
                     "match_type": "mibig_reference",
                     "source_gbk_path": str(mibig_file),
@@ -1120,6 +1159,7 @@ def main() -> None:
             [
                 "order",
                 "role",
+                "producer",
                 "genome",
                 "organism_name",
                 "taxon_group",
@@ -1134,6 +1174,9 @@ def main() -> None:
                 "match_type",
                 "source_gbk_path",
                 "staged_gbk_path",
+                "matched_reference_accession",
+                "reference_record_id",
+                "reference_sha256",
             ],
             manifest_rows,
         )

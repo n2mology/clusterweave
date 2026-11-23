@@ -21,7 +21,7 @@ for (const width of [1100, 360]) {
     });
     await expect(page.locator('.genome-progress-chip')).toHaveText(['CACHED','GENOME DOWNLOADED','GENOME READY']);
     await expect(page.locator('[data-genome-progress-id="Cached"]')).toHaveAttribute('aria-label', /CACHED/);
-    await expect(page.locator('#tree')).toContainText('100% - CACHED');
+    await expect(page.locator('#tree')).toContainText('100% - Genome workflow complete · Cached results');
     await expect(page.locator('#tree')).toContainText('BiG-SCAPE: [          ]  --% - Running');
     expect(await page.locator('#cards').evaluate(node => node.scrollWidth <= node.clientWidth)).toBeTruthy();
     for (const row of await page.locator('.genome-progress-row').all()) {

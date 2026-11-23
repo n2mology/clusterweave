@@ -24,6 +24,7 @@ CONTRACTS = {
     "accession-snapshot-v1": {"bundle.tar"},
     "accession-detection-v1": {"bundle.tar"},
     "accession-snapshot-v2": {"bundle.tar"},
+    "accession-plant-snapshot-v2": {"bundle.tar"},
     "accession-detection-v2": {"bundle.tar"},
     "accession-detection-v3": {"bundle.tar"},
 }
@@ -58,7 +59,7 @@ def identity_key(identity: dict) -> str:
     for name in ("genome_sha256", "source_sha256", "runtime_sha256"):
         if not isinstance(identity[name], str) or not DIGEST.fullmatch(identity[name]):
             raise Unavailable("identity_digest")
-    if contract in {"accession-snapshot-v1", "accession-detection-v1", "accession-snapshot-v2", "accession-detection-v2", "accession-detection-v3"}:
+    if contract in {"accession-plant-snapshot-v2", "accession-snapshot-v1", "accession-detection-v1", "accession-snapshot-v2", "accession-detection-v2", "accession-detection-v3"}:
         from cached_accession import validate_identity
         validate_identity(identity)
         return sha256(canonical(identity))

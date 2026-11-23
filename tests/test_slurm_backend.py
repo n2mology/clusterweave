@@ -34,6 +34,7 @@ class SlurmBackendTests(unittest.TestCase):
             "ENGINE",
             "SLURM_JOB_ID",
             "SLURM_JOBID",
+            "CLUSTERWEAVE_SMTP_ENABLED",
         ]
         self.old_env = {key: os.environ.get(key) for key in self.env_keys}
         os.environ.update(
@@ -51,6 +52,7 @@ class SlurmBackendTests(unittest.TestCase):
                 "CLUSTERWEAVE_SLURM_MAX_SUBMITTED": "2",
                 "CLUSTERWEAVE_SLURM_PROLOGUE": "module purge\nmodule load apptainer",
                 "ENGINE": "apptainer",
+                "CLUSTERWEAVE_SMTP_ENABLED": "0",
             }
         )
         self.inserted_web_path = False
@@ -110,6 +112,212 @@ class SlurmBackendTests(unittest.TestCase):
         }
         self.job_store.write_job(job)
         return job
+
+    def cancellation_case(self, *, job_id="cancelcase", scheduler_id="42", delete=False):
+        self.write_job(job_id)
+        job = self.job_store.read_job(job_id)
+        job.update(status="running", stage="annotation", executor="slurm", slurm_job_id=scheduler_id,
+                   notify_email="user@example.org", scheduler={"kind": "slurm", "job_id": scheduler_id, "state": "RUNNING"})
+        self.job_store.write_job(job)
+        root = self.job_store.job_dir(job_id)
+        (root / "retained.txt").write_bytes(b"retained result")
+        self.job_store.request_job_cancel(job_id, "Cancellation test", delete_after_cancel=delete)
+        os.environ["CLUSTERWEAVE_SMTP_ENABLED"] = "1"
+        notices = importlib.import_module("notifications")
+        delivery = mock.patch.object(notices, "deliver_email")
+        sent = delivery.start(); self.addCleanup(delivery.stop)
+        self.scancel_rc = 0
+        def runner(args, timeout):
+            if args[0] == "scancel":
+                self.commands.append(args)
+                return subprocess.CompletedProcess(args, self.scancel_rc, "", "--token fake-cancel-secret")
+            return self.runner(args, timeout)
+        backend = self.slurm_backend.SlurmBackend(config=self.slurm_backend.SlurmConfig.from_env(), runner=runner)
+        return backend, root, sent
+
+    def test_cancel_waits_through_running_and_cleanup_before_notification_and_delete(self):
+        backend, root, sent = self.cancellation_case(delete=True)
+        backend.cancel_job(self.job_store.read_job("cancelcase"))
+        job = self.job_store.read_job("cancelcase")
+        self.assertEqual(job["status"], "running")
+        self.assertEqual(job["scheduler"]["state"], "RUNNING")
+        self.assertNotIn("terminal_confirmed_at", job["scheduler"])
+        for state in ["RUNNING", "COMPLETING", "UNKNOWN"]:
+            self.squeue_state = state + "\n"
+            self.sacct_state = "UNKNOWN\n"
+            self.assertIn("cancelcase", backend.poll_once())
+            self.assertTrue(root.exists())
+            self.assertEqual((root / "retained.txt").read_bytes(), b"retained result")
+            sent.assert_not_called()
+        def delivered(message):
+            self.assertTrue(root.exists())
+            job = self.job_store.read_job("cancelcase")
+            self.assertEqual(job["stage"], "cancelled")
+            self.assertTrue(job["scheduler"]["terminal_confirmed_at"])
+            self.assertTrue(str(message["Subject"]).endswith(": cancelled"))
+        sent.side_effect = delivered
+        self.squeue_state = "CANCELLED\n"
+        self.assertNotIn("cancelcase", backend.poll_once())
+        sent.assert_called_once()
+        self.assertFalse(root.exists())
+        backend.poll_once()
+        sent.assert_called_once()
+        self.assertEqual(sum(cmd[0] == "scancel" for cmd in self.commands), 1)
+
+    def test_failed_requests_are_bounded_and_accounting_can_confirm_after_exhaustion(self):
+        backend, root, sent = self.cancellation_case(delete=True)
+        self.scancel_rc = 1
+        self.squeue_state = self.sacct_state = "UNKNOWN\n"
+        for _ in range(5):
+            self.assertIn("cancelcase", backend.poll_once())
+            self.assertTrue(root.exists())
+            sent.assert_not_called()
+        self.assertEqual(sum(cmd[0] == "scancel" for cmd in self.commands), 3)
+        self.assertEqual(self.job_store.read_job("cancelcase")["scheduler"]["cancel_attempts"], 3)
+        self.assertNotIn("fake-cancel-secret", "\n".join(self.job_store.read_logs("cancelcase")))
+        restarted = self.slurm_backend.SlurmBackend(config=backend.config, runner=backend.runner)
+        restarted.poll_once()
+        self.assertEqual(sum(cmd[0] == "scancel" for cmd in self.commands), 3)
+        self.squeue_state = ""
+        self.sacct_state = "CANCELLED by 1000|\n"
+        self.assertEqual(restarted.poll_once(), [])
+        sent.assert_called_once()
+        self.assertFalse(root.exists())
+
+    def test_acknowledged_request_is_not_resubmitted_after_controller_restart(self):
+        backend, root, sent = self.cancellation_case()
+        backend.poll_once()
+        restarted = self.slurm_backend.SlurmBackend(config=backend.config, runner=backend.runner)
+        restarted.poll_once()
+        self.assertEqual(sum(cmd[0] == "scancel" for cmd in self.commands), 1)
+        sent.assert_not_called()
+        self.squeue_state = "CANCELLED\n"
+        restarted.poll_once()
+        restarted.poll_once()
+        sent.assert_called_once()
+        self.assertTrue(root.exists())
+        self.assertEqual(self.job_store.read_job("cancelcase")["notification"]["outcome"], "cancelled")
+
+    def test_failed_request_retries_once_next_cycle_then_waits_after_acknowledgement(self):
+        backend, root, sent = self.cancellation_case()
+        self.scancel_rc = 1
+        backend.poll_once()
+        self.scancel_rc = 0
+        backend.poll_once()
+        backend.poll_once()
+        self.assertEqual(sum(cmd[0] == "scancel" for cmd in self.commands), 2)
+        self.assertTrue(root.exists())
+        sent.assert_not_called()
+
+    def test_missing_id_retains_unknown_job_without_scheduler_commands(self):
+        backend, root, sent = self.cancellation_case(scheduler_id="", delete=True)
+        self.assertIn("cancelcase", backend.poll_once())
+        self.assertIn("cancelcase", backend.active_managed_job_ids())
+        self.assertEqual(self.commands, [])
+        self.assertTrue(root.exists())
+        sent.assert_not_called()
+        job = self.job_store.read_job("cancelcase")
+        self.assertTrue(self.job_store.job_needs_scheduler_confirmation(job))
+        job["scheduler"]["job_id"] = job["slurm_job_id"] = "42"
+        self.job_store.write_job(job)
+        self.squeue_state = "CANCELLED\n"
+        backend.poll_once()
+        self.assertFalse(root.exists())
+        sent.assert_called_once()
+
+    def test_completion_and_failure_racing_cancellation_keep_actual_outcome(self):
+        for state, status, label in [("COMPLETED", "success", "complete"), ("FAILED", "failed", "failed")]:
+            with self.subTest(state=state):
+                backend, root, sent = self.cancellation_case(job_id=state.lower(), delete=True)
+                self.squeue_state = state + "\n"
+                def delivered(message):
+                    job = self.job_store.read_job(state.lower())
+                    self.assertEqual(job["status"], status)
+                    self.assertTrue(str(message["Subject"]).endswith(": " + label))
+                    self.assertTrue(root.exists())
+                sent.side_effect = delivered
+                backend.poll_once()
+                sent.assert_called_once()
+                self.assertFalse(root.exists())
+
+    def test_terminal_compute_metadata_remains_active_until_scheduler_confirmation(self):
+        backend, root, sent = self.cancellation_case()
+        job = self.job_store.read_job("cancelcase")
+        job.update(status="failed", stage="cancelled", failed_at="2000-01-01T00:00:00")
+        self.job_store.write_job(job)
+        self.assertFalse(self.job_store.job_is_expired(self.job_store.read_job("cancelcase")))
+        self.assertIn("cancelcase", backend.poll_once())
+        self.assertIn("cancelcase", backend.active_managed_job_ids())
+        self.assertTrue(root.exists())
+        sent.assert_not_called()
+        self.squeue_state = "CANCELLED\n"
+        backend.poll_once()
+        sent.assert_called_once()
+
+    def test_stale_scheduler_observations_cannot_modify_rerun_or_recreate_deleted_job(self):
+        backend, root, sent = self.cancellation_case(delete=True)
+        old = self.job_store.read_job("cancelcase")
+        current = dict(old)
+        current.update(rerun_count=1, status="pending", stage="queued", slurm_job_id="99",
+                       scheduler={"kind": "slurm", "job_id": "99", "state": "PENDING"})
+        self.job_store.write_job(current)
+        before = self.job_store.job_meta_path("cancelcase").read_bytes()
+        backend.cancel_job(old)
+        backend.apply_polled_state(old, "CANCELLED")
+        self.assertEqual(self.job_store.job_meta_path("cancelcase").read_bytes(), before)
+        self.assertEqual(self.commands, [])
+        sent.assert_not_called()
+        import shutil
+        shutil.rmtree(root)
+        backend.apply_polled_state(old, "CANCELLED")
+        backend.cancel_job(old)
+        self.assertFalse(root.exists())
+        sent.assert_not_called()
+
+    def test_restart_finishes_confirmed_pending_deletion_without_new_scheduler_commands(self):
+        backend, root, sent = self.cancellation_case(delete=True)
+        job = self.job_store.read_job("cancelcase")
+        job.update(status="failed", stage="cancelled")
+        job["scheduler"].update(state="CANCELLED", terminal_confirmed_at=self.job_store.now_iso())
+        self.job_store.write_job(job)
+        self.job_store.job_delete_path("cancelcase").unlink()
+        self.assertEqual(backend.poll_once(), [])
+        self.assertEqual(self.commands, [])
+        sent.assert_called_once()
+        self.assertFalse(root.exists())
+
+    def test_missing_scheduler_commands_retain_data_and_unknown_confirmation(self):
+        backend, root, sent = self.cancellation_case(delete=True)
+        backend.runner = self.slurm_backend._default_runner
+        with mock.patch.object(self.slurm_backend.subprocess, "run", side_effect=FileNotFoundError("scheduler unavailable")):
+            self.assertIn("cancelcase", backend.poll_once())
+        job = self.job_store.read_job("cancelcase")
+        self.assertEqual(job["scheduler"]["state"], "UNKNOWN")
+        self.assertNotIn("terminal_confirmed_at", job["scheduler"])
+        self.assertTrue(root.exists())
+        sent.assert_not_called()
+
+    def test_unconfirmed_terminal_job_still_reserves_scheduler_capacity(self):
+        backend, root, sent = self.cancellation_case()
+        job = self.job_store.read_job("cancelcase")
+        job.update(status="failed", stage="cancelled")
+        self.job_store.write_job(job)
+        backend.config = self.slurm_backend.SlurmConfig(max_submitted=1)
+        backend.claim_next_job = mock.Mock()
+        self.assertEqual(backend.submit_waiting_claims(), [])
+        backend.claim_next_job.assert_not_called()
+
+    def test_unknown_observation_clears_confirmation_evidence(self):
+        backend, root, sent = self.cancellation_case()
+        old = self.job_store.read_job("cancelcase")
+        backend.apply_polled_state(old, "COMPLETED")
+        job = self.job_store.read_job("cancelcase")
+        self.assertTrue(job["scheduler"]["terminal_confirmed_at"])
+        backend.apply_polled_state(job, "UNKNOWN")
+        job = self.job_store.read_job("cancelcase")
+        self.assertNotIn("terminal_confirmed_at", job["scheduler"])
+        self.assertTrue(self.job_store.job_needs_scheduler_confirmation(job))
+        self.assertTrue(root.exists())
 
     def test_render_sbatch_script_uses_env_driven_scheduler_config(self) -> None:
         config = self.slurm_backend.SlurmConfig.from_env()
@@ -228,6 +436,7 @@ class SlurmBackendTests(unittest.TestCase):
         cancel_job["scheduler"] = {"kind": "slurm", "job_id": "67890", "state": "RUNNING"}
         self.job_store.write_job(cancel_job)
         self.job_store.request_job_cancel("cancelme", "test cancellation")
+        self.squeue_state = "CANCELLED\n"
         backend.poll_once()
         cancelled = self.job_store.read_job("cancelme")
         self.assertIsNotNone(cancelled)

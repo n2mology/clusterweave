@@ -31,9 +31,10 @@ DEFAULT_GCF_CATEGORY = "mix"
 DEFAULT_GCF_THRESHOLD = "0.3"
 DEFAULT_PAIRWISE_VISIBILITY = "auto"
 MAX_NUMERIC_VISIBLE_PAIRS = 500
-ONTOLOGY_VERSION = "clusterweave-bgc-broad-v1"
-DOMAIN_ORDER = {"fungi": 0, "bacteria": 1}
-BGC_ORDER = ["NRPS", "PKS", "terpene", "RiPP", "hybrid", "other"]
+from bgc_display import ORDER, COLORS, LABELS, VERSION, classify as display_class, collapse as collapse_classes, family_class
+ONTOLOGY_VERSION = VERSION
+DOMAIN_ORDER = {"fungi": 0, "bacteria": 1, "plants": 2}
+BGC_ORDER = list(ORDER)
 BGC_COLORS = {
     category: bigscape_network.CLASS_COLORS[category] for category in BGC_ORDER
 }
@@ -180,20 +181,7 @@ def normalized_taxon(value: object) -> str:
 
 
 def broad_class(value: object) -> str:
-    token = clean(value).lower()
-    hits: list[str] = []
-    if "nrps" in token or "nrp" in token:
-        hits.append("NRPS")
-    if "pks" in token or "polyketide" in token:
-        hits.append("PKS")
-    if "terpene" in token:
-        hits.append("terpene")
-    if "ripp" in token or "lanthi" in token or "lasso" in token:
-        hits.append("RiPP")
-    if len(set(hits)) > 1 or "hybrid" in token:
-        return "hybrid"
-    return hits[0] if hits else "other"
-
+    return display_class(value)
 
 def safe_genome_id(row: dict[str, str]) -> str:
     return clean(row.get("genome_id")) or clean(row.get("genome")) or clean(row.get("input_key"))
@@ -236,22 +224,10 @@ def taxonomy_lineage_ids(
 
 
 def combined_broad_class(values: Iterable[str]) -> str:
-    classes = {broad_class(value) for value in values if clean(value)}
-    informative = classes - {"other"}
-    if "hybrid" in informative or len(informative) > 1:
-        return "hybrid"
-    if informative:
-        return next(category for category in BGC_ORDER if category in informative)
-    return "other"
-
+    return collapse_classes({broad_class(value) for value in values if clean(value)})
 
 def dominant_gcf_class(counts: Counter[str]) -> str:
-    if not counts:
-        return "other"
-    return min(
-        BGC_ORDER,
-        key=lambda category: (-counts.get(category, 0), BGC_ORDER.index(category)),
-    )
+    return family_class(counts)
 
 
 def safe_label(row: dict[str, str], genome_id: str) -> str:
@@ -368,13 +344,19 @@ def add_profiles(
     by_id = {leaf.genome_id: leaf for leaf in leaves}
     known_genome_ids = set(by_id)
     raw_classes: dict[tuple[str, str], set[str]] = defaultdict(set)
-    for row in read_rows(exact_products):
+    product_rows = read_rows(exact_products)
+    precise_keys = {(profile_genome_id(row, known_genome_ids), clean(row.get("bgc_id"))) for row in product_rows
+                    if clean(row.get("term_source")) in {"area_product", "protocluster_product", "plantismash_native_product"}
+                    and clean(row.get("exact_product_type"))}
+    for row in product_rows:
         genome = profile_genome_id(row, known_genome_ids)
         bgc_id = clean(row.get("bgc_id"))
         if genome not in by_id or not bgc_id:
             continue
+        if (genome, bgc_id) in precise_keys and clean(row.get("term_source")) == "protocluster_category":
+            continue
         raw_classes[(genome, bgc_id)].add(
-            clean(row.get("broad_display_class") or row.get("exact_product_type"))
+            clean(row.get("exact_product_type") or row.get("broad_display_class"))
         )
     bgc_classes = {
         key: combined_broad_class(values) for key, values in raw_classes.items()
@@ -457,7 +439,7 @@ def build_tree(leaves: list[Leaf]) -> TreeNode:
     root = TreeNode("ClusterWeave taxonomy panels", 0)
     for leaf in leaves:
         panel_label = (
-            "Fungal genomes" if leaf.taxon_group == "fungi" else "Bacterial genomes"
+            {"fungi":"Fungal genomes", "bacteria":"Bacterial genomes", "plants":"Plant genomes"}[leaf.taxon_group]
         )
         domain = root.children.setdefault(
             f"domain:{leaf.taxon_group}", TreeNode(panel_label, 1)
@@ -574,7 +556,7 @@ def svg_text(x: float, y: float, value: str, size: int = 14, *, weight: int = 40
              anchor: str = "start", fill: str = "#18241e", extra: str = "") -> str:
     return (
         f'<text x="{x:.1f}" y="{y:.1f}" font-family="Arial, Helvetica, sans-serif" '
-        f'font-size="{size}" font-weight="{weight}" text-anchor="{anchor}" fill="{fill}"{extra}>'
+        f'font-size="{size * 1.35:g}" font-weight="{weight}" text-anchor="{anchor}" fill="{fill}"{extra}>'
         f'{escape(value)}</text>'
     )
 
@@ -730,7 +712,7 @@ def render_svg(
     panel_b_x, panel_b_w = 1328.0, 842.0
     domain_order = [
         domain
-        for domain in ("fungi", "bacteria")
+        for domain in DOMAIN_ORDER
         if any(leaf.taxon_group == domain for leaf in leaves)
     ]
     grouped = {
@@ -738,9 +720,9 @@ def render_svg(
         for domain in domain_order
     }
 
-    row_step = 25.8 if len(leaves) >= 35 else 30.0
-    content_top = 116.0
-    group_gap = 12.0
+    row_step = 52.0
+    content_top = 148.0
+    group_gap = 24.0
     group_layout: dict[str, dict[str, float]] = {}
     row_positions: dict[str, float] = {}
     cursor_y = content_top
@@ -750,7 +732,7 @@ def render_svg(
     for domain in domain_order:
         members = grouped[domain]
         group_top = cursor_y
-        rows_start = group_top + 32.0
+        rows_start = group_top + 42.0
         for offset, leaf in enumerate(members):
             row_positions[leaf.genome_id] = rows_start + offset * row_step
         last_y = row_positions[members[-1].genome_id]
@@ -797,22 +779,32 @@ def render_svg(
     )
 
     n_genomes = len(leaves)
-    cell = min(24.0, 600.0 / max(1, n_genomes))
+    cell = min(100.0 if n_genomes <= 6 else 48.0 if n_genomes <= 12 else 24.0, 600.0 / max(1, n_genomes))
     matrix_size = cell * n_genomes
-    matrix_y = 158.0
+    matrix_y = 220.0
     matrix_x = panel_b_x + 25.0 + (panel_b_w - 50.0 - matrix_size) / 2.0
     matrix_bottom = matrix_y + matrix_size
     table_pairs = pairs[:10]
     table_y = matrix_bottom + 48.0
-    table_bottom = table_y + 80.0 + max(1, len(table_pairs)) * 28.0
+    table_bottom = table_y + 80.0 + max(1, len(table_pairs)) * 66.0
     panel_bottom = max(panel_a_content_bottom, table_bottom) + 8.0
     footer_y = panel_bottom + 16.0
-    footer_h = 58.0
+    used_classes = [c for c in BGC_ORDER if any(leaf.bgc_counts.get(c, 0) for leaf in leaves) or any(parsed_class_counts(edge).get(c, 0) for edge in visible)]
+    legend_items = []
+    lx, ly = 185.0, 36.0
+    for category in used_classes:
+        label = LABELS[category]
+        item_width = 48 + len(label) * 11.7
+        if lx + item_width > 2120:
+            lx, ly = 185.0, ly + 40.0
+        legend_items.append((category, label, lx, ly))
+        lx += item_width
+    footer_h = ly + 84.0
     height = int(math.ceil(footer_y + footer_h + 16.0))
     height_mm = 300.0 * height / width
 
-    bgc_x, bgc_w = 875.0, 230.0
-    gcf_x, gcf_w = 1148.0, 92.0
+    bgc_x, bgc_w = 875.0, 260.0
+    gcf_x, gcf_w = 1170.0, 92.0
     bgc_axis_max = nice_ceiling(
         max((sum(leaf.bgc_counts.values()) for leaf in leaves), default=1)
     )
@@ -823,6 +815,7 @@ def render_svg(
         "mixed": "Mixed input",
         "fungi": "Fungal input",
         "bacteria": "Bacterial input",
+        "plants": "Plant input",
     }[display_mode]
     context_text = f"{mode_label} · {len(leaves)} genomes"
 
@@ -854,34 +847,34 @@ def render_svg(
     add('</defs>')
     add(
         '<style>'
-        '.taxonomy-edge{fill:none;stroke:#8B8B8B;stroke-width:1.0;}'
-        '.taxonomy-rank-label{font-family:Arial,Helvetica,sans-serif;font-size:11.4px;font-weight:700;fill:#444444;paint-order:stroke;stroke:#FFFFFF;stroke-width:2.5px;stroke-linejoin:round;}'
+        '.taxonomy-edge{fill:none;stroke:#666666;stroke-width:2.6;}'
+        '.taxonomy-rank-label{font-family:Arial,Helvetica,sans-serif;font-size:18px;font-weight:700;fill:#444444;paint-order:stroke;stroke:#FFFFFF;stroke-width:2.5px;stroke-linejoin:round;}'
         '.row-guide{stroke:#B8B8B8;stroke-width:.65;stroke-dasharray:2 3;}'
         '.matrix-grid{stroke:#E5E5E5;stroke-width:.8;}'
         '</style>'
     )
     add(f'<rect width="{width}" height="{height}" fill="#FFFFFF"/>')
 
-    add(svg_text(36, 42, "A", 24, weight=700, fill=INK))
-    add(svg_text(80, 42, "Taxonomy + genome profiles", 20, weight=700, fill=INK))
-    add(svg_text(panel_b_x + 10, 42, "B", 24, weight=700, fill=INK))
-    add(svg_text(panel_b_x + 54, 42, "Pairwise GCF sharing", 20, weight=700, fill=INK))
-    add(svg_text(width - 40, 42, context_text, 13, fill=MUTED, anchor="end"))
+    add(svg_text(28, 60, "A", 48, weight=700, fill=INK))
+    add(svg_text(100, 52, "Taxonomy + genome profiles", 20, weight=700, fill=INK))
+    add(svg_text(panel_b_x + 10, 60, "B", 48, weight=700, fill=INK))
+    add(svg_text(panel_b_x + 85, 52, "Pairwise GCF sharing", 20, weight=700, fill=INK))
+    add(svg_text(width - 40, 84, context_text, 13, fill=MUTED, anchor="end"))
     add(
         f'<line x1="{panel_b_x - 14:.2f}" y1="68" x2="{panel_b_x - 14:.2f}" '
         f'y2="{panel_bottom:.2f}" stroke="#DDDDDD" stroke-width="1"/>'
     )
 
     add('<g id="panel-a" aria-label="Taxonomy and genome profiles">')
-    add(svg_text(58, 74, "Taxonomy", 15, weight=700, fill=INK))
-    add(svg_text(505, 74, "Genome", 15, weight=700, fill=INK))
-    add(svg_text(bgc_x, 74, "BGCs", 15, weight=700, fill=INK))
+    add(svg_text(58, 100, "Taxonomy", 15, weight=700, fill=INK))
+    add(svg_text(505, 100, "Genome", 15, weight=700, fill=INK))
+    add(svg_text(bgc_x, 100, "BGCs", 15, weight=700, fill=INK))
     add(
-        f'<text x="{gcf_x + gcf_w / 2.0:.2f}" y="74" '
-        'font-family="Arial, Helvetica, sans-serif" font-size="13" '
+        f'<text x="{gcf_x + gcf_w / 2.0:.2f}" y="100" '
+        'font-family="Arial, Helvetica, sans-serif" font-size="18" '
         f'font-weight="700" fill="{INK}" text-anchor="middle">'
         '<title>Per genome: unique GCFs also found in at least one other submitted genome, divided by all unique GCFs assigned to that genome.</title>'
-        'Shared · % of genome GCFs.</text>'
+        'GCF sharing (%)</text>'
     )
 
     rank_abbrev = [
@@ -897,27 +890,27 @@ def render_svg(
     rank_x = [105.0 + index * 45.0 for index in range(8)]
     for x, (short, full) in zip(rank_x, rank_abbrev):
         add(
-            f'<text x="{x:.2f}" y="106" font-family="Arial, Helvetica, sans-serif" '
-            f'font-size="11" font-weight="700" fill="{MUTED}" text-anchor="middle">'
+            f'<text x="{x:.2f}" y="132" font-family="Arial, Helvetica, sans-serif" '
+            f'font-size="15" font-weight="700" fill="{MUTED}" text-anchor="middle">'
             f'<title>{escape(full)}</title>{short}</text>'
         )
         add(
-            f'<line x1="{x:.2f}" y1="112" x2="{x:.2f}" y2="{panel_bottom:.2f}" '
+            f'<line x1="{x:.2f}" y1="140" x2="{x:.2f}" y2="{panel_bottom:.2f}" '
             f'stroke="{GRID}" stroke-width="0.8"/>'
         )
 
     for tick in (0, bgc_axis_max / 2.0, bgc_axis_max):
         x = bgc_x + bgc_w * tick / bgc_axis_max
         add(
-            f'<line x1="{x:.2f}" y1="112" x2="{x:.2f}" y2="{panel_bottom:.2f}" '
+            f'<line x1="{x:.2f}" y1="140" x2="{x:.2f}" y2="{panel_bottom:.2f}" '
             f'stroke="{GRID}" stroke-width="0.8"/>'
         )
         label = str(int(tick)) if float(tick).is_integer() else f"{tick:g}"
-        add(svg_text(x, 106, label, 11, weight=700, fill=MUTED, anchor="middle"))
-    add(svg_text(gcf_x, 106, "0", 11, weight=700, fill=MUTED, anchor="middle"))
-    add(svg_text(gcf_x + gcf_w, 106, "100%", 11, weight=700, fill=MUTED, anchor="middle"))
+        add(svg_text(x, 132, label, 11, weight=700, fill=MUTED, anchor="middle"))
+    add(svg_text(gcf_x, 132, "0", 11, weight=700, fill=MUTED, anchor="middle"))
+    add(svg_text(gcf_x + gcf_w, 132, "100%", 11, weight=700, fill=MUTED, anchor="middle"))
 
-    domain_meta = {"fungi": "Fungi", "bacteria": "Bacteria"}
+    domain_meta = {"fungi": "Fungi", "bacteria": "Bacteria", "plants": "Plants"}
     for domain in domain_order:
         members = grouped[domain]
         top = group_layout[domain]["top"]
@@ -969,7 +962,7 @@ def render_svg(
             continue
         title = node.name + (f" — NCBI taxid {node.taxid}" if node.taxid else "")
         add(
-            f'<circle class="taxonomy-node" cx="{node.x:.2f}" cy="{node.y:.2f}" r="2.1" '
+            f'<circle class="taxonomy-node" cx="{node.x:.2f}" cy="{node.y:.2f}" r="4" '
             f'fill="{TREE_NODE}"><title>{escape(title)}</title></circle>'
         )
     for node in all_nodes(root):
@@ -991,9 +984,9 @@ def render_svg(
         y = row_positions[leaf.genome_id]
         visible = bounded_svg_leaf_label(leaf, compact_display(leaf.display_label))
         scientific, suffix = split_species_label(visible)
-        font_size = 14.0 if len(visible) <= 42 else 13.2
+        font_size = 20.0
         resolution = "unresolved taxonomy" if leaf.unresolved else "saved taxonomy lineage"
-        add(f'<circle cx="465" cy="{y:.2f}" r="2.5" fill="{TREE_NODE}"/>')
+        add(f'<circle cx="465" cy="{y:.2f}" r="4" fill="{TREE_NODE}"/>')
         add(
             f'<circle cx="487.5" cy="{y:.2f}" r="8.5" fill="#FFFFFF" '
             f'stroke="{TREE_NODE}" stroke-width="1.1"/>'
@@ -1010,7 +1003,7 @@ def render_svg(
         )
 
         total_bgc = sum(leaf.bgc_counts.values())
-        bar_y = y - 6.5
+        bar_y = y - 11.0
         cursor = bgc_x
         add(
             f'<g class="bgc-profile" data-genome="{escape(leaf.genome_id)}" '
@@ -1022,7 +1015,7 @@ def render_svg(
                 continue
             segment_width = bgc_w * count / bgc_axis_max
             add(
-                f'<rect x="{cursor:.2f}" y="{bar_y:.2f}" width="{segment_width:.2f}" height="13" '
+                f'<rect x="{cursor:.2f}" y="{bar_y:.2f}" width="{segment_width:.2f}" height="22" '
                 f'fill="{BGC_COLORS[category]}" stroke="#FFFFFF" stroke-width="0.7">'
                 f'<title>{escape(leaf.display_label)} — {category}: {count} of {total_bgc} BGCs</title></rect>'
             )
@@ -1045,7 +1038,7 @@ def render_svg(
             )
             add(
                 f'<rect class="gcf-status-na" x="{gcf_x:.2f}" y="{bar_y:.2f}" '
-                f'width="{gcf_w:.2f}" height="13" fill="#FFFFFF" '
+                f'width="{gcf_w:.2f}" height="22" fill="#FFFFFF" '
                 f'stroke="{SEPARATOR}" stroke-width="0.8" stroke-dasharray="2 2">'
                 f'<title>{escape(leaf.display_label)} — no GCFs are assigned in the selected view; '
                 'the shared percentage is undefined.</title></rect>'
@@ -1068,7 +1061,7 @@ def render_svg(
                 segment_width = gcf_w * count / total_gcf
                 percentage = 100.0 * count / total_gcf
                 add(
-                    f'<rect x="{cursor:.2f}" y="{bar_y:.2f}" width="{segment_width:.2f}" height="13" '
+                    f'<rect x="{cursor:.2f}" y="{bar_y:.2f}" width="{segment_width:.2f}" height="22" '
                     f'fill="{fill}" stroke="#FFFFFF" stroke-width="0.7">'
                     f'<title>{escape(leaf.display_label)} — {label}: {count} unique GCFs '
                     f'({percentage:.1f}% of this genome&apos;s {total_gcf} unique GCFs); '
@@ -1079,7 +1072,7 @@ def render_svg(
         if total_gcf <= 0:
             add(
                 f'<text x="{gcf_x + gcf_w + 9:.2f}" y="{y + 4.2:.2f}" '
-                'font-family="Arial, Helvetica, sans-serif" font-size="13" '
+                'font-family="Arial, Helvetica, sans-serif" font-size="18" '
                 f'font-weight="400" fill="{MUTED}">'
                 f'<title>{escape(leaf.display_label)} — N/A because no GCFs are assigned in the selected view.</title>'
                 'N/A</text>'
@@ -1088,7 +1081,7 @@ def render_svg(
             shared_percent = 100.0 * (within + cross) / total_gcf
             add(
                 f'<text x="{gcf_x + gcf_w + 9:.2f}" y="{y + 4.2:.2f}" '
-                'font-family="Arial, Helvetica, sans-serif" font-size="13" '
+                'font-family="Arial, Helvetica, sans-serif" font-size="18" '
                 f'font-weight="400" fill="{INK}">'
                 f'<title>{within + cross} of {total_gcf} unique GCFs are also found in at least one other submitted genome; this percentage is dataset-relative.</title>'
                 f'{shared_percent:.1f}%</text>'
@@ -1099,17 +1092,17 @@ def render_svg(
     add('<g id="panel-b" aria-label="Pairwise GCF sharing">')
     gradient_width = min(220.0, matrix_size * 0.42)
     add(
-        f'<text x="{matrix_x:.2f}" y="76" font-family="Arial, Helvetica, sans-serif" '
-        f'font-size="13" font-weight="700" fill="{INK}">'
+        f'<text x="{matrix_x:.2f}" y="116" font-family="Arial, Helvetica, sans-serif" '
+        f'font-size="18" font-weight="700" fill="{INK}">'
         '<title>GCFs present in both genomes divided by the nonredundant union of GCFs present in either genome.</title>'
         'GCF overlap · Jaccard %</text>'
     )
     add(
-        f'<rect x="{matrix_x:.2f}" y="90" width="{gradient_width:.2f}" height="10" '
+        f'<rect x="{matrix_x:.2f}" y="130" width="{gradient_width:.2f}" height="10" '
         f'fill="url(#jaccardGradient)" stroke="{SEPARATOR}" stroke-width="0.8"/>'
     )
-    add(svg_text(matrix_x, 120, "0%", 10.5, weight=700, fill=MUTED, anchor="middle"))
-    add(svg_text(matrix_x + gradient_width, 120, f"{legend_max * 100:.0f}%", 10.5, weight=700, fill=MUTED, anchor="middle"))
+    add(svg_text(matrix_x, 160, "0%", 10.5, weight=700, fill=MUTED, anchor="middle"))
+    add(svg_text(matrix_x + gradient_width, 160, f"{legend_max * 100:.0f}%", 10.5, weight=700, fill=MUTED, anchor="middle"))
 
     spans: list[tuple[str, int, int]] = []
     offset = 0
@@ -1206,7 +1199,7 @@ def render_svg(
         cross_y = matrix_y + first_count * cell
         cross_width = first_count * cell
         cross_height = second_count * cell
-        add(svg_text(cross_x + cross_width / 2.0, cross_y + cross_height / 2.0 + 5.0, "No cross-domain links", 15, weight=700, fill=MUTED, anchor="middle"))
+        add(svg_text(matrix_x, matrix_bottom + 24.0, "No cross-domain links", 15, weight=700, fill=MUTED))
 
     add(svg_text(panel_b_x + 22.0, table_y, "Links", 16, weight=700, fill=INK))
     header_y = table_y + 34.0
@@ -1222,7 +1215,7 @@ def render_svg(
     add(svg_text(pair_index_x, header_y, "Pair", 13, weight=700, fill=INK))
     add(svg_text(shared_x, header_y, "Shared", 13, weight=700, fill=INK, anchor="end"))
     add(svg_text(overlap_x, header_y, "Overlap", 13, weight=700, fill=INK, anchor="end"))
-    add(svg_text(bar_x, header_y, "Shared GCFs by BGC class", 13, weight=700, fill=INK))
+    add(svg_text(bar_x, header_y, "GCF classes", 15, weight=700, fill=INK))
     axis_y = header_y + 18.0
     add(f'<line x1="{bar_x:.2f}" y1="{axis_y:.2f}" x2="{bar_right:.2f}" y2="{axis_y:.2f}" stroke="{SEPARATOR}" stroke-width="0.8"/>')
     for fraction in (0.0, 0.5, 1.0):
@@ -1236,7 +1229,7 @@ def render_svg(
         add(svg_text(table_x + 14, header_y + 62.0, "No shared GCF links", 13.2, fill=MUTED))
     else:
         for rank, pair in enumerate(table_pairs):
-            y = header_y + 60.0 + rank * 28.0
+            y = header_y + 60.0 + rank * 66.0
             left = pair["left"]
             right = pair["right"]
             assert isinstance(left, Leaf) and isinstance(right, Leaf)
@@ -1244,7 +1237,8 @@ def render_svg(
             label = f"{short_name(left.display_label)} ↔ {short_name(right.display_label)}"
             full_label = f"{left.display_label} ↔ {right.display_label}"
             add(svg_text(pair_index_x, y, pair_index, 13, weight=700, fill=INK))
-            add(svg_text(pair_label_x, y, label, 12.6, fill=INK))
+            add(svg_text(pair_label_x, y - 12, short_name(left.display_label), 15, fill=INK))
+            add(svg_text(pair_label_x, y + 12, short_name(right.display_label), 15, fill=INK))
             add(svg_text(shared_x, y, str(pair["shared"]), 13, fill=INK, anchor="end"))
             add(svg_text(overlap_x, y, f'{float(pair["jaccard"]) * 100.0:.1f}%', 13, fill=INK, anchor="end"))
             add(f'<rect x="{bar_x:.2f}" y="{y - 8.0:.2f}" width="{bar_width:.2f}" height="10" fill="#F7F7F7"/>')
@@ -1262,7 +1256,7 @@ def render_svg(
                     f'<rect x="{cursor:.2f}" y="{y - 8.0:.2f}" width="{segment_width:.2f}" '
                     f'height="10" fill="{BGC_COLORS[category]}" stroke="#FFFFFF" stroke-width="0.7">'
                     f'<title>{escape(full_label)} — {category}: {count} shared GCFs '
-                    f'({percentage:.1f}% of {shared}); each shared GCF is assigned its representative broad BGC class.</title></rect>'
+                    f'({percentage:.1f}% of {shared}); each shared GCF retains its submitted member class composition; mixed classes are shown together.</title></rect>'
                 )
                 cursor += segment_width
             add(f'<rect x="{bar_x:.2f}" y="{y - 8.0:.2f}" width="{bar_width:.2f}" height="10" fill="none" stroke="{BOUNDARY}" stroke-width="0.7"/>')
@@ -1273,23 +1267,14 @@ def render_svg(
     add(f'<rect x="30" y="{footer_y:.2f}" width="2140" height="{footer_h}" fill="none" stroke="{BOUNDARY}" stroke-width="1.2"/>')
     legend_y = footer_y + 36.0
     add(svg_text(50, legend_y, "BGC class", 16, weight=700, fill=INK))
-    x = 142.0
-    item_widths = {
-        "NRPS": 82.0,
-        "PKS": 76.0,
-        "terpene": 104.0,
-        "RiPP": 76.0,
-        "hybrid": 92.0,
-        "other": 82.0,
-    }
-    for category in BGC_ORDER:
-        add(f'<circle cx="{x + 7:.2f}" cy="{legend_y - 5.5:.2f}" r="7" fill="{BGC_COLORS[category]}" stroke="{TREE_NODE}" stroke-width="1.1"/>')
-        add(svg_text(x + 22, legend_y, category, 13, fill=INK))
-        x += item_widths[category]
-
-    x = 730.0
+    for category, label, x, offset in legend_items:
+        y = footer_y + offset
+        add(f'<circle cx="{x + 7:.2f}" cy="{y - 5.5:.2f}" r="7" fill="{BGC_COLORS[category]}" stroke="{TREE_NODE}" stroke-width="1.1"/>')
+        add(svg_text(x + 22, y, label, 15, fill=INK))
+    x = 50.0
+    legend_y = footer_y + footer_h - 20.0
     add(svg_text(x, legend_y, "GCF status", 16, weight=700, fill=INK))
-    x += 100.0
+    x += 150.0
     statuses = [
         (PRIVATE, "singleton", None, 105.0),
         (WITHIN, "same-domain", None, 145.0),
@@ -1303,7 +1288,7 @@ def render_svg(
         )
         add(svg_text(x + 22, legend_y, label, 13, fill=INK))
         x += item_width
-    add(svg_text(1915, legend_y, "Unique pairs below diagonal", 13, fill=MUTED, anchor="end"))
+    add(svg_text(1760, legend_y, "Unique pairs below diagonal", 13, fill=MUTED, anchor="end"))
     add(svg_text(2145, legend_y, "Rank-aligned; not a phylogram", 13, fill=MUTED, anchor="end"))
     add('</svg>')
     return "\n".join(lines) + "\n"

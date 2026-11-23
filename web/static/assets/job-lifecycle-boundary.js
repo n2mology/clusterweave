@@ -168,6 +168,7 @@ export function createJobLifecycleBoundary({
   function genomeProgressTaxon(value) {
     const taxon = String(value || '').trim().toLowerCase();
     if (taxon === 'fungi' || taxon === 'fungus' || taxon === 'fungal') return 'Fungi';
+    if (taxon === 'plants' || taxon === 'plant') return 'Plants';
     if (taxon === 'bacteria' || taxon === 'bacterium' || taxon === 'bacterial') return 'Bacteria';
     return 'Genome';
   }
@@ -192,7 +193,7 @@ export function createJobLifecycleBoundary({
       item.message ?? item.detail ?? item.status_text ?? item.statusText ?? item.log,
       percent >= 100 ? 'Genome milestone finished' : 'Waiting for the next genome milestone',
     );
-    const messageState = /\b(?:dropped|failed|error|unable|insufficient|needs review)\b/i.test(message)
+    const messageState = /\b(?:dropped|failed|error|unable|insufficient|needs review|supplied plant annotation incompatible|annotation required)\b/i.test(message)
       ? 'warning'
       : /\b(?:complete|completed|finished|not applicable|skipped)\b/i.test(message)
         ? 'complete'
@@ -235,7 +236,7 @@ export function createJobLifecycleBoundary({
       Object.entries(rawStageStates).forEach(([key, value]) => {
         if (!value || typeof value !== 'object') return;
         const normalizedKey = String(key || '').trim().toLowerCase().replace(/-/g, '_');
-        if (!['genome_acquired', 'funannotate', 'antismash', 'funbgcex', 'complete'].includes(normalizedKey)) return;
+        if (!['genome_acquired', 'funannotate', 'antismash', 'plantismash', 'funbgcex', 'complete'].includes(normalizedKey)) return;
         const normalizedStatus = String(value.status || 'queued').trim().toLowerCase();
         stageStates[normalizedKey] = {
           status: ['complete', 'running', 'failed', 'queued', 'waiting'].includes(normalizedStatus)
@@ -337,6 +338,7 @@ export function createJobLifecycleBoundary({
 
   function genomeProgressStages(item) {
     if (item.taxon === 'Bacteria') return ['Genome acquired', 'antiSMASH', 'Complete'];
+    if (item.taxon === 'Plants') return ['Genome acquired', 'plantiSMASH', 'Complete'];
     const usesFunannotate = item.annotationMethod === 'funannotate'
       || /\bfunannotate\b/i.test(`${item.stage || ''} ${item.tool || ''}`);
     return usesFunannotate
@@ -354,12 +356,14 @@ export function createJobLifecycleBoundary({
     const antismashIndex = stages.indexOf('antiSMASH');
     const funbgcexIndex = stages.indexOf('FunBGCeX');
     if (item.taxon === 'Bacteria') {
-      if (/complete/.test(stage)) return stages.length - 1;
+      if (/plantismash/.test(combined)) return stages.indexOf('plantiSMASH');
+    if (/complete/.test(stage)) return stages.length - 1;
       if (/antismash|prodigal/.test(combined)) return antismashIndex;
       if (item.warning || /download|ncbi/.test(combined)) return acquiredIndex;
       if (GENOME_PROGRESS_ACTIVE_STATES.has(item.status) || item.percent > 8) return antismashIndex;
       return acquiredIndex;
     }
+    if (/plantismash/.test(combined)) return stages.indexOf('plantiSMASH');
     if (/complete/.test(stage)) return stages.length - 1;
     if (/funbgcex/.test(combined)) return funbgcexIndex;
     if (/antismash/.test(combined)) return antismashIndex;
@@ -374,6 +378,7 @@ export function createJobLifecycleBoundary({
       'Genome acquired': 'genome_acquired',
       Funannotate: 'funannotate',
       antiSMASH: 'antismash',
+      plantiSMASH: 'plantismash',
       FunBGCeX: 'funbgcex',
       Complete: 'complete',
     })[label] || '';
@@ -382,7 +387,7 @@ export function createJobLifecycleBoundary({
   function genomeProgressStageFraction(item, key, status) {
     if (status === 'complete') return 1;
     if (!['running', 'failed'].includes(status)) return 0;
-    if (key === 'antismash' && item.regionProgress?.total) {
+    if (['antismash', 'plantismash'].includes(key) && item.regionProgress?.total) {
       return Math.max(0, Math.min(1, item.regionProgress.processed / item.regionProgress.total));
     }
     const ranges = {
@@ -390,6 +395,7 @@ export function createJobLifecycleBoundary({
       funannotate: [10, 25],
       antismash: [35, 70],
       funbgcex: [80, 100],
+      plantismash: [30, 100],
       complete: [100, 100],
     };
     const [start, end] = ranges[key] || [0, 100];
@@ -442,8 +448,8 @@ export function createJobLifecycleBoundary({
     const current = stages.find(stage => stage.status === 'running' || stage.status === 'failed');
     if (current) return {
       label: current.label,
-      percent: current.progress,
-      text: `${current.label} ${current.progress}%`,
+      percent: item.percent,
+      text: `Genome workflow ${item.percent}% · ${current.label}`,
     };
     if (item.terminal && !item.warning) return { label: 'Complete', percent: 100, text: 'Complete 100%' };
     return { label: 'Queued', percent: 0, text: 'Queued' };
@@ -453,8 +459,9 @@ export function createJobLifecycleBoundary({
     const current = stages.find(stage => stage.status === 'running' || stage.status === 'failed');
     const region = item.regionProgress;
     const pieces = [];
-    if (current?.key === 'antismash' && region?.total) {
-      pieces.push(`Region (${region.processed}/${region.total})`);
+    if (['antismash', 'plantismash'].includes(current?.key) && region?.total) {
+      pieces.push(`Record shards: ${Math.max(0, region.processed - region.failed)}/${region.total} complete`);
+      if (region.failed) pieces.push(`${region.failed} failed`);
       if (region.active) pieces.push(`${region.active} active`);
     }
     const activity = safeGenomeProgressText(statusMessage, '', 180);
@@ -468,9 +475,9 @@ export function createJobLifecycleBoundary({
     const valueText = `${ribbonText} · overall milestone ${item.percent}%`;
     return `
       <div class="genome-progress-meter-row${item.progressLabel && !item.hasWarning ? ' has-progress-chip' : ''}">
-        <div class="genome-progress-track" role="progressbar" aria-label="${escapeHtml(`${item.label} current stage progress`)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${meter.percent}" aria-valuetext="${escapeHtml(valueText)}" style="--genome-stage-count: ${stages.length}">
+        <div class="genome-progress-track" role="progressbar" aria-label="${escapeHtml(`${item.label} genome workflow milestone`)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${meter.percent}" aria-valuetext="${escapeHtml(valueText)}" style="--genome-stage-count: ${stages.length}">
           ${stages.map(stage => {
-            const liveRegionClass = stage.key === 'antismash'
+            const liveRegionClass = ['antismash', 'plantismash'].includes(stage.key)
               && stage.status === 'running'
               && item.regionProgress?.active ? ' has-live-region-work' : '';
             return `<span class="genome-progress-segment ${stage.stateClass}${liveRegionClass}" title="${escapeHtml(`${stage.label}: ${stage.progress}%`)}"><span class="genome-progress-segment-fill" style="--genome-stage-progress: ${stage.progress}%"></span></span>`;
@@ -794,6 +801,7 @@ function jobHistoryRenderKey(jobs) {
     j.project_name,
     j.status,
     j.stage,
+    j.updated_at || j.updatedAt || j.created_at || j.createdAt || '',
     jobStageSignature(j),
     j.rerun_count || 0,
     Array.isArray(j.result_files) ? j.result_files.length : Number(j.result_file_count || 0),
@@ -850,6 +858,14 @@ function jobStagePipState(job, key) {
   const current = jobCurrentStageKey(job);
   const currentIdx = current ? stageIndex(current) : -1;
   const pipIdx = stageIndex(key);
+  if (status === 'completed_with_exclusions' || status === 'awaiting_decision') {
+    if (key === 'prep') return 'done';
+    if (key === 'annotation') return 'failed';
+    const plan = job?.cohort_decision?.plan?.[key] || '';
+    if (plan.startsWith('skipped:')) return 'disabled';
+    if (status === 'completed_with_exclusions' && plan.startsWith('will run')) return 'done';
+    return 'upcoming';
+  }
   if (status === 'success') return 'done';
   if (status === 'failed') {
     if (current && key === current) return 'failed';
@@ -885,6 +901,8 @@ function statusLabel(status) {
     running: 'Running',
     success: 'Complete',
     failed: 'Failed',
+    awaiting_decision: 'Decision required',
+    completed_with_exclusions: 'Completed with exclusions',
   };
   return labels[String(status || '').toLowerCase()] || String(status || 'Pending');
 }
@@ -892,7 +910,7 @@ function statusLabel(status) {
 function jobCanRerun(job) {
   if (!canUseAdminSurfaces() || !job) return false;
   const status = String(job.status || '').toLowerCase();
-  return status === 'success' || status === 'failed';
+  return ['success', 'failed', 'awaiting_decision', 'completed_with_exclusions'].includes(status);
 }
 
 function rerunStageKeysForJob(job) {
@@ -944,9 +962,10 @@ function renderJobHistory(jobs) {
     const statusText = statusLabel(job.status);
     const stageText = jobStageDisplay(job);
     const updatedRaw = job.updated_at || job.updatedAt || job.created_at || job.createdAt || '';
-    const updatedDate = updatedRaw ? new Date(updatedRaw) : null;
+    const updatedMs = parseTimestampMs(updatedRaw);
+    const updatedDate = updatedMs === null ? null : new Date(updatedMs);
     const updatedText = updatedDate && !Number.isNaN(updatedDate.getTime())
-      ? updatedDate.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+      ? updatedDate.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })
       : 'unknown';
     const rerunCount = Number(job.rerun_count || 0);
     const fileCount = Array.isArray(job.result_files) ? job.result_files.length : Number(job.result_file_count || 0);
@@ -1223,6 +1242,8 @@ async function pollJobFinal(
     job.genome_progress = previousJob.genome_progress;
   }
   state.activeJobMeta = job;
+  void PROGRESS_TREE_CONSOLE.then(view => view.setJobStatus(job.status, jobId)).catch(() => {});
+  renderCohortDecision(job);
   const publicRunId = adoptPublicRunIdentity(jobId, job);
   setActiveSavedAnalysisContext(job);
   renderRunStack();
@@ -1367,6 +1388,7 @@ async function presentAdminLogLines({
     } else {
       consoleView.hydrate({ lines: materialized, start, prepend, autoScroll, context, stage, jobId, logGeneration: generation });
     }
+    consoleView.setJobStatus(state.activeJobMeta?.status, jobId);
     return;
   } catch (error) {
   }
@@ -1462,8 +1484,9 @@ async function syncActiveAdminLogs(autoScroll = false) {
   }
   const jobId = String(state.activeJobId);
   const seq = state.jobLoadSeq;
+  const requestedStart = state.logCursor;
   const resp = await apiFetch(
-    jobLifecycleBoundary.adminLogsPath(jobId, `since=${encodeURIComponent(state.logCursor)}`),
+    jobLifecycleBoundary.adminLogsPath(jobId, `since=${encodeURIComponent(requestedStart)}`),
     {},
     { kind: 'admin' },
   );
@@ -1476,8 +1499,10 @@ async function syncActiveAdminLogs(autoScroll = false) {
     await hydrateQaLogs({ tail: true, autoScroll: true });
     return;
   }
-  const appendStart = state.logCursor;
-  for (const line of (page.lines || [])) {
+  const appendStart = Math.max(0, Number(page.start ?? requestedStart));
+  const pageEnd = Math.max(appendStart, Number(page.end ?? page.total) || appendStart);
+  if (pageEnd <= state.logCursor) return;
+  for (const line of (page.lines || []).slice(Math.max(0, state.logCursor - appendStart))) {
     updateStageBar(line);
   }
   await presentAdminLogLines({
@@ -1488,8 +1513,8 @@ async function syncActiveAdminLogs(autoScroll = false) {
     jobId, generation: page.generation || state.logGeneration, seq,
   });
   if (!currentJobSelection(jobId, seq)) return;
-  state.logCursor = Math.max(0, Number(page.total) || state.logCursor);
-  state.logTotal = state.logCursor;
+  state.logCursor = Math.max(state.logCursor, pageEnd);
+  state.logTotal = Math.max(state.logCursor, Number(page.total) || 0);
   if (page.generation) state.logGeneration = page.generation;
   renderQaDrawer(state.activeJobMeta, state.activeResultFiles);
   updateAdminLogControls();
@@ -1914,7 +1939,8 @@ function setWorkflowExperienceState(job = state.activeJobMeta) {
   renderJobRuntime(job);
   const status = String((job && job.status) || '').toLowerCase();
   let state = 'idle';
-  if (status === 'success') state = 'complete';
+  if (status === 'success' || status === 'completed_with_exclusions') state = 'complete';
+  else if (status === 'awaiting_decision') state = 'failed';
   else if (status === 'failed') state = 'failed';
   else if (status === 'running') state = 'running';
   else if (status === 'pending' || state.activeJobId) state = 'launched';
@@ -2150,25 +2176,14 @@ function workflowGenomePhaseFromTitle(title) {
 }
 
 function annotationGenomeProgress(job) {
-  const events = jobPublicWorkflowEvents(job, 'annotation').filter(event => event?.stage === 'annotation');
-  let latestPosition = null;
-  let latest = null;
-  events.forEach((event) => {
-    const position = parseWorkflowGenomePosition(`${event.title || ''} ${event.meta || ''}`);
-    if (position) latestPosition = position;
-    const phase = workflowGenomePhaseFromTitle(event.title);
-    const source = position || (phase !== null ? latestPosition : null);
-    if (!source) return;
-    const currentPhase = phase === null ? 0.5 : phase;
-    const fraction = clampUnit((source.current - 1 + currentPhase) / source.total);
-    latest = {
-      current: source.current,
-      total: source.total,
-      fraction,
-      label: `Genome ${source.current} of ${source.total}`,
-    };
-  });
-  return latest;
+  const genomes = normalizeGenomeProgressItems(job);
+  if (!genomes.length) return null;
+  const completed = genomes.filter(item => item.status === 'complete').length;
+  return {
+    current: completed, total: genomes.length,
+    fraction: genomes.reduce((sum, item) => sum + clampUnit(item.percent / 100), 0) / genomes.length,
+    label: `${completed} of ${genomes.length} genome workflows complete`,
+  };
 }
 
 function workflowCurrentStageFraction(job, currentKey, status) {
@@ -2182,7 +2197,7 @@ function workflowCurrentStageFraction(job, currentKey, status) {
 }
 
 function weightedWorkflowProgress(stages, currentKey, status, job, stageProgress = null) {
-  if (status === 'success') return 1;
+  if (status === 'success' || status === 'completed_with_exclusions') return 1;
   if (!currentKey) return 0;
   const totalWeight = stages.reduce((sum, stage) => sum + workflowStageWeight(stage), 0) || 1;
   const currentIndex = stages.findIndex(stage => stage.key === currentKey);
@@ -2207,9 +2222,10 @@ function bgcWorkflowPayload(job = state.activeJobMeta) {
   const stages = bgcWorkflowStages(job);
   const status = String((job && job.status) || '').toLowerCase();
   const rawCurrentKey = currentWorkflowStage() || jobCurrentStageKey(job);
-  const currentKey = status === 'success' ? '' : rawCurrentKey;
+  const currentKey = ['success', 'completed_with_exclusions'].includes(status) ? '' : rawCurrentKey;
   let state = 'idle';
-  if (status === 'success') state = 'complete';
+  if (status === 'success' || status === 'completed_with_exclusions') state = 'complete';
+  else if (status === 'awaiting_decision') state = 'failed';
   else if (status === 'failed') state = 'failed';
   else if (status === 'running' || status === 'pending' || state.activeJobId) state = 'running';
   const stageProgress = currentKey === 'annotation' ? annotationGenomeProgress(job) : null;
@@ -2222,8 +2238,8 @@ function bgcWorkflowPayload(job = state.activeJobMeta) {
   const percent = Math.round(progress * 100);
   const currentStage = stages.find(stage => stage.key === currentKey);
   const hasSkippedStages = workflowPayloadHasSkippedStages();
-  const tool = currentStage ? (STAGE_DETAILS[currentStage.key]?.name || currentStage.label) : (status === 'success' ? (hasSkippedStages ? 'Selected stages complete' : 'Workflow complete') : 'Input queue');
-  const detail = state === 'idle'
+  const tool = status === 'awaiting_decision' ? 'Decision required' : status === 'completed_with_exclusions' ? 'Completed with exclusions' : currentStage ? (STAGE_DETAILS[currentStage.key]?.name || currentStage.label) : (status === 'success' ? (hasSkippedStages ? 'Selected stages complete' : 'Workflow complete') : 'Input queue');
+  const detail = status === 'awaiting_decision' ? 'Review genome outcomes and explicitly choose whether to continue.' : status === 'completed_with_exclusions' ? 'Downstream work completed for the accepted cohort; failed genomes remain excluded.' : state === 'idle'
     ? 'Waiting for submitted inputs'
     : status === 'failed'
       ? (job?.error_summary || job?.error || 'Workflow needs attention')
@@ -2309,7 +2325,6 @@ function applyBgcWorkflowPayload(payload) {
   const captionPercent = document.getElementById('workflow-percent');
   const tool = document.getElementById('bgc-workflow-tool');
   const detail = document.getElementById('bgc-workflow-detail');
-  const activityChip = document.getElementById('bgc-tool-activity-chip');
   const title = document.getElementById('workflow-title');
   const stageStrip = document.getElementById('bgc-stage-strip');
   const toolStatus = tool?.closest('.workflow-tool-status');
@@ -2338,12 +2353,6 @@ function applyBgcWorkflowPayload(payload) {
     const stationDetail = payload.stationDetailText || '';
     detail.textContent = stationDetail;
     detail.hidden = !stationDetail;
-  }
-  if (activityChip) {
-    activityChip.textContent = payload.activityText || (payload.state === 'running' ? 'RUNNING' : payload.state.toUpperCase());
-    activityChip.dataset.state = payload.state || 'idle';
-    activityChip.title = payload.activityTitle || payload.activityText || '';
-    activityChip.hidden = completePresentation;
   }
   renderBgcWorkflowStageStrip(payload);
   renderGenomeProgressLayer(payload);
@@ -2690,6 +2699,95 @@ function renderStageState() {
   updateBgcWorkflowDnaFromJob(state.activeJobMeta);
 }
 
+function renderCohortDecision(job) {
+  const panel = document.getElementById('cohort-decision');
+  if (!panel) return;
+  const gate = job?.cohort_decision;
+  panel.replaceChildren();
+  panel.hidden = !gate;
+  if (!gate) return;
+  panel.dataset.outcomeState = job.status;
+  const head = document.createElement('div');
+  head.className = 'module-head cohort-head';
+  const heading = document.createElement('h3');
+  heading.textContent = job.status === 'completed_with_exclusions' ? 'Completed with exclusions'
+    : job.status === 'awaiting_decision' ? 'Review genome outcomes'
+    : 'Genome outcomes and exclusions';
+  const badge = document.createElement('span');
+  badge.className = 'cohort-status';
+  badge.textContent = job.status === 'awaiting_decision' ? 'Decision required'
+    : job.status === 'failed' ? 'Review required' : statusLabel(job.status);
+  head.append(heading, badge); panel.append(head);
+  const body = document.createElement('div'); body.className = 'module-body cohort-body'; panel.append(body);
+  const explanation = document.createElement('p'); explanation.className = 'cohort-intro';
+  explanation.textContent = 'Failed attempts and diagnostics are retained. Exclusion does not turn a failed genome into a scientific success. Successful annotation and detection will not rerun.';
+  body.append(explanation);
+  const list = document.createElement('ul'); list.className = 'cohort-genomes';
+  for (const outcome of gate.outcomes || []) {
+    const row = document.createElement('li'); row.className = 'cohort-genome';
+    const valid = ['success', 'successful_empty'].includes(outcome.state);
+    row.dataset.outcome = valid ? 'success' : 'failed';
+    const title = document.createElement('div'); title.className = 'cohort-genome-head';
+    const name = document.createElement('strong'); name.textContent = outcome.organism_name || outcome.genome_id.replaceAll('_', ' ');
+    const status = document.createElement('span'); status.className = 'cohort-state';
+    status.textContent = outcome.state === 'successful_empty' ? 'Complete · 0 BGCs' : valid ? 'Validated' : 'Failed';
+    title.append(name, status);
+    const identity = document.createElement('div'); identity.className = 'cohort-genome-id'; identity.textContent = outcome.genome_id;
+    const reason = document.createElement('p'); reason.className = 'cohort-reason'; reason.textContent = outcome.reason;
+    const category = document.createElement('span'); category.className = 'cohort-category'; category.textContent = String(outcome.category || '').replaceAll('_', ' ');
+    row.append(title, identity, category, reason);
+    if (outcome.counts) {
+      const counts = document.createElement('div'); counts.className = 'cohort-counts';
+      for (const [tool, count] of Object.entries(outcome.counts)) { const item = document.createElement('span'); item.textContent = `${tool}: ${count} BGCs`; counts.append(item); }
+      row.append(counts);
+    }
+    list.append(row);
+  }
+  body.append(list);
+  const planLabel = document.createElement('h4'); planLabel.className = 'cohort-plan-title'; planLabel.textContent = 'Downstream plan at decision time'; body.append(planLabel);
+  const plan = document.createElement('ul'); plan.className = 'cohort-plan'; plan.setAttribute('aria-label', 'Downstream plan at decision time');
+  const toolNames = {bigscape:'BiG-SCAPE', summary:'Summaries', clinker:'Clinker', figures:'Figures', phylogeny:'Phylogeny', nplinker:'NPLinker', cross_kingdom_evidence:'Cross-kingdom evidence'};
+  for (const [name, disposition] of Object.entries(gate.plan || {})) {
+    const row = document.createElement('li');
+    const tool = document.createElement('strong'); tool.textContent = toolNames[name] || name;
+    const detail = document.createElement('span'); detail.textContent = disposition;
+    row.dataset.disposition = disposition.startsWith('will run') ? 'ready' : disposition.startsWith('blocked') ? 'blocked' : 'skipped';
+    row.append(tool, detail); plan.append(row);
+  }
+  body.append(plan);
+  const message = document.createElement('p');
+  message.className = 'cohort-message';
+  message.setAttribute('role', 'status');
+  body.append(message);
+  if (job.status === 'awaiting_decision' && gate.eligible && gate.included?.length) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'cohort-continue';
+    button.textContent = `Continue with ${gate.included.length} genome${gate.included.length === 1 ? '' : 's'}; exclude ${gate.excluded.length}`;
+    button.addEventListener('click', async () => {
+      button.disabled = true;
+      const jobId = state.activeJobId;
+      const base = jobLifecycleBoundary.jobDetailPath(jobId, state.publicResultRunIds.has(String(jobId)));
+      try {
+        const response = await apiFetch(`${base.split("?")[0]}/continue`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({decision_id: gate.decision_id, included: gate.included, excluded: gate.excluded}),
+        }, {kind: 'job', jobId});
+        if (!response.ok) throw new Error('Continuation was refused. Reload the current outcome; the decision may be stale or ineligible.');
+        message.textContent = 'Continuation queued for ordinary resource admission.';
+        await pollJobFinal(jobId);
+        if (['pending', 'running'].includes(state.activeJobMeta?.status)) scheduleJobPoll(jobId);
+      } catch (error) {
+        message.textContent = error.message;
+        button.disabled = false;
+      }
+    });
+    body.append(button);
+  } else if (!gate.eligible && gate.excluded?.length) {
+    message.textContent = 'Continuation is unavailable. No eligible cohort remains, or an integrity, identity or output failure requires operator review.';
+  }
+}
+
 function updateProgressBadge(status) {
   setStatusBadge(document.getElementById('progress-badge'), status, state.activeJobMeta);
   finalizeStageState(status);
@@ -2727,7 +2825,8 @@ function statusBadgeModel(status, job = state.activeJobMeta) {
 
 function setStatusBadge(el, status, job = state.activeJobMeta) {
   if (!el) return;
-  const [cls, label] = statusBadgeModel(status, job);
+  const [cls, label] = status === "awaiting_decision" || status === "completed_with_exclusions"
+    ? ["badge-failed", statusLabel(status)] : statusBadgeModel(status, job);
   el.className = 'badge ' + cls;
   el.innerHTML = `<span class="badge-dot"></span> ${escapeHtml(label)}`;
 }

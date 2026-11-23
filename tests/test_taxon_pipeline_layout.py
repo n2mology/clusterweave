@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import csv
 import subprocess
 import sys
@@ -18,12 +19,15 @@ from canonical_pipeline import (  # noqa: E402
     ProjectLayout,
     TAXON_ROUTE_FIELDS,
     _normalize_taxon_routes,
+    _route_summaries,
+    _write_taxon_manifests,
     _resolve_target_genome_alias,
     _stage_uploaded_inputs,
 )
 from taxon_routing import (  # noqa: E402
     build_taxon_routes,
     parse_genbank_taxonomy_stream,
+    summarize_taxon_routes,
 )
 
 
@@ -44,7 +48,291 @@ def route(input_key: str, genome_id: str, taxon_group: str) -> dict[str, object]
     }
 
 
+READY_GENBANK = """LOCUS       fixture                    9 bp    DNA
+FEATURES             Location/Qualifiers
+     CDS             1..9
+                     /translation="MKT"
+ORIGIN
+        1 atgaaaact
+//
+"""
+
+
+def write_genome_fixture(path: Path, *, translated: bool = True) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.suffix.lower() in {".gb", ".gbk", ".gbff"}:
+        content = READY_GENBANK if translated else READY_GENBANK.replace('"MKT"', '""')
+    else:
+        # Pair comparison is a separate policy; these inputs intentionally differ.
+        content = ">different_record\nCCCCCC\n"
+    path.write_text(content, encoding="utf-8")
+    return path
+
+
 class TaxonPipelineLayoutTests(unittest.TestCase):
+    def test_frozen_defaults_explicit_profiles_statuses_and_manifest(self) -> None:
+        raw_routes = [
+            {
+                "input_key": "legacy_f",
+                "taxon_group": "FUNGI"
+            },
+            {
+                "input_key": "legacy_b",
+                "taxon_group": "bacteria",
+                "prediction_method": "",
+                "detector_profile": None
+            },
+            {
+                "input_key": "existing",
+                "taxon_group": "fungi",
+                "prediction_method": "existing_cds",
+                "detector_profile": "custom-profile"
+            },
+            {
+                "input_key": "explicit",
+                "taxon_group": "bacteria",
+                "prediction_method": "HistoricalMethod",
+                "detector_profile": "historical-detector"
+            },
+            {
+                "input_key": "inactive_failed",
+                "taxon_group": "bacteria",
+                "prediction_method": "funannotate",
+                "route_status": "failed"
+            },
+            {
+                "input_key": "inactive_INVALID",
+                "taxon_group": "fungi",
+                "prediction_method": "funannotate",
+                "route_status": "INVALID"
+            },
+            {
+                "input_key": "inactive_rejected",
+                "taxon_group": "bacteria",
+                "prediction_method": "funannotate",
+                "route_status": "rejected"
+            },
+            {
+                "input_key": "inactive_unresolved",
+                "taxon_group": "fungi",
+                "prediction_method": "funannotate",
+                "route_status": "unresolved"
+            },
+            {
+                "input_key": "inactive_unsupported",
+                "taxon_group": "bacteria",
+                "prediction_method": "funannotate",
+                "route_status": "unsupported"
+            },
+            {
+                "input_key": "tolerated",
+                "taxon_group": "fungi",
+                "route_status": "unknown"
+            }
+        ]
+        expected = [
+            {
+                "input_key": "legacy_f",
+                "genome_id": "legacy_f",
+                "taxon_group": "fungi",
+                "taxon_source": "legacy_default",
+                "taxid": "",
+                "organism_name": "",
+                "source_accession": "",
+                "prediction_method": "funannotate",
+                "detector_profile": "antismash+funbgcex",
+                "input_path_key": "",
+                "route_status": "routed",
+                "route_reason": ""
+            },
+            {
+                "input_key": "legacy_b",
+                "genome_id": "legacy_b",
+                "taxon_group": "bacteria",
+                "taxon_source": "legacy_default",
+                "taxid": "",
+                "organism_name": "",
+                "source_accession": "",
+                "prediction_method": "prodigal",
+                "detector_profile": "antismash",
+                "input_path_key": "",
+                "route_status": "routed",
+                "route_reason": ""
+            },
+            {
+                "input_key": "existing",
+                "genome_id": "existing",
+                "taxon_group": "fungi",
+                "taxon_source": "legacy_default",
+                "taxid": "",
+                "organism_name": "",
+                "source_accession": "",
+                "prediction_method": "existing_cds",
+                "detector_profile": "custom-profile",
+                "input_path_key": "",
+                "route_status": "routed",
+                "route_reason": ""
+            },
+            {
+                "input_key": "explicit",
+                "genome_id": "explicit",
+                "taxon_group": "bacteria",
+                "taxon_source": "legacy_default",
+                "taxid": "",
+                "organism_name": "",
+                "source_accession": "",
+                "prediction_method": "HistoricalMethod",
+                "detector_profile": "historical-detector",
+                "input_path_key": "",
+                "route_status": "routed",
+                "route_reason": ""
+            },
+            {
+                "input_key": "inactive_failed",
+                "genome_id": "inactive_failed",
+                "taxon_group": "bacteria",
+                "taxon_source": "legacy_default",
+                "taxid": "",
+                "organism_name": "",
+                "source_accession": "",
+                "prediction_method": "funannotate",
+                "detector_profile": "antismash",
+                "input_path_key": "",
+                "route_status": "failed",
+                "route_reason": ""
+            },
+            {
+                "input_key": "inactive_INVALID",
+                "genome_id": "inactive_INVALID",
+                "taxon_group": "fungi",
+                "taxon_source": "legacy_default",
+                "taxid": "",
+                "organism_name": "",
+                "source_accession": "",
+                "prediction_method": "funannotate",
+                "detector_profile": "antismash+funbgcex",
+                "input_path_key": "",
+                "route_status": "invalid",
+                "route_reason": ""
+            },
+            {
+                "input_key": "inactive_rejected",
+                "genome_id": "inactive_rejected",
+                "taxon_group": "bacteria",
+                "taxon_source": "legacy_default",
+                "taxid": "",
+                "organism_name": "",
+                "source_accession": "",
+                "prediction_method": "funannotate",
+                "detector_profile": "antismash",
+                "input_path_key": "",
+                "route_status": "rejected",
+                "route_reason": ""
+            },
+            {
+                "input_key": "inactive_unresolved",
+                "genome_id": "inactive_unresolved",
+                "taxon_group": "fungi",
+                "taxon_source": "legacy_default",
+                "taxid": "",
+                "organism_name": "",
+                "source_accession": "",
+                "prediction_method": "funannotate",
+                "detector_profile": "antismash+funbgcex",
+                "input_path_key": "",
+                "route_status": "unresolved",
+                "route_reason": ""
+            },
+            {
+                "input_key": "inactive_unsupported",
+                "genome_id": "inactive_unsupported",
+                "taxon_group": "bacteria",
+                "taxon_source": "legacy_default",
+                "taxid": "",
+                "organism_name": "",
+                "source_accession": "",
+                "prediction_method": "funannotate",
+                "detector_profile": "antismash",
+                "input_path_key": "",
+                "route_status": "unsupported",
+                "route_reason": ""
+            },
+            {
+                "input_key": "tolerated",
+                "genome_id": "tolerated",
+                "taxon_group": "fungi",
+                "taxon_source": "legacy_default",
+                "taxid": "",
+                "organism_name": "",
+                "source_accession": "",
+                "prediction_method": "funannotate",
+                "detector_profile": "antismash+funbgcex",
+                "input_path_key": "",
+                "route_status": "unknown",
+                "route_reason": ""
+            }
+        ]
+        actual = _normalize_taxon_routes({"taxon_routes": raw_routes})
+        self.assertEqual(actual, expected)
+        self.assertEqual([list(row) for row in actual], [list(row) for row in expected])
+        self.assertEqual(
+            _route_summaries(actual),
+            (
+                {
+                    "fungi": 3,
+                    "bacteria": 2,
+                    "total": 5
+                },
+                {
+                    "funannotate": 2,
+                    "prodigal": 1,
+                    "antismash": 5,
+                    "funbgcex": 3,
+                    "funbgcex_not_applicable_taxon": 2,
+                    "bigscape": 5,
+                    "taxon_tree_figure": 5
+                },
+            ),
+        )
+        self.assertEqual(
+            summarize_taxon_routes(actual),
+            (
+                {
+                    "fungi": 5,
+                    "bacteria": 5,
+                    "total": 10
+                },
+                {
+                    "funannotate": 7,
+                    "prodigal": 1,
+                    "antismash": 10,
+                    "funbgcex": 5,
+                    "funbgcex_not_applicable_taxon": 5,
+                    "bigscape": 10,
+                    "taxon_tree_figure": 10
+                },
+            ),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            layout = self.make_layout(Path(tmp))
+            _write_taxon_manifests(layout, actual)
+            self.assertEqual(
+                (layout.results_root / "summary_tables/genome_taxon_manifest.tsv").read_bytes(),
+                (
+                    b'input_key\tgenome_id\ttaxon_group\ttaxon_source\ttaxid\torganism_name\tsource_accession\tprediction_method\tdetector_profile\tinput_path_key\troute_status\troute_reason\r\n'
+                    b'legacy_f\tlegacy_f\tfungi\tlegacy_default\t\t\t\tfunannotate\tantismash+funbgcex\t\trouted\t\r\n'
+                    b'legacy_b\tlegacy_b\tbacteria\tlegacy_default\t\t\t\tprodigal\tantismash\t\trouted\t\r\n'
+                    b'existing\texisting\tfungi\tlegacy_default\t\t\t\texisting_cds\tcustom-profile\t\trouted\t\r\n'
+                    b'explicit\texplicit\tbacteria\tlegacy_default\t\t\t\tHistoricalMethod\thistorical-detector\t\trouted\t\r\n'
+                    b'inactive_failed\tinactive_failed\tbacteria\tlegacy_default\t\t\t\tfunannotate\tantismash\t\tfailed\t\r\n'
+                    b'inactive_INVALID\tinactive_INVALID\tfungi\tlegacy_default\t\t\t\tfunannotate\tantismash+funbgcex\t\tinvalid\t\r\n'
+                    b'inactive_rejected\tinactive_rejected\tbacteria\tlegacy_default\t\t\t\tfunannotate\tantismash\t\trejected\t\r\n'
+                    b'inactive_unresolved\tinactive_unresolved\tfungi\tlegacy_default\t\t\t\tfunannotate\tantismash+funbgcex\t\tunresolved\t\r\n'
+                    b'inactive_unsupported\tinactive_unsupported\tbacteria\tlegacy_default\t\t\t\tfunannotate\tantismash\t\tunsupported\t\r\n'
+                    b'tolerated\ttolerated\tfungi\tlegacy_default\t\t\t\tfunannotate\tantismash+funbgcex\t\tunknown\t\r\n'
+                ),
+            )
+
     def make_layout(self, root: Path) -> ProjectLayout:
         data = root / "data"
         return ProjectLayout(
@@ -207,6 +495,147 @@ class TaxonPipelineLayoutTests(unittest.TestCase):
                 (layout.bacteria_genome_root / "Paired_Bacterium.gbk").is_file()
             )
             self.assertEqual(len(settings["taxon_routes"]), 1)
+
+    def test_direct_same_kind_duplicates_reject_before_staging_in_either_order(self) -> None:
+        cases = (
+            ("pair.fa", "pair.fna", "FASTA"),
+            ("pair.fasta", "pair.fsa", "FASTA"),
+            ("PAIR.FNA", "pair.FA", "FASTA"),
+            ("pair.gbk", "pair.gb", "GenBank"),
+            ("pair.gbff", "PAIR.GBK", "GenBank"),
+            ("pair.fna", "pair.fna", "FASTA"),
+            ("pair.gbk", "pair.gbk", "GenBank"),
+        )
+        for left_name, right_name, kind in cases:
+            for group in ("fungi", "bacteria"):
+                for frozen in (False, True):
+                    for reverse in (False, True):
+                        with self.subTest(left=left_name, right=right_name, group=group,
+                                          frozen=frozen, reverse=reverse), tempfile.TemporaryDirectory() as tmp:
+                            root = Path(tmp)
+                            left = write_genome_fixture(root / "left" / left_name)
+                            right = write_genome_fixture(root / "right" / right_name, translated=False)
+                            files = [right, left] if reverse else [left, right]
+                            before_bytes = [path.read_bytes() for path in files]
+                            settings = {"analysis_scope": group}
+                            if frozen:
+                                settings["taxon_routes"] = [route("pair", "Frozen_Genome", group)]
+                            before_settings = copy.deepcopy(settings)
+                            layout = self.make_layout(root)
+                            job = Job(id="job", name="demo")
+                            with self.assertRaisesRegex(ValueError, f"duplicate {kind}"):
+                                _stage_uploaded_inputs(files, layout, settings, job)
+                            self.assertEqual(settings, before_settings)
+                            self.assertEqual(layout.genome_inputs, [])
+                            self.assertEqual(
+                                [path for directory in layout.genome_roots
+                                 for path in directory.rglob("*") if path.is_file()], [],
+                            )
+                            self.assertFalse((layout.results_root / "summary_tables/genome_taxon_manifest.tsv").exists())
+                            self.assertEqual([path.read_bytes() for path in files], before_bytes)
+
+    def test_repeated_genome_path_is_a_duplicate_with_or_without_frozen_routes(self) -> None:
+        for suffix, kind in ((".fna", "FASTA"), (".gbk", "GenBank")):
+            for frozen in (False, True):
+                with self.subTest(suffix=suffix, frozen=frozen), tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    source = write_genome_fixture(root / ("pair" + suffix))
+                    settings = {"analysis_scope": "fungi"}
+                    if frozen:
+                        settings["taxon_routes"] = [route("pair", "pair", "fungi")]
+                    layout = self.make_layout(root)
+                    with self.assertRaisesRegex(ValueError, f"duplicate {kind}"):
+                        _stage_uploaded_inputs([source, source], layout, settings, Job(id="job", name="demo"))
+                    self.assertEqual(layout.genome_inputs, [])
+                    self.assertEqual(list(layout.fungi_genome_root.glob("*")), [])
+
+    def test_frozen_filename_aliases_share_one_duplicate_kind_limit(self) -> None:
+        for names, kind in ((("upload.fna", "Canonical.fa"), "FASTA"),
+                            (("alias.gbff", "upload.gbk"), "GenBank")):
+            for reverse in (False, True):
+                with self.subTest(names=names, reverse=reverse), tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    files = [write_genome_fixture(root / name) for name in names]
+                    if reverse:
+                        files.reverse()
+                    frozen = route("upload", "Canonical", "fungi")
+                    frozen["input_path_key"] = "genomes/fungi/demo/alias"
+                    settings = {"analysis_scope": "fungi", "taxon_routes": [frozen]}
+                    layout = self.make_layout(root)
+                    with self.assertRaisesRegex(ValueError, f"duplicate {kind}"):
+                        _stage_uploaded_inputs(files, layout, settings, Job(id="job", name="demo"))
+                    self.assertEqual(layout.genome_inputs, [])
+                    self.assertEqual(list(layout.fungi_genome_root.glob("*")), [])
+
+    def test_one_fasta_and_genbank_pair_preserves_routes_counts_bytes_and_order(self) -> None:
+        pairs = ((".fa", ".gb"), (".fna", ".gbk"), (".fsa", ".gbff"),
+                 (".fasta", ".gbk"), (".FNA", ".GBFF"))
+        for fasta_suffix, gbk_suffix in pairs:
+            for group in ("fungi", "bacteria"):
+                for frozen in (False, True):
+                    for reverse in (False, True):
+                        with self.subTest(pair=(fasta_suffix, gbk_suffix), group=group,
+                                          frozen=frozen, reverse=reverse), tempfile.TemporaryDirectory() as tmp:
+                            root = Path(tmp)
+                            files = [write_genome_fixture(root / ("pair" + suffix))
+                                     for suffix in (fasta_suffix, gbk_suffix)]
+                            if reverse:
+                                files.reverse()
+                            settings = {"analysis_scope": group}
+                            genome_id = "Canonical_Pair" if frozen else "pair"
+                            expected = route("pair", genome_id, group)
+                            if frozen:
+                                settings["taxon_routes"] = [copy.deepcopy(expected)]
+                            else:
+                                expected["prediction_method"] = "existing_cds" if group == "fungi" else "prodigal"
+                                expected["route_reason"] = f"selected_{group}_scope_declaration"
+                            expected["input_path_key"] = f"genomes/{group}/demo/{genome_id}"
+                            layout = self.make_layout(root)
+                            _stage_uploaded_inputs(files, layout, settings, Job(id="job", name="demo"))
+                            self.assertEqual(settings["taxon_routes"], [expected])
+                            self.assertEqual(
+                                settings["taxon_counts"],
+                                {"fungi": int(group == "fungi"), "bacteria": int(group == "bacteria"), "total": 1},
+                            )
+                            self.assertEqual(
+                                settings["applicability_counts"],
+                                {"funannotate": int(expected["prediction_method"] == "funannotate"),
+                                 "prodigal": int(group == "bacteria"), "antismash": 1,
+                                 "funbgcex": int(group == "fungi"),
+                                 "funbgcex_not_applicable_taxon": int(group == "bacteria"),
+                                 "bigscape": 1, "taxon_tree_figure": 1},
+                            )
+                            with (layout.results_root / "summary_tables/genome_taxon_manifest.tsv").open(newline="") as handle:
+                                self.assertEqual(list(csv.DictReader(handle, delimiter="\t")), [expected])
+                            self.assertEqual([path.suffix for path in layout.genome_inputs],
+                                             [path.suffix.lower() for path in files])
+                            self.assertEqual([path.read_bytes() for path in layout.genome_inputs],
+                                             [path.read_bytes() for path in files])
+
+    def test_distinct_genomes_and_duplicate_auxiliary_names_remain_supported(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            genomes = [write_genome_fixture(root / name) for name in ("one.fna", "two.fa")]
+            auxiliary = []
+            for label in ("left", "right"):
+                path = root / label / "readme.notes"
+                path.parent.mkdir()
+                path.write_text(label, encoding="utf-8")
+                auxiliary.append(path)
+            settings = {"analysis_scope": "fungi"}
+            layout = self.make_layout(root)
+            _stage_uploaded_inputs([*genomes, *auxiliary], layout, settings, Job(id="job", name="demo"))
+            self.assertEqual(len(layout.genome_inputs), 2)
+            self.assertEqual([row["genome_id"] for row in settings["taxon_routes"]], ["one", "two"])
+            self.assertEqual((layout.downloads_root / "unclassified/readme.notes").read_text(), "left")
+            self.assertEqual((layout.downloads_root / "unclassified/readme_2.notes").read_text(), "right")
+
+    def test_direct_safe_name_collapse_retains_its_existing_rejection(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            files = [write_genome_fixture(root / name) for name in ("pair one.fna", "pair_one.fa")]
+            with self.assertRaisesRegex(ValueError, "collapse to the same safe input_key"):
+                _stage_uploaded_inputs(files, self.make_layout(root), {"analysis_scope": "fungi"}, Job(id="job", name="demo"))
 
     def test_cross_domain_duplicate_immutable_genome_id_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "Duplicate genome_id"):

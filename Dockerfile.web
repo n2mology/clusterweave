@@ -1,3 +1,4 @@
+FROM antismash/standalone:8.0.4 AS annotation-reader
 FROM python:3.11-slim
 
 USER root
@@ -8,9 +9,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
     && rm -rf /var/lib/apt/lists/*
 
+COPY --from=annotation-reader /usr/local/lib/python3.11/dist-packages/Bio /opt/annotation-reader/Bio
+COPY --from=annotation-reader /usr/local/lib/python3.11/dist-packages/numpy /opt/annotation-reader/numpy
+COPY --from=annotation-reader /usr/local/lib/python3.11/dist-packages/numpy.libs /opt/annotation-reader/numpy.libs
+COPY --from=annotation-reader /usr/local/lib/python3.11/dist-packages/biopython-1.81.dist-info /opt/annotation-reader/biopython-1.81.dist-info
+COPY --from=annotation-reader /usr/local/lib/python3.11/dist-packages/numpy-2.2.5.dist-info /opt/annotation-reader/numpy-2.2.5.dist-info
+ENV PYTHONPATH=/opt/annotation-reader
+
 WORKDIR /app
 COPY web/app.py /app/app.py
-COPY web/local_owner.py /app/local_owner.py
+COPY web/local_owner.py web/local_setup.py /app/
 COPY web/healthcheck.py /app/healthcheck.py
 COPY web/researcher_report.py web/tool_runtime.py /app/
 COPY CITATION.cff /app/CITATION.cff
@@ -18,8 +26,9 @@ COPY web/accession_catalog.py /app/accession_catalog.py
 COPY web/cache_status.py /app/cache_status.py
 COPY bin/backfill_result_attestations.py /app/backfill_result_attestations.py
 COPY web/bigscape_public_db.py /app/bigscape_public_db.py
-COPY web/genbank_readiness.py /app/genbank_readiness.py
+COPY web/genbank_readiness.py web/plant_annotation.py /app/
 COPY web/job_store.py /app/job_store.py
+COPY web/cohort_gate.py web/cohort_resume.py /app/
 COPY web/legacy_job_results.py /app/legacy_job_results.py
 COPY web/notifications.py /app/notifications.py
 COPY web/public_results.py /app/public_results.py
@@ -30,8 +39,13 @@ COPY web/result_attestation.py /app/result_attestation.py
 COPY web/resource_policy.py /app/resource_policy.py
 COPY web/runtime_capabilities.py /app/runtime_capabilities.py
 COPY web/taxon_routing.py /app/taxon_routing.py
+COPY web/scientific_profiles.py /app/scientific_profiles.py
 COPY web/static/ /app/static/
 COPY web/entrypoint-web.sh /app/entrypoint.sh
+COPY software/plantismash/ /opt/plantismash-source/
+COPY config/plantismash-profile.json bin/plantismash_prereqs.py /opt/plantismash-source/
+RUN python3 /opt/plantismash-source/source_offer.py --cache /tmp/plant-source-cache --output /app/static/assets/third-party/plantismash-source.zip \
+    && rm -rf /tmp/plant-source-cache
 
 RUN chmod +x /app/entrypoint.sh
 
@@ -45,3 +59,8 @@ ENV PFAM_DIR=/databases/pfam
 ENV PORT=8080
 
 ENTRYPOINT ["/app/entrypoint.sh"]
+
+COPY web/plant_identity.py /app/plant_identity.py
+COPY web/plant_versions.py /app/plant_versions.py
+
+COPY software/plantismash/sources.lock.json software/plantismash/runtime.lock.json /app/software/plantismash/

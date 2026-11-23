@@ -330,6 +330,8 @@ if ! detect_runtime; then
   exit 0
 fi
 
+# SIF exec does not invoke the OCI entrypoint. Use the pinned image entrypoint
+# explicitly so its prepared micromamba environment matches the Docker route.
 runtime_version() {
   local preflight_timeout="${PHYLOGENY_TIMEOUT_SECONDS}"
   [[ "${preflight_timeout}" -le 60 ]] || preflight_timeout=60
@@ -338,7 +340,7 @@ runtime_version() {
       docker run --rm --network none --cpus 1 --pids-limit 64 "${PHYLOGENY_DOCKER_IMAGE}" clusterweave-phylogeny-versions
   else
     timeout --signal=TERM --kill-after=10 "${preflight_timeout}" \
-      "${RUNTIME_KIND}" exec --cleanenv --containall "${PHYLOGENY_SIF_PATH}" clusterweave-phylogeny-versions
+      "${RUNTIME_KIND}" exec --cleanenv --containall "${PHYLOGENY_SIF_PATH}" /usr/local/bin/_entrypoint.sh clusterweave-phylogeny-versions
   fi
 }
 
@@ -531,11 +533,11 @@ run_family_runtime() {
     if command -v setsid >/dev/null 2>&1; then
       exec setsid "${timeout_args[@]}" "${RUNTIME_KIND}" exec --cleanenv --containall \
         --bind "${input_root_real}:/inputs:ro,${family_work}:/work:rw" --pwd /work \
-        "${PHYLOGENY_SIF_PATH}" sh -c "${command}" sh "${PHYLOGENY_CPUS}" "/inputs/${input_relative}" "${mapping_in_container}" "${raw_family}" "${tree_id}" "${raw_gcf}"
+        "${PHYLOGENY_SIF_PATH}" /usr/local/bin/_entrypoint.sh sh -c "${command}" sh "${PHYLOGENY_CPUS}" "/inputs/${input_relative}" "${mapping_in_container}" "${raw_family}" "${tree_id}" "${raw_gcf}"
     fi
     exec "${timeout_args[@]}" "${RUNTIME_KIND}" exec --cleanenv --containall \
       --bind "${input_root_real}:/inputs:ro,${family_work}:/work:rw" --pwd /work \
-      "${PHYLOGENY_SIF_PATH}" sh -c "${command}" sh "${PHYLOGENY_CPUS}" "/inputs/${input_relative}" "${mapping_in_container}" "${raw_family}" "${tree_id}" "${raw_gcf}"
+      "${PHYLOGENY_SIF_PATH}" /usr/local/bin/_entrypoint.sh sh -c "${command}" sh "${PHYLOGENY_CPUS}" "/inputs/${input_relative}" "${mapping_in_container}" "${raw_family}" "${tree_id}" "${raw_gcf}"
   fi
 }
 
@@ -571,7 +573,7 @@ for ((index=0; index<TOTAL; index++)); do
   IFS=$'\t' read -r raw_family taxon_group raw_path raw_mapping raw_gcf raw_annotation _rest <<< "${FAMILY_ROWS[index]}"
   family_id="$(safe_id "${raw_family}")__$(printf '%s\t%s\t%s' "${raw_family}" "${taxon_group}" "${index}" | sha256sum | cut -c1-8)"
   taxon_group="$(printf '%s' "${taxon_group:-unresolved}" | tr '[:upper:]' '[:lower:]')"
-  case "${taxon_group}" in fungi|bacteria|both) ;; *) taxon_group="unresolved" ;; esac
+  case "${taxon_group}" in fungi|bacteria|both|plants|mixed) ;; *) taxon_group="unresolved" ;; esac
   input_file="$(realpath -m "${raw_path}")"
   mapping_file="$(realpath -m "${raw_mapping:-/nonexistent}")"
   mapping_relative=""

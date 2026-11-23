@@ -10,7 +10,7 @@ for admission estimates.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
 
 
@@ -315,6 +315,30 @@ def bounded_resource_plan(request: ResourceRequest) -> ResourcePlan:
     )
 
 
+def memory_bounded_resource_plan(
+    request: ResourceRequest,
+    memory_budget_mb: int,
+    memory_formula: MemoryFormula | None = None,
+) -> ResourcePlan:
+    """Reduce fan-out within the same CPU budget; admission still fails closed.
+
+    Prefer retaining record overlap within a genome when memory cannot support
+    multiple genome lanes. A minimal plan that cannot fit is returned unchanged
+    so the worker can record its normal explicit resource rejection.
+    """
+    formula = memory_formula or MemoryFormula()
+    plan = request.bounded_plan()
+    while formula.estimate_mb(plan) > memory_budget_mb:
+        if plan.genome_parallelism > 1:
+            request = replace(request, target_genome_parallelism=plan.genome_parallelism - 1)
+        elif plan.antismash_record_parallelism > 1:
+            request = replace(request, target_antismash_record_parallelism=plan.antismash_record_parallelism - 1)
+        else:
+            break
+        plan = request.bounded_plan()
+    return plan
+
+
 def build_hosted_resource_plan(
     job_cpus: int,
     genome_count: int,
@@ -324,11 +348,13 @@ def build_hosted_resource_plan(
     antismash_record_parallelism: int,
     funannotate_cpus_per_genome: int,
     funbgcex_workers_per_genome: int,
+    memory_budget_mb: int | None = None,
+    memory_formula: MemoryFormula | None = None,
 ) -> ResourcePlan:
     """Build the bounded operator-selected shape used by hosted jobs."""
 
     cpus = _positive_int(job_cpus)
-    return ResourceRequest(
+    request = ResourceRequest(
         job_cpus=cpus,
         genome_count=genome_count,
         target_genome_parallelism=genome_parallelism,
@@ -341,7 +367,10 @@ def build_hosted_resource_plan(
         target_phylogeny_cpus=_positive_int(settings.get("phylogeny_cpus", 1)),
         # The current family runner is serial; preserve that execution contract.
         target_phylogeny_parallelism=1,
-    ).bounded_plan()
+    )
+    if memory_budget_mb is not None and memory_budget_mb > 0:
+        return memory_bounded_resource_plan(request, memory_budget_mb, memory_formula)
+    return request.bounded_plan()
 
 
 def estimate_resource_request(

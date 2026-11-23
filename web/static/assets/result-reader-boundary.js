@@ -354,7 +354,11 @@ const RESULT_PREVIEW_NAVIGATOR_SCRIPT = String.raw`
       event.preventDefault();
       event.stopImmediatePropagation();
       const anchor = fragment.slice(1);
-      if (window.viewer && typeof window.viewer.switchToRegion === 'function') {
+      if (typeof window.clusterweavePlantNavigator === 'function') {
+        if (target.id === 'download' && typeof window.toggle_downloadmenu === 'function') window.toggle_downloadmenu(event);
+        else if (target.classList.contains('cluster-rules-header') && typeof window.toggle_cluster_rules === 'function') window.toggle_cluster_rules.call(target, event);
+        else window.clusterweavePlantNavigator(anchor || 'overview');
+      } else if (window.viewer && typeof window.viewer.switchToRegion === 'function') {
         window.viewer.switchToRegion(anchor);
       } else {
         try {
@@ -548,6 +552,7 @@ const BIGSCAPE_SINGLETON_TREE_REPLACEMENT = `    if (treeData.num_leaves <= 1) {
 
 const RESULT_FOLDER_TABS = [
   { key: 'antismash', label: 'ANTISMASH' },
+  { key: 'plantismash', label: 'plantiSMASH', capability: 'plantismash' },
   { key: 'funbgcex', label: 'FUNBGCEX', capability: 'funbgcex' },
   { key: 'bigscape', label: 'BIG-SCAPE' },
   { key: 'synteny', label: 'CLINKER' },
@@ -574,8 +579,9 @@ const ALL_BGC_COLUMNS = Object.freeze([
   { key: 'genome', label: 'Organism' },
   { key: 'taxon_group', label: 'Kingdom' },
   { key: 'detector_relation', label: 'Detector support' },
-  { key: 'antismash_bgc_id', label: 'antiSMASH region' },
-  { key: 'antismash_bgc_class', label: 'antiSMASH BGC class' },
+  { key: 'detector', label: 'BGC detection tool' },
+  { key: 'bgc_record', label: 'BGC Record' },
+  { key: 'bgc_class', label: 'BGC Class' },
   { key: 'antismash_knowncluster_similarity_score', label: 'KnownClusterBlast score' },
   { key: 'antismash_knowncluster_accession', label: 'KnownCluster accession' },
   { key: 'antismash_knowncluster_product', label: 'KnownCluster product' },
@@ -586,6 +592,12 @@ const ALL_BGC_COLUMNS = Object.freeze([
   { key: 'funbgcex_similar_bgc', label: 'FunBGCeX similar BGC' },
   { key: 'funbgcex_similarity_score', label: 'FunBGCeX similarity score' },
   { key: 'funbgcex_putative_product', label: 'FunBGCeX putative product' },
+  { key: 'predictor_core_domains', label: 'Core Domains' },
+  { key: 'plantismash_subgroup_prediction', label: 'Subgroup ID Prediction' },
+  { key: 'plantismash_cdhit_count', label: 'CD-HIT' },
+  { key: 'plantismash_knowncluster_similarity_score', label: 'plantiSMASH KnownClusterBlast score' },
+  { key: 'plantismash_knowncluster_accession', label: 'plantiSMASH KnownCluster accession' },
+  { key: 'plantismash_knowncluster_product', label: 'plantiSMASH KnownCluster product' },
 ]);
 
 const ATLAS_SUMMARY_COLUMNS = Object.freeze([
@@ -597,6 +609,9 @@ const ATLAS_SUMMARY_COLUMNS = Object.freeze([
   { key: 'shared_cc_dataset_genome_count', label: 'Genome count' },
   { key: 'member_genomes', label: 'Genome members' },
   { key: 'antismash_class', label: 'BGC class' },
+  { key: 'predictor_core_domains', label: 'Core domains' },
+  { key: 'plantismash_subgroup_prediction', label: 'Subgroup ID Prediction' },
+  { key: 'plantismash_cdhit_count', label: 'CD-HIT' },
   { key: 'annotation_hits', label: 'Scored annotation hits' },
   { key: 'note', label: 'Note' },
 ]);
@@ -615,6 +630,7 @@ const APPROVED_PHYLOGENY_ARTIFACT_NAMES = new Set([
 
 const FIGURE_FOLDER_VIEWS = Object.freeze([
   { key: 'fungal_families', label: 'FUNGAL FAMILIES', filename: 'fungi_big_scape_multipanel.svg' },
+  { key: 'plant_families', label: 'PLANT FAMILIES', filename: 'plants_big_scape_multipanel.svg' },
   { key: 'bacterial_families', label: 'BACTERIAL FAMILIES', filename: 'bacteria_big_scape_multipanel.svg' },
   { key: 'fungal_tool_overlap', label: 'FUNGAL TOOL OVERLAP', filename: 'bgc_overlap.svg' },
   { key: 'tree', label: 'TREE', filename: 'clusterweave_taxon_tree.svg' },
@@ -794,7 +810,7 @@ function resultArtifactFamilyRoot(path) {
     || parts[0] !== 'data'
     || parts[1] !== 'results'
     || !parts[2]
-    || !['antismash', 'funbgcex'].includes(String(parts[3]).toLowerCase())
+    || !['antismash', 'plantismash', 'funbgcex'].includes(String(parts[3]).toLowerCase())
     || !parts[4]
     || parts.slice(0, 5).some(part => !part || part === '.' || part === '..')
   ) return '';
@@ -815,7 +831,7 @@ function resultArtifactFamilyAssetPath(ownerPath, rawUrl) {
 
 function isToolResultBundleHtml(path, resultContext = null) {
   const descriptor = resultArtifactDescriptor(path, resultContext);
-  return ['antismash', 'funbgcex'].includes(String(descriptor?.category || ''))
+  return ['antismash', 'plantismash', 'funbgcex'].includes(String(descriptor?.category || ''))
     && ['html', 'htm'].includes(resultPathExt(path));
 }
 
@@ -1126,6 +1142,10 @@ function rewriteToolResultScriptForSandbox(assetPath, sourceText, resultContext 
   const source = String(sourceText || '');
   const assetName = resultArtifactName(assetPath, resultContext);
   const descriptor = resultArtifactDescriptor(assetPath, resultContext);
+  if (descriptor?.category === 'plantismash' && /^kinetic-v5\.1\.0\.min\.js$/i.test(assetName)) {
+    if (source.split(BIGSCAPE_KINETIC_GLOBAL_EVAL_SHIM).length - 1 !== BIGSCAPE_KINETIC_GLOBAL_EVAL_SHIM_COUNT) throw new Error('The plantiSMASH Kinetic runtime does not match its CSP-safe compatibility profile.');
+    return source.replaceAll(BIGSCAPE_KINETIC_GLOBAL_EVAL_SHIM, 'globalThis');
+  }
   if (descriptor?.category === 'funbgcex' && /^BGC[0-9]+\.js$/i.test(assetName)) {
     const xCoordinate = 'const x = event.clientX - rect.left;';
     const yCoordinate = 'const y = event.clientY - rect.top;';
@@ -1186,7 +1206,79 @@ function rewriteBigscapeScriptForSandbox(assetPath, sourceText) {
     .replace(BIGSCAPE_SINGLETON_TREE_SIGNATURE, BIGSCAPE_SINGLETON_TREE_REPLACEMENT);
 }
 
+function rewriteBigscapeHeatmapForSandbox(doc) {
+  // BiG-SCAPE checks the run-wide genome count before filtering the selected bin.
+  // InCHlib requires at least two rows and columns in the actual displayed data.
+  const signature = 'var inchlib_data = generateRealHeatmapData(run_data["input"], run_data["networks"][idx]);';
+  const scripts = Array.from(doc.querySelectorAll('script:not([src])'));
+  for (const script of scripts) {
+    const source = script.textContent || '';
+    if (!source.includes('function renderHeatmap(')) continue;
+    if (source.split(signature).length !== 2) {
+      throw new Error('The BiG-SCAPE heatmap renderer does not match the compatibility profile.');
+    }
+    script.textContent = source.replace(signature, signature + `
+        var displayedGenomes = Object.values(inchlib_data.data.nodes)
+            .filter(node => Array.isArray(node.objects)).length;
+        if (displayedGenomes < 2 || inchlib_data.data.feature_names.length < 2) {
+            var message = "The selected bin and filters contain fewer than two genomes or families; no heatmap is shown.";
+            $("#abpres_heatmap").text(message);
+            $("#abpres_tsv_text").val(message);
+            return;
+        }`);
+  }
+}
+
+function rewriteBigscapeEmptyEdgesForSandbox(doc) {
+  for (const script of Array.from(doc.querySelectorAll('script:not([src])'))) {
+    const source = script.textContent || '';
+    if (!source.includes('function generate_bs_similarity(')) continue;
+    const query = /var distances = (window\.db\.exec\(`SELECT distance\.record_a_id,[\s\S]*?`\))\[0\]\.values/g;
+    if (Array.from(source.matchAll(query)).length !== 1) {
+      throw new Error('The BiG-SCAPE network query does not match the compatibility profile.');
+    }
+    // SQL.js returns no result table for a valid query with zero rows. Preserve
+    // isolated records without inventing edges; query errors still propagate.
+    script.textContent = source.replace(query,
+      'var distanceRows = $1;\n        var distances = distanceRows.length === 0 ? [] : distanceRows[0].values');
+  }
+}
+
+function rewriteBigscapeNetworkScope(doc) {
+  // The native alphabetical default can select a single-taxon category while
+  // its overview counts describe the entire run. Prefer the existing mix bin.
+  const selection = '$("#network-selection").append(network_opts)';
+  const table = 'var sorted_bs_ccs = bs_ccs.toSorted((a, b) => b.size - a.size)';
+  for (const script of doc.querySelectorAll('script:not([src])')) {
+    const source = script.textContent || '';
+    if (!source.includes('function populateCcTable(')) continue;
+    if (source.split(selection).length !== 2 || source.split(table).length !== 2) {
+      throw new Error('The BiG-SCAPE network selector does not match the compatibility profile.');
+    }
+    script.textContent = source.replace(selection, selection + `
+        var combinedOption = Array.from(document.getElementById('network-selection').options)
+            .find(option => option.text === 'mix');
+        if (combinedOption) $("#network-selection").val(combinedOption.value);`)
+      .replace(table, table + `
+        var shownRecords = new Set(sorted_bs_ccs.flatMap(cc => cc.families)
+            .flatMap(family => family.members)).size;
+        $("#load-all").text('Visualize shown BGCs (' + shownRecords + ')')
+            .attr('title', 'All BGCs in the selected network and current search filters');
+        $("#clusterweave-network-scope").text('Network: ' + bin_label + ' · ' + shownRecords + ' BGCs shown. Category and search filters apply.');`);
+  }
+  const button = doc.getElementById('load-all');
+  if (button) {
+    const scope = doc.createElement('p');
+    scope.id = 'clusterweave-network-scope';
+    scope.setAttribute('role', 'status');
+    button.before(scope);
+  }
+}
+
 async function inlineBigscapeResultScripts(doc, jobId, htmlPath, options = {}) {
+  rewriteBigscapeNetworkScope(doc);
+  rewriteBigscapeHeatmapForSandbox(doc);
+  rewriteBigscapeEmptyEdgesForSandbox(doc);
   const scripts = Array.from(doc.querySelectorAll('script[src]'));
   await Promise.all(scripts.map(async script => {
     const rawUrl = script.getAttribute('src') || '';
@@ -1238,11 +1330,199 @@ async function inlineBigscapeResultScripts(doc, jobId, htmlPath, options = {}) {
   }));
 }
 
+function preparePlantInlineCsvDownloads(doc, options) {
+  const downloads = [];
+  for (const link of doc.querySelectorAll('a[download][href^="data:text/csv;"]')) {
+    const name = link.getAttribute('download') || '';
+    const value = link.getAttribute('href') || '';
+    if (!/^tfbs_motifs_per_cds_cluster[0-9]+_[A-Za-z0-9_.-]{1,160}\.csv$/.test(name)
+        || !value.startsWith('data:text/csv;charset=utf-8,')) continue;
+    const text = decodeURIComponent(value.slice('data:text/csv;charset=utf-8,'.length));
+    const bytes = new Blob([text]).size;
+    if (bytes > RESULT_PREVIEW_COPY_MAX_BYTES
+        || !text.startsWith('CDS,CDS strand,TSS,Window,Motifs,#Hits\n')) throw new Error('Unrecognized plantiSMASH TFBS CSV download.');
+    options.toolBundleAssetBudget.actualBytes += bytes;
+    if (options.toolBundleAssetBudget.actualBytes > TOOL_RESULT_PREVIEW_TOTAL_ASSET_MAX_BYTES) throw new Error('The result preview asset bundle exceeds the 64 MiB browser limit.');
+    link.removeAttribute('href');
+    link.setAttribute('data-clusterweave-plant-csv', String(downloads.length));
+    link.setAttribute('role', 'button'); link.setAttribute('tabindex', '0');
+    link.style.cursor = 'pointer'; link.style.textDecoration = 'underline';
+    downloads.push({name, text});
+  }
+  if (!downloads.length) return;
+  const script = doc.createElement('script');
+  script.textContent = '(function(downloads){' + `
+    document.querySelectorAll('[data-clusterweave-plant-csv]').forEach(function(control) {
+      function download(event) {
+        if (!event.isTrusted || event.type === 'keydown' && !['Enter',' '].includes(event.key)) return;
+        event.preventDefault(); event.stopPropagation();
+        var item = downloads[Number(control.getAttribute('data-clusterweave-plant-csv'))];
+        if (!item) return;
+        var url = URL.createObjectURL(new Blob([item.text], {type:'text/csv;charset=utf-8'}));
+        var link = document.createElement('a'); link.href = url; link.download = item.name;
+        document.body.appendChild(link); link.click(); link.remove();
+        setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+      }
+      control.addEventListener('click', download);
+      control.addEventListener('keydown', download);
+    });
+  ` + '})(' + JSON.stringify(downloads).replace(/</g, '\\u003c') + ');';
+  doc.body.appendChild(script);
+}
+
+async function loadPlantComparisonAssets(paths, load) {
+  // Bound authenticated requests and stop scheduling on the first failure.
+  const queue = Array.from(paths);
+  let cursor = 0;
+  let failure = null;
+  await Promise.all(Array.from({length: Math.min(4, queue.length)}, async () => {
+    while (!failure && cursor < queue.length) {
+      const path = queue[cursor++];
+      try { await load(path); } catch (error) { failure ||= error; }
+    }
+  }));
+  if (failure) throw failure;
+}
+
+async function preparePlantExtraViews(doc, jobId, htmlPath, clusters, options) {
+  preparePlantInlineCsvDownloads(doc, options);
+  // Fetch through the owner-bound host resolver; the opaque report never receives
+  // a credential, network endpoint, or a permission to open another window.
+  const assetMap = JSON.parse(doc.getElementById('overview')?.getAttribute('data-native-asset-map') || '{}');
+  const paths = new Set(Array.from(doc.querySelectorAll('.clusterblast-selector option'))
+    .map(option => option.value).filter(Boolean));
+  for (const [clusterId, cluster] of Object.entries(clusters)) {
+    for (const orf of cluster.orfs || []) {
+      if (!orf.subgroup || orf.subgroup === '-') continue;
+      if (!/^[A-Za-z0-9_.:-]+$/.test(orf.locus_tag || '')) throw new Error('Unrecognized plantiSMASH subgroup locus.');
+      const record = doc.getElementById(clusterId)?.getAttribute('data-native-record');
+      if (record && !/^[A-Za-z0-9_.-]+$/.test(record)) throw new Error('Invalid native record namespace');
+      const prefix = record ? `subgroup/${record}/tree_svg/` : 'subgroup/tree_svg/';
+      paths.add(assetMap[record]?.['subgroup/tree_svg/' + orf.locus_tag + '.svg'] || prefix + orf.locus_tag + '.svg');
+      paths.add(assetMap[record]?.['subgroup/tree_svg/' + orf.locus_tag + '_legend.svg'] || prefix + orf.locus_tag + '_legend.svg');
+    }
+  }
+  if (paths.size > 1024) throw new Error('The plantiSMASH comparison preview exceeds its asset count limit.');
+  const owner = resultArtifactDescriptor(htmlPath, options.resultContext);
+  const assets = Object.create(null);
+  // Each completed asset is budgeted and sanitized before retention.
+  await loadPlantComparisonAssets(paths, async path => {
+    if (!/^(?:svg\/(?:[A-Za-z0-9_.-]+\/)?[A-Za-z0-9_.-]+|subgroup\/(?:[A-Za-z0-9_.-]+\/)?tree_svg\/[A-Za-z0-9_.:-]+)\.svg$/.test(path)) throw new Error('Unrecognized plantiSMASH comparison asset.');
+    // Native HMM-only subgroup predictions legitimately have no tree package.
+    // Optional resolution still enforces the signed report ownership boundary.
+    const optionalTree = path.startsWith('subgroup/');
+    const resolved = await resolveResultArtifact(jobId, htmlPath, path, {resultContext: options.resultContext, optional: optionalTree});
+    if (!resolved && optionalTree) return;
+    const descriptor = resultArtifactDescriptor(resolved?.key, options.resultContext);
+    if (!descriptor || descriptor.category !== owner.category || descriptor.bundle_id !== owner.bundle_id) throw new Error('A plantiSMASH comparison asset is outside its report bundle.');
+    const response = await resultFetch(jobId, resolved.key, {resultContext: options.resultContext});
+    if (!response.ok) throw new Error('A plantiSMASH comparison asset could not be loaded.');
+    // Reject unsafe declared sizes before allocating the response body.
+    assertToolResultAssetSize(response, 0, {...options.toolBundleAssetBudget});
+    const source = await response.text();
+    assertToolResultAssetSize(response, new Blob([source]).size, options.toolBundleAssetBudget);
+    const parsed = new DOMParser().parseFromString(source, 'image/svg+xml');
+    if (parsed.querySelector('parsererror') || parsed.documentElement.localName !== 'svg') throw new Error('Invalid plantiSMASH comparison SVG.');
+    const svg = sanitizeInlineSvg(parsed.documentElement);
+    for (const node of [svg, ...svg.querySelectorAll('*')]) {
+      for (const attribute of Array.from(node.attributes)) {
+        if (/^(?:href|src)$|:href$/i.test(attribute.name) && !attribute.value.startsWith('#')) node.removeAttribute(attribute.name);
+      }
+    }
+    assets[path] = new XMLSerializer().serializeToString(svg);
+  });
+  for (const select of doc.querySelectorAll('.clusterblast-selector')) {
+    const button = doc.getElementById(select.id.replace(/-select$/, '-download'));
+    if (!button) continue;
+    const link = doc.createElement('a');
+    link.id = button.id;
+    link.textContent = button.textContent;
+    link.setAttribute('href', select.value);
+    link.setAttribute('download', '');
+    button.replaceWith(link);
+  }
+  const get = "$.get(url, function(data) {\n            $('#' + id + '-svg').html(data);\n            clusterblast.init(id + '-svg');\n            updateClusterBlastLabel();\n        }, 'html');";
+  const download = /        \$\('#' \+ id \+ '-download'\)\.off\('click'\);\n        \$\('#' \+ id \+ '-download'\)\.click\(function \(\) \{\n            var url = \$\("#" \+ id \+ "-select"\)\.val\(\);\n            window\.open\(url, '_blank'\);\n        \}\);/;
+  const tree = /function openSvgInWindow\(locusTag, subgroup\) \{[\s\S]*?\n\}\n\nfunction showHideTableSummary/;
+  for (const script of doc.querySelectorAll('script:not([src])')) {
+    let source = script.textContent || '';
+    if (!source.includes('function openSvgInWindow(')) continue;
+    if (source.split(get).length !== 2 || !download.test(source) || !tree.test(source)) throw new Error('The plantiSMASH extra-feature viewer does not match its compatibility profile.');
+    source = source.replace(get, "if (!Object.hasOwn(clusterweavePlantSvgs, url)) throw new Error('Unavailable comparison graphic');\n            $('#' + id + '-svg').html(clusterweavePlantSvgs[url]);\n            clusterblast.init(id + '-svg');\n            updateClusterBlastLabel();")
+      .replace(download, "        var oldLink = document.getElementById(id + '-download');\n        var link = document.createElement('a');\n        link.id = oldLink.id; link.textContent = oldLink.textContent;\n        link.setAttribute('download', ''); link.setAttribute('href', url);\n        oldLink.replaceWith(link);")
+      .replace(tree, `function openSvgInWindow(locusTag, subgroup) {
+        var record = $('.page:visible').attr('data-native-record');
+        var map = JSON.parse(document.getElementById('overview').getAttribute('data-native-asset-map') || '{}');
+        var path = (map[record]?.['subgroup/tree_svg/' + locusTag + '.svg'] || 'subgroup/' + (record ? record + '/' : '') + 'tree_svg/' + locusTag + '.svg').replace(/\.svg$/, '');
+        var old = document.getElementById('clusterweave-subgroup-view');
+        if (old) old.remove();
+        var dialog = document.createElement('dialog');
+        dialog.id = 'clusterweave-subgroup-view';
+        dialog.style.cssText = 'max-width:90vw;max-height:85vh;overflow:auto;background:white;color:#222';
+        var title = document.createElement('h2');
+        title.textContent = locusTag + ' — subgroup: ' + subgroup;
+        dialog.appendChild(title);
+        var close = document.createElement('button');
+        close.textContent = 'Close';
+        close.onclick = function() { dialog.close(); dialog.remove(); };
+        dialog.appendChild(close);
+        if (!Object.hasOwn(clusterweavePlantSvgs, path + '.svg')) {
+          var unavailable = document.createElement('p');
+          unavailable.textContent = 'No subgroup tree is available for this prediction.';
+          dialog.appendChild(unavailable);
+        }
+        ['.svg', '_legend.svg'].forEach(function(suffix) {
+          var assetPath = map[record]?.['subgroup/tree_svg/' + locusTag + suffix] || path + suffix;
+          var svg = clusterweavePlantSvgs[assetPath];
+          if (!svg) return;
+          var img = document.createElement('img');
+          img.alt = locusTag + (suffix === '.svg' ? ' subgroup tree' : ' subgroup legend');
+          img.style.cssText = 'display:block;max-width:100%;height:auto';
+          img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+          dialog.appendChild(img);
+          var link = document.createElement('a');
+          link.href = assetPath; link.download = '';
+          link.textContent = suffix === '.svg' ? 'Download tree' : 'Download legend';
+          dialog.appendChild(link);
+        });
+        document.body.appendChild(dialog); dialog.showModal();
+      }
+
+function showHideTableSummary`);
+    script.textContent = 'var clusterweavePlantSvgs = Object.freeze(' + JSON.stringify(assets).replace(/</g, '\\u003c') + ');\n' + source;
+  }
+}
+
 async function inlineToolResultScripts(doc, jobId, htmlPath, options = {}) {
+  // The extracted native report caches SVGs for file://. The sandbox uses its
+  // existing authenticated SVG resolver and sanitization instead.
+  for (const script of doc.querySelectorAll('script[src="native-assets.js"]')) script.remove();
   const scripts = Array.from(doc.querySelectorAll('script[src]'));
   const deferredScripts = new Set();
   const resultContext = options.resultContext || null;
+  const preloaded = new Map();
+  if (resultArtifactDescriptor(htmlPath, resultContext)?.category === 'plantismash') {
+    const plotly = scripts.filter(script => /(?:^|\/)plotly-latest\.min\.js$/.test(script.getAttribute('src') || ''));
+    if (plotly.length) {
+      // Legacy Plotly compiles code at startup. It is unused when the native
+      // data contain no expression analysis; prove that from JSON, never eval.
+      const dataScripts = scripts.filter(script => script.getAttribute('src') === 'geneclusters.js');
+      if (dataScripts.length !== 1) throw new Error('The plantiSMASH report has an unrecognized gene-cluster data format.');
+      const resolved = await resolveResultArtifact(jobId, htmlPath, 'geneclusters.js', {resultContext});
+      const response = await resultFetch(jobId, resolved.key, {resultContext});
+      if (!response.ok) throw new Error('The plantiSMASH gene-cluster data could not be loaded.');
+      const source = await response.text();
+      const match = source.match(/^var geneclusters = ([\s\S]*);\s*var details_data = [\s\S]*;\s*$/);
+      if (!match) throw new Error('The plantiSMASH gene-cluster data do not match the native JSON profile.');
+      const clusters = JSON.parse(match[1]);
+      await preparePlantExtraViews(doc, jobId, htmlPath, clusters, options);
+      if (Object.values(clusters).some(cluster => Object.hasOwn(cluster, 'geo'))) throw new Error('This plantiSMASH expression-analysis report requires a CSP-compatible expression renderer.');
+      plotly.forEach(script => script.remove());
+      preloaded.set(resolved.key, {response, source});
+    }
+  }
   await Promise.all(scripts.map(async script => {
+    if (!script.parentNode) return;
     const wasDeferred = script.hasAttribute('defer');
     const rawUrl = script.getAttribute('src') || '';
     const resolved = await resolveResultArtifact(
@@ -1260,14 +1540,15 @@ async function inlineToolResultScripts(doc, jobId, htmlPath, options = {}) {
       script.remove();
       return;
     }
-    const resp = await resultFetch(jobId, assetKey, { resultContext });
+    const loaded = preloaded.get(assetKey);
+    const resp = loaded?.response ?? await resultFetch(jobId, assetKey, { resultContext });
     if (!resp.ok) {
       script.remove();
       throw new Error('A required result-bundle script could not be loaded.');
     }
     const source = rewriteToolResultScriptForSandbox(
       assetKey,
-      String(await resp.text()),
+      loaded?.source ?? String(await resp.text()),
       resultContext,
     ).replace(/<\/script/gi, '<\\/script');
     assertToolResultAssetSize(resp, new Blob([source]).size, options.toolBundleAssetBudget);
@@ -1293,6 +1574,46 @@ async function rewriteHtmlResultAssets(htmlText, jobId, htmlPath, options = {}) 
   const allowBigscapeScripts = options.allowBigscapeScripts === true && isBigscapeHtmlArtifact(htmlPath);
   const allowToolBundleScripts = options.allowToolBundleScripts === true
     && isToolResultBundleHtml(htmlPath, resultContext);
+  if (allowToolBundleScripts && resultArtifactDescriptor(htmlPath, resultContext)?.category === 'plantismash') {
+    for (const script of doc.querySelectorAll('script:not([src])')) {
+      const text = script.textContent || '';
+      if (!text.includes('function switch_to_cluster()')) continue;
+      const getter = 'var anchor = url.data.attr.fragment;';
+      const click = 'window.location.href = href;\n\n        switch_to_cluster();';
+      if (text.split(getter).length !== 2 || text.split(click).length !== 2) throw new Error('The plantiSMASH cluster navigator does not match its sandbox compatibility profile.');
+      script.textContent = 'var clusterweavePlantAnchor = "";\n' + text
+        .replace('function switch_to_cluster() {', 'function switch_to_cluster(anchor) { if (typeof anchor === "string" && /^(overview|cluster-[0-9]+)$/.test(anchor)) clusterweavePlantAnchor = anchor;')
+        .replace(getter, 'var anchor = clusterweavePlantAnchor || url.data.attr.fragment;')
+        .replace(click, 'switch_to_cluster(href.slice(1) || "overview");')
+        + '\nwindow.clusterweavePlantNavigator = switch_to_cluster;';
+    }
+  }
+  if (allowToolBundleScripts && resultArtifactDescriptor(htmlPath, resultContext)?.category === 'plantismash') {
+    const overview = doc.querySelector('#cluster-overview');
+    const emptyRow = overview?.querySelector('tbody tr');
+    const emptyMessage = 'No secondary metabolite clusters were found in the input sequence(s)';
+    if (overview?.querySelectorAll('tbody tr').length === 1
+        && emptyRow?.children.length === 2
+        && emptyRow.textContent.trim() === emptyMessage
+        && !doc.querySelector('#cluster-1')) {
+      // Native successful-empty reports have a two-cell placeholder under nine
+      // headers, which crashes DataTables. Preserve its message outside the data.
+      const message = doc.createElement('p');
+      message.textContent = emptyMessage;
+      message.setAttribute('role', 'status');
+      overview.before(message);
+      emptyRow.remove();
+    }
+    for (const link of doc.querySelectorAll('a[href]')) {
+      const href = link.getAttribute('href') || '';
+      if (!/^[A-Za-z][A-Za-z0-9_]*[0-9]+\.[0-9]+\.geneclusters\.xls$/.test(href)
+          && !/^(?:biosynML\.xml|[A-Za-z][A-Za-z0-9_]*[0-9]+\.[0-9]+\.final\.embl)$/.test(href)) continue;
+      const replacement = href.endsWith('.xls') ? href + 'x' : href;
+      const target = await resolveResultArtifact(jobId, htmlPath, replacement, {optional:true,resultContext});
+      if (target) link.setAttribute('href', replacement);
+      else { link.removeAttribute('href'); link.textContent += ' (not produced)'; }
+    }
+  }
   const interactivePreview = allowClinkerInlineScripts || allowBigscapeScripts || allowToolBundleScripts;
   const bigscapeAssetBudget = allowBigscapeScripts
     ? { declaredBytes: 0, actualBytes: 0 }
@@ -1739,6 +2060,7 @@ function renderSandboxedToolResultPreview(
   htmlText,
   channel,
   resultContext,
+  initialPath = relPath,
 ) {
   if (!resultContext?.runId) {
     throw new Error('The result-bundle popup is missing its immutable artifact context.');
@@ -1779,6 +2101,21 @@ function renderSandboxedToolResultPreview(
   let navigating = false;
   let frameDocumentUrl = '';
   let runtimeState = null;
+  let reportIndexButton = null;
+  if (resultArtifactDescriptor(relPath, resultContext)?.category === 'plantismash') {
+    const nav = doc.createElement('nav');
+    nav.style.cssText = 'box-sizing:border-box;height:40px;padding:6px 12px;background:#f4f6f8;font:14px sans-serif';
+    reportIndexButton = doc.createElement('button');
+    reportIndexButton.textContent = 'Genome overview';
+    reportIndexButton.disabled = true;
+    reportIndexButton.addEventListener('click', () => {
+      if (!runtimeState || runtimeState.closed) return;
+      void navigate({source:frame.contentWindow,data:{type:'clusterweave:result-bundle-navigate',channel:runtimeState.channel,owner:runtimeState.owner,artifact:resultArtifactId(relPath,resultContext)}});
+    });
+    nav.appendChild(reportIndexButton);
+    doc.body.appendChild(nav);
+    frame.style.height = 'calc(100% - 40px)';
+  }
 
   function closeRuntimeState(state) {
     if (!state || state.closed) return;
@@ -1809,6 +2146,7 @@ function renderSandboxedToolResultPreview(
 
   function setFrameHtml(value, fragment = '', nextPath = currentPath, nextChannel = currentChannel) {
     currentPath = normalizedResultPath(nextPath);
+    if (reportIndexButton) reportIndexButton.disabled = currentPath === normalizedResultPath(relPath);
     rotateRuntimeState(nextChannel, resultArtifactId(currentPath, resultContext));
     const previous = frameDocumentUrl;
     frameDocumentUrl = targetWindow.URL.createObjectURL(new targetWindow.Blob(
@@ -1964,7 +2302,7 @@ function renderSandboxedToolResultPreview(
     const currentDescriptor = resultArtifactDescriptor(currentPath, resultContext);
     const targetIsHtml = isToolResultBundleHtml(targetPath, resultContext);
     const targetIsImage = targetDescriptor?.kind === 'image'
-      && ['antismash', 'funbgcex'].includes(String(targetDescriptor?.category || ''));
+      && ['antismash', 'plantismash', 'funbgcex'].includes(String(targetDescriptor?.category || ''));
     if (!targetPath || (!targetIsHtml && !targetIsImage)) return;
     if (
       !currentDescriptor?.bundle_id
@@ -2080,7 +2418,7 @@ function renderSandboxedToolResultPreview(
     if (frameDocumentUrl) targetWindow.URL.revokeObjectURL(frameDocumentUrl);
   }, { once: true });
   doc.body.appendChild(frame);
-  setFrameHtml(htmlText, '', relPath, channel);
+  setFrameHtml(htmlText, '', initialPath, channel);
   return frame;
 }
 
@@ -2162,6 +2500,7 @@ async function openHtmlResultWithAssets(event, jobId, relPath, previewWindow = n
         rewrittenHtml,
         channel,
         resultContext,
+        relPath,
       );
       return false;
     }
@@ -2228,6 +2567,7 @@ function resultCategoryKey(category) {
     summaries: 'summaries',
     clinker: 'synteny',
     antismash: 'antismash',
+    plantismash: 'plantismash',
     funbgcex: 'funbgcex',
     bigscape: 'bigscape',
     figures: 'figures',
@@ -2269,6 +2609,12 @@ function isAntiSmashArtifact(path) {
 
 function isAntiSmashHtmlArtifact(path) {
   return isAntiSmashArtifact(path) && isHtmlAsset(path);
+}
+
+function isPlantismashHtmlArtifact(path) {
+  const descriptor = resultArtifactDescriptor(path);
+  if (descriptor) return descriptor.category === 'plantismash' && descriptor.role === 'index' && isHtmlAsset(path);
+  return /(^|\/)plantismash\/[^/]+\/native\/index\.html$/i.test(normalizedResultPath(path));
 }
 
 function isFunbgcexArtifact(path) {
@@ -2404,6 +2750,7 @@ function resultCategoryMatches(category, path) {
     return descriptorKey === key;
   }
   if (key === 'figures') return isFigureAsset(path) && figureApplicableToAnalysis(path);
+  if (key === 'plantismash') return /(^|\/)(plantismash|native_bgc)(\/|$)/i.test(normalizedResultPath(path));
   if (key === 'antismash') return isAntiSmashArtifact(path);
   if (key === 'funbgcex') return isFunbgcexArtifact(path);
   if (key === 'bigscape') return isBigscapeArtifact(path);
@@ -2515,7 +2862,7 @@ function toolGenomeLabel(path, toolKey) {
     return activeGenomeArtifactLabel(descriptor.genome_label, fallback);
   }
   const parts = resultPathParts(path);
-  const matcher = toolKey === 'antismash' ? /^antismash$/i : /^funbgcex$/i;
+  const matcher = toolKey === 'plantismash' ? /^plantismash$/i : toolKey === 'antismash' ? /^antismash$/i : /^funbgcex$/i;
   const idx = parts.findIndex(part => matcher.test(part));
   const after = idx >= 0 ? parts[idx + 1] : '';
   if (after && !/\.html?$/i.test(after)) {
@@ -2524,7 +2871,7 @@ function toolGenomeLabel(path, toolKey) {
   }
   const parent = parts.length > 1 ? parts[parts.length - 2] : '';
   if (parent && !matcher.test(parent)) return readableGenomeArtifactLabel(parent, fileNameFromPath(path));
-  return toolKey === 'antismash' ? 'antiSMASH index' : 'FunBGCeX index';
+  return toolKey === 'plantismash' ? 'plantiSMASH index' : toolKey === 'antismash' ? 'antiSMASH index' : 'FunBGCeX index';
 }
 
 function toolHtmlSortKey(path) {
@@ -2543,7 +2890,7 @@ function toolHtmlViewLabel(path) {
 }
 
 function uniqueToolHtmlArtifacts(files, toolKey) {
-  const predicate = toolKey === 'antismash' ? isAntiSmashHtmlArtifact : isFunbgcexHtmlArtifact;
+  const predicate = toolKey === 'plantismash' ? isPlantismashHtmlArtifact : toolKey === 'antismash' ? isAntiSmashHtmlArtifact : isFunbgcexHtmlArtifact;
   let items = (files || [])
     .filter(predicate)
     .sort((a, b) => toolHtmlSortKey(a).localeCompare(toolHtmlSortKey(b)))
@@ -2641,6 +2988,7 @@ function buildResultArtifacts(files) {
   return {
     files: normalized,
     antismash: uniqueToolHtmlArtifacts(normalized, 'antismash'),
+    plantismash: uniqueToolHtmlArtifacts(normalized, 'plantismash'),
     funbgcex: capabilities.funbgcex ? uniqueToolHtmlArtifacts(normalized, 'funbgcex') : [],
     bigscape: {
       html: bigscapeHtml,
@@ -2669,6 +3017,7 @@ function resultCategoryCounts(files) {
   return {
     figures: artifacts.figures.length,
     antismash: artifacts.antismash.length,
+    plantismash: artifacts.plantismash.length,
     funbgcex: artifacts.funbgcex.length,
     bigscape: artifacts.bigscape.html ? 1 : 0,
     summaries: artifacts.summaries.length,
@@ -2706,6 +3055,7 @@ function resultCategoryLabel(category) {
   const labels = {
     figures: 'FIGURES',
     antismash: 'ANTISMASH',
+    plantismash: 'PLANTISMASH',
     funbgcex: 'FUNBGCEX',
     bigscape: 'BIG-SCAPE',
     summaries: 'SUMMARY',
@@ -2722,6 +3072,7 @@ function resultCategoryCopy(category) {
   const copy = {
     figures: 'Zoomable SVG/PNG figures.',
     antismash: 'Per-genome antiSMASH HTML views.',
+    plantismash: 'Per-genome plantiSMASH HTML views.',
     funbgcex: 'Per-genome FunBGCeX HTML views.',
     bigscape: 'BiG-SCAPE clustering output; interactive view when a safe database is available.',
     summaries: 'Atlas shortlist and priority tables.',
@@ -2737,7 +3088,7 @@ function resultCategoryCopy(category) {
 }
 
 function resultCategoryIcon(category) {
-  const icons = { antismash: '06', funbgcex: '07', bigscape: '08', summaries: '09', figures: '10', synteny: 'SYN', other: 'OUT', downloads: 'ZIP' };
+  const icons = { plantismash: 'PL', antismash: '06', funbgcex: '07', bigscape: '08', summaries: '09', figures: '10', synteny: 'SYN', other: 'OUT', downloads: 'ZIP' };
   return icons[resultCategoryKey(category)] || 'OUT';
 }
 
@@ -2782,6 +3133,9 @@ function renderResultMetricItem(item) {
 
 function resultLollipopItems(artifacts = state.activeResultArtifacts || buildResultArtifacts(state.activeResultFiles), counts = null) {
   const items = [];
+  if (artifacts.plantismash?.length) {
+    items.push({ key: 'plantismash', count: artifacts.plantismash.length, unit: 'view', label: resultCategoryLabel('plantismash'), copy: resultCategoryCopy('plantismash'), icon: resultCategoryIcon('plantismash') });
+  }
   if (artifacts.antismash.length) {
     items.push({ key: 'antismash', count: artifacts.antismash.length, unit: 'view', label: resultCategoryLabel('antismash'), copy: resultCategoryCopy('antismash'), icon: resultCategoryIcon('antismash') });
   }
@@ -2830,6 +3184,7 @@ function renderResultOverviewPanel(items, counts) {
 function resultFolderTabUnit(key) {
   const units = {
     antismash: 'view',
+    plantismash: 'view',
     funbgcex: 'view',
     bigscape: 'view',
     synteny: 'panel',
@@ -3104,6 +3459,10 @@ function renderFocusedResultCategory(category) {
   }
   setResultReaderSurface('files');
   if (!state.activeJobId) return;
+  if (key === 'plantismash') {
+    renderToolHtmlReader(state.activeJobId, 'plantismash', artifacts.plantismash);
+    return;
+  }
   if (key === 'antismash') {
     renderToolHtmlReader(state.activeJobId, 'antismash', artifacts.antismash);
     return;
@@ -3159,7 +3518,7 @@ function resultDownloadLink(jobId, path, label = 'Download') {
 function renderToolHtmlReader(jobId, toolKey, items) {
   const container = document.getElementById('files-container');
   if (!container) return;
-  const category = toolKey === 'antismash' ? 'antismash' : 'funbgcex';
+  const category = toolKey;
   if (!items.length) {
     container.innerHTML = `<div class="empty-state">No ${escapeHtml(resultCategoryLabel(category))} HTML views were found for this run.</div>`;
     return;
@@ -3182,15 +3541,16 @@ function renderToolHtmlReader(jobId, toolKey, items) {
 
 function normalizedSyntenyTaxon(value) {
   const taxon = String(value || '').trim().toLowerCase();
-  return ['fungi', 'bacteria'].includes(taxon) ? taxon : '';
+  return ['fungi', 'bacteria', 'plants'].includes(taxon) ? taxon : '';
 }
 
 function syntenyArtifactTaxon(path) {
   const descriptorTaxon = normalizedSyntenyTaxon(resultArtifactDescriptor(path)?.taxon_group);
   if (descriptorTaxon) return descriptorTaxon;
   const capabilities = activeAnalysisCapabilities();
-  if (capabilities.hasFungi && !capabilities.hasBacteria) return 'fungi';
-  if (capabilities.hasBacteria && !capabilities.hasFungi) return 'bacteria';
+  if (capabilities.hasPlants && !capabilities.hasFungi && !capabilities.hasBacteria) return 'plants';
+  if (capabilities.hasFungi && !capabilities.hasBacteria && !capabilities.hasPlants) return 'fungi';
+  if (capabilities.hasBacteria && !capabilities.hasFungi && !capabilities.hasPlants) return 'bacteria';
   return 'other';
 }
 
@@ -3221,7 +3581,7 @@ function syntenyTaxonGroups(items) {
 }
 
 function switchSyntenyTaxon(taxon) {
-  const selected = ['fungi', 'bacteria', 'other'].includes(String(taxon || '')) ? String(taxon) : '';
+  const selected = ['fungi', 'bacteria', 'plants', 'other'].includes(String(taxon || '')) ? String(taxon) : '';
   const groups = syntenyTaxonGroups(resultArtifacts(state.activeResultFiles).synteny);
   if (!selected || !groups.has(selected)) return;
   activeSyntenyTaxon = selected;
@@ -3237,13 +3597,13 @@ function renderSyntenyReader(jobId, items) {
     return;
   }
   const groups = syntenyTaxonGroups(syntenyFiles);
-  const taxonOrder = ['fungi', 'bacteria', 'other'].filter(taxon => groups.has(taxon));
+  const taxonOrder = ['fungi', 'bacteria', 'plants', 'other'].filter(taxon => groups.has(taxon));
   if (syntenyReaderJobId !== jobId) {
     syntenyReaderJobId = jobId;
     activeSyntenyTaxon = taxonOrder[0] || '';
   }
   if (!groups.has(activeSyntenyTaxon)) activeSyntenyTaxon = taxonOrder[0] || '';
-  const labels = { fungi: 'FUNGAL PANELS', bacteria: 'BACTERIAL PANELS', other: 'OTHER PANELS' };
+  const labels = { fungi: 'FUNGAL PANELS', bacteria: 'BACTERIAL PANELS', plants: 'PLANT PANELS', other: 'OTHER PANELS' };
   const tabs = taxonOrder.map(taxon => {
     const active = taxon === activeSyntenyTaxon;
     const count = groups.get(taxon)?.length || 0;
@@ -3633,6 +3993,31 @@ function parseDelimitedLine(line, delimiter) {
   return cells;
 }
 
+function parseDelimitedTable(text, delimiter) {
+  const rows = []; let row = [], value = '', quoted = false;
+  const source = String(text || '').replace(/^\uFEFF/, '');
+  for (let i = 0; i < source.length; i++) {
+    const ch = source[i];
+    if (ch === '"') {
+      if (quoted && source[i+1] === '"') { value += '"'; i++; }
+      else quoted = !quoted;
+    } else if (!quoted && ch === delimiter) { row.push(value); value = ''; }
+    else if (!quoted && (ch === '\n' || ch === '\r')) {
+      if (ch === '\r' && source[i+1] === '\n') i++;
+      row.push(value); if (row.some(cell => cell.trim())) rows.push(row);
+      row = []; value = '';
+    } else value += ch;
+  }
+  if (quoted) throw new Error('The result table contains an incomplete quoted field.');
+  row.push(value); if (row.some(cell => cell.trim())) rows.push(row);
+  return rows;
+}
+
+function mibigLinks(value) {
+  return escapeHtml(String(value ?? '')).replace(/\b(BGC[0-9]{7}(?:\.[0-9]+)?)(?:_c[0-9]+)?\b/g,
+    (accession, record) => `<a href="https://mibig.secondarymetabolites.org/repository/${record}/" target="_blank" rel="noopener noreferrer">${accession}</a>`);
+}
+
 function allBgcDisplayValue(row, key) {
   if (key === 'genome') {
     const fallback = readableGenomeArtifactLabel(row.genome || '', 'Unknown organism');
@@ -3640,8 +4025,10 @@ function allBgcDisplayValue(row, key) {
   }
   if (key === 'taxon_group') return titleCaseArtifactLabel(row.taxon_group || '', 'Unresolved');
   if (key === 'detector_relation') return titleCaseArtifactLabel(row.detector_relation || '', 'Single detector');
-  if (key === 'antismash_bgc_id') {
-    const region = String(row.antismash_bgc_id || '');
+  if (key === 'bgc_class') return row.bgc_class || row.antismash_bgc_class || '—';
+  if (key === 'bgc_record' || key === 'antismash_bgc_id') {
+    let region = String(row.bgc_record || row.antismash_bgc_id || row.funbgcex_bgc_id || '');
+    if (row.taxon_group === 'plants') region = region.replace(/^r[0-9]{6}_/, '');
     const genome = String(row.genome || '');
     if (String(row.taxon_group || '').toLowerCase() === 'bacteria' && genome) {
       for (const separator of ['_', '.']) {
@@ -3651,7 +4038,8 @@ function allBgcDisplayValue(row, key) {
     }
     return region || '—';
   }
-  return row[key] || '—';
+  const empty = row[key] === undefined || row[key] === null || row[key] === '';
+  return empty ? '—' : row[key];
 }
 
 function allBgcFilteredRows() {
@@ -3685,7 +4073,7 @@ function allBgcTableMarkup(rows) {
     const arrow = selected ? (allBgcTableState.sortDir === 'asc' ? ' ↑' : ' ↓') : '';
     return '<th><button type="button" onclick="sortAllBgcTable(\'' + column.key + '\')" aria-label="Sort by ' + escapeHtml(column.label) + '">' + escapeHtml(column.label + arrow) + '</button></th>';
   }).join('');
-  const body = rows.map(row => '<tr>' + ALL_BGC_COLUMNS.map(column => '<td>' + escapeHtml(allBgcDisplayValue(row, column.key)) + '</td>').join('') + '</tr>').join('');
+  const body = rows.map(row => '<tr>' + ALL_BGC_COLUMNS.map(column => '<td>' + mibigLinks(allBgcDisplayValue(row, column.key)) + '</td>').join('') + '</tr>').join('');
   return rows.length
     ? '<div class="summary-table-wrap all-bgc-table-wrap"><table class="summary-reader-table all-bgc-table"><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table></div>'
     : '<div class="empty-state">No BGC records match the selected filters.</div>';
@@ -3756,13 +4144,10 @@ async function loadAllBgcReaderFile(path) {
     if (seq !== summaryReaderSeq) return;
     if (!resp.ok) throw new Error('The all-BGC table could not be opened with this result access code.');
     const text = await resp.text();
-    const lines = String(text || '').split(/\r?\n/).filter(line => line.trim());
-    if (!lines.length) throw new Error('The all-BGC table is empty.');
-    const headers = parseDelimitedLine(lines[0], ',');
-    const rows = lines.slice(1).map(line => {
-      const cells = parseDelimitedLine(line, ',');
-      return Object.fromEntries(headers.map((header, index) => [header, cells[index] || '']));
-    });
+    const table = parseDelimitedTable(text, ',');
+    if (!table.length) throw new Error('The all-BGC table is empty.');
+    const [headers, ...bodyRows] = table;
+    const rows = bodyRows.map(cells => Object.fromEntries(headers.map((header,index) => [header,cells[index] ?? ''])));
     allBgcTableState = {
       path,
       rows,
@@ -3893,34 +4278,42 @@ function renderSummaryHeading(path, text, count) {
 }
 
 function atlasMemberGenomes(row) {
-  const organisms = String(row.shared_cc_dataset_organisms || '').split(';').map(value => value.trim()).filter(Boolean);
+  const organisms = String(row.shared_cc_dataset_organisms || row.dataset_organisms || '').split(';').map(value => value.trim()).filter(value => value && value !== '.');
   if (organisms.length) return organisms.join(' · ');
-  const genomes = String(row.shared_cc_dataset_genomes || '').split(';').map(value => value.trim()).filter(Boolean);
+  const genomes = String(row.shared_cc_dataset_genomes || row.dataset_genomes || '').split(';').map(value => value.trim()).filter(Boolean);
   return genomes.map(value => activeGenomeArtifactLabel(value, readableArtifactLabel(value))).join(' · ') || '—';
 }
 
 function atlasAnnotationHits(row) {
   const hits = [];
-  const knownScore = String(row.antismash_knowncluster_similarity_score || '').trim();
+  const knownScore = String(row.antismash_knowncluster_similarity_score ?? '').trim();
   const knownLabel = [row.antismash_knowncluster_product, row.antismash_knowncluster_accession]
     .map(value => String(value || '').trim()).filter(Boolean).join(' · ');
-  if (knownLabel || knownScore) hits.push(`KnownClusterBlast: ${knownLabel || 'hit'} · score ${knownScore || 'unavailable'}`);
+  if (knownLabel || knownScore) hits.push(`KnownClusterBlast: ${knownLabel || 'hit'} · score ${knownScore || '—'}`);
 
-  const compareScore = String(row.antismash_clustercompare_similarity_score || '').trim();
+  const plantScore = String(row.plantismash_knowncluster_similarity_score ?? '').trim();
+  const plantLabel = [row.plantismash_knowncluster_product, row.plantismash_knowncluster_accession]
+    .map(value => String(value || '').trim()).filter(Boolean).join(' · ');
+  if (plantLabel || plantScore) hits.push(`plantiSMASH KnownClusterBlast: ${plantLabel || 'hit'} · score ${plantScore || '—'}`);
+
+  const compareScore = String(row.antismash_clustercompare_similarity_score ?? '').trim();
   const compareLabel = [row.antismash_clustercompare_compounds, row.antismash_clustercompare_organism]
     .map(value => String(value || '').trim()).filter(Boolean).join(' · ');
-  if (compareLabel || compareScore) hits.push(`ClusterCompare: ${compareLabel || 'hit'} · score ${compareScore || 'unavailable'}`);
+  if (compareLabel || compareScore) hits.push(`ClusterCompare: ${compareLabel || 'hit'} · score ${compareScore || '—'}`);
 
-  const funScore = String(row.funbgcex_similarity_score || '').trim();
+  const funScore = String(row.funbgcex_similarity_score ?? '').trim();
   const funLabel = [row.funbgcex_similar_bgc, row.funbgcex_putative_product]
     .map(value => String(value || '').trim()).filter(Boolean).join(' · ');
-  if (funLabel || funScore) hits.push(`FunBGCeX similar BGC: ${funLabel || 'hit'} · score ${funScore || 'unavailable'}`);
-  return hits.join(' | ') || 'No scored annotation hit';
+  if (funLabel || funScore) hits.push(`FunBGCeX similar BGC: ${funLabel || 'hit'} · score ${funScore || '—'}`);
+  return hits.join(' | ') || (row.knownclusterblast_status === 'not_run' ? 'Similarity searches not run in this plant analysis' : '—');
 }
 
 function atlasTaxonSection(row) {
-  const taxa = String(row.shared_cc_taxon_groups || row.taxon_group || '').toLowerCase()
+  const taxa = String(row.shared_cc_taxon_groups || row.taxon_groups || row.taxon_group || '').toLowerCase()
     .split(';').map(value => value.trim()).filter(Boolean);
+  const supported = [...new Set(taxa.filter(taxon => ['fungi', 'bacteria', 'plants'].includes(taxon)))];
+  if (supported.length > 1) return 'cross';
+  if (supported.includes('plants')) return 'plants';
   const hasFungi = taxa.includes('fungi');
   const hasBacteria = taxa.includes('bacteria');
   if (hasFungi && hasBacteria) return 'cross';
@@ -3943,8 +4336,8 @@ function atlasSummaryValue(row, key) {
     const followup = String(row.recommended_followup || '').trim().replace(/[.]+$/, '');
     return followup ? `${conservative} Follow-up: ${followup}.` : conservative;
   }
-  if (key === 'antismash_class') return String(row[key] || '—').replace(/;/g, ' · ');
-  return row[key] || '—';
+  if (key === 'antismash_class') return String(row.shared_cc_classes || row.classes || row[key] || '—').replace(/;/g, ' · ');
+  return row[key] === undefined || row[key] === null || row[key] === '' ? '—' : row[key];
 }
 
 function renderAtlasSummary(headers, bodyRows) {
@@ -3956,6 +4349,7 @@ function renderAtlasSummary(headers, bodyRows) {
   const sectionDefinitions = [
     { key: 'fungi', label: 'Fungal families' },
     { key: 'bacteria', label: 'Bacterial families' },
+    { key: 'plants', label: 'Plant families' },
     { key: 'cross', label: 'Cross-kingdom families' },
     { key: 'unresolved', label: 'Unresolved-domain families' },
   ];
@@ -3965,7 +4359,7 @@ function renderAtlasSummary(headers, bodyRows) {
     const prioritized = sectionRecords.filter(row => String(row.manual_review_bucket || '').toLowerCase() === 'atlas_now');
     const rows = prioritized.length ? prioritized : sectionRecords.slice(0, 20);
     const body = rows.map(row => '<tr>' + ATLAS_SUMMARY_COLUMNS.map(column => {
-      const value = escapeHtml(atlasSummaryValue(row, column.key));
+      const value = mibigLinks(atlasSummaryValue(row, column.key));
       const content = column.key === 'atlas_rank' ? '<span class="atlas-rank-badge">' + value + '</span>' : value;
       return '<td class="atlas-col-' + column.key + '">' + content + '</td>';
     }).join('') + '</tr>').join('');
@@ -3988,10 +4382,9 @@ function renderAtlasSummary(headers, bodyRows) {
 
 function renderDelimitedSummary(path, text) {
   const delimiter = resultPathExt(path) === 'csv' ? ',' : '\t';
-  const lines = String(text || '').split(/\r?\n/).filter(line => line.trim());
-  if (!lines.length) return '<div class="empty-state">Summary file is empty.</div>';
-  const headers = parseDelimitedLine(lines[0], delimiter);
-  const bodyRows = lines.slice(1).map(line => parseDelimitedLine(line, delimiter));
+  const table = parseDelimitedTable(text, delimiter);
+  if (!table.length) return '<div class="empty-state">Summary file is empty.</div>';
+  const [headers, ...bodyRows] = table;
   const kind = summaryReaderArtifactKind(path);
   if (!bodyRows.length) {
     const message = kind === 'target' ? 'No target candidates met the selection criteria.' : 'No atlas candidates met the selection criteria.';
@@ -4284,6 +4677,8 @@ function figureSortKey(path) {
   const preferred = [
     'fungi_big_scape_multipanel.svg',
     'fungi_big_scape_multipanel.png',
+    'plants_big_scape_multipanel.svg',
+    'plants_big_scape_multipanel.png',
     'bacteria_big_scape_multipanel.svg',
     'bacteria_big_scape_multipanel.png',
     'bgc_overlap.svg',
@@ -4415,7 +4810,7 @@ function applyFigureZoom(wrap) {
     preview.style.transform = `translate(${state.x.toFixed(1)}px, ${state.y.toFixed(1)}px) scale(${state.scale.toFixed(3)})`;
   }
   wrap.classList.toggle('is-zoomed', state.scale > 1.01);
-  const reset = wrap.querySelector('.figure-zoom-reset');
+  const reset = (wrap.closest('.figure-panel') || wrap).querySelector('.figure-zoom-reset');
   if (reset) reset.textContent = `${Math.round(state.scale * 100)}%`;
 }
 
@@ -4517,13 +4912,13 @@ function handleFigurePointerEnd(event, wrap) {
 function zoomFigureControl(event, button, factor) {
   event.preventDefault();
   event.stopPropagation();
-  zoomFigureAt(button.closest('.figure-preview-wrap'), factor);
+  zoomFigureAt(button.closest('.figure-panel')?.querySelector('.figure-preview-wrap'), factor);
 }
 
 function resetFigureZoomControl(event, button) {
   event.preventDefault();
   event.stopPropagation();
-  const wrap = button.closest('.figure-preview-wrap');
+  const wrap = button.closest('.figure-panel')?.querySelector('.figure-preview-wrap');
   const state = figureZoomRecord(wrap);
   state.scale = 1;
   state.x = 0;
@@ -4729,12 +5124,12 @@ function renderViz(jobId, files) {
           onpointerup="handleFigurePointerEnd(event,this)"
           onpointercancel="handleFigurePointerEnd(event,this)">
           ${preview}
+        </div>
           <div class="figure-zoom-controls" aria-label="Figure zoom controls" onpointerdown="event.stopPropagation()" onwheel="event.stopPropagation()">
             <button type="button" title="Zoom out" aria-label="Zoom out" onclick="zoomFigureControl(event,this,0.833)">-</button>
             <button class="figure-zoom-reset" type="button" title="Reset zoom" aria-label="Reset zoom" onclick="resetFigureZoomControl(event,this)">100%</button>
             <button type="button" title="Zoom in" aria-label="Zoom in" onclick="zoomFigureControl(event,this,1.2)">+</button>
           </div>
-        </div>
       </div>`;
   }).join('');
   container.innerHTML = `${renderFigureFolderTabs(figureFolders)}<div class="figure-grid">${cards}</div>`;

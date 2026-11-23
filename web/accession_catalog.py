@@ -18,6 +18,7 @@ MAX_AGE = 90
 ACCESSION = re.compile(r"GC[AF]_[0-9]+\.[1-9][0-9]*\Z")
 DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 CONTRACTS = {
+    "accession-plant-snapshot-v2": "retrieval",
     "accession-snapshot-v2": "retrieval", "accession-detection-v2": "detection",
     "accession-detection-v3": "detection",
     "bacterial-genbank-v1": "preparation", "fungal-existing-cds-v1": "preparation",

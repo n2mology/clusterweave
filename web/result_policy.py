@@ -22,9 +22,12 @@ PUBLIC_RESULT_INDEX_MAX_BYTES = 32 * 1024 * 1024
 _ANTISMASH_REGION_GBK_RE = re.compile(r"(?:^|[._-])region[0-9]+\.gbk$")
 
 PUBLIC_SUMMARY_FILENAMES = {
+    "cohort_outcomes.json",
     "all_tools_bgc_comparison.csv",
     "all_tools_shared_unshared_summary.csv",
     "candidate_bgc_gcf_crosswalk.tsv",
+    "native_reporting_keys.json",
+    "native_comparison_selection.json",
     "family_atlas_shortlist.md",
     "family_atlas_shortlist.tsv",
     "priority_shortlist.md",
@@ -44,6 +47,7 @@ PUBLIC_SUMMARY_TABLE_FILENAMES = {
     "fungal_id_legend.tsv",
     "genome_id_legend.tsv",
     "genome_taxon_manifest.tsv",
+    "native_detection.json",
     "routing_diagnostics.tsv",
     "taxonomy_metadata_normalized.tsv",
 }
@@ -117,6 +121,8 @@ PUBLIC_BIGSCAPE_EXPORT_VERSION = 2
 PUBLIC_BIGSCAPE_PATH_POLICY = "portable-redacted-bigscape-v2"
 PUBLIC_TOOL_ROOTS = {
     "antismash",
+    "plantismash",
+    "native_bgc",
     "funbgcex",
     "big_scape",
     "bigscape",
@@ -222,6 +228,36 @@ def public_evidence_role(rel_path: str) -> str:
         and _ANTISMASH_REGION_GBK_RE.search(lower[2]) is not None
     ):
         return "antismash_region_genbank"
+    if lower[0] in {"clinker", "clinker_shared_family"} and lower[-1] == "portable-clinker.zip":
+        return "portable_clinker_archive"
+    # Exact native report downloads, for a single record or an assembled shard.
+    # No general CSV/gzip or private-shard extension exception.
+    plant_path = None
+    if len(parts) >= 4 and lower[0] == "plantismash" and lower[2] == "native":
+        if lower[3] == "shards":
+            if len(parts) >= 7 and re.fullmatch(r"[0-9]{6}", lower[4]) and lower[5] == "native":
+                plant_path = lower[6:]
+        else:
+            plant_path = lower[3:]
+    if plant_path:
+        if len(plant_path) == 1 and re.fullmatch(r"[a-z][a-z0-9_]*[0-9]+\.[0-9]+\.(?:cluster[0-9]+\.gbk|final\.gbk|geneclusters\.xlsx|zip)", plant_path[0]):
+            return "native_plant_record_download"
+        if (plant_path == ["tfbs_hits_all_bgcs.csv"]
+                or len(plant_path) == 2 and plant_path[0] == "tfbs"
+                and re.fullmatch(r"tfbs_hits_cluster[0-9]+_[a-z][a-z0-9_]*[0-9]+\.[0-9]+\.tsv\.gz", plant_path[1])):
+            return "native_plant_tfbs_download"
+    if len(parts) >= 3 and lower[0] == "plantismash" and lower[2] != "native":
+        exported = lower[2:]
+        if (len(exported) == 1 and exported[0] in {"records.final.gbk", "geneclusters.csv", "record-cluster-map.tsv", "provenance.json"}
+                or len(exported) >= 3 and exported[0] in {"data", "tfbs", "subgroup", "smcogs", "clusterblast", "knownclusterblast", "subclusterblast", "structures"}
+                and Path(exported[-1]).suffix in {".gbk", ".xlsx", ".csv", ".tsv", ".gz", ".txt", ".fasta", ".fa", ".sto", ".tre", ".nwk", ".jplace", ".hmm"}
+                and not any(part in PUBLIC_TOOL_PRIVATE_PARTS for part in exported)
+                and not _private_filename(exported[-1])):
+            return "native_plant_scientific_export"
+    if len(parts) == 3 and lower[0] == "plantismash" and lower[2] == "complete-native.zip":
+        return "complete_native_plant_archive"
+    if len(parts) == 3 and lower[0] in {"plantismash", "native_bgc"} and re.search(r"\.cluster[0-9]+\.gbk$", lower[2]):
+        return "native_bgc_genbank"
     if (
         len(parts) == 6
         and lower[0] == "funbgcex"
@@ -240,6 +276,25 @@ def result_is_public_evidence(rel_path: str) -> bool:
     return bool(public_evidence_role(rel_path))
 
 
+def _plant_record_web_path(parts: list[str]) -> bool:
+    """Only the native report's asset graph may cross the private shard boundary.
+
+    Execution receipts, inputs, logs, GBKs and arbitrary nested shard content
+    remain private here; complete native downloads have their separate policy.
+    """
+    relative = parts[3:] if len(parts) > 3 and parts[:2] == ["data", "results"] else parts
+    return (
+        len(relative) >= 7
+        and relative[0] == "plantismash"
+        and relative[2:4] == ["native", "shards"]
+        and re.fullmatch(r"[0-9]{6}", relative[4]) is not None
+        and relative[5] == "native"
+        and not any(part in PUBLIC_TOOL_PRIVATE_PARTS for part in relative[6:])
+        and Path(relative[-1]).suffix in PUBLIC_TOOL_WEB_EXTENSIONS - {".json", ".map"}
+        and not _private_filename(relative[-1])
+    )
+
+
 def result_path_forbidden(rel_path: str) -> bool:
     normalized = normalized_job_result_path(rel_path)
     if not normalized:
@@ -252,7 +307,7 @@ def result_path_forbidden(rel_path: str) -> bool:
     if lower.startswith(("inputs/", "work/", "data/genomes/")):
         return True
     parts = lower.split("/")
-    if any(part in PUBLIC_TOOL_PRIVATE_PARTS for part in parts):
+    if any(part in PUBLIC_TOOL_PRIVATE_PARTS for part in parts) and not _plant_record_web_path(parts):
         return True
     return _private_filename(parts[-1])
 
@@ -282,13 +337,19 @@ def result_tool_public_shape(subparts: list[str], suffix: str) -> bool:
     filename = parts[-1]
     if root not in PUBLIC_TOOL_ROOTS:
         return False
-    if any(part in PUBLIC_TOOL_PRIVATE_PARTS for part in parts):
+    if any(part in PUBLIC_TOOL_PRIVATE_PARTS for part in parts) and not _plant_record_web_path(parts):
         return False
     if _private_filename(filename):
         return False
 
     # antiSMASH JSON can carry complete raw records/sequences.  Its HTML and
     # static web assets remain public, but JSON is never generally approved.
+    if root == "plantismash":
+        if len(parts) >= 4 and parts[2] == "native":
+            return suffix.lower() in PUBLIC_TOOL_WEB_EXTENSIONS
+        if len(parts) == 3:
+            return filename in {"index.html", "geneclusters.js", "native-assets.js", "native-completion.json", "outcome.json"}
+        return len(parts) >= 4 and parts[2] in {"css", "js", "images", "svg", "html", "structures", "subgroup", "smcogs", "clusterblast", "subclusterblast", "knownclusterblast", "tfbs"} and suffix.lower() in PUBLIC_TOOL_WEB_EXTENSIONS
     if root == "antismash" and suffix.lower() == ".json":
         return False
 

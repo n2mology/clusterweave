@@ -9,9 +9,9 @@ user-supplied FASTA or GenBank genomes. NCBI Datasets assembly and taxonomy
 reports are authoritative for accession routing. User declarations are used
 only where authoritative taxonomy is absent.
 
-The canonical job layout separates fungal and bacterial genome roots and writes
-one taxon manifest for downstream tools. Derived sources include antiSMASH and
-FunBGCeX BGC calls, BiG-SCAPE GCF assignments, clinker synteny, normalized
+The canonical job layout separates fungal, bacterial and plant genome roots and
+writes one taxon manifest for downstream tools. Derived sources include antiSMASH,
+FunBGCeX and supplied-CDS plantiSMASH BGC calls, BiG-SCAPE GCF assignments, clinker synteny, normalized
 taxonomy/ecology tables, MiBIG references when configured, and optional bounded
 sequence evidence.
 

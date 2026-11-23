@@ -1,0 +1,52 @@
+[
+  {
+    "path": "antismash/output_modules/xls/__init__.py",
+    "upstream_sha256": "a5c2ad138a9f830ea349ace520d364dfa5b2d1b201db0242d920310a0e5331ea",
+    "modified_sha256": "34bfb2f5ce1ca3478cc1ba9c52b5b22f79294d73fc8df553e6b78e5f75356840"
+  },
+  {
+    "path": "antismash/specific_modules/plant_cyclopeptides/repeatfinder.py",
+    "upstream_sha256": "6081834302a9129195a003de53afcbd3304d2967a5bbe01c008e3068e8db542a",
+    "modified_sha256": "2cd07920bf080e78e31244b4bb47f9556e9ebfa6d2a18ff59da49ca944a76cfb"
+  },
+  {
+    "path": "antismash/utils.py",
+    "upstream_sha256": "155f083e4fa5fad5388a3629d0edbee452b03a5c0966e657630d51cc3d26d42e",
+    "modified_sha256": "52d5b50df8cf6cc9130c4af7f893d88fd4068483fd484173d6c38705f69bacbc"
+  },
+  {
+    "path": "run_antismash.py",
+    "upstream_sha256": "72536d96e01300d73c1808c576cbbf0ce3ede8e12f1e38fa8eed9214a12afd96",
+    "modified_sha256": "a89ac32fa2c5351eb9c62e4fe96258ba4c1e44379e6889fc8c59c2e5cf032566"
+  },
+  {
+    "path": "antismash/generic_modules/smcogs/smcogs.py",
+    "upstream_sha256": "cbd9803fc8c02224c9a8dd1ae5b569500d97b5122064acad60bb7e44ef2076ef",
+    "modified_sha256": "5ac647a7edc069a84841adb9f1b6668ae8db5ea1bb626e282721f20dd22178ff"
+  },
+  {
+    "path": "antismash/generic_modules/smcogs/__init__.py",
+    "upstream_sha256": "1c6c3b7edc01dedc8259270a636e11cc19571b2b3b13f116644d37d0b562ccfd",
+    "modified_sha256": "7b1d983e14e96745d4d533ea16ee908e044cda459f01c48a945e0f555f6fd64a"
+  },
+  {
+    "path": "antismash/lib/hmmscanparser.py",
+    "upstream_sha256": "b2d356dbdc8514b59f955bc18a397710434ed188f730b2cd7b539bfff8f3b5bc",
+    "modified_sha256": "7517c367cbf6b8d4d2f25225ca12df7b67503f77077cfcc4b85a25e9dea88afb"
+  },
+  {
+    "path": "antismash/generic_modules/fullhmmer/__init__.py",
+    "upstream_sha256": "58cdf749d2be015eaa46bce4684a45606db06a63b28f0dcb4a2f8cbde611fd92",
+    "modified_sha256": "b80d502d38d07f05c5f10dfa2707fbedb2a58f097d361971b025c6b400b4913f"
+  },
+  {
+    "path": "antismash/generic_modules/active_site_finder/__init__.py",
+    "upstream_sha256": "2aeb5015987cc98317317230081ba51b0bfa4dadeea40425387b9db8df36e05e",
+    "modified_sha256": "1b8b608ce8ae40727565af12b2d37c1443606c274efb0a8a9bcdfc24e592e5bf"
+  },
+  {
+    "path": "antismash/generic_modules/subgroup/__init__.py",
+    "upstream_sha256": "8732f03a5364c35c8eb31859857a32c9eef0abb68077990df57a092a8ab6dc8c",
+    "modified_sha256": "62b24981487a47d90f0f4d6f479642b71f1c3cc2e4136f4731bec54d43916c84"
+  }
+]

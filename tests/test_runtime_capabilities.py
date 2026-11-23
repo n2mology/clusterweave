@@ -17,6 +17,24 @@ import runtime_capabilities  # noqa: E402
 
 
 class RuntimeCapabilityTests(unittest.TestCase):
+    def test_absolute_plant_engine_uses_the_real_execution_check(self):
+        with tempfile.TemporaryDirectory() as directory:
+            sif = Path(directory) / "plant.sif"
+            sif.write_bytes(b"identity checked by subprocess")
+            env = {"PLANTISMASH_SIF": str(sif), "PLANTISMASH_ENGINE": "/usr/bin/apptainer", "CLUSTERWEAVE_ROOT": str(REPO_ROOT)}
+            with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(runtime_capabilities.shutil, "which", return_value="/usr/bin/apptainer"), mock.patch.object(runtime_capabilities.subprocess, "run", return_value=mock.Mock(returncode=0, stderr="")) as check:
+                result = runtime_capabilities.plantismash_capability()
+            self.assertTrue(result["available"])
+            self.assertEqual(check.call_args.args[0][-2:], ["--engine", "/usr/bin/apptainer"])
+
+    def test_engine_alone_does_not_advertise_missing_sif_assets(self):
+        with tempfile.TemporaryDirectory() as directory:
+            env = {"ENGINE": "apptainer", "CLUSTERWEAVE_SOFTWARE_ROOT": directory, "CLUSTERWEAVE_ROOT": str(REPO_ROOT)}
+            with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(runtime_capabilities.shutil, "which", side_effect=lambda name: "/usr/bin/apptainer" if name == "apptainer" else None):
+                result = runtime_capabilities.runtime_health()
+            for name in ("annotation", "bigscape", "clinker", "nplinker"):
+                self.assertFalse(result["stages"][name]["available"], name)
+
     def test_dependency_light_taxon_tree_is_independent_of_optional_runtime(self) -> None:
         env = {
             "CLUSTERWEAVE_ROOT": str(REPO_ROOT),

@@ -1,5 +1,9 @@
 # Reproducibility
 
+[Extending ClusterWeave](EXTENDING.md) connects contributor changes to runtime,
+producer, cache and portable-result identities and explains which validation
+each change requires.
+
 ## Researcher records in result packages
 
 New web result packages include `METHODS.md`, `run_metadata.json`,
@@ -24,9 +28,9 @@ Detection v3 records the producer's CPU/concurrency allocation separately from
 the current job's allocation. These scheduling values do not change the scientific
 cache key; pinned dependencies, scientific parameters and partition policy do.
 
-`resources.tsv` distinguishes native `wait4` CPU accounting from sampled
-observations. Native CPU includes the stage process and waited descendants;
-it excludes Docker daemon work and sibling tool containers. The native maximum
+`resources.tsv` distinguishes `wait4` process CPU accounting from sampled
+observations. Process CPU includes the stage process and waited descendants;
+it excludes Docker daemon work and sibling tool containers. The `wait4` maximum
 RSS is the largest individual-process peak, not the concurrent total. The
 sampler observes the stage process group and containers carrying that job's
 label, at a nominal one-second interval. Container CPU can miss short-lived
@@ -47,18 +51,27 @@ installed distribution. An existing signed ZIP is preserved; an on-demand
 package can add a report containing only available historical evidence.
 
 The ZIP groups staged genomes by taxon under `input_gbks/bacteria/`,
-`input_gbks/fungi/` or `input_gbks/unclassified/`. The internal staged files
+`input_gbks/fungi/`, `input_gbks/plants/` or `input_gbks/unclassified/`. The internal staged files
 remain at `input_gbks/<genome>.gbk`. The evidence index keeps its runtime-relative
 `path` and adds `package_path`; the package checksum manifest names actual ZIP
 members. Missing or conflicting taxon assignments are not guessed.
 
-`ClusterWeave` is designed as a repo-first workflow, so the main reproducibility anchors are:
+To reproduce an analysis, retain the following source and input records:
 
 - a versioned Git tag or release archive
 - the resolving DOI `https://doi.org/10.11578/PMI/dc.20260608.2`
 - the accession list used to populate the genome root
 - the env defaults or profile overrides used for the run
 - the results-side provenance files written by `run_clusterweave.sh`
+
+## Tool outputs and comparison selections
+
+ClusterWeave retains tool reports and scientific exports alongside summaries,
+figures and files prepared for downstream analysis. BGC detection counts and
+BiG-SCAPE comparison counts can differ because BiG-SCAPE filters cluster lengths
+and overlapping CDS features. Selection mappings identify what was used or
+excluded; the original cluster files remain available. Contributor details are
+in [record identity through comparison](EXTENDING.md#preserve-record-identity-through-comparison).
 
 ## Recommended Release Practice
 
@@ -69,7 +82,7 @@ members. Missing or conflicting taxon assignments are not guessed.
 
 ## Layout Casing
 
-The public source tree uses lowercase runtime roots: `data/genomes/fungi/<project-name>/`, `data/genomes/bacteria/<project-name>/`, `data/results/<project-name>/`, and `software/`. One canonical taxon manifest joins the explicit genome roots downstream.
+The public source tree uses lowercase runtime roots: `data/genomes/fungi/<project-name>/`, `data/genomes/bacteria/<project-name>/`, `data/genomes/plants/<project-name>/`, `data/results/<project-name>/`, and `software/`. One canonical taxon manifest joins the explicit genome roots downstream.
 
 ## Canonical Run Provenance
 
@@ -86,6 +99,11 @@ piped output, CI, and `TERM=dumb` retain the canonical raw lines. Use
 `bash run_clusterweave.sh --raw` when exact raw output is needed in an
 interactive terminal. The display honors `NO_COLOR` and uses an ASCII tree when
 the terminal locale cannot represent Unicode.
+
+The wrapper runs annotation/detection, BiG-SCAPE, summary and clinker. The web
+pipeline invokes figures and selected follow-ups separately before packaging;
+direct CLI users invoke those entrypoints explicitly. Progress display does not
+add execution stages to the wrapper.
 
 The wrapper writes:
 
@@ -161,4 +179,4 @@ BIGSCAPE_NETWORK_CANVAS_WIDTH=1200 bash run_figures.sh
 BIGSCAPE_NETWORK_INCLUDE_MIBIG_ONLY=1 bash run_figures.sh
 ```
 
-Executable version observations in `run_metadata.json` come from bounded probes of the selected native, immutable Docker image or SIF runtime. Configured image tags and runtime hashes are recorded separately. Output discovery includes clinker `panel.html` and successful optional-tool manifests; configuration alone does not establish use. New cache producers can retain sanitized version observations with their original execution provenance. A current executable version never fills a missing historical producer version, and existing signed packages remain unchanged.
+Executable version observations in `run_metadata.json` come from bounded probes of the selected host-installed executable, immutable Docker image or SIF runtime. Configured image tags and runtime hashes are recorded separately. Output discovery includes clinker `panel.html` and successful optional-tool manifests; configuration alone does not establish use. New cache producers can retain sanitized version observations with their original execution provenance. A current executable version never fills a missing historical producer version, and existing signed packages remain unchanged.

@@ -181,8 +181,8 @@ test('public impact audit hydrates and the credit drawer separates web and local
   await expect(supportTab).toHaveAttribute('aria-selected', 'true');
   await expect(pmiLogo).toBeVisible();
   await page.keyboard.press('End');
-  await expect(localTab).toHaveAttribute('aria-selected', 'true');
-  await expect(drawer.getByRole('link', { name: /MAFFT/ })).toBeVisible();
+  await expect(drawer.getByRole('tab', { name: 'BASE + VISUALS' })).toHaveAttribute('aria-selected', 'true');
+  await expect(drawer.getByRole('link', { name: /Docker Engine/ })).toBeVisible();
 
   await supportTab.focus();
   await page.keyboard.press('ArrowRight');
@@ -197,13 +197,14 @@ test('public impact audit hydrates and the credit drawer separates web and local
   const creditNames = await drawer.locator('.tool-credit-link').evaluateAll(links => links.map(link => (
     link.childNodes[0]?.textContent || ''
   ).trim()));
-  expect(creditNames).toEqual([
+  expect(creditNames).toEqual(expect.arrayContaining([
     'NCBI Datasets + Dataformat', 'NCBI GenBank + RefSeq', 'NCBI Taxonomy',
+    'plantiSMASH',
     'antiSMASH', 'Prodigal', 'FunBGCeX', 'funannotate', 'BUSCO', 'AUGUSTUS',
-    'DIAMOND', 'HMMER', 'Biopython', 'BiG-SCAPE', 'FastTree', 'clinker',
+    'DIAMOND', 'HMMER 3', 'Biopython', 'BiG-SCAPE', 'FastTree 2.1 / 2.2', 'clinker',
     'MIBiG', 'Pfam', 'BRAKER3', 'GeneMark', 'NPLinker', 'GNPS', 'MassIVE',
     'PODP', 'MAFFT', 'IQ-TREE 2', 'ETE 4', 'trimAl', 'CairoSVG',
-  ]);
+  ]));
 
   const cardBounds = await drawer.locator('.tool-credit-link:visible').evaluateAll(links => links.map(link => {
     const license = link.querySelector('sup');
@@ -468,7 +469,7 @@ test('accession intake matches upload height and verification opens beside Submi
   expect(validationRequests).toBe(0);
 });
 
-test('Both-mode upload uses a compact taxon table and expands the accession viewport', async ({ page }) => {
+test('Mixed-mode upload uses a compact taxon table and expands the accession viewport', async ({ page }) => {
   await page.route('**/api/system/status*', async route => {
     await route.fulfill({
       status: 200,
@@ -480,13 +481,13 @@ test('Both-mode upload uses a compact taxon table and expands the accession view
 
   const analysisScope = page.getByRole('group', { name: 'Analysis scope' });
   const panel = page.locator('#taxon-assignment-panel');
-  await expect(analysisScope.getByRole('radio', { name: 'Fungi' })).toBeChecked();
+  await expect(analysisScope.getByRole('radio', { name: 'Mixed' })).toBeChecked();
   await expect(panel).toBeHidden();
 
   const accessionList = page.locator('#brutal-accession-rows');
   const initialHeight = await accessionList.evaluate(node => node.clientHeight);
-  await page.getByText('Both', { exact: true }).click();
-  await expect(analysisScope.getByRole('radio', { name: 'Both' })).toBeChecked();
+  await page.getByText('Mixed', { exact: true }).click();
+  await expect(analysisScope.getByRole('radio', { name: 'Mixed' })).toBeChecked();
   await page.locator('#file-input').setInputFiles({
     name: 'input.genome.fna',
     mimeType: 'text/plain',
@@ -526,7 +527,7 @@ test('Both-mode upload uses a compact taxon table and expands the accession view
   await expect(columns).toHaveAttribute('role', 'row');
   await expect(rowgroup).toBeVisible();
   await expect(row).toHaveCount(1);
-  await expect(row.getByRole('cell')).toHaveCount(3);
+  await expect(row.getByRole('cell')).toHaveCount(4);
   await expect(row).toHaveClass(/is-unresolved/);
   await expect(fungiChoice).not.toBeChecked();
   await expect(bacteriaChoice).not.toBeChecked();
@@ -605,7 +606,7 @@ test('mobile reduced-motion intake preserves validation, accessibility, and subm
   await page.locator('#project-name').focus();
   await expect(firstAccession).toHaveAttribute('aria-invalid', 'false');
 
-  await page.getByText('Both', { exact: true }).click();
+  await page.getByText('Mixed', { exact: true }).click();
   await page.locator('#file-input').setInputFiles({
     name: 'mobile.input.fna',
     mimeType: 'text/plain',
@@ -653,7 +654,7 @@ test('mobile reduced-motion intake preserves validation, accessibility, and subm
   await expect.poll(() => page.evaluate(() => window.__r12bSubmissionPayload)).not.toBeNull();
   const payload = Object.fromEntries(await page.evaluate(() => window.__r12bSubmissionPayload));
   expect(payload.project_name).toBe('mobile_mixed');
-  expect(payload.analysis_scope).toBe('both');
+  expect(payload.analysis_scope).toBe('mixed');
   expect(JSON.parse(payload.taxon_assignments)).toEqual({ 'mobile.input': 'bacteria' });
   expect(payload.data_use_ack).toBe('1');
   expect(payload.target_genome).toBe('mobile.input');

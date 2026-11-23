@@ -1,13 +1,18 @@
 # Versioned accession-result cache
 
 ClusterWeave can reuse a frozen public accession snapshot and its completed
-annotation and BGC detection. The cache is disabled by default. Its contracts cover:
+annotation and BGC detection. Recommended fresh local initialization enables a bounded cache. Existing
+installations and generic hosted/external profiles remain disabled unless an
+operator configures a cache root. Its contracts cover:
 
 - Feature-free bacterial GenBank preparation, its record map, and record IDs.
 - Header normalization of existing fungal GenBank annotations with complete CDS
   translations, when the helper runs in the Docker worker.
 - Frozen NCBI retrieval snapshots, including the acquired sequence, available
   annotation, and public assembly metadata.
+- Plant retrieval snapshots with supplied translated CDS use the separate
+  `accession-plant-snapshot-v2` contract. Completed plant detection is not reused
+  through the microbial detection contract.
 - The complete per-genome prepared/annotated GenBank, antiSMASH outputs, bacterial
   record map, and applicable FunBGCeX outputs in the Docker worker. This includes
   fungal funannotate annotation when the pinned prepared runtime is selected.
@@ -43,6 +48,10 @@ Tool timestamps and execution paths can differ even with pinned dependencies.
 
 ## Identity and validation
 
+Contributors changing a producer or its dependencies should follow the
+[extension and migration route](EXTENDING.md#package-migrate-and-recover).
+Preparation, retrieval and detection have separate dependency closures.
+
 An eligible route must contain exactly one matching genome record, use the
 `ncbi` source, and identify the same versioned `GCA_` or `GCF_` assembly in both
 `input_key` and `source_accession`. The selected acquired source file must be
@@ -53,7 +62,7 @@ Each key is the SHA-256 digest of canonical JSON containing:
 - The normalized accession and SHA-256 digest of the acquired source bytes.
 - The taxon and exact preparation route.
 - The preparation source closure, including the runner and validators.
-- Installed Python executable, standard-library contents, loaded native libraries,
+- Installed Python executable, standard-library contents, loaded shared libraries,
   and, for fungal preparation, Biopython and NumPy contents where loaded.
 - The cache schema and the versioned output contract.
 - All preparation arguments that affect output: genome-label digest and bacterial
@@ -64,10 +73,10 @@ model and record `not-used` for these fields. The retrieval contract identifies 
 exact NCBI CLI and unzip binaries, Python runtime, downloader source and include policy; its
 request digest identifies the versioned accession, and its manifest identifies
 the acquired snapshot bytes. The annotation/detection contract additionally pins
-the prepared native runtime contents, scientific sibling image IDs, complete antiSMASH database
+the prepared tool runtime contents, scientific sibling image IDs, complete antiSMASH database
 content, embedded models/databases, scientific producer source, accession
 input inventory, taxonomy/mapping and scientific/resource parameters. Sibling
-tools execute by their recorded image IDs. Native fingerprints include installed
+tools execute by their recorded image IDs. Runtime fingerprints include installed
 code, executables, libraries, data and loader configuration. Derived Python bytecode
 caches are excluded when their source exists. File modes are included; timestamps
 serve as mutation guards. Mutable tags or version labels alone
@@ -75,11 +84,11 @@ never establish compatibility. Missing external annotation identities cause miss
 
 The current retrieval contract is version 2 and detection contract is version 3. Cache storage and
 validation code are separate from scientific producer identity. A cache-only fix
-does not invalidate completed biology when native runtime contents, scientific
+does not invalidate completed biology when tool runtime contents, scientific
 source, inputs and parameters remain identical. Each detection bundle records its
-original worker image and verified native/source identities; fresh job provenance
+original worker image and verified runtime/source identities; fresh job provenance
 also records the worker that materialized it. Service image IDs alone never
-establish native-runtime equivalence. Unsupported older records miss unless their
+establish runtime equivalence. Unsupported older records miss unless their
 complete original execution evidence is independently verified.
 
 Volume names and absolute host paths are excluded from content identity. A worker
@@ -103,11 +112,20 @@ partial or failed detector outcomes, invalid GenBank and missing fungal translat
 
 ## Storage and ownership
 
-An operator must explicitly provision a separate filesystem or directory, owned
-by the worker account with mode `0700`, and set
-`CLUSTERWEAVE_ACCESSION_CACHE_ROOT` to its absolute path. Provisioning storage is
-an operator action. ClusterWeave does not create the root or mount a cache volume
-in the shipped Compose profile. Do not put the cache inside the repository,
+The local Compose profile mounts the separate `accession_cache` Docker volume
+only on the worker at `/var/cache/clusterweave`. Recommended fresh initialization
+sets `CLUSTERWEAVE_ACCESSION_CACHE_ROOT=/var/cache/clusterweave/accessions`.
+The worker provisions only this dedicated root, owned by its account with mode
+`0700`. The web service and sibling scientific containers never mount this volume.
+Existing configurations without a root stay disabled; no existing cache is moved.
+
+Advanced storage remains an operator action: provision a separate filesystem or
+directory owned by the worker account with mode `0700`, mount it only on the worker
+at a distinct absolute path, set the root and all positive limits in `.env`, and
+recreate the worker. Do not use the automatically provisioned path for a different
+storage contract. The terminal assistant offers the supported named-volume
+placement; cancel for advanced mount changes. Existing custom roots are preserved
+and cannot be migrated by toggling the assistant's cache choice. Do not put the cache inside the repository,
 job-data volume, acquisition tree, uploads, or result directories. Cache storage settings are operator-only and cannot be changed through raw job
 environment overrides. The web service and scientific child containers do not
 need access to this store.
@@ -139,7 +157,7 @@ bytes into new job files without hard links or symlinks. Job files remain mutabl
 and independent. Corrupt entries move to quarantine and normal computation
 continues. Quarantine is bounded by the same capacity and retention policy.
 Cancelled, partial, failed and previously staged job outputs cannot populate a
-complete detection entry. Native non-Docker and BRAKER/evidence routes retain
+complete detection entry. Non-Docker and BRAKER/evidence routes retain
 normal computation until they have a complete supported dependency contract.
 
 The defaults are 10 GiB, 256 entries including quarantine, and 30 days of retention.
@@ -161,7 +179,9 @@ repopulates eligible results after eviction.
 Limits are enforced during lookup, publication, and inspection. Expired entries
 are removed first. Capacity pressure removes quarantine before the oldest live
 entries. Hits do not extend retention. Oversized entries are not populated.
-Each biological bundle is limited to 512 MiB decompressed and 20,000 files.
+Microbial bundles are limited to 512 MiB decompressed and 20,000 files.
+The plant retrieval contract allows 2 GiB decompressed; compressed entries
+still have the store's 512 MiB limit.
 Filesystem overhead is additional; provision free space beyond the byte limit.
 If the filesystem fills, preparation still succeeds through normal computation.
 
@@ -176,8 +196,10 @@ or identifiers for earlier jobs. Unknown identities are never filled in from
 an accession filename or another job.
 
 Set `CLUSTERWEAVE_ACCESSION_CACHE_FORCE_MISS=1` to bypass both lookup and
-population. The existing `FORCE=1` setting and annotation runner `-f` option also bypass the cache. Removing
-`CLUSTERWEAVE_ACCESSION_CACHE_ROOT` restores ordinary preparation. Neither action
+population. The existing `FORCE=1` setting and annotation runner `-f` option also bypass the cache. Clearing
+`CLUSTERWEAVE_ACCESSION_CACHE_ROOT` and recreating services restores ordinary
+preparation. The assistant offers `--no-cache` during explicit reconfiguration;
+this retains the separate volume and its disposable entries. Neither action
 changes existing job results or requires a migration. A forced job neither reads
 nor replaces the frozen snapshot. To refresh the shared source, invalidate its
 exact retrieval entry, then let a normal job acquire and populate a new snapshot.
@@ -224,7 +246,7 @@ environment overrides, including administrator submissions.
 The worker reconciles metadata every 30 seconds while the cache is configured.
 Publication, deletion, quarantine and retention operations also update the index.
 Metadata writes run outside scientific preparation processes so loading SQLite
-does not change their native-library identity. Indexing failures do not change
+does not change their shared-library identity. Indexing failures do not change
 cache hits, scientific results or normal recomputation. A committed entry can
 temporarily be absent from the index after interrupted indexing. Reconciliation
 repairs this from authoritative manifests without running scientific tools or

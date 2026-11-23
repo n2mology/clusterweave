@@ -1,0 +1,2422 @@
+{
+  "schema": "plantismash-analysis-resources-v1",
+  "profile_sha256": "f8bce449f75d78eddb5d9a15faf95de73625c9936af41d3e7faa52f7949dd0d3",
+  "policy": "Acquire only at explicit operator preparation; verified immutable resources and generated indexes inside the SIF; no job-time download or mutation.",
+  "assets": [
+    {
+      "filename": "clusterblast.tar.gz",
+      "url": "https://zenodo.org/records/17396002/files/clusterblast.tar.gz?download=1",
+      "sha256": "42bad871b4a912e902b7e55d796d31780df13e1a66b3568c0422441b36205737",
+      "bytes": 684759066,
+      "kind": "tar",
+      "record_doi": "10.5281/zenodo.17396002",
+      "members": [
+        {
+          "member": "plantgeneclusters.txt",
+          "target": "clusterblast/plantgeneclusters.txt",
+          "sha256": "933e3630015acccf5898c4f1f07b574712e1d2e98a0c24236228603b6b626180",
+          "bytes": 59647563
+        },
+        {
+          "member": "plantgeneclusterprots.fasta",
+          "target": "clusterblast/plantgeneclusterprots.fasta",
+          "sha256": "b0702cf1578fc20e1565f345dfff985b63afc462d50f88d9f6d92c909dbfa31b",
+          "bytes": 650802327
+        }
+      ]
+    },
+    {
+      "filename": "connectTF_validated.csv",
+      "url": "https://zenodo.org/records/16926250/files/connectTF_validated.csv?download=1",
+      "sha256": "7ebe0ca70822e9724e1eaa4c944a6e36f3d7d72379dbc57cdcd97438bdac7c11",
+      "bytes": 149848105,
+      "kind": "file",
+      "target": "tfbs_finder/data/connectTF_validated.csv",
+      "installed_sha256": "7ebe0ca70822e9724e1eaa4c944a6e36f3d7d72379dbc57cdcd97438bdac7c11",
+      "installed_bytes": 149848105,
+      "record_doi": "10.5281/zenodo.16926250"
+    },
+    {
+      "filename": "Pfam-A.hmm.gz",
+      "url": "https://ftp.ebi.ac.uk/pub/databases/Pfam/releases/Pfam27.0/Pfam-A.hmm.gz",
+      "sha256": "b29bc2c54db8090531df0361a781b8d7397f60ebedc0c36a16e7d45e999cc329",
+      "bytes": 230306315,
+      "kind": "gzip",
+      "target": "fullhmmer/Pfam-A.hmm",
+      "version": "27.0",
+      "installed_sha256": "ea35d7e4029b9d34eb8422ae69a230a2a5d25a52a8e207425791e8fdeb38aac8",
+      "installed_bytes": 1221088409
+    },
+    {
+      "filename": "knownclusterprots.fasta",
+      "url": "https://raw.githubusercontent.com/plantismash/plantismash/cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/knownclusterblast/knownclusterprots.fasta",
+      "sha256": "10b90b889518991a9fab3cc478e782502d4955d4ea809246925ebd2c2cecc70e",
+      "bytes": 230189,
+      "kind": "file",
+      "target": "knownclusterblast/knownclusterprots.fasta",
+      "installed_sha256": "10b90b889518991a9fab3cc478e782502d4955d4ea809246925ebd2c2cecc70e",
+      "installed_bytes": 230189,
+      "source_commit": "cad25b85f7d5c029437974b2441e83c33d17dba0"
+    },
+    {
+      "filename": "knownclusters.txt",
+      "url": "https://raw.githubusercontent.com/plantismash/plantismash/cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/knownclusterblast/knownclusters.txt",
+      "sha256": "3edcab6a3eb9f913d9e91ddf434ff8d31bd0e96a5e6e7a5ea1b0f9657bfbc78b",
+      "bytes": 15136,
+      "kind": "file",
+      "target": "knownclusterblast/knownclusters.txt",
+      "installed_sha256": "3edcab6a3eb9f913d9e91ddf434ff8d31bd0e96a5e6e7a5ea1b0f9657bfbc78b",
+      "installed_bytes": 15136,
+      "source_commit": "cad25b85f7d5c029437974b2441e83c33d17dba0"
+    },
+    {
+      "filename": "subclusterprots.fasta",
+      "url": "https://raw.githubusercontent.com/plantismash/plantismash/cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/subclusterblast/subclusterprots.fasta",
+      "sha256": "9c3508808278d0c36f02cde17dcec2bd82ef4d354086cbfe77c6e744bbccd293",
+      "bytes": 309319,
+      "kind": "file",
+      "target": "subclusterblast/subclusterprots.fasta",
+      "installed_sha256": "9c3508808278d0c36f02cde17dcec2bd82ef4d354086cbfe77c6e744bbccd293",
+      "installed_bytes": 309319,
+      "source_commit": "cad25b85f7d5c029437974b2441e83c33d17dba0"
+    },
+    {
+      "filename": "subclusters.txt",
+      "url": "https://raw.githubusercontent.com/plantismash/plantismash/cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/subclusterblast/subclusters.txt",
+      "sha256": "44266bad3a1433be022cc6811d74a658f0df174515c1f2e0cadc144a0347d6f2",
+      "bytes": 19158,
+      "kind": "file",
+      "target": "subclusterblast/subclusters.txt",
+      "installed_sha256": "44266bad3a1433be022cc6811d74a658f0df174515c1f2e0cadc144a0347d6f2",
+      "installed_bytes": 19158,
+      "source_commit": "cad25b85f7d5c029437974b2441e83c33d17dba0"
+    },
+    {
+      "filename": "TAIR_GeneDescriptions_2025-08-19.tsv",
+      "url": "https://raw.githubusercontent.com/plantismash/plantismash/cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/tfbs_finder/data/TAIR_GeneDescriptions_2025-08-19.tsv",
+      "sha256": "a6cf423eb656c0f98823f74129b2416125b8b6f7318917b77dff8140dd2356a6",
+      "bytes": 219548,
+      "kind": "file",
+      "target": "tfbs_finder/data/TAIR_GeneDescriptions_2025-08-19.tsv",
+      "installed_sha256": "a6cf423eb656c0f98823f74129b2416125b8b6f7318917b77dff8140dd2356a6",
+      "installed_bytes": 219548,
+      "source_commit": "cad25b85f7d5c029437974b2441e83c33d17dba0"
+    },
+    {
+      "filename": "subclusterprots.fasta.phr",
+      "url": "https://raw.githubusercontent.com/plantismash/plantismash/cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/subclusterblast/subclusterprots.fasta.phr",
+      "sha256": "932fef2b645305daa8a8befe9a0ded304a74439278e8200b364df8b17531f374",
+      "bytes": 86988,
+      "kind": "file",
+      "target": "subclusterblast/subclusterprots.fasta.phr",
+      "installed_sha256": "932fef2b645305daa8a8befe9a0ded304a74439278e8200b364df8b17531f374",
+      "installed_bytes": 86988,
+      "source_commit": "cad25b85f7d5c029437974b2441e83c33d17dba0"
+    },
+    {
+      "filename": "subclusterprots.fasta.pin",
+      "url": "https://raw.githubusercontent.com/plantismash/plantismash/cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/subclusterblast/subclusterprots.fasta.pin",
+      "sha256": "2d038249387574a93df9ee10ce72b74a46f1b7fa07a1eb8e3279cfd07a67f090",
+      "bytes": 5608,
+      "kind": "file",
+      "target": "subclusterblast/subclusterprots.fasta.pin",
+      "installed_sha256": "2d038249387574a93df9ee10ce72b74a46f1b7fa07a1eb8e3279cfd07a67f090",
+      "installed_bytes": 5608,
+      "source_commit": "cad25b85f7d5c029437974b2441e83c33d17dba0"
+    },
+    {
+      "filename": "subclusterprots.fasta.psq",
+      "url": "https://raw.githubusercontent.com/plantismash/plantismash/cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/subclusterblast/subclusterprots.fasta.psq",
+      "sha256": "d02aa9db832ae7bed9eff504dbfc71ccc389ab9c32cb0f2c6bce4519e81f8f00",
+      "bytes": 264985,
+      "kind": "file",
+      "target": "subclusterblast/subclusterprots.fasta.psq",
+      "installed_sha256": "d02aa9db832ae7bed9eff504dbfc71ccc389ab9c32cb0f2c6bce4519e81f8f00",
+      "installed_bytes": 264985,
+      "source_commit": "cad25b85f7d5c029437974b2441e83c33d17dba0"
+    },
+    {
+      "filename": "plantismash-cad25b85.tar.gz",
+      "url": "https://codeload.github.com/plantismash/plantismash/tar.gz/cad25b85f7d5c029437974b2441e83c33d17dba0",
+      "bytes": 72118867,
+      "sha256": "34ea6ba8456bede1569810ff9a951f931905c229ce677df2896142c29fdb855a",
+      "kind": "tar",
+      "source_commit": "cad25b85f7d5c029437974b2441e83c33d17dba0",
+      "members": [
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/active_site_finder/config/SignatureResources.dtd",
+          "target": "active_site_finder/config/SignatureResources.dtd",
+          "sha256": "593c6696fe4fa6667ac0aaa28974e71ccda5f6213dea014859a6b529824f8ad3",
+          "bytes": 4221
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/active_site_finder/config/SignatureResources.xml",
+          "target": "active_site_finder/config/SignatureResources.xml",
+          "sha256": "f43b596cc287e09ea831e901f428e9a232049adaed9e300bd5bfcd7cc121ac8a",
+          "bytes": 21609
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/active_site_finder/hmm/Condensation.hmm2",
+          "target": "active_site_finder/hmm/Condensation.hmm2",
+          "sha256": "4bb3188502f8a5d10dc0a396bb21d4c4023e154a57096cc77b4bdee9920b7b9d",
+          "bytes": 121368
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/active_site_finder/hmm/KStypes.hmm3",
+          "target": "active_site_finder/hmm/KStypes.hmm3",
+          "sha256": "0d222d4b0674e95959ebbc2a33349d503e1f7a8ce2a2f16c7837c9b0960ad7d5",
+          "bytes": 3748019
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/active_site_finder/hmm/PKSI-ACP.hmm2",
+          "target": "active_site_finder/hmm/PKSI-ACP.hmm2",
+          "sha256": "2802721c233f5e10061c71db6c1cae91b98468b146b3f82c769cfbed491fe0f3",
+          "bytes": 25640
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/active_site_finder/hmm/PKSI-AT-muscle.hmm2",
+          "target": "active_site_finder/hmm/PKSI-AT-muscle.hmm2",
+          "sha256": "3857f440521947fe3daa2e0a361c0e8374c3ce46ecfdf47174400633229738e9",
+          "bytes": 113452
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/active_site_finder/hmm/PKSI-AT-t_coffee.hmm2",
+          "target": "active_site_finder/hmm/PKSI-AT-t_coffee.hmm2",
+          "sha256": "6c7caf1e2e0e549327814c9c6abaf295910eecb8f6e37210b0061326ed4c8f7a",
+          "bytes": 115321
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/active_site_finder/hmm/PKSI-AT.hmm2",
+          "target": "active_site_finder/hmm/PKSI-AT.hmm2",
+          "sha256": "6c7caf1e2e0e549327814c9c6abaf295910eecb8f6e37210b0061326ed4c8f7a",
+          "bytes": 115321
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/active_site_finder/hmm/PKSI-AT_malonylCoA.hmm2",
+          "target": "active_site_finder/hmm/PKSI-AT_malonylCoA.hmm2",
+          "sha256": "df733a5ef43e31149faa79acf204acc4ef74ae822c968a4ee5f32210518ca5a2",
+          "bytes": 112357
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/active_site_finder/hmm/PKSI-AT_methylmalonylCoA.hmm2",
+          "target": "active_site_finder/hmm/PKSI-AT_methylmalonylCoA.hmm2",
+          "sha256": "76c347460a59a6c859bbdff64da52fa5be8243060c5bcae6ca009cd3746d3ddd",
+          "bytes": 114985
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/active_site_finder/hmm/PKSI-DH.hmm2",
+          "target": "active_site_finder/hmm/PKSI-DH.hmm2",
+          "sha256": "887b8e2ef1087527ccd6f7de9aef7a815e7d18f2758b85de7866dcd99b539ede",
+          "bytes": 69162
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/active_site_finder/hmm/PKSI-DH_ATless.hmm2",
+          "target": "active_site_finder/hmm/PKSI-DH_ATless.hmm2",
+          "sha256": "acdca1de89598ae94e7430e8083d825803b171f8c5415847e290444f15d78f70",
+          "bytes": 104901
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/active_site_finder/hmm/PKSI-ER.hmm2",
+          "target": "active_site_finder/hmm/PKSI-ER.hmm2",
+          "sha256": "b0180c395aabfd7fe4335f6873babf5fe995adbdd61b6f8628f7751399b1539a",
+          "bytes": 119010
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/active_site_finder/hmm/PKSI-KR.hmm2",
+          "target": "active_site_finder/hmm/PKSI-KR.hmm2",
+          "sha256": "3f2cf333bd69e86002d6fec5323a059d65facb3a2fbe7fa088c3bd42e7b6c4ee",
+          "bytes": 73626
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/active_site_finder/hmm/PKSI-KS.hmm2",
+          "target": "active_site_finder/hmm/PKSI-KS.hmm2",
+          "sha256": "31db12c113ce6de866ff7af7887444fd30354d21c74d66aefe30c3d7ee8830df",
+          "bytes": 153967
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/active_site_finder/hmm/PKSI-KS_C.hmm2",
+          "target": "active_site_finder/hmm/PKSI-KS_C.hmm2",
+          "sha256": "f248a699f371dae056f758f3bc4508919e8883fde6aa9966acd78230c69f26b3",
+          "bytes": 52802
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/active_site_finder/hmm/PKSI-KS_N.hmm2",
+          "target": "active_site_finder/hmm/PKSI-KS_N.hmm2",
+          "sha256": "35f74d41e6b28300b252aa143f9069754f24ace9d58a398c3f33f29d110b3488",
+          "bytes": 98921
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/active_site_finder/hmm/PKSI-MT.hmm2",
+          "target": "active_site_finder/hmm/PKSI-MT.hmm2",
+          "sha256": "c3dfbd856fddae692e9cdcbf638feaafbdc23d1ad76cadd15f18b780df11e55e",
+          "bytes": 152860
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/active_site_finder/hmm/Thioesterase.hmm2",
+          "target": "active_site_finder/hmm/Thioesterase.hmm2",
+          "sha256": "446398114aff65f4b4285a7031a0603c116e3b8df1b41ac44c3ac8e3038696b4",
+          "bytes": 91130
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/active_site_finder/hmm/aa-activating.aroundLys.hmm2",
+          "target": "active_site_finder/hmm/aa-activating.aroundLys.hmm2",
+          "sha256": "6e5b7b0e90122469c8f0bebd436d8bb4308293f8c7a98ac64d65d2f7646207d4",
+          "bytes": 81876
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/active_site_finder/hmm/p450.hmm3",
+          "target": "active_site_finder/hmm/p450.hmm3",
+          "sha256": "d2dcb1519f331c3325fa79bd6f89033117018da54ade15d68f5142272fcaad16",
+          "bytes": 212305
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/active_site_finder/test/Y16952.3.final.gbk",
+          "target": "active_site_finder/test/Y16952.3.final.gbk",
+          "sha256": "b4afcd5a81a35e16011c99df68c83a7e7c5fe2affdb856806f3f5c031f073697",
+          "bytes": 912475
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/TreeGraph.jar",
+          "target": "smcogs/TreeGraph.jar",
+          "sha256": "205ed12ca3f1bddee7fda2b218057d51e698526f3c33375823e3e5753a2427ac",
+          "bytes": 965221
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/BrowserLauncher2-1_3.jar",
+          "target": "smcogs/lib/BrowserLauncher2-1_3.jar",
+          "sha256": "07076ea71e6f08c7bbc510387ca8ad63ac8fcfddfc668e47597aab8fe199d953",
+          "bytes": 102603
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/ErrorReporter.jar",
+          "target": "smcogs/lib/ErrorReporter.jar",
+          "sha256": "8e35182f6ca8c2e10a972d57332b8d13ea2c27353a56cf501b3cc79a7189709c",
+          "bytes": 19565
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/UpdateCenterClient.jar",
+          "target": "smcogs/lib/UpdateCenterClient.jar",
+          "sha256": "51168e57ac87ee6c6205cc4805bc6206157298e9ec49e0b6158a5cc8610d48a7",
+          "bytes": 8058
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/batik-anim.jar",
+          "target": "smcogs/lib/batik-anim.jar",
+          "sha256": "18eed01c966a158acf1303c8991ea9827573516f5d549d3d30274f4ed8df4de6",
+          "bytes": 95479
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/batik-awt-util.jar",
+          "target": "smcogs/lib/batik-awt-util.jar",
+          "sha256": "db7198140175f69d3a1c2458219c6aca593d0f1444344f6b73bb618259294382",
+          "bytes": 403287
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/batik-bridge.jar",
+          "target": "smcogs/lib/batik-bridge.jar",
+          "sha256": "50f41789aea13c2a01bca7db744878076e7ec6bdd574cfba847626610ad74fa3",
+          "bytes": 561551
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/batik-codec.jar",
+          "target": "smcogs/lib/batik-codec.jar",
+          "sha256": "a1e550749c507127d087dd629164622d125c5d70d79b0da386449c6e0a84de96",
+          "bytes": 165433
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/batik-css.jar",
+          "target": "smcogs/lib/batik-css.jar",
+          "sha256": "9d629e3675f108f98d70167c6ce66d674acbc8f1a4d0c9e1251c61a1649390e8",
+          "bytes": 311900
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/batik-dom.jar",
+          "target": "smcogs/lib/batik-dom.jar",
+          "sha256": "a828c19f48934843fa183db97cbf3b09106b74b186a2a2004641519523a66528",
+          "bytes": 173750
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/batik-ext.jar",
+          "target": "smcogs/lib/batik-ext.jar",
+          "sha256": "9be04189cd0db24d61bc40135c6b713c00073aae7d5cb5a9b08d5232d852e821",
+          "bytes": 10261
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/batik-extension.jar",
+          "target": "smcogs/lib/batik-extension.jar",
+          "sha256": "14f1b6fb2acf43f37d59ba68244509783ca39b59ab9585ad632d05eec8b2a122",
+          "bytes": 68051
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/batik-gui-util.jar",
+          "target": "smcogs/lib/batik-gui-util.jar",
+          "sha256": "3ef79dcc86bba5dff73c467072018eb4099cfe50775eb8ec9f8309b8758cdf71",
+          "bytes": 170879
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/batik-gvt.jar",
+          "target": "smcogs/lib/batik-gvt.jar",
+          "sha256": "11a2cbd3a043cb6f868525299d0418d36156f3c8069bba8f4acdcdd2f1e3b40a",
+          "bytes": 242948
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/batik-parser.jar",
+          "target": "smcogs/lib/batik-parser.jar",
+          "sha256": "14180c921d83f5e362a6a3001cebbf1a9383d4fa5ad5268aff369fc03c7d5672",
+          "bytes": 73710
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/batik-script.jar",
+          "target": "smcogs/lib/batik-script.jar",
+          "sha256": "e3c5da64c6b9c2da11ad115ffd8069d4f996f43939e7267d3a23df6fc725d8c7",
+          "bytes": 61893
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/batik-svg-dom.jar",
+          "target": "smcogs/lib/batik-svg-dom.jar",
+          "sha256": "32463102e1a5612e908b938b1e56eb98d19ed8da29dd0be1ccf307a936b0454c",
+          "bytes": 603361
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/batik-svggen.jar",
+          "target": "smcogs/lib/batik-svggen.jar",
+          "sha256": "2088c68b69e354cafb9474582eeb4503a78a2adea7b840b7aeb4f0260abd309f",
+          "bytes": 215802
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/batik-swing.jar",
+          "target": "smcogs/lib/batik-swing.jar",
+          "sha256": "c1c669aa08d175a16bcd01ef97fb82ebf669858694c8e7e61265ecd36bf5c336",
+          "bytes": 185144
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/batik-transcoder.jar",
+          "target": "smcogs/lib/batik-transcoder.jar",
+          "sha256": "d5a18a9301bc353f37951ca9cb44d368a726355d60f457d202d84cb323dd629f",
+          "bytes": 122393
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/batik-util.jar",
+          "target": "smcogs/lib/batik-util.jar",
+          "sha256": "ff2057e53f6de684e5ff46fedc44b7ec26bbb69bed573f4a8638934c29e8a500",
+          "bytes": 128334
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/batik-xml.jar",
+          "target": "smcogs/lib/batik-xml.jar",
+          "sha256": "43b1c9025953af1b8745ed9248baa3120bbe7dd59e7672d92b611b130850a7cd",
+          "bytes": 30862
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/ext-1.1.1.jar",
+          "target": "smcogs/lib/ext-1.1.1.jar",
+          "sha256": "d128d4df8dcbd483552239521e927ab7c54f3057074b601fa44dd64e1d381ba8",
+          "bytes": 257353
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/freehep-base.jar",
+          "target": "smcogs/lib/freehep-base.jar",
+          "sha256": "936407ea4f9b0d7746be0994bb099c15ccc29f4b555bd4ec24addd1e83c33ffd",
+          "bytes": 665269
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/freehep-graphics2d.jar",
+          "target": "smcogs/lib/freehep-graphics2d.jar",
+          "sha256": "8701a7f43cc276e36a3ddc2e02cbee40a3f7d30a5a2fa2ea876569ed214f92f0",
+          "bytes": 34600
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/freehep-graphicsio-emf.jar",
+          "target": "smcogs/lib/freehep-graphicsio-emf.jar",
+          "sha256": "d454dd173bc2f5567d8ae1162247d2cc4dc7744d7ec763de97ac9ab7a21db48f",
+          "bytes": 141034
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/freehep-graphicsio.jar",
+          "target": "smcogs/lib/freehep-graphicsio.jar",
+          "sha256": "9d53477b360cab2a8fcb0ca5339374a05658366a0a83673d622130890c8c392e",
+          "bytes": 247182
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/info.webinsel.util.appversion.jar",
+          "target": "smcogs/lib/info.webinsel.util.appversion.jar",
+          "sha256": "9b96574d1ae410ac362907d2f91ab3e2a473252ed870f17e16afef2be81ee951",
+          "bytes": 5278
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/info.webinsel.util.graphics.jar",
+          "target": "smcogs/lib/info.webinsel.util.graphics.jar",
+          "sha256": "10dbec6244e4f5bbe0d4ed17f20f4887e407f674f4f68e43fc47dd1b0bcb2c2f",
+          "bytes": 4565
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/info.webinsel.util.io.jar",
+          "target": "smcogs/lib/info.webinsel.util.io.jar",
+          "sha256": "e0d20d73266cbb1498205bae7468bf277818a18d468f0230e703fee964c2827e",
+          "bytes": 16533
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/info.webinsel.util.jar",
+          "target": "smcogs/lib/info.webinsel.util.jar",
+          "sha256": "68ad76fa532a625db0348055d121ca14883cfa40c94ed27daa0a4d7576a87b92",
+          "bytes": 9814
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/info.webinsel.util.swing.jar",
+          "target": "smcogs/lib/info.webinsel.util.swing.jar",
+          "sha256": "d9b12d43c3e87d1f5a014ea0800878721135fef11062fabf853a64c11be6ad6c",
+          "bytes": 39641
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/info.webinsel.wikihelp.client.jar",
+          "target": "smcogs/lib/info.webinsel.wikihelp.client.jar",
+          "sha256": "732ccaf1d25fc3772a38e0ec3267da444e829b9fb213a8f47551964d73f72f0a",
+          "bytes": 5999
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/jdom.jar",
+          "target": "smcogs/lib/jdom.jar",
+          "sha256": "3c167654499436ee9c19674b519d04e7364085533f6facada1bf90b16ad34897",
+          "bytes": 153115
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/jep-2.4.1.jar",
+          "target": "smcogs/lib/jep-2.4.1.jar",
+          "sha256": "ff1734127c22113831915a061515655e42a3ff421d400c20d25ba77d21198411",
+          "bytes": 86296
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/js.jar",
+          "target": "smcogs/lib/js.jar",
+          "sha256": "f7d917d038b136702461e3dbd5f83dd9946b664398d88f090284447b8e00fbba",
+          "bytes": 504741
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/org.jdesktop.swingx.scrollpaneselector.jar",
+          "target": "smcogs/lib/org.jdesktop.swingx.scrollpaneselector.jar",
+          "sha256": "facd3078c1bc999a6f9d5f2c4259fa03c466868b7b42d343ed372b0f4791c294",
+          "bytes": 18675
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/pdf-transcoder.jar",
+          "target": "smcogs/lib/pdf-transcoder.jar",
+          "sha256": "fb13efdab407d25197c99859a87c75991096ea4d59d6424e5bcd07160100eb32",
+          "bytes": 749716
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/xalan-2.6.0.jar",
+          "target": "smcogs/lib/xalan-2.6.0.jar",
+          "sha256": "5ee607ed0de1235fd500137bf6e9f661a71eaf52c7c55d8c1b0a3f9ed1f719b7",
+          "bytes": 1781922
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/xerces_2_5_0.jar",
+          "target": "smcogs/lib/xerces_2_5_0.jar",
+          "sha256": "1540debf702c178f5e1ff626cbf4e5e722cf11cb6f67e8504da64e462267c86a",
+          "bytes": 934835
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/xml-apis-ext.jar",
+          "target": "smcogs/lib/xml-apis-ext.jar",
+          "sha256": "d0b4887dc34d57de49074a58affad439a013d0baffa1a8034f8ef2a5ea191646",
+          "bytes": 85686
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/lib/xml-apis.jar",
+          "target": "smcogs/lib/xml-apis.jar",
+          "sha256": "d404aa881eb9c5f7a4fb546e84ea11506cd417a72b5972e88eff17f43f9f8a64",
+          "bytes": 194354
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1000_muscle.fasta",
+          "target": "smcogs/smcog1000_muscle.fasta",
+          "sha256": "d8208d264170e42ce9ce15b3bfc180c6b7f1c62e2245a7eef5969aa378bd77dc",
+          "bytes": 170229
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1001_muscle.fasta",
+          "target": "smcogs/smcog1001_muscle.fasta",
+          "sha256": "0defa9b1f4a649f87c270e1648b1c620cbd24af727681ab429ed5577eff46817",
+          "bytes": 84119
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1002_muscle.fasta",
+          "target": "smcogs/smcog1002_muscle.fasta",
+          "sha256": "c69e0dc526c31e6086eba886d0b704951b900096cebba907b92f7df72c91bf74",
+          "bytes": 205674
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1003_muscle.fasta",
+          "target": "smcogs/smcog1003_muscle.fasta",
+          "sha256": "dc14bec73a4a87adf3618f9bb08386444fc45971a26ef63b42c2db96bb0794bd",
+          "bytes": 213107
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1004_muscle.fasta",
+          "target": "smcogs/smcog1004_muscle.fasta",
+          "sha256": "e2e15148abc8af43315c07685b073f93cacdc96da562a56085dbc8884d1dacce",
+          "bytes": 63875
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1005_muscle.fasta",
+          "target": "smcogs/smcog1005_muscle.fasta",
+          "sha256": "3a45f60456b30db4d166ac9c8ca12010a0f8c8dbcdadba80c2eb75b45b2184c2",
+          "bytes": 176972
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1006_muscle.fasta",
+          "target": "smcogs/smcog1006_muscle.fasta",
+          "sha256": "82cf62ebd431095a8bcc291a97d1772890020a49f0e4f6e1a51748cdb589104e",
+          "bytes": 115583
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1007_muscle.fasta",
+          "target": "smcogs/smcog1007_muscle.fasta",
+          "sha256": "3da72f17f44e8dc4d886d137f3c7402b44af3bb569af430e15ffe09c109d4e9c",
+          "bytes": 75823
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1008_muscle.fasta",
+          "target": "smcogs/smcog1008_muscle.fasta",
+          "sha256": "2db6848a17a51426e52833748cbc0b2e0b445175eaf2b5f418948db35aca1d84",
+          "bytes": 215515
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1009_muscle.fasta",
+          "target": "smcogs/smcog1009_muscle.fasta",
+          "sha256": "60b07b998060adff9d336eb0de0447068c6079f65e95962af56593648a20b3c8",
+          "bytes": 40494
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1010_muscle.fasta",
+          "target": "smcogs/smcog1010_muscle.fasta",
+          "sha256": "8fc04ad174d53de67488014fef891b5d36f70b40a840aa2cc953d18de1cc8af7",
+          "bytes": 114257
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1011_muscle.fasta",
+          "target": "smcogs/smcog1011_muscle.fasta",
+          "sha256": "d54321e3227c3ba6bdd2f677cf11cc25408dc473c1b124b4c1d3c6fa33ae7cbd",
+          "bytes": 152070
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1012_muscle.fasta",
+          "target": "smcogs/smcog1012_muscle.fasta",
+          "sha256": "eceb0ff40a06f8f437407862d0ac9b509649d58970c956ef9503494a71079450",
+          "bytes": 77767
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1013_muscle.fasta",
+          "target": "smcogs/smcog1013_muscle.fasta",
+          "sha256": "416a2ff66da2a8853324f63821a6a16e17b9d2fb4277184261b55474ea1011a5",
+          "bytes": 171139
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1014_muscle.fasta",
+          "target": "smcogs/smcog1014_muscle.fasta",
+          "sha256": "11e0cc2a21fd666736f4d7bea6a55e909a318d8fbf0e33cb4d255e4c8bb59bec",
+          "bytes": 70964
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1015_muscle.fasta",
+          "target": "smcogs/smcog1015_muscle.fasta",
+          "sha256": "e609d47896a13efbcf45767b041478991f77d08adc2871ab0b71d19310e26013",
+          "bytes": 84051
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1016_muscle.fasta",
+          "target": "smcogs/smcog1016_muscle.fasta",
+          "sha256": "f9913b0b038400c64059e0f45ba98334f83792048519758fde0c527002ddf5a0",
+          "bytes": 154267
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1017_muscle.fasta",
+          "target": "smcogs/smcog1017_muscle.fasta",
+          "sha256": "07cb75badac76dce1ca2de204659e85eaff5b49a885ca2c039dc383f0800a4e2",
+          "bytes": 154158
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1018_muscle.fasta",
+          "target": "smcogs/smcog1018_muscle.fasta",
+          "sha256": "1d677aa27e7355b1409a25462a60e1859bd07b2b1195ea969743c2a34029f474",
+          "bytes": 162063
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1019_muscle.fasta",
+          "target": "smcogs/smcog1019_muscle.fasta",
+          "sha256": "177b2a973f1caceadff113591d599113142d2279caede251f5c8c7bb30d6f6d9",
+          "bytes": 115540
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1020_muscle.fasta",
+          "target": "smcogs/smcog1020_muscle.fasta",
+          "sha256": "803c04feb78bd1780305cfcc7f6df6cd24a58cd10083810593662e278de71490",
+          "bytes": 99731
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1021_muscle.fasta",
+          "target": "smcogs/smcog1021_muscle.fasta",
+          "sha256": "4c653f93504886763a384ab345359d4ff40efb01f7ec5e03a3d20416f7b63503",
+          "bytes": 234371
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1022_muscle.fasta",
+          "target": "smcogs/smcog1022_muscle.fasta",
+          "sha256": "d994aaa382b186667d38002c821b6bbaae7cad3ee3847b02e3035bc62fa2a400",
+          "bytes": 356934
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1023_muscle.fasta",
+          "target": "smcogs/smcog1023_muscle.fasta",
+          "sha256": "1eba8a4a1a15be883bd99296b74c9d47d854d8f71c88c3c06de1b29a769dc30e",
+          "bytes": 143820
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1024_muscle.fasta",
+          "target": "smcogs/smcog1024_muscle.fasta",
+          "sha256": "893fb2b8ca586cb4367e139cf086b9e983f2e9bbe8ec8065127a0f71ff267c55",
+          "bytes": 81184
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1025_muscle.fasta",
+          "target": "smcogs/smcog1025_muscle.fasta",
+          "sha256": "c9136fe0d08cab2e7c5f4d938697372188cfd04cf6a0bc73d27c214a9e29540a",
+          "bytes": 138102
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1026_muscle.fasta",
+          "target": "smcogs/smcog1026_muscle.fasta",
+          "sha256": "35449ecd7438df0c4e1c40842e3a22ae077d24fb7f8c3b4703f0eec6e7b1d639",
+          "bytes": 52371
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1027_muscle.fasta",
+          "target": "smcogs/smcog1027_muscle.fasta",
+          "sha256": "51cfa702c8b43f5ef3f4a5462d952dc821a0429d647978435c4942d7cb1a120c",
+          "bytes": 106385
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1028_muscle.fasta",
+          "target": "smcogs/smcog1028_muscle.fasta",
+          "sha256": "68b65b5e1acd45e6a80e9e7e331df1a8e53125f14802558584350d250065e549",
+          "bytes": 287537
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1029_muscle.fasta",
+          "target": "smcogs/smcog1029_muscle.fasta",
+          "sha256": "bf591173eca2da78740305998590a6f4fa852623e7b451ee445a7fbfaa0fe3fa",
+          "bytes": 216230
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1030_muscle.fasta",
+          "target": "smcogs/smcog1030_muscle.fasta",
+          "sha256": "0ec61b331ae06c2604f252f153a276edd743278dcdbc7d5b3c8568554ef6b978",
+          "bytes": 476133
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1031_muscle.fasta",
+          "target": "smcogs/smcog1031_muscle.fasta",
+          "sha256": "0a999e12b8631b369ffe99608182491b1d34fd19f883a9dc32465b8f351142e8",
+          "bytes": 68301
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1032_muscle.fasta",
+          "target": "smcogs/smcog1032_muscle.fasta",
+          "sha256": "5a1c861de962cfcb2187beaeda2811c98369383e289ecc142ff61b18006a481f",
+          "bytes": 103802
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1033_muscle.fasta",
+          "target": "smcogs/smcog1033_muscle.fasta",
+          "sha256": "3a350cde7974159d47738ad1deaf8dadf25075373000a186ab34844c1a37fcb6",
+          "bytes": 102193
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1034_muscle.fasta",
+          "target": "smcogs/smcog1034_muscle.fasta",
+          "sha256": "3955960b0f3d90375425002f7d02cb4d9b0086d0c4b5bfb58f412273f67e0740",
+          "bytes": 235866
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1035_muscle.fasta",
+          "target": "smcogs/smcog1035_muscle.fasta",
+          "sha256": "d903aafa1a8862839ff1ca86b614466f351a53ebb8a6b4d192bf2a5bd4f53a88",
+          "bytes": 216906
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1036_muscle.fasta",
+          "target": "smcogs/smcog1036_muscle.fasta",
+          "sha256": "f5101ce950465391acaf3bc27ed45098045c8a355d0909c8848df81def9199f8",
+          "bytes": 212544
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1037_muscle.fasta",
+          "target": "smcogs/smcog1037_muscle.fasta",
+          "sha256": "ec970d11bb4dccfad90d472247e378868feaa0e74a58a863b18c0051d1f6d728",
+          "bytes": 282094
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1038_muscle.fasta",
+          "target": "smcogs/smcog1038_muscle.fasta",
+          "sha256": "670e91cde0c93a8421711454adcb181c7f0b8d3005a5970fca4aa08ce2cf364d",
+          "bytes": 98519
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1039_muscle.fasta",
+          "target": "smcogs/smcog1039_muscle.fasta",
+          "sha256": "ed5b814e19df2cbf8a81d261df89dbd35a74a4dcdd0d60032d45f201f4695105",
+          "bytes": 81163
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1040_muscle.fasta",
+          "target": "smcogs/smcog1040_muscle.fasta",
+          "sha256": "794dd723b5f9f65e82d0e4a00f674a93b4826ec831db6d41a0e0e555f70dd13b",
+          "bytes": 84358
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1041_muscle.fasta",
+          "target": "smcogs/smcog1041_muscle.fasta",
+          "sha256": "69eee996979d6962429a0eabebbc315a072ba434a9bed28139066cddc7fd9258",
+          "bytes": 227919
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1042_muscle.fasta",
+          "target": "smcogs/smcog1042_muscle.fasta",
+          "sha256": "9557bace5aa6bfb993ceffaea395c1f986e3d380f3b535f299e6ec48269046c2",
+          "bytes": 120961
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1043_muscle.fasta",
+          "target": "smcogs/smcog1043_muscle.fasta",
+          "sha256": "13a312b08099008c7a03820a830d1e3651d76e5abe78069de21a6dca44a4eac9",
+          "bytes": 68197
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1044_muscle.fasta",
+          "target": "smcogs/smcog1044_muscle.fasta",
+          "sha256": "67d0c4c6d7a9d4793b7bda68c6e4736eeb6a15e799cc485ca0a97a21e3105058",
+          "bytes": 68601
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1045_muscle.fasta",
+          "target": "smcogs/smcog1045_muscle.fasta",
+          "sha256": "1fc64abc40976c8250f8896a6f086c6a6f6862a3d06dff5c2c9d321b26357046",
+          "bytes": 152870
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1046_muscle.fasta",
+          "target": "smcogs/smcog1046_muscle.fasta",
+          "sha256": "f627dba64ba5089a63218e819620fd498dd97a5c380807d73410986b362e6e69",
+          "bytes": 61653
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1047_muscle.fasta",
+          "target": "smcogs/smcog1047_muscle.fasta",
+          "sha256": "63d44aedb632038368d2168a656175afdbaf7661d9cc686e2ead6d7f78b8e2fd",
+          "bytes": 167970
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1048_muscle.fasta",
+          "target": "smcogs/smcog1048_muscle.fasta",
+          "sha256": "8a3e277dc2f7967b1cb897cb3f99f34ab81ee49a101471f4d19a10ba9014c204",
+          "bytes": 172918
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1049_muscle.fasta",
+          "target": "smcogs/smcog1049_muscle.fasta",
+          "sha256": "203963cd5f425d2b92c5157c0cdbd78111c4639652cc1ccf59f8df6a229f17d1",
+          "bytes": 187026
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1050_muscle.fasta",
+          "target": "smcogs/smcog1050_muscle.fasta",
+          "sha256": "d530461842fb9b4f350980fbd90f09329fb305d876263234afd11c6c01aa6423",
+          "bytes": 161347
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1051_muscle.fasta",
+          "target": "smcogs/smcog1051_muscle.fasta",
+          "sha256": "49c94ca4a865bf299bbed8b65f5e216d60853eee6e73090f513bd336cdc418e5",
+          "bytes": 301009
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1052_muscle.fasta",
+          "target": "smcogs/smcog1052_muscle.fasta",
+          "sha256": "e8b4eb1ad4200483cbf1ff14bdff7e862b54ed08fd77998554a8d72fc597a021",
+          "bytes": 276859
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1053_muscle.fasta",
+          "target": "smcogs/smcog1053_muscle.fasta",
+          "sha256": "dd057b2ecd20526a7b8193a2677d801f0c9b5518c93352fa19fd49255949e76a",
+          "bytes": 393011
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1054_muscle.fasta",
+          "target": "smcogs/smcog1054_muscle.fasta",
+          "sha256": "2b1d100973625eacab52704c591385eadf3794edb532339193e51c8d1d7e4499",
+          "bytes": 310865
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1055_muscle.fasta",
+          "target": "smcogs/smcog1055_muscle.fasta",
+          "sha256": "6a3fa48ae29d4f22eea29eb548589529af81355bd159ee420722772890e962c6",
+          "bytes": 175986
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1056_muscle.fasta",
+          "target": "smcogs/smcog1056_muscle.fasta",
+          "sha256": "2ac75c73770b5db9b500c3fba1cb072ca07b1b8eee4da33d4d9a523ac1d1dea7",
+          "bytes": 203544
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1057_muscle.fasta",
+          "target": "smcogs/smcog1057_muscle.fasta",
+          "sha256": "08db2d75e9e676067475b7979dd633ce3765478eecc11255a7b75143ff1dfa35",
+          "bytes": 104376
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1058_muscle.fasta",
+          "target": "smcogs/smcog1058_muscle.fasta",
+          "sha256": "40693953885ed3c05de060ed3e047df45bdf477897c6d337fe42be10b996c083",
+          "bytes": 78014
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1059_muscle.fasta",
+          "target": "smcogs/smcog1059_muscle.fasta",
+          "sha256": "52449cdc7bf61879e68a4e380165f0e0b828060a9620cafba498c49744cc995d",
+          "bytes": 154870
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1060_muscle.fasta",
+          "target": "smcogs/smcog1060_muscle.fasta",
+          "sha256": "ecf4412bdd1112daf00511593193fcec3a5e4e42c17ae935b727be79c51e5984",
+          "bytes": 92872
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1061_muscle.fasta",
+          "target": "smcogs/smcog1061_muscle.fasta",
+          "sha256": "fa6a7a290de3f5bec83139a5c37b212286f6bd2cf0ecf253da8645f7fcfa29c9",
+          "bytes": 353730
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1062_muscle.fasta",
+          "target": "smcogs/smcog1062_muscle.fasta",
+          "sha256": "de1bfc956165b775442d29a325eb68c509a10720c917e5f98c085a69d542f2b1",
+          "bytes": 223945
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1063_muscle.fasta",
+          "target": "smcogs/smcog1063_muscle.fasta",
+          "sha256": "19c7db00af78a1585e3d7d15824e0b45f40f2ecc7a5185d33c61019277dac63d",
+          "bytes": 235979
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1064_muscle.fasta",
+          "target": "smcogs/smcog1064_muscle.fasta",
+          "sha256": "ffe9958875129c0a28e8e3f1a6d37a998c6c3fe1167ba863958493c018bb344f",
+          "bytes": 121335
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1065_muscle.fasta",
+          "target": "smcogs/smcog1065_muscle.fasta",
+          "sha256": "f6d9bcad888eb108fd7758efbb6749d353fcbcbbf4fbb7ee793e0cbe24c3350d",
+          "bytes": 93351
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1066_muscle.fasta",
+          "target": "smcogs/smcog1066_muscle.fasta",
+          "sha256": "2b3972d20561fd2aaf77f1813f80b930f2f7fee75aa700f469a1c4af6fa32929",
+          "bytes": 135010
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1067_muscle.fasta",
+          "target": "smcogs/smcog1067_muscle.fasta",
+          "sha256": "11db945fe063465e5179e241b277d4e34c14cb093f967a493d50b63e2b3f5876",
+          "bytes": 97542
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1068_muscle.fasta",
+          "target": "smcogs/smcog1068_muscle.fasta",
+          "sha256": "3b0eef8497fb2ca0bdaaaaf24664b66d4acad36ba95e3566d80aa7b161fce6fc",
+          "bytes": 252694
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1069_muscle.fasta",
+          "target": "smcogs/smcog1069_muscle.fasta",
+          "sha256": "31f099b7ec54d84f702df35603c0444ff9bacff1ab2f3f82604843ce96829513",
+          "bytes": 69570
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1070_muscle.fasta",
+          "target": "smcogs/smcog1070_muscle.fasta",
+          "sha256": "e635440a4ce9f37047505177d58e23f21d5b53013b86ea225b23776fac3f1e4f",
+          "bytes": 272335
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1071_muscle.fasta",
+          "target": "smcogs/smcog1071_muscle.fasta",
+          "sha256": "fd1068c707439eaf7dc7f477a37984ec2e5cb184e26e86020534147bff925184",
+          "bytes": 90961
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1072_muscle.fasta",
+          "target": "smcogs/smcog1072_muscle.fasta",
+          "sha256": "9c5b7c975aa0cec12381a350311a54e1c7ca4b9c547921dc1b9265d4e5ab2757",
+          "bytes": 106276
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1073_muscle.fasta",
+          "target": "smcogs/smcog1073_muscle.fasta",
+          "sha256": "37900eff68b08f697a058ec54fb56d1142106434421bc286b556f2e2ff0b02d6",
+          "bytes": 241021
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1074_muscle.fasta",
+          "target": "smcogs/smcog1074_muscle.fasta",
+          "sha256": "e32f8a99c99bc1bd95690c45e9b81b7af095b9ec396ae46946f52d903c59ad72",
+          "bytes": 103804
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1075_muscle.fasta",
+          "target": "smcogs/smcog1075_muscle.fasta",
+          "sha256": "1f6bca5c67b20f4210111b03dea87b42d6da68b8c6a6c30a4c2ca8ad5b719b20",
+          "bytes": 318221
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1076_muscle.fasta",
+          "target": "smcogs/smcog1076_muscle.fasta",
+          "sha256": "874e79ce8e30a9b8568cdd9087487030e8a3f55e5c9b2c1b8de5158f13960e87",
+          "bytes": 106403
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1077_muscle.fasta",
+          "target": "smcogs/smcog1077_muscle.fasta",
+          "sha256": "ae39e53c087a1cf56784eb888eebd884d15dfe879060bad3e622d362c2ef229a",
+          "bytes": 174843
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1078_muscle.fasta",
+          "target": "smcogs/smcog1078_muscle.fasta",
+          "sha256": "b30c76993c966c7bff30170eeda2f961e09480768149e97a2e5c40327c6ebd25",
+          "bytes": 150699
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1079_muscle.fasta",
+          "target": "smcogs/smcog1079_muscle.fasta",
+          "sha256": "d1842062e06d7005ccb310f1c6dd2fbdb90f55f94d3095135275b09bd749e380",
+          "bytes": 206135
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1080_muscle.fasta",
+          "target": "smcogs/smcog1080_muscle.fasta",
+          "sha256": "25b406cbfaf7a6650e3a94e923a8b406c2cc092c576e3ed53efa85bc6169fee4",
+          "bytes": 115411
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1081_muscle.fasta",
+          "target": "smcogs/smcog1081_muscle.fasta",
+          "sha256": "80986e360c33e4715563f1deb4eee5642fba8e4a4adefc207b8257f818df68bd",
+          "bytes": 142816
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1082_muscle.fasta",
+          "target": "smcogs/smcog1082_muscle.fasta",
+          "sha256": "0a72202a9533763207251cd068cd456e14eae224e3145e8270b62e463ed4b593",
+          "bytes": 189606
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1083_muscle.fasta",
+          "target": "smcogs/smcog1083_muscle.fasta",
+          "sha256": "a1015ed4a90bcd21a9bf0c3e89db73a0291cd7b918c7d9c3dad96e4b571732b1",
+          "bytes": 81527
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1084_muscle.fasta",
+          "target": "smcogs/smcog1084_muscle.fasta",
+          "sha256": "b5e4734dd96db556747c7d801c8d6df9cf57f75970625c3abb0e200dedcbb584",
+          "bytes": 99352
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1085_muscle.fasta",
+          "target": "smcogs/smcog1085_muscle.fasta",
+          "sha256": "70ff48d7b888182b80a48d29557e8b5baa7832fdb2117027eab9ae065966a9a1",
+          "bytes": 114495
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1086_muscle.fasta",
+          "target": "smcogs/smcog1086_muscle.fasta",
+          "sha256": "506c0b2dfe75b737b013b9a32840e6119e2a721b8f59fd64d68ae8c2285a1937",
+          "bytes": 105480
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1087_muscle.fasta",
+          "target": "smcogs/smcog1087_muscle.fasta",
+          "sha256": "9d695c9eb45320a400ce110cb7b45ad88a5f0fa50b8839361ef69f6e0da7c7ab",
+          "bytes": 162145
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1088_muscle.fasta",
+          "target": "smcogs/smcog1088_muscle.fasta",
+          "sha256": "e796c48d54a5c2c7568ba5cf8e38baa858cfc1ec9e644375059209231498ff74",
+          "bytes": 128742
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1089_muscle.fasta",
+          "target": "smcogs/smcog1089_muscle.fasta",
+          "sha256": "9a9e6ffa93331c4ea1e8ac482a871197de0d50124b3e4c54829d0c60c92a92e2",
+          "bytes": 77305
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1090_muscle.fasta",
+          "target": "smcogs/smcog1090_muscle.fasta",
+          "sha256": "0b42f59122907ba27ed20ffe1852386dc55c1d2087db31169979dc24d08f0d28",
+          "bytes": 279377
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1091_muscle.fasta",
+          "target": "smcogs/smcog1091_muscle.fasta",
+          "sha256": "9135826dad3a48677a52f5cf11577684e2caac0b8f25defc5d070e46d39443d1",
+          "bytes": 114717
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1092_muscle.fasta",
+          "target": "smcogs/smcog1092_muscle.fasta",
+          "sha256": "8978d7d897c863c8f33922558cb9766a7db49148c42ce2d9836733a8f5481192",
+          "bytes": 311052
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1093_muscle.fasta",
+          "target": "smcogs/smcog1093_muscle.fasta",
+          "sha256": "320b7af041c3013501174b8510229b41886383d8123737e2993812243ff6071b",
+          "bytes": 79637
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1094_muscle.fasta",
+          "target": "smcogs/smcog1094_muscle.fasta",
+          "sha256": "4ed6887aa8294c3aef3c785ab1fa589d25cc77a5b71bab57bfccf99267611c22",
+          "bytes": 209894
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1095_muscle.fasta",
+          "target": "smcogs/smcog1095_muscle.fasta",
+          "sha256": "c650bf70535e270583862e13a211c347a58f91c28bbe77c13b968a5e93052bf3",
+          "bytes": 153026
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1096_muscle.fasta",
+          "target": "smcogs/smcog1096_muscle.fasta",
+          "sha256": "5711ce0844e0b53cbfca99be89103691b0a3d73c36f16a6a4213ddabb277bac1",
+          "bytes": 81521
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1097_muscle.fasta",
+          "target": "smcogs/smcog1097_muscle.fasta",
+          "sha256": "46dd679a5a3c12686a09a7828468545cb067942a4312060151597a7d946060e7",
+          "bytes": 72802
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1098_muscle.fasta",
+          "target": "smcogs/smcog1098_muscle.fasta",
+          "sha256": "7be073263de477e29088526cfd0eba1f3e2717086e9df21488b3b662d0ac4930",
+          "bytes": 113359
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1099_muscle.fasta",
+          "target": "smcogs/smcog1099_muscle.fasta",
+          "sha256": "b6ce194787ec700f25da29c33954ad2da4eba7f13ec1d6cb5e2f70684410c9c2",
+          "bytes": 80227
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1100_muscle.fasta",
+          "target": "smcogs/smcog1100_muscle.fasta",
+          "sha256": "42f06417762ef3c104d25cc65630801c58b0465d552446e285be41d98367c689",
+          "bytes": 70661
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1101_muscle.fasta",
+          "target": "smcogs/smcog1101_muscle.fasta",
+          "sha256": "32b60272fd8c410a67438f70ad34e2441c6a1e985e1037ddd03053edc351974f",
+          "bytes": 75673
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1102_muscle.fasta",
+          "target": "smcogs/smcog1102_muscle.fasta",
+          "sha256": "ca13e71d83da8dbb2cb70700a4b02fe243878323b849531bee651ad3cf029618",
+          "bytes": 175028
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1103_muscle.fasta",
+          "target": "smcogs/smcog1103_muscle.fasta",
+          "sha256": "1926b6fd4421f4431d1e7363e0c70afbb569a8f47a1302d90303041474130944",
+          "bytes": 98955
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1104_muscle.fasta",
+          "target": "smcogs/smcog1104_muscle.fasta",
+          "sha256": "8710b3aa8fd690ccce02a4d3e865216a5a039b1704ab481d6e0de246d0285ecb",
+          "bytes": 112015
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1105_muscle.fasta",
+          "target": "smcogs/smcog1105_muscle.fasta",
+          "sha256": "7361c3656bb76c71d3eb514e908c3ee59e4210eb5aa658aa5ebe068ec04c0767",
+          "bytes": 127891
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1106_muscle.fasta",
+          "target": "smcogs/smcog1106_muscle.fasta",
+          "sha256": "69b433e37c929c80ff152d4e5f756941074d3ff1e742eb17cfeb96b62b2133dd",
+          "bytes": 81926
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1107_muscle.fasta",
+          "target": "smcogs/smcog1107_muscle.fasta",
+          "sha256": "85b19275171d0937013e1ff9749264227c3042e74df9c2e1381d50148aaa463c",
+          "bytes": 119583
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1108_muscle.fasta",
+          "target": "smcogs/smcog1108_muscle.fasta",
+          "sha256": "16d24c58cb1ccf63f0d24a6b1b680d628010a6e6203488be798d6fdda8780e0d",
+          "bytes": 140101
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1109_muscle.fasta",
+          "target": "smcogs/smcog1109_muscle.fasta",
+          "sha256": "7091170b1d99a6159e01f74a0fef186df539c39d83ecd0b0fad7037461d933d4",
+          "bytes": 207400
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1110_muscle.fasta",
+          "target": "smcogs/smcog1110_muscle.fasta",
+          "sha256": "448823829d17d231b9ae2b56668f5ac9f4542435636eb8d1832c7941ee40585b",
+          "bytes": 116544
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1111_muscle.fasta",
+          "target": "smcogs/smcog1111_muscle.fasta",
+          "sha256": "d31fc7988ed4bcfe43d0f35b6fff19fb465878885908060023cbd53fb754576a",
+          "bytes": 53315
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1112_muscle.fasta",
+          "target": "smcogs/smcog1112_muscle.fasta",
+          "sha256": "96e70bcd9e327cf1712def4ce8ba1556bb65ed384dd4abfba29e0effc1391ec1",
+          "bytes": 251269
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1113_muscle.fasta",
+          "target": "smcogs/smcog1113_muscle.fasta",
+          "sha256": "a1634e392af65376a1d3e9aababc7613442f0d5944dbc70b8256cb2dd6071fdb",
+          "bytes": 99215
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1114_muscle.fasta",
+          "target": "smcogs/smcog1114_muscle.fasta",
+          "sha256": "6a55882e26aad9222f2d9d227b73db0e8ac6dd1ebb7b5b2a63a151f4c7312652",
+          "bytes": 48554
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1115_muscle.fasta",
+          "target": "smcogs/smcog1115_muscle.fasta",
+          "sha256": "b6d42dfeb3558ca52ac1accb11ff574bcaeaad8274093eb453ef4c0694b7d453",
+          "bytes": 46820
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1116_muscle.fasta",
+          "target": "smcogs/smcog1116_muscle.fasta",
+          "sha256": "15dda7c008b66827c4e2244b1448b6fecf84613cd86c342a478d654f98ad0d3e",
+          "bytes": 38799
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1117_muscle.fasta",
+          "target": "smcogs/smcog1117_muscle.fasta",
+          "sha256": "8caf65f920ca5c112a15ee5c5be479136fb328cc58c2d7f32d9468ce30cd42c6",
+          "bytes": 110142
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1118_muscle.fasta",
+          "target": "smcogs/smcog1118_muscle.fasta",
+          "sha256": "72818e8f8d9919b2465b7d5ecf90bf493008a0c952a41dc5d3be82424da6453e",
+          "bytes": 72561
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1119_muscle.fasta",
+          "target": "smcogs/smcog1119_muscle.fasta",
+          "sha256": "25f3352b34145d11b6c9176bddb2ed71ae05def91773c1272a2ec622bacdea4b",
+          "bytes": 93483
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1120_muscle.fasta",
+          "target": "smcogs/smcog1120_muscle.fasta",
+          "sha256": "1e08aea48d57344cd8988fba5004b5b8589292064192fcbb2d9df55832f4f4e8",
+          "bytes": 46754
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1121_muscle.fasta",
+          "target": "smcogs/smcog1121_muscle.fasta",
+          "sha256": "b697c218a1cf204b006c02bbd8c7634840c16f4e409febb05db10e1dc5bb81e7",
+          "bytes": 33349
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1122_muscle.fasta",
+          "target": "smcogs/smcog1122_muscle.fasta",
+          "sha256": "6a4afd69826b2d44aa384ba4a0e5d9e73d5f61bc889f3ad6ae8df16eb4835786",
+          "bytes": 269768
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1123_muscle.fasta",
+          "target": "smcogs/smcog1123_muscle.fasta",
+          "sha256": "97d3fa5df9a9d0340fba18a9bee5cb1c399e10583138cbc8219619a01501e840",
+          "bytes": 131206
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1124_muscle.fasta",
+          "target": "smcogs/smcog1124_muscle.fasta",
+          "sha256": "4c34ec825b1276250ae95643e84c65a71d6d8fbd55accb53b71027d6d5f4a6e0",
+          "bytes": 114124
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1125_muscle.fasta",
+          "target": "smcogs/smcog1125_muscle.fasta",
+          "sha256": "69aedb485099662e9744b4d55f5cac2b0790ad3f3342f4c439bcf8af6702a1dd",
+          "bytes": 38081
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1126_muscle.fasta",
+          "target": "smcogs/smcog1126_muscle.fasta",
+          "sha256": "e24137e974a48602a19880898823b2cf28fae7a2591aca7c89336ea3cd8ad5f4",
+          "bytes": 49777
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1127_muscle.fasta",
+          "target": "smcogs/smcog1127_muscle.fasta",
+          "sha256": "f6615b219a03f48114efa6b51c4b9c44aa09a4dd684b504d7c95a1bd8e2f6be4",
+          "bytes": 163523
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1128_muscle.fasta",
+          "target": "smcogs/smcog1128_muscle.fasta",
+          "sha256": "6cd404d9ec6c66370b968d165824b61179a2959e3defd336c8dd06acab98fff0",
+          "bytes": 83087
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1129_muscle.fasta",
+          "target": "smcogs/smcog1129_muscle.fasta",
+          "sha256": "8b54e246e5c0b6f6fc6315b6dab974a78ffeeb2cd82a9708260a350f2fc12fd2",
+          "bytes": 21971
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1130_muscle.fasta",
+          "target": "smcogs/smcog1130_muscle.fasta",
+          "sha256": "972dfa2acb0bcfb8b5eec77791294db07a080354e939f0baf5bd25f80b991f97",
+          "bytes": 61062
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1131_muscle.fasta",
+          "target": "smcogs/smcog1131_muscle.fasta",
+          "sha256": "3826475295c3e8e73b8ed124244af367b4ec7c93f1f7463f3a17920d0ad7ebd6",
+          "bytes": 48464
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1132_muscle.fasta",
+          "target": "smcogs/smcog1132_muscle.fasta",
+          "sha256": "83eb78740f4a22e3925b13273d4cc5e514e647673641c85c976c4cf6b6244b23",
+          "bytes": 13088
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1133_muscle.fasta",
+          "target": "smcogs/smcog1133_muscle.fasta",
+          "sha256": "82f113c748c534c9bf4016f5756fafd5eb66f36e8214477e075f0567bf41693b",
+          "bytes": 33773
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1134_muscle.fasta",
+          "target": "smcogs/smcog1134_muscle.fasta",
+          "sha256": "a87e8bd774c472b38bfd95b70dc2cfc15e6b17f5a3cf75757c157ba805c2b0a9",
+          "bytes": 243809
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1135_muscle.fasta",
+          "target": "smcogs/smcog1135_muscle.fasta",
+          "sha256": "8bb90205b516aa9cd3ef32654bddc8fe9cfa8305a75e84ff5a9e525a3ed82f7b",
+          "bytes": 29457
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1136_muscle.fasta",
+          "target": "smcogs/smcog1136_muscle.fasta",
+          "sha256": "1f4cc2b4b7550c4cfdf41b1970a0866ce3503e71a709ff7959a16e90c8c024ff",
+          "bytes": 43995
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1137_muscle.fasta",
+          "target": "smcogs/smcog1137_muscle.fasta",
+          "sha256": "7378c9f6e29f10f16688819cede3c809a331dd2b8f15b819b9bb385eaa3bf384",
+          "bytes": 61728
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1138_muscle.fasta",
+          "target": "smcogs/smcog1138_muscle.fasta",
+          "sha256": "b312d3a3fd47ea6759d7fad9dadb8eb5db60eff561d0b06828367f434c73d2da",
+          "bytes": 110354
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1139_muscle.fasta",
+          "target": "smcogs/smcog1139_muscle.fasta",
+          "sha256": "0bf29a8caaee4861f06c3a7cbc9bf0a30b04456f170f84a28bab21c6d31489bf",
+          "bytes": 96806
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1140_muscle.fasta",
+          "target": "smcogs/smcog1140_muscle.fasta",
+          "sha256": "16876c448ba948bd4329d47908a9cadd35342d55137c77025a25799ef67534d0",
+          "bytes": 68588
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1141_muscle.fasta",
+          "target": "smcogs/smcog1141_muscle.fasta",
+          "sha256": "603abd44420ff151f54086fa6d12c90cc5ea2b7c016e26dd586f3ae718a62b6d",
+          "bytes": 40678
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1142_muscle.fasta",
+          "target": "smcogs/smcog1142_muscle.fasta",
+          "sha256": "5bcd9cbc3fcf66be523d15877ac18ab39caec63e83c26e401c9170581a64aea5",
+          "bytes": 105358
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1143_muscle.fasta",
+          "target": "smcogs/smcog1143_muscle.fasta",
+          "sha256": "1ef396d28aa387f88c31d99e6c2420fc4dfd0b785826e5ffb509521f58d1483b",
+          "bytes": 54611
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1144_muscle.fasta",
+          "target": "smcogs/smcog1144_muscle.fasta",
+          "sha256": "215beea584678db80e22817009e2e11097453170c4ff01f156724f4ed2699f4b",
+          "bytes": 17593
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1145_muscle.fasta",
+          "target": "smcogs/smcog1145_muscle.fasta",
+          "sha256": "b923b7fb077e958989f3e9d95a5392e728c881512f072d1f885a901bb8c82214",
+          "bytes": 60400
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1146_muscle.fasta",
+          "target": "smcogs/smcog1146_muscle.fasta",
+          "sha256": "8301488349d8a829132c64f24cec0ea9f0a464145ad01029a10e8b8321d64bc5",
+          "bytes": 48424
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1147_muscle.fasta",
+          "target": "smcogs/smcog1147_muscle.fasta",
+          "sha256": "d5ce0b0a9e829da4659eba1a534c2423a7e387b8b83108015b7831ffdb2f85a5",
+          "bytes": 15165
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1148_muscle.fasta",
+          "target": "smcogs/smcog1148_muscle.fasta",
+          "sha256": "7ec60e25bb9a34c3287586a3266698fc3021e38900c965a508811f4900c161dc",
+          "bytes": 43066
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1149_muscle.fasta",
+          "target": "smcogs/smcog1149_muscle.fasta",
+          "sha256": "a15d04508d6d232812b2a9eadc055ea642bc37a24b5febac0dba837659749674",
+          "bytes": 146355
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1150_muscle.fasta",
+          "target": "smcogs/smcog1150_muscle.fasta",
+          "sha256": "2c8529caa5166ddf3dcccfedeb66d3b4cb10048996e216c5c0cf0d7024d3d0e4",
+          "bytes": 60999
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1151_muscle.fasta",
+          "target": "smcogs/smcog1151_muscle.fasta",
+          "sha256": "11daf0d76027b8d1b864b365ed72432db2578289fbed3edc93d0e970bb8378bd",
+          "bytes": 23697
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1152_muscle.fasta",
+          "target": "smcogs/smcog1152_muscle.fasta",
+          "sha256": "1b3669201078877bc0fb19ac83b54803b1245405ca7353d593a94d46b7894f67",
+          "bytes": 54572
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1153_muscle.fasta",
+          "target": "smcogs/smcog1153_muscle.fasta",
+          "sha256": "60a9774bca4ed05611f8a7efc934f36a3210a3c2c07e0c64d4cb96fd87d4f5e6",
+          "bytes": 48790
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1154_muscle.fasta",
+          "target": "smcogs/smcog1154_muscle.fasta",
+          "sha256": "06034e01469cd1bda014a82fe00bb0dbf326d6a6e03148a9409eab76ddb76a05",
+          "bytes": 33072
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1155_muscle.fasta",
+          "target": "smcogs/smcog1155_muscle.fasta",
+          "sha256": "ac0c9749ee5c710daa6f94b7fc0e863da912e816c30ace33edba0e0a221f3b0e",
+          "bytes": 134371
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1156_muscle.fasta",
+          "target": "smcogs/smcog1156_muscle.fasta",
+          "sha256": "f2372a8808b982f257e09e9f6d71512a17363c2a978aea22423ae570de99d52d",
+          "bytes": 117681
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1157_muscle.fasta",
+          "target": "smcogs/smcog1157_muscle.fasta",
+          "sha256": "3980d86a7b01aa59a03be67e27ab973a5ad8b1c89d5fc83d9f3b3cc9007ac445",
+          "bytes": 69541
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1158_muscle.fasta",
+          "target": "smcogs/smcog1158_muscle.fasta",
+          "sha256": "0f546242be20f3e17603f3fa87a85bbdca39d5941d374d70b04309e02ad9a46e",
+          "bytes": 44278
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1159_muscle.fasta",
+          "target": "smcogs/smcog1159_muscle.fasta",
+          "sha256": "c8654711f46204d1829572b0bfee76d7b9602c008a3931657bd74f7964a3fdb3",
+          "bytes": 19213
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1160_muscle.fasta",
+          "target": "smcogs/smcog1160_muscle.fasta",
+          "sha256": "2ae1b9c9ab1fdcf2576118c34d55f34cbe504b97d48260063bdb0484b7615bee",
+          "bytes": 70721
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1161_muscle.fasta",
+          "target": "smcogs/smcog1161_muscle.fasta",
+          "sha256": "cec0f7602f80ecb81a85ce3a3c89dbcade8cd037bf8b06246733634cce1db6cb",
+          "bytes": 52972
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1162_muscle.fasta",
+          "target": "smcogs/smcog1162_muscle.fasta",
+          "sha256": "1dd5e4f9aacdbe1ecfda36a28070fe07f7ced1e824f6b92e7901fea78f3f2a73",
+          "bytes": 68108
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1163_muscle.fasta",
+          "target": "smcogs/smcog1163_muscle.fasta",
+          "sha256": "42fa546a48cbf3aaac700b5dd0790361e94b072edb0c4ee7cbd9e648b79c10b6",
+          "bytes": 43621
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1164_muscle.fasta",
+          "target": "smcogs/smcog1164_muscle.fasta",
+          "sha256": "f4ad2c43169599ade2120a5fae8aaa4d28fee0b3dd6d775fb181fb50bc8311bb",
+          "bytes": 17431
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1165_muscle.fasta",
+          "target": "smcogs/smcog1165_muscle.fasta",
+          "sha256": "700c780cda56087de4cdb3da8544e66ff51cf920ccd80186db36f0dd30c1632c",
+          "bytes": 65394
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1166_muscle.fasta",
+          "target": "smcogs/smcog1166_muscle.fasta",
+          "sha256": "9ca0c11052a475d495cac70c5dcf3a1fa6bf94a4c46367ccc43a1afa14423f2e",
+          "bytes": 65014
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1167_muscle.fasta",
+          "target": "smcogs/smcog1167_muscle.fasta",
+          "sha256": "ddd88b15d40199ba05e65fd56a748288c7f254ce0ab23aa4358cbcda1e5fe490",
+          "bytes": 40206
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1168_muscle.fasta",
+          "target": "smcogs/smcog1168_muscle.fasta",
+          "sha256": "8c892e1870b1103b128b78f5a52282e8109b32067f9877722f5e69d20b5c15ff",
+          "bytes": 96128
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1169_muscle.fasta",
+          "target": "smcogs/smcog1169_muscle.fasta",
+          "sha256": "e08ec7c50a91f201d6ff5660f0dea9cdeb421e71ee2cd74e7557d547ba4a0cf7",
+          "bytes": 98381
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1170_muscle.fasta",
+          "target": "smcogs/smcog1170_muscle.fasta",
+          "sha256": "672838b5a1c4705da294538195a6c50a38ad25c0d23837bf34c91cf25066b0d7",
+          "bytes": 88683
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1171_muscle.fasta",
+          "target": "smcogs/smcog1171_muscle.fasta",
+          "sha256": "adb8d1525093380eb3919cb55bcdf9cbbd1c918aef0760e5d85dd0098e5a456d",
+          "bytes": 41260
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1172_muscle.fasta",
+          "target": "smcogs/smcog1172_muscle.fasta",
+          "sha256": "0c40ef9c295bb0e9e227f0fdfa3e6b26882506e6d5ffddcd939b169affa26e11",
+          "bytes": 71176
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1173_muscle.fasta",
+          "target": "smcogs/smcog1173_muscle.fasta",
+          "sha256": "5e14c6dd85206928f2ecb604a9f35ae279405a56d9133fdff58391445e102998",
+          "bytes": 200093
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1174_muscle.fasta",
+          "target": "smcogs/smcog1174_muscle.fasta",
+          "sha256": "5039d74a1d47c46d9152014cedc509263dc223f7aa77a062321cc1dfcd9bca72",
+          "bytes": 34955
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1175_muscle.fasta",
+          "target": "smcogs/smcog1175_muscle.fasta",
+          "sha256": "cef59f542c287f68194b739e1d20f649d34361bb5da468d7f67cddfc6f8feb7e",
+          "bytes": 80729
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1176_muscle.fasta",
+          "target": "smcogs/smcog1176_muscle.fasta",
+          "sha256": "33ad64ae17a96ac334fcf4923b8694d85d56ff8f072c77f43f397fc547c3c81e",
+          "bytes": 65613
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1177_muscle.fasta",
+          "target": "smcogs/smcog1177_muscle.fasta",
+          "sha256": "fa771a8c867acb45e04ba07d8bd81ece10e33d3d654e4e5753d220a6d990c891",
+          "bytes": 75634
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1178_muscle.fasta",
+          "target": "smcogs/smcog1178_muscle.fasta",
+          "sha256": "2ac906bcd9adea244bdfd370659c74c3209cf06102e4d5bf6d0c1f1d18ed2d31",
+          "bytes": 64824
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1179_muscle.fasta",
+          "target": "smcogs/smcog1179_muscle.fasta",
+          "sha256": "94c831ab829657fae4b135557de8507ee1c75eca985e47e930d56a0af937d41b",
+          "bytes": 49353
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1180_muscle.fasta",
+          "target": "smcogs/smcog1180_muscle.fasta",
+          "sha256": "0b35a0675df9cda7666140dd8e09e28d46bbb65954715fda205c78f3b92d96f1",
+          "bytes": 63017
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1181_muscle.fasta",
+          "target": "smcogs/smcog1181_muscle.fasta",
+          "sha256": "00852c90015de97eafa72b89b512af177b83ba30e12b0dd6f1356e7c8df34a50",
+          "bytes": 30977
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1182_muscle.fasta",
+          "target": "smcogs/smcog1182_muscle.fasta",
+          "sha256": "f255850474728c88fdf38360044ed2c77c4b8fc789ad0db5a104487ea06ca0eb",
+          "bytes": 138053
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1183_muscle.fasta",
+          "target": "smcogs/smcog1183_muscle.fasta",
+          "sha256": "da95a4fb451ffccfb707d24a21ee683ecf6743f46aefd9d3e8fd6658192a56e9",
+          "bytes": 72341
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1184_muscle.fasta",
+          "target": "smcogs/smcog1184_muscle.fasta",
+          "sha256": "f6df51525bb60a03cea1bde5d81d9e00d2e8fe4213773eece9328c4d67aba0e4",
+          "bytes": 47144
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1185_muscle.fasta",
+          "target": "smcogs/smcog1185_muscle.fasta",
+          "sha256": "a849a168c8936caf8a8b56c8ae4af6f610302c082b483a25b5d8435663f73d5b",
+          "bytes": 34406
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1186_muscle.fasta",
+          "target": "smcogs/smcog1186_muscle.fasta",
+          "sha256": "898edfc450800ceb61dc38ae7f92e54be28dce8125e3a5f53706195933fde4f0",
+          "bytes": 55691
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1187_muscle.fasta",
+          "target": "smcogs/smcog1187_muscle.fasta",
+          "sha256": "441b4def20108e342d7c68afd88b974ec420a72ce769d148b328184fd6f51b56",
+          "bytes": 41242
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1188_muscle.fasta",
+          "target": "smcogs/smcog1188_muscle.fasta",
+          "sha256": "564274a8fa1354ae618c0036afd171b751d983e5903d134ebf9245f190cf69cf",
+          "bytes": 60596
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1189_muscle.fasta",
+          "target": "smcogs/smcog1189_muscle.fasta",
+          "sha256": "1cf5ebbe62fe7753043151a032f3719152c7a8b66bbce8002b3b7bc39832fb48",
+          "bytes": 131863
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1190_muscle.fasta",
+          "target": "smcogs/smcog1190_muscle.fasta",
+          "sha256": "9bbce6a27b8936a4eddd42c120ccd117723d3729e9b54a2a9455920de41e6c92",
+          "bytes": 66083
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1191_muscle.fasta",
+          "target": "smcogs/smcog1191_muscle.fasta",
+          "sha256": "1b3d2ef4fe9f294160be632fede3a1338fd330be542bef34d87a4680f2506eae",
+          "bytes": 45678
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1192_muscle.fasta",
+          "target": "smcogs/smcog1192_muscle.fasta",
+          "sha256": "b193118f95036bf1e255a9352178e788a417b43f7afb458b43708cbdca691ffe",
+          "bytes": 53352
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1193_muscle.fasta",
+          "target": "smcogs/smcog1193_muscle.fasta",
+          "sha256": "69fbf8a3a37be0772742222016872a2106d6eae219d56d074b6ec8ebcf5b5b55",
+          "bytes": 37005
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1194_muscle.fasta",
+          "target": "smcogs/smcog1194_muscle.fasta",
+          "sha256": "b6b993974a7d936999ceef67909a2c7d03910295fd88296fac27f9db0f9321d2",
+          "bytes": 114095
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1195_muscle.fasta",
+          "target": "smcogs/smcog1195_muscle.fasta",
+          "sha256": "d517e6cb5dcb843280cc8826e906e094dd029e7adfe78d2e3a6f609a47d4d2be",
+          "bytes": 33444
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1196_muscle.fasta",
+          "target": "smcogs/smcog1196_muscle.fasta",
+          "sha256": "3cbb47a9c66f3dbf3b6d0925678a743f9cc22dd5c9898390d302baac13d85b64",
+          "bytes": 26182
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1197_muscle.fasta",
+          "target": "smcogs/smcog1197_muscle.fasta",
+          "sha256": "a27f00feee34036182c8c2d2ae55764f5c438fd45178310c3941a98716e3c89c",
+          "bytes": 28036
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1198_muscle.fasta",
+          "target": "smcogs/smcog1198_muscle.fasta",
+          "sha256": "8d413e5700354898f687c0acb9ee4c8da8e158f95a454380d83c61b2d5143341",
+          "bytes": 8742
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1199_muscle.fasta",
+          "target": "smcogs/smcog1199_muscle.fasta",
+          "sha256": "07d014efd1b7e3aaf6adfee6ca0930e8053165c3ee1d131688b6bdb0f464565d",
+          "bytes": 49030
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1200_muscle.fasta",
+          "target": "smcogs/smcog1200_muscle.fasta",
+          "sha256": "d82302c7fe7ca43204e615798b11fbd062db38f1342c7a9c86fc072126190f8f",
+          "bytes": 81223
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1201_muscle.fasta",
+          "target": "smcogs/smcog1201_muscle.fasta",
+          "sha256": "2487819485e78482443b55ed9fc16bced19178e22176e03a9562628a1b9c5eff",
+          "bytes": 54739
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1202_muscle.fasta",
+          "target": "smcogs/smcog1202_muscle.fasta",
+          "sha256": "cde0b22cff092babfc819e413a0a001427a9e96c3ef9e377f66f143a039eae68",
+          "bytes": 29623
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1203_muscle.fasta",
+          "target": "smcogs/smcog1203_muscle.fasta",
+          "sha256": "8dd0902c4aaf8e54034145069e54eaab7de6c450589569b0bffd84828ef84125",
+          "bytes": 50248
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1204_muscle.fasta",
+          "target": "smcogs/smcog1204_muscle.fasta",
+          "sha256": "d4d65685f08aeabfe5b0025058916119010b7b48f0ce6184b929edad405d22aa",
+          "bytes": 59033
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1205_muscle.fasta",
+          "target": "smcogs/smcog1205_muscle.fasta",
+          "sha256": "a231f7d36be2690dc5eb9d8d9bb33cea7308411cb4c1dd19e374cc799e09d2aa",
+          "bytes": 59115
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1206_muscle.fasta",
+          "target": "smcogs/smcog1206_muscle.fasta",
+          "sha256": "6a2960e30d5737f5469065ef8c8832ffaa2a44a39706e280e6825a6fe295a2fa",
+          "bytes": 33091
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1207_muscle.fasta",
+          "target": "smcogs/smcog1207_muscle.fasta",
+          "sha256": "4b8776fde17704a2e7808d9c07d272e697c73354bfbdc18190625bb7d8366c4f",
+          "bytes": 40824
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1208_muscle.fasta",
+          "target": "smcogs/smcog1208_muscle.fasta",
+          "sha256": "d8773c64be0ee9e7e9f80ba73a8be8ec54ba6adbe5a9e110fcf6cba52e5be430",
+          "bytes": 32318
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1209_muscle.fasta",
+          "target": "smcogs/smcog1209_muscle.fasta",
+          "sha256": "1a78444ea8961b3ea08f6d495572d763bced24f64dd4845acb3215ea313ec023",
+          "bytes": 24584
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1210_muscle.fasta",
+          "target": "smcogs/smcog1210_muscle.fasta",
+          "sha256": "fa76fca9766f9c3e8f828134f40dc7bfa56ec562462fc4a1c8ff693569388e79",
+          "bytes": 63213
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1211_muscle.fasta",
+          "target": "smcogs/smcog1211_muscle.fasta",
+          "sha256": "04effcafc07d164f62e3e48e7b6d19378b39eaa46be2523dbde2b3e06d792a67",
+          "bytes": 2707
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1212_muscle.fasta",
+          "target": "smcogs/smcog1212_muscle.fasta",
+          "sha256": "016f1cc31467b80e31377da8083291d6a2e34c0e1d8f0cd163bf4ef178868740",
+          "bytes": 46814
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1213_muscle.fasta",
+          "target": "smcogs/smcog1213_muscle.fasta",
+          "sha256": "0c45af6fb99913d01a2356462794fb974b58a170917814049eedcb5c4c36c735",
+          "bytes": 29291
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1214_muscle.fasta",
+          "target": "smcogs/smcog1214_muscle.fasta",
+          "sha256": "84bbaf57408dbe89faaf2799831fa8fd813bf77a81b17a6f354a6a7f91039d92",
+          "bytes": 57886
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1215_muscle.fasta",
+          "target": "smcogs/smcog1215_muscle.fasta",
+          "sha256": "c29480fba752b1e13d300009b2b3f2404f4575c74e5360602a952fbd9b53ed74",
+          "bytes": 24713
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1216_muscle.fasta",
+          "target": "smcogs/smcog1216_muscle.fasta",
+          "sha256": "e1fea6473a6d255b5ed3ed594c287bd0dc71e5db2ebb781346ec7b4c91d77713",
+          "bytes": 82622
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1217_muscle.fasta",
+          "target": "smcogs/smcog1217_muscle.fasta",
+          "sha256": "935b9c05276307c42db701adbaf317dee2ff4b54b44f2b0183b567f62ca6bd26",
+          "bytes": 97788
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1218_muscle.fasta",
+          "target": "smcogs/smcog1218_muscle.fasta",
+          "sha256": "2ccb07543ae07407289d59802e258e4d99441a7bf4aa67d240350325e73eb6e6",
+          "bytes": 115453
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1219_muscle.fasta",
+          "target": "smcogs/smcog1219_muscle.fasta",
+          "sha256": "b8dd615b4c74d3f0e00392fea44e50f9365bab65a77b55ba2304494dd5057734",
+          "bytes": 45207
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1220_muscle.fasta",
+          "target": "smcogs/smcog1220_muscle.fasta",
+          "sha256": "ae751b00688e9609be4a69c43c066ded0f5913bdb50945e4a6f223f2d3d7138a",
+          "bytes": 25548
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1221_muscle.fasta",
+          "target": "smcogs/smcog1221_muscle.fasta",
+          "sha256": "13a4e98a6cd8bcbfb865bab80a253e3bc8d5d002767be04a79f307b485e5365f",
+          "bytes": 29418
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1222_muscle.fasta",
+          "target": "smcogs/smcog1222_muscle.fasta",
+          "sha256": "e45b43ca4a5a13e4d88bcdac8cc701880b86e6431c7df9d5244c883f5c8c811c",
+          "bytes": 62274
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1223_muscle.fasta",
+          "target": "smcogs/smcog1223_muscle.fasta",
+          "sha256": "32e35ae8c348efbbd6b412a7cd7c17aab8caba5ac43df0606dca7ce7acb09020",
+          "bytes": 105112
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1224_muscle.fasta",
+          "target": "smcogs/smcog1224_muscle.fasta",
+          "sha256": "d4f93535bfec163697a935667acd9058a70fa1408ed3ed5dba2ee47056ac1669",
+          "bytes": 34339
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1225_muscle.fasta",
+          "target": "smcogs/smcog1225_muscle.fasta",
+          "sha256": "feec93776960c17ed21237714ff75cf9c8123795964350927e741cbc753b8388",
+          "bytes": 24887
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1226_muscle.fasta",
+          "target": "smcogs/smcog1226_muscle.fasta",
+          "sha256": "ff1f1458709bdca26a87821f8cd78b83dd0c21f8c686cd93ae29b56af6c338b3",
+          "bytes": 105916
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1227_muscle.fasta",
+          "target": "smcogs/smcog1227_muscle.fasta",
+          "sha256": "389bff007c4f93ddd6a82a9584b2d66b57bbb9f3519bf4317c78180bca7f0b45",
+          "bytes": 42163
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1228_muscle.fasta",
+          "target": "smcogs/smcog1228_muscle.fasta",
+          "sha256": "9bdfc4e07c31fc7ab4ea4a5a9f8d9249f83c015ed6e72d9a51ac55304f3f23ee",
+          "bytes": 52477
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1229_muscle.fasta",
+          "target": "smcogs/smcog1229_muscle.fasta",
+          "sha256": "1f2ceb7353d28ee935cb10c5fedb0d4ae7aeae5a5a392e01e8cb916fc4de7e16",
+          "bytes": 37369
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1230_muscle.fasta",
+          "target": "smcogs/smcog1230_muscle.fasta",
+          "sha256": "ac6349b6842660c84d54bd00c2be8984f5790af67684fc80d06fe70f65b55db4",
+          "bytes": 30608
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1231_muscle.fasta",
+          "target": "smcogs/smcog1231_muscle.fasta",
+          "sha256": "570e790d4efaf61affd9741136e3ecda2fd894610d5c208677be402529553688",
+          "bytes": 52126
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1232_muscle.fasta",
+          "target": "smcogs/smcog1232_muscle.fasta",
+          "sha256": "c2dfb0e443eddc527e535449bc131092d5e890dc704709b288dc8777438d96c7",
+          "bytes": 9736
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1233_muscle.fasta",
+          "target": "smcogs/smcog1233_muscle.fasta",
+          "sha256": "0f99af620de07b7d0a47e819a5af33e99904083c490f9ff2ac29749c1f90e6a6",
+          "bytes": 15562
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1234_muscle.fasta",
+          "target": "smcogs/smcog1234_muscle.fasta",
+          "sha256": "8db43b5900c5127bf5ae620c7b155354ad1604c4ed5a5e6b64a1cf74304a3e14",
+          "bytes": 13883
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1235_muscle.fasta",
+          "target": "smcogs/smcog1235_muscle.fasta",
+          "sha256": "1b428fc847a5f59c50976ce4171831cfb544222c1b0448e39de2618aa6ff1a09",
+          "bytes": 94972
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1236_muscle.fasta",
+          "target": "smcogs/smcog1236_muscle.fasta",
+          "sha256": "c89379e9c478dc9e9f5d76f1c517f8cb20741a97614a30c53e6fe97a6379c8fd",
+          "bytes": 85068
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1237_muscle.fasta",
+          "target": "smcogs/smcog1237_muscle.fasta",
+          "sha256": "438d80c76614961ee3aac41e1c3279f6683fbe7b5227a8ef2e47b8b744c32745",
+          "bytes": 34478
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1238_muscle.fasta",
+          "target": "smcogs/smcog1238_muscle.fasta",
+          "sha256": "4e385da999806d0624e394a57d5a6ec917e170f02cb3ad0681fe3acf9a5641a0",
+          "bytes": 28861
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1239_muscle.fasta",
+          "target": "smcogs/smcog1239_muscle.fasta",
+          "sha256": "d8baecb9d73b8a4ea2bb4f5d04698957b7b44bc41e97268bd6c3f3ac8a5ecf3c",
+          "bytes": 32109
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1240_muscle.fasta",
+          "target": "smcogs/smcog1240_muscle.fasta",
+          "sha256": "280da6240644163fdd83486c18040e733e3c33301751f81ef715006edda1b52f",
+          "bytes": 38422
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1241_muscle.fasta",
+          "target": "smcogs/smcog1241_muscle.fasta",
+          "sha256": "f215557f3af0b9b025af20277bfb8bb8c8aa84c0afd9332c198627710604fe2f",
+          "bytes": 56094
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1242_muscle.fasta",
+          "target": "smcogs/smcog1242_muscle.fasta",
+          "sha256": "221226043f73a96e003a97692439c4f10677659db36e2aa3e6c6e62249901398",
+          "bytes": 34203
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1243_muscle.fasta",
+          "target": "smcogs/smcog1243_muscle.fasta",
+          "sha256": "46bf92b363f325c5c9b56dd7e76e03af1a18009878186dd26500f1d1d444a999",
+          "bytes": 55075
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1244_muscle.fasta",
+          "target": "smcogs/smcog1244_muscle.fasta",
+          "sha256": "de566959339c08cc493d3c9258362f9ad866cdbd5fa5b92ef1f2002dd716785f",
+          "bytes": 49394
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1245_muscle.fasta",
+          "target": "smcogs/smcog1245_muscle.fasta",
+          "sha256": "17b7ea6b1447befa029b3dbb267db8a7a3e47620d7a0798c8100d0b737c0c5fa",
+          "bytes": 30565
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1246_muscle.fasta",
+          "target": "smcogs/smcog1246_muscle.fasta",
+          "sha256": "38ff12d3894ab8f4f1138c386e0d09fbc12138dd6088a778fb9a37f335d376f6",
+          "bytes": 59274
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1247_muscle.fasta",
+          "target": "smcogs/smcog1247_muscle.fasta",
+          "sha256": "9ed4fa0ced6b914bc044f7159969c3fd57a0eb90031655edf5e78b0a09251320",
+          "bytes": 74571
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1248_muscle.fasta",
+          "target": "smcogs/smcog1248_muscle.fasta",
+          "sha256": "b6ccda99f543bc07f8f2f8d27d375c4a3f2d1547b53b6b5f9971bc61e69e3ae5",
+          "bytes": 46027
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1249_muscle.fasta",
+          "target": "smcogs/smcog1249_muscle.fasta",
+          "sha256": "90a8206e3326518e91955e3f9ffef70c6fb285cf9ae22a455b9db1b85b624a99",
+          "bytes": 37520
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1250_muscle.fasta",
+          "target": "smcogs/smcog1250_muscle.fasta",
+          "sha256": "5536a4c9275388ca03a55eeffb846bf41063bc0b0d1af9ae4fe27dbeb4e1772d",
+          "bytes": 12663
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1251_muscle.fasta",
+          "target": "smcogs/smcog1251_muscle.fasta",
+          "sha256": "0ee80f96e8eb0299f8828f79128acf465ce7ac92ed09dc5c85d24830a6ea1abc",
+          "bytes": 112116
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1252_muscle.fasta",
+          "target": "smcogs/smcog1252_muscle.fasta",
+          "sha256": "b423d14428fe405904d017b52d10531eb011925634c1434211429c2975610919",
+          "bytes": 37957
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1253_muscle.fasta",
+          "target": "smcogs/smcog1253_muscle.fasta",
+          "sha256": "cc44b6472811eb7b84d9e9db16c78da8ecf9cdaf7bd6034de046af420c3a5b07",
+          "bytes": 3969
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1254_muscle.fasta",
+          "target": "smcogs/smcog1254_muscle.fasta",
+          "sha256": "5dae50189d40e728322c9fe59ce6a8db231efa114454e20a2169403a57f9ab1e",
+          "bytes": 24741
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1255_muscle.fasta",
+          "target": "smcogs/smcog1255_muscle.fasta",
+          "sha256": "f16c945991cb9439fbec334d985b141a364b2cfd9b01150e020cc7cefc4935fa",
+          "bytes": 22613
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1256_muscle.fasta",
+          "target": "smcogs/smcog1256_muscle.fasta",
+          "sha256": "3ae056ee6e05f58bb798ccf01bb08aa79b0ae847b4bc808816bbd7e5f47b20ce",
+          "bytes": 65451
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1257_muscle.fasta",
+          "target": "smcogs/smcog1257_muscle.fasta",
+          "sha256": "a17efbde1ef20ccf23ccb622e76496ab7385e5a59cf0b3745495e8737c4b68b9",
+          "bytes": 121417
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1258_muscle.fasta",
+          "target": "smcogs/smcog1258_muscle.fasta",
+          "sha256": "f2571f0eea26ca3bb8e2d95e1615eadf57c4f209c2a6bcb12438becc7f12f3f4",
+          "bytes": 19252
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1259_muscle.fasta",
+          "target": "smcogs/smcog1259_muscle.fasta",
+          "sha256": "6629ede90815c35c3b95b2a74802edf9b3e3b876972f9b4cbe7ff2c46bfafc83",
+          "bytes": 9595
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1260_muscle.fasta",
+          "target": "smcogs/smcog1260_muscle.fasta",
+          "sha256": "443cf052389ced0c3f627c3681be7bf9ff691507562dffcd7d897024b4f3971a",
+          "bytes": 25811
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1261_muscle.fasta",
+          "target": "smcogs/smcog1261_muscle.fasta",
+          "sha256": "058b97e7b8c5f4fe6a8f2a8d1a8c7d0e4a21c6681a5e7e265717401b30fad9bb",
+          "bytes": 91572
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1262_muscle.fasta",
+          "target": "smcogs/smcog1262_muscle.fasta",
+          "sha256": "96d714ce3d111a16b0404fac2ad92668641218625de87fbcd83e639567d815e7",
+          "bytes": 28688
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1263_muscle.fasta",
+          "target": "smcogs/smcog1263_muscle.fasta",
+          "sha256": "b160831133236ee5703b1f9e5528d8fbcd3506e8f2dd3dba3c5e89457d348052",
+          "bytes": 87394
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1264_muscle.fasta",
+          "target": "smcogs/smcog1264_muscle.fasta",
+          "sha256": "2f974280753481146a20db826f1f50181a6feef2e4e484697286c9b7423c402a",
+          "bytes": 76592
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1265_muscle.fasta",
+          "target": "smcogs/smcog1265_muscle.fasta",
+          "sha256": "a35c17e26f4151cce81f91a156c66414fc007becce6a585f18e3e04857ce0597",
+          "bytes": 11543
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1266_muscle.fasta",
+          "target": "smcogs/smcog1266_muscle.fasta",
+          "sha256": "0fe72f2b29ede02684c2c11a1f25553cd7c0ed3c02eedf32cb3cfaa9ea4e2497",
+          "bytes": 15996
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1267_muscle.fasta",
+          "target": "smcogs/smcog1267_muscle.fasta",
+          "sha256": "35ea6cd4327f57d74a4655c317fc88db824c9c96d2bf52b61e75870fbb0131e4",
+          "bytes": 17417
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1268_muscle.fasta",
+          "target": "smcogs/smcog1268_muscle.fasta",
+          "sha256": "5b3169cc7919a0e1d94f4d5e1bedf3d9d215a9c3848a9eb357e91b0e56f72f01",
+          "bytes": 45668
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1269_muscle.fasta",
+          "target": "smcogs/smcog1269_muscle.fasta",
+          "sha256": "bd014b5009d43d3c79163c8ae28b04a1023a7c9b7a7ec30cec1d1dacd6b60492",
+          "bytes": 26234
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1270_muscle.fasta",
+          "target": "smcogs/smcog1270_muscle.fasta",
+          "sha256": "4a367179d4c43d43925854c15a531627d98339272528cd4c01478911ba8e8978",
+          "bytes": 36336
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1271_muscle.fasta",
+          "target": "smcogs/smcog1271_muscle.fasta",
+          "sha256": "0be3f7ab63ae63c3ec6f9a90c612cf33c8522dd0c0a03ab59bb7d19d9e3b1a7e",
+          "bytes": 45498
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1272_muscle.fasta",
+          "target": "smcogs/smcog1272_muscle.fasta",
+          "sha256": "2d688cdf1fda5f8d20930e166f48f0b4797728b0b672a137fde1d2e4856a7c9a",
+          "bytes": 136253
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1273_muscle.fasta",
+          "target": "smcogs/smcog1273_muscle.fasta",
+          "sha256": "28dd5401f3ddefa8686cc3e46cee764775d86610506233db9bb8982053525b94",
+          "bytes": 36932
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1274_muscle.fasta",
+          "target": "smcogs/smcog1274_muscle.fasta",
+          "sha256": "14725cb923f50a3195f605b871b51026cb1b59abb95fbe5359252792869e1bf7",
+          "bytes": 54637
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1275_muscle.fasta",
+          "target": "smcogs/smcog1275_muscle.fasta",
+          "sha256": "17b228be5be5640a9898e0c4a66ce003f45a43ec829e980438747bf3a463e114",
+          "bytes": 35261
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1276_muscle.fasta",
+          "target": "smcogs/smcog1276_muscle.fasta",
+          "sha256": "7f3a941aa8be31cd519bdef6e969aeef5458661c6562fabb9caa5dd6a1ef6564",
+          "bytes": 58717
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1277_muscle.fasta",
+          "target": "smcogs/smcog1277_muscle.fasta",
+          "sha256": "2ecf31ac72fb178e3c4b4b672731be681773f07f3e5ff875978f2e46915ddf16",
+          "bytes": 72012
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1278_muscle.fasta",
+          "target": "smcogs/smcog1278_muscle.fasta",
+          "sha256": "8a80bdb60bcce6ae28bf1711e1889dad8e1ffa263a45e5365f2b3a6bbd811583",
+          "bytes": 16348
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1279_muscle.fasta",
+          "target": "smcogs/smcog1279_muscle.fasta",
+          "sha256": "4ce9378011345ae5663d31d6ff0f3b0b6b601d673c535bd36dcc707eb3f38b41",
+          "bytes": 27111
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1280_muscle.fasta",
+          "target": "smcogs/smcog1280_muscle.fasta",
+          "sha256": "c78c4096647e1036b710f7d99454ed07394e0ec698bd1e7b78445413b90b59ed",
+          "bytes": 14716
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1281_muscle.fasta",
+          "target": "smcogs/smcog1281_muscle.fasta",
+          "sha256": "40d3df0b065ce68ad9c2594e125b343af5fcb470ba8f4e81ef141cf977eee5bd",
+          "bytes": 9956
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1282_muscle.fasta",
+          "target": "smcogs/smcog1282_muscle.fasta",
+          "sha256": "6e562b4ff8c03470d86a0fcb7df1abbe2382bc6b3fafcaed7d7050b91694764a",
+          "bytes": 42627
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1283_muscle.fasta",
+          "target": "smcogs/smcog1283_muscle.fasta",
+          "sha256": "6f00a5e77006daacd043910cae2ee3a01415ded832e2767fb2100e4edce6a8af",
+          "bytes": 79771
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1284_muscle.fasta",
+          "target": "smcogs/smcog1284_muscle.fasta",
+          "sha256": "c6c16aae1c68ef7653f69deefb413c7c2f4910c2c34713143d0fe4083b278e4b",
+          "bytes": 24611
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1285_muscle.fasta",
+          "target": "smcogs/smcog1285_muscle.fasta",
+          "sha256": "5f2ad1b5fa461818975260b1bd577ae5d7d8d36f8872227f3d2bf2cf7619e433",
+          "bytes": 23791
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1286_muscle.fasta",
+          "target": "smcogs/smcog1286_muscle.fasta",
+          "sha256": "e148e782e4a79e5a906992615308dbd6f4203709f873f50f2c61f68fac3cd426",
+          "bytes": 107481
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1287_muscle.fasta",
+          "target": "smcogs/smcog1287_muscle.fasta",
+          "sha256": "1cfab3eadf65a96f24f6e540a16a4f45620347cd96700020810886b5d2561bdc",
+          "bytes": 28377
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1288_muscle.fasta",
+          "target": "smcogs/smcog1288_muscle.fasta",
+          "sha256": "6e2e9c2bb5f9c17ca40f25bbe4b95f3857f4f310d621f3fd1e45715dfc922944",
+          "bytes": 50759
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1289_muscle.fasta",
+          "target": "smcogs/smcog1289_muscle.fasta",
+          "sha256": "4c8a06f6c7fe09ad62722d8d598898de2b10cc8fe621af15511e1d2cac58badd",
+          "bytes": 11675
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1290_muscle.fasta",
+          "target": "smcogs/smcog1290_muscle.fasta",
+          "sha256": "85088e9a083189b886c4dad42c9ab376b570204c9f397a4dc25028f7dd6ee677",
+          "bytes": 12458
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1291_muscle.fasta",
+          "target": "smcogs/smcog1291_muscle.fasta",
+          "sha256": "ba7b56af1fb86cf187220b76bb40b6432d5c80060d5497329e9451e2d243871a",
+          "bytes": 19470
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1292_muscle.fasta",
+          "target": "smcogs/smcog1292_muscle.fasta",
+          "sha256": "0da16d38f28de53ef0e106c8c9f0b123806e10f3cf971d1d133636b68d722370",
+          "bytes": 25124
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1293_muscle.fasta",
+          "target": "smcogs/smcog1293_muscle.fasta",
+          "sha256": "ad4c27478865914230deca8c3fc5cc282a8b348d4a960dad530000abaa97b7f4",
+          "bytes": 111538
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1294_muscle.fasta",
+          "target": "smcogs/smcog1294_muscle.fasta",
+          "sha256": "d57290ff136fda8dba51f124669aa48faf2c65cc3e172118310a2d641a8b93d6",
+          "bytes": 63777
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1295_muscle.fasta",
+          "target": "smcogs/smcog1295_muscle.fasta",
+          "sha256": "e46c0dbadd5ed3fe0418c7f8ae1a0096564c92fc0ec6668e13437789068f4c8c",
+          "bytes": 85814
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1296_muscle.fasta",
+          "target": "smcogs/smcog1296_muscle.fasta",
+          "sha256": "df32412221ecf3c205d3dc7344e23dbcc30dd1ec81b611fe4e7f2b5a15edbb90",
+          "bytes": 45113
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1297_muscle.fasta",
+          "target": "smcogs/smcog1297_muscle.fasta",
+          "sha256": "f31a9ef4767fd4705ba2a81189cd741748063491b6eb9cf994daddfa4a11b64f",
+          "bytes": 160542
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1298_muscle.fasta",
+          "target": "smcogs/smcog1298_muscle.fasta",
+          "sha256": "a8a3fb9614ac6136d1b50ce7e107e2dd55ef9229548cabbf14e5a8672e6790c9",
+          "bytes": 10199
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1299_muscle.fasta",
+          "target": "smcogs/smcog1299_muscle.fasta",
+          "sha256": "7af18fcb35a0659b75988241c13fd69fd1acbdb58d9354220b9cb78b0b1ca533",
+          "bytes": 30903
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/smcogs/smcog1300_muscle.fasta",
+          "target": "smcogs/smcog1300_muscle.fasta",
+          "sha256": "c7212a881b77dbe9b96a970ee7d4e5c0002aeadcbb8049e93d57f4d40ba10ac5",
+          "bytes": 3064
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/subgroup/Cellulose_synt/Cellulose_synt.refpkg/CSLs_all_to_check_with_add.afa",
+          "target": "subgroup/Cellulose_synt/Cellulose_synt.refpkg/CSLs_all_to_check_with_add.afa",
+          "sha256": "9483cd48630eeb41ea78cc0148ed99f778e765f0b8c483c6f0a110b03fea19e4",
+          "bytes": 153866
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/subgroup/Cellulose_synt/Cellulose_synt.refpkg/RAxML_bipartitions.CSLs_all_to_check_with_add",
+          "target": "subgroup/Cellulose_synt/Cellulose_synt.refpkg/RAxML_bipartitions.CSLs_all_to_check_with_add",
+          "sha256": "40d2e2c1c2872ece8a694eb930e1c5d9baaf2776778f7ad4260637b5d6becaa9",
+          "bytes": 5120
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/subgroup/Cellulose_synt/Cellulose_synt.refpkg/RAxML_info.CSLs_all_to_check_with_add",
+          "target": "subgroup/Cellulose_synt/Cellulose_synt.refpkg/RAxML_info.CSLs_all_to_check_with_add",
+          "sha256": "91f61e4d55fae0ce464c5f9541efdb80913dbd9218917f904f3d5a5c2be0216b",
+          "bytes": 21322
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/subgroup/OSC/OSC.refpkg/RAxML_bipartitions.oscdata_v2.4.pep",
+          "target": "subgroup/OSC/OSC.refpkg/RAxML_bipartitions.oscdata_v2.4.pep",
+          "sha256": "3493c86b2ed43731d8f7b04674fcfdf69dd7378a4d9304737b4d7b1ad47cd915",
+          "bytes": 12022
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/subgroup/OSC/OSC.refpkg/RAxML_info.oscdata_v2.4.pep",
+          "target": "subgroup/OSC/OSC.refpkg/RAxML_info.oscdata_v2.4.pep",
+          "sha256": "080d3e3522288382c05af976788652edbb5a3c021dc745ca10cb2c21ce289bea",
+          "bytes": 20447
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/subgroup/OSC/OSC.refpkg/oscdata_v2.4.pep.afa",
+          "target": "subgroup/OSC/OSC.refpkg/oscdata_v2.4.pep.afa",
+          "sha256": "a75dfb3bbdef9a65f792e359da08a1eab9d87518c57ae622f906cd3579b76305",
+          "bytes": 195250
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/subgroup/SDR/reference/SDRs_all_to_check.afa",
+          "target": "subgroup/SDR/reference/SDRs_all_to_check.afa",
+          "sha256": "dbc5ed13aa7942b516a176bfbf9dfe197d73402149263d33d8298e70e9986fe9",
+          "bytes": 28109759
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/subgroup/SDR/reference/Table S2-SDR main inventory.xls",
+          "target": "subgroup/SDR/reference/Table S2-SDR main inventory.xls",
+          "sha256": "82656e3706a543b3327d1015639c274b669b9100761cc144129486118d6bed9f",
+          "bytes": 576000
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/subgroup/UDPGT/UDPGT.refpkg/RAxML_bipartitions.UGTs_all_to_check",
+          "target": "subgroup/UDPGT/UDPGT.refpkg/RAxML_bipartitions.UGTs_all_to_check",
+          "sha256": "9b954609d109eacd12b48555334c684e7ee1aeeb6de7f5fd3db517cf2bdb903b",
+          "bytes": 14864
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/subgroup/UDPGT/UDPGT.refpkg/RAxML_info.UGTs_all_to_check",
+          "target": "subgroup/UDPGT/UDPGT.refpkg/RAxML_info.UGTs_all_to_check",
+          "sha256": "fe1759c1b08a1dc2105561f7e0bb3241b6c74db986e5c6f884233b2dd72ff7c1",
+          "bytes": 21501
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/subgroup/UDPGT/UDPGT.refpkg/UGTs_all_to_check.afa",
+          "target": "subgroup/UDPGT/UDPGT.refpkg/UGTs_all_to_check.afa",
+          "sha256": "bf6946c879eb308ff7571b85ecd8c91bf29567c657373f689eab2a0898d3e596",
+          "bytes": 289150
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/tfbs_finder/data/TAIR_GeneDescriptions_2025-08-19.tsv",
+          "target": "tfbs_finder/data/TAIR_GeneDescriptions_2025-08-19.tsv",
+          "sha256": "a6cf423eb656c0f98823f74129b2416125b8b6f7318917b77dff8140dd2356a6",
+          "bytes": 219548
+        },
+        {
+          "member": "plantismash-cad25b85f7d5c029437974b2441e83c33d17dba0/antismash/generic_modules/tfbs_finder/data/filter_report.tsv",
+          "target": "tfbs_finder/data/filter_report.tsv",
+          "sha256": "8cc34638fcd0947b1ef59364dfcd0953eb9355449fc336ff686b2636fa30d92c",
+          "bytes": 27795
+        }
+      ]
+    }
+  ],
+  "index_builds": {
+    "diamond": "Pinned runtime executable; two threads; build from locked plant and known-cluster FASTA.",
+    "hmmpress": "Pinned runtime executable; press Pfam27 and existing smCOG HMMs.",
+    "subclusterblast": "Release-commit BLAST indexes; checked by actual pinned BLAST execution."
+  }
+}

@@ -19,7 +19,7 @@ test('marker-free QA pages retain stage context across appends, pagination and g
   await expect(page.locator('[data-tree-key="stage:annotation"]')).toHaveAttribute('data-tree-state', 'complete');
   await expect(bigscape).toContainText('--%');
   await page.evaluate(() => qaConsole.append({jobId: 'first', logGeneration: 'one', start: 5000, lines: ['more distances']}));
-  await expect(page.locator('[data-tree-key="activity:bigscape"]')).toContainText('more distances');
+  await expect(page.locator('[data-tree-key="activity:bigscape"]')).toContainText('Processing analysis output');
   await page.evaluate(() => qaConsole.hydrate({jobId: 'first', logGeneration: 'one', start: 4000, prepend: true,
     lines: Array.from({length: 500}, (_, i) => `earlier distance ${i}`),
     context: [{index: 4, line: '[INFO] Stage 1/4: complete'}, {index: 5, line: '[INFO] Stage 2/4: running run_bigscape.sh'}]}));
@@ -28,7 +28,7 @@ test('marker-free QA pages retain stage context across appends, pagination and g
     lines: ['[INFO] Stage 2/4: complete', '[INFO] Stage 2/4: running run_bigscape.sh', 'distance batch 2']}));
   await expect(bigscape).toHaveAttribute('data-tree-state', 'running');
   await expect(bigscape).toContainText('--%');
-  await expect(page.locator('[data-tree-key="activity:bigscape"]')).toContainText('distance batch 2');
+  await expect(page.locator('[data-tree-key="activity:bigscape"]')).toContainText('Processing analysis output');
   await page.evaluate(() => qaConsole.setMode('raw'));
   await expect(page.locator('.log-line')).toHaveCount(1004);
   await expect(page.locator('.log-line').first()).toHaveText('earlier distance 0');

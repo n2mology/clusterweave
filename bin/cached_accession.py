@@ -28,6 +28,12 @@ from cached_genbank import public_accession, digest_paths, runtime_digest
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_SNAPSHOT = "accession-snapshot-v2"
+CONTRACT_PLANT_SNAPSHOT = "accession-plant-snapshot-v2"
+SNAPSHOT_CONTRACTS = {CONTRACT_SNAPSHOT, "accession-snapshot-v1", CONTRACT_PLANT_SNAPSHOT}
+# Plant annotations exceed the microbial limit. Compressed entries retain the
+# store's 512 MiB ceiling; only this typed contract allows 2 GiB unpacked.
+PLANT_SNAPSHOT_BYTES = 2 * 1024**3
+
 CONTRACT_DETECTION = "accession-detection-v3"
 # Partitioning is scientific/output policy; concurrency only schedules its work.
 PARTITION_SHA256 = sha256(canonical({"records": "stable-record-isolation-v1",
@@ -47,10 +53,10 @@ NATIVE_ROOTS = tuple(Path(p) for p in (
 
 
 def validate_identity(value):
-    snapshot = value["contract"] in {CONTRACT_SNAPSHOT, "accession-snapshot-v1"}
+    snapshot = value["contract"] in SNAPSHOT_CONTRACTS
     legacy = value["contract"].endswith("-v1")
     if value["route"] not in [{"taxon": t, "annotation": "retrieval" if snapshot else "per-genome"}
-                              for t in ("bacteria", "fungi")]:
+                              for t in (("plants",) if value["contract"] == CONTRACT_PLANT_SNAPSHOT else ("bacteria", "fungi"))]:
         raise Unavailable("identity_route")
     for name in ("tools", "containers", "databases", "models"):
         items = value[name]
@@ -148,10 +154,11 @@ def tree_stamp(root):
 
 def source_digest():
     paths = {name: ROOT / name for name in (
-        "bin/sanitize_bacterial_genbank.py", "bin/annotation_genbank.py", "bin/annotation_runtime.py",
+        "bin/sanitize_bacterial_genbank.py", "annotation_prepare.sh", "annotation_funannotate.sh", "annotation_braker3.sh", "detection_antismash.sh", "detection_funbgcex.sh",
+        "bin/annotation_genbank.py", "bin/annotation_runtime.py",
         "bin/annotation_input.py", "bin/prepare_antismash_input.py", "bin/compact_antismash_shard.py",
         "bin/prepare_antismash_web_results.py", "bin/gff3_to_gbk_with_translations.py",
-        "bin/cached_genbank.py", "web/resource_policy.py")}
+        "bin/cached_genbank.py", "web/resource_policy.py", "web/scientific_profiles.py", "web/taxon_routing.py")}
     paths["runner"] = ROOT / "run_annotation_and_detection.sh"
     paths["readiness"] = Path(sys.modules["genbank_readiness"].__file__)
     return digest_paths(paths)
@@ -286,19 +293,26 @@ def claim(cache, key):
         os.close(fd)
 
 
-def pack(files):
-    if not files or len(files) > MAX_MEMBERS or sum(map(len, files.values())) > MAX_FILE_BYTES:
+def pack(files, *, limit=None, compression_level=9):
+    limit = MAX_FILE_BYTES if limit is None else limit
+    if not files or len(files) > MAX_MEMBERS or sum(map(len, files.values())) > limit:
         raise Unavailable("bundle_capacity")
     raw = io.BytesIO()
-    with tarfile.open(fileobj=raw, mode="w", format=tarfile.USTAR_FORMAT) as archive:
+    with gzip.GzipFile(fileobj=raw, mode="wb", mtime=0, compresslevel=compression_level) as compressed, tarfile.open(fileobj=compressed, mode="w|", format=tarfile.USTAR_FORMAT) as archive:
         for name, data in sorted(files.items()):
             info = tarfile.TarInfo(name)
             info.size, info.mode = len(data), 0o600
             archive.addfile(info, io.BytesIO(data))
-    return gzip.compress(raw.getvalue(), mtime=0)
+    # Match the prior gzip.compress(mtime=0) header on this Python runtime.
+    # Changing only the packing strategy must not conflict with an immutable
+    # microbial entry published under an otherwise identical identity.
+    raw.seek(9)
+    raw.write(gzip.compress(b"", mtime=0)[9:10])
+    return raw.getvalue()
 
 
-def unpack(data):
+def unpack(data, *, limit=None):
+    limit = MAX_FILE_BYTES if limit is None else limit
     files, total = {}, 0
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as archive:
         for member in archive:
@@ -309,7 +323,7 @@ def unpack(data):
                     name in files or len(files) >= MAX_MEMBERS or member.size < 0):
                 raise Unavailable("bundle_inventory")
             total += member.size
-            if total > MAX_FILE_BYTES:
+            if total > limit:
                 raise Unavailable("bundle_capacity")
             files[name] = archive.extractfile(member).read(member.size + 1)
             if len(files[name]) != member.size:
@@ -330,8 +344,9 @@ def portable(data, replacements, *, restore=False):
 
 
 def validate_bundle(payload, identity):
-    files = unpack(payload["bundle.tar"])
-    snapshot = identity["contract"] in {CONTRACT_SNAPSHOT, "accession-snapshot-v1"}
+    plant = identity["contract"] == CONTRACT_PLANT_SNAPSHOT
+    files = unpack(payload["bundle.tar"], limit=PLANT_SNAPSHOT_BYTES if plant else MAX_FILE_BYTES)
+    snapshot = identity["contract"] in SNAPSHOT_CONTRACTS
     legacy = identity["contract"].endswith("-v1")
     for name, data in files.items():
         job_id = os.environ.get("CLUSTERWEAVE_JOB_ID", "")
@@ -369,7 +384,7 @@ def validate_bundle(payload, identity):
                 label = parts[1]
             if sha256(label.encode()) != identity["parameters"]["genome_label_sha256"]:
                 raise Unavailable("detection_accession_label")
-        if name.endswith((".gbk", ".gbff", ".gb")):
+        if not plant and name.endswith((".gbk", ".gbff", ".gb")):
             from Bio import SeqIO
             records = list(SeqIO.parse(io.StringIO(data.decode()), "genbank"))
             if not records or any(not len(r.seq) for r in records):
@@ -382,6 +397,19 @@ def validate_bundle(payload, identity):
         records = [json.loads(line) for data in reports for line in data.splitlines() if line.strip()]
         if len(records) != 1 or records[0].get("accession") != identity["accession"]:
             raise Unavailable("snapshot_accession")
+        if plant:
+            annotated = [d for n, d in files.items() if n.endswith((".gbff", ".gbk", ".gb"))]
+            if len(fasta) != 1 or len(annotated) != 1:
+                raise Unavailable("plant_snapshot_annotation_required")
+            # Apply the same admission as execution, including complete record
+            # coverage, CDS source exceptions and exact FASTA/GenBank pairing.
+            web = str(ROOT / "web")
+            if web not in sys.path: sys.path.insert(0, web)
+            from plant_annotation import inspect_plant_annotation
+            try:
+                inspect_plant_annotation(io.BytesIO(annotated[0]), io.BytesIO(fasta[0]))
+            except ValueError as error:
+                raise Unavailable("plant_snapshot_annotation_incompatible") from error
         return files
     outcome = json.loads(files["outcome.json"])
     if not legacy:
@@ -528,6 +556,25 @@ def detection_provenance(args, state, outcome, reason, population="not-attempted
         "materializer_scheduling": scheduling_record(state["context"]["settings"])})
 
 
+def snapshot_source_digest(taxon):
+    """Retrieval/validation code identity, excluding detector-only receipts.
+
+    AST hashing ignores formatting but retains executable code and constants.
+    No prior-key fallback is allowed: the first new identity safely misses.
+    """
+    import ast
+    dependencies = {name: ROOT / name for name in (
+        "scripts/ncbi/download_ncbi_genomes.sh", "bin/accession_cache.py", "bin/cached_genbank.py")}
+    if taxon == "plants":
+        dependencies.update({name: ROOT / name for name in (
+            "web/plant_annotation.py", "web/genbank_readiness.py")})
+    tree = ast.parse((ROOT / "bin/cached_accession.py").read_text())
+    tree.body = [node for node in tree.body if not (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name in {"producer_tool_versions", "detection_provenance"})]
+    return sha256(canonical({"dependencies": digest_paths(dependencies),
+                            "retrieval_adapter": ast.dump(tree, include_attributes=False)}))
+
+
 def snapshot_identity(args):
     accession = args.accession.upper()
     if not ACCESSION.fullmatch(accession):
@@ -536,10 +583,10 @@ def snapshot_identity(args):
     if public_accession(args.route_manifest, args.genome_id, args.taxon) != accession:
         raise Unavailable("accession_route")
     binary = Path(shutil.which(args.datasets) or args.datasets).resolve()
-    source = digest_paths({"download": ROOT / "scripts/ncbi/download_ncbi_genomes.sh"})
+    source = snapshot_source_digest(args.taxon)
     # Load the same validation dependencies before every identity check.
     runtime = runtime_digest("fungi")
-    return {"schema": SCHEMA, "contract": CONTRACT_SNAPSHOT, "accession": accession,
+    return {"schema": SCHEMA, "contract": CONTRACT_PLANT_SNAPSHOT if args.taxon == "plants" else CONTRACT_SNAPSHOT, "accession": accession,
             "genome_sha256": sha256(accession.encode()), "route": {"taxon": args.taxon, "annotation": "retrieval"},
             "source_sha256": source, "runtime_sha256": runtime,
             "tools": {"datasets": hash_file(binary), "unzip": hash_file(Path(shutil.which("unzip") or "/unavailable"), native=True)},
@@ -548,21 +595,62 @@ def snapshot_identity(args):
                            "genome_label_sha256": sha256(accession.encode())}}
 
 
+def snapshot_validator(identity):
+    """Reuse validation only for identical immutable bytes in one retrieval.
+
+    Store still checks inventory, manifest identity and hashes on every read.
+    A changed payload or identity always runs full content admission again.
+    No validation state persists across retrievals, processes or restarts.
+    """
+    previous, files = None, None
+
+    def validate(payload):
+        nonlocal previous, files
+        if not all(isinstance(value, bytes) for value in payload.values()):
+            raise Unavailable("snapshot_payload_type")
+        current = (canonical(identity), tuple(sorted(payload.items())))
+        if current != previous:
+            checked = validate_bundle(payload, identity)
+            previous, files = current, checked
+        return files
+
+    return validate
+
+
+@contextmanager
+def retrieval_phase(accession, phase):
+    """Publish bounded preparation activity separately from detector progress."""
+    accession = accession if ACCESSION.fullmatch(accession) else "unavailable"
+    start = time.monotonic()
+    print(f"ACCESSION_RETRIEVAL_PHASE accession={accession} phase={phase} state=running", flush=True)
+    try:
+        yield
+    finally:
+        elapsed = time.monotonic() - start
+        print(f"ACCESSION_RETRIEVAL_PHASE accession={accession} phase={phase} state=finished elapsed_seconds={elapsed:.6f}", flush=True)
+
+
 def retrieve(args):
     """Hold the accession claim across the unchanged downloader and publication."""
     identity, cache, gate = None, None, None
     record = args.provenance
+    accession = getattr(args, "accession", "")
     try:
         if forced():
             raise Unavailable("forced")
         cache = store()
-        identity = snapshot_identity(args)
+        with retrieval_phase(accession, "identity"):
+            identity = snapshot_identity(args)
+        validate = snapshot_validator(identity)
         gate = claim(cache, identity_key(identity))
-        gate.__enter__()
-        payload, reason, manifest = metadata_operation(lambda: cache.lookup(identity, lambda p: validate_bundle(p, identity)))
+        with retrieval_phase(accession, "claim"):
+            gate.__enter__()
+        with retrieval_phase(accession, "lookup"):
+            payload, reason, manifest = metadata_operation(lambda: cache.lookup(identity, validate))
         if payload:
-            files = validate_bundle(payload, identity)
-            install(files, args.destination)
+            files = validate(payload)
+            with retrieval_phase(accession, "materialize"):
+                install(files, args.destination)
             if cancelled() or snapshot_identity(args) != identity:
                 shutil.rmtree(args.destination / "ncbi_dataset")
                 raise Unavailable("identity_changed")
@@ -576,20 +664,31 @@ def retrieve(args):
             gate = None
         cache = None
     try:
-        result = subprocess.run(args.command, check=False)
+        with retrieval_phase(accession, "download"):
+            result = subprocess.run(args.command, check=False)
         if result.returncode:
             provenance(record, identity, "miss", reason, "computation_failed")
             return result.returncode
         population, manifest = "not-attempted", None
         if cache and not cancelled():
             try:
-                files = {n: regular_bytes(p, allow_empty=True) for n, p in inventory(args.destination).items()
-                         if n.startswith("ncbi_dataset/data/")}
-                payload = {"bundle.tar": pack(files)}
-                population = metadata_operation(lambda: cache.publish(identity, payload, lambda p: validate_bundle(p, identity),
-                    can_publish=lambda: not cancelled() and snapshot_identity(args) == identity))
+                limit = PLANT_SNAPSHOT_BYTES if identity["contract"] == CONTRACT_PLANT_SNAPSHOT else MAX_FILE_BYTES
+                selected = {n: p for n, p in inventory(args.destination).items()
+                            if n.startswith("ncbi_dataset/data/")}
+                if sum(p.stat().st_size for p in selected.values()) > limit:
+                    raise Unavailable("bundle_capacity")
+                files = {n: regular_bytes(p, limit=limit, allow_empty=True) for n, p in selected.items()}
+                # Retrieval is on the startup path. Fast gzip preserves every
+                # payload byte and the same admission, without detector-cache
+                # serialization changes. Source identity changes safely miss.
+                with retrieval_phase(accession, "pack"):
+                    payload = {"bundle.tar": pack(files, limit=limit, compression_level=1)}
+                with retrieval_phase(accession, "publish"):
+                    population = metadata_operation(lambda: cache.publish(identity, payload, validate,
+                        can_publish=lambda: not cancelled() and snapshot_identity(args) == identity))
                 if population in {"published", "duplicate"}:
-                    _, _, manifest = metadata_operation(lambda: cache.lookup(identity, lambda p: validate_bundle(p, identity)))
+                    with retrieval_phase(accession, "readback"):
+                        _, _, manifest = metadata_operation(lambda: cache.lookup(identity, validate))
             except Exception as exc:
                 population = "rejected:" + (str(exc) if isinstance(exc, Unavailable) else "cache_unavailable")
         provenance(record, identity, "miss", reason, population, manifest)

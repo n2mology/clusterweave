@@ -145,7 +145,7 @@ class GeneratedClinkerDiagnosticsTests(unittest.TestCase):
                 f'#!{sys.executable}\nimport json,os,sys\n'
                 'open(os.environ["CLINKER_CALL"], "w").write(json.dumps(sys.argv[1:]))\n'
             )
-            (fake / 'singularity').write_text('#!/bin/bash\nshift 4\nexec "$@"\n')
+            (fake / 'singularity').write_text('#!/bin/bash\nwhile [[ "$1" != python3 ]]; do shift; done\nexec "$@"\n')
             (fake / 'docker').write_text('#!/bin/bash\nwhile [[ "$1" != python3 ]]; do shift; done\nexec "$@"\n')
             for name in ('clinker', 'singularity', 'docker'):
                 (fake / name).chmod(0o755)

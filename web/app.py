@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import cohort_gate
+from cohort_resume import resume_job
+
+
 import codecs
 import io
 import warnings
@@ -31,12 +35,14 @@ import urllib.request
 import uuid
 import zipfile
 from local_owner import LocalOwner
+from local_setup import describe as describe_local_setup
 from researcher_report import build_report, package_name, taxon_metadata
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from genbank_readiness import inspect_genbank_translation_stream
+from plant_annotation import inspect_plant_annotation
 from accession_catalog import Catalog, CatalogUnavailable, catalog_path
 from cache_status import RequestBudget, owner_provenance
 
@@ -54,6 +60,9 @@ from job_store import (
     append_log,
     atomic_write_text,
     job_dir,
+    job_cancel_path,
+    job_delete_path,
+    job_needs_scheduler_confirmation,
     list_jobs,
     list_job_summaries,
     now_iso,
@@ -105,6 +114,7 @@ from result_policy import (
     result_path_public_shape,
 )
 from resource_policy import (
+    MemoryFormula,
     ResourceRequest,
     bounded_cpu_limit,
     build_hosted_resource_plan,
@@ -194,9 +204,9 @@ MAX_CONCURRENT_UPLOADS = env_int(
 MAX_QUEUED_JOBS = env_int("CLUSTERWEAVE_MAX_QUEUED_JOBS", 50, minimum=0)
 MAX_CPUS_PER_JOB = env_int("CLUSTERWEAVE_MAX_CPUS_PER_JOB", 8, minimum=1)
 MIN_FREE_DISK_GB = env_int("CLUSTERWEAVE_MIN_FREE_DISK_GB", 0, minimum=0)
-PUBLIC_GENOME_PARALLELISM = env_int("CLUSTERWEAVE_PUBLIC_GENOME_PARALLELISM", 1, minimum=1)
+PUBLIC_GENOME_PARALLELISM = env_int("CLUSTERWEAVE_PUBLIC_GENOME_PARALLELISM", 2, minimum=1)
 PUBLIC_ANTISMASH_RECORD_PARALLELISM = env_int(
-    "CLUSTERWEAVE_PUBLIC_ANTISMASH_RECORD_PARALLELISM", 1, minimum=1
+    "CLUSTERWEAVE_PUBLIC_ANTISMASH_RECORD_PARALLELISM", 2, minimum=1
 )
 PUBLIC_FUNANNOTATE_CPUS_PER_GENOME = env_int(
     "CLUSTERWEAVE_PUBLIC_FUNANNOTATE_CPUS_PER_GENOME", 4, minimum=1
@@ -289,7 +299,7 @@ SENSITIVE_JOB_FIELDS = {
     "read_token_hash",
     "read_token_created_at",
 }
-PROCESSED_JOB_STATUSES = {"success", "failed"}
+PROCESSED_JOB_STATUSES = {"success", "failed", "completed_with_exclusions"}
 QUEUED_JOB_STATUSES = {"pending", "running"}
 PUBLIC_ACTIVITY_LIMIT = 40
 PUBLIC_LOG_PROJECTION_CACHE_JOBS = env_int(
@@ -589,7 +599,7 @@ def result_is_generated_tool_html(rel_path: str) -> bool:
     return (
         len(parts) >= 6
         and parts[0:2] == ["data", "results"]
-        and parts[3].lower() in {"antismash", "funbgcex"}
+        and parts[3].lower() in {"antismash", "plantismash", "funbgcex"}
         and bool(parts[2])
         and bool(parts[4])
     )
@@ -815,7 +825,8 @@ _PUBLIC_BIGSCAPE_PRIVATE_MARKERS = (
     b"/opt/",
     b"file:///",
 )
-_PUBLIC_BIGSCAPE_RAW_DATABASE_NAMES = ("big_scape.db", "data_sqlite.db")
+from bigscape_public_db import RAW_BIGSCAPE_DATABASE_FILENAMES
+_PUBLIC_BIGSCAPE_RAW_DATABASE_NAMES = tuple(sorted(RAW_BIGSCAPE_DATABASE_FILENAMES))
 _PUBLIC_BIGSCAPE_MAX_BYTES = 2 * 1024 * 1024 * 1024
 _PUBLIC_BIGSCAPE_VALIDATION_CACHE_MAX = 32
 _PUBLIC_BIGSCAPE_VALIDATION_CACHE: OrderedDict[
@@ -2554,6 +2565,8 @@ def public_tool_activity_tool_name(value: object) -> str:
     tool = public_activity_label(value).lower().replace("_", "-")
     if tool in {"antismash", "anti-smash"}:
         return "antiSMASH"
+    if tool == "plantismash":
+        return "plantiSMASH"
     if tool == "funannotate":
         return "funannotate"
     if tool == "funbgcex":
@@ -2817,6 +2830,7 @@ def public_progress_events(lines: list[str]) -> list[PublicProgressEvent]:
         ("download", r'^NCBI_DOWNLOAD_PROGRESS\s+accession=(?P<accession>\S+)\s+taxon=(?P<taxon>\S+)\s+status=(?P<status>\S+)\s+percent=(?P<percent>\d+)\s+message="(?P<message>.*)"\s*$'),
         ("taxon_route", r"^TAXON_ROUTE\s+genome=(?P<genome>\S+)\s+taxon=(?P<taxon>\S+)(?:\s+source=(?P<source>\S+))?"),
         ("annotation_decision", r'^GENOME_ANNOTATION_DECISION\s+genome=(?P<genome>\S+)\s+required=(?P<required>yes|no)\s+method=(?P<method>\S+)\s+message="(?P<message>.*)"\s*$'),
+        ("plant_record", r'^PLANT_RECORD_PROGRESS\s+genome=(?P<genome>\S+)\s+record=(?P<record>\d+)\s+ordinal=(?P<ordinal>\d+)/(?P<total>\d+)\s+state=(?P<message>\w+)\s*$'),
         ("antismash_record", r'^ANTISMASH_RECORD_PROGRESS\s+genome=(?P<genome>\S+)\s+record=(?P<record>\S+)\s+ordinal=(?P<ordinal>\d+)/(?P<total>\d+)\s+percent=(?P<percent>\d+)\s+bar=\[[^\]]*\]\s+message="(?P<message>.*)"\s*$'),
         ("genome_progress", r'^GENOME_PROGRESS\s+genome=(?P<genome>\S+)\s+stage=(?P<stage>\S+)\s+percent=(?P<percent>\d+)\s+bar=\[[^\]]*\]\s+message="(?P<message>.*)"\s*$'),
     )
@@ -3035,7 +3049,7 @@ def _public_genome_progress(
         genome_id = public_activity_label(raw_genome)
         state = states.get(genome_id)
         normalized_taxon = str(taxon or "").strip().lower()
-        if normalized_taxon not in {"fungi", "bacteria"}:
+        if normalized_taxon not in {"fungi", "bacteria", "plants"}:
             normalized_taxon = ""
         if state is None:
             taxon_group = normalized_taxon
@@ -3145,6 +3159,7 @@ def _public_genome_progress(
             "antismash": "antismash",
             "anti_smash": "antismash",
             "funbgcex": "funbgcex",
+            "plantismash": "plantismash",
             "complete": "complete",
         }
         key = aliases.get(normalized)
@@ -3266,24 +3281,30 @@ def _public_genome_progress(
                 state["annotation_method"] = selected
             continue
 
-        if event.kind == "antismash_record":
+        if event.kind in {"antismash_record", "plant_record"}:
+            detector = "plantismash" if event.kind == "plant_record" else "antismash"
+            detector_label = "plantiSMASH" if detector == "plantismash" else "antiSMASH"
             values = event.values
             state = ensure_state(values["genome"])
+            if int(state.get("percent", 0) or 0) >= 100:
+                # Late shard diagnostics cannot reopen an authoritative genome milestone.
+                # An explicit zero milestone resets this guard for a new attempt.
+                continue
             if state.get("taxon_group") == "fungi" and not state.get("annotation_method"):
                 state["annotation_method"] = "existing_cds"
             total_records = max(1, int(values["total"]))
             ordinal = min(total_records, max(1, int(values["ordinal"])))
-            raw_message = str(values.get("message") or "")
+            raw_message = str(values.get("record_state") or values.get("message") or "")
             safe_message = public_tool_activity_message(raw_message)
             record_key = str(values.get("record") or f"record-{ordinal}")
             record_states = state.setdefault("_antismash_records", {})
             assert isinstance(record_states, dict)
             lowered_message = raw_message.lower()
-            if "failed" in lowered_message:
+            if any(word in lowered_message for word in ("failed", "invalid", "cancelled")):
                 record_states[record_key] = "failed"
             elif "complete" in lowered_message:
                 record_states[record_key] = "complete"
-            elif "starting" in lowered_message or record_key not in record_states:
+            elif record_key not in record_states:
                 record_states[record_key] = "active"
             state["_antismash_record_total"] = max(
                 int(state.get("_antismash_record_total", 0) or 0),
@@ -3293,6 +3314,8 @@ def _public_genome_progress(
                 status in {"complete", "failed"}
                 for status in record_states.values()
             )
+            successful = sum(value == "complete" for value in record_states.values())
+            safe_message = f"{detector_label} record shards: {successful}/{state['_antismash_record_total']} complete; genome processing continues"
             # Record shards occupy 35-69%. Their launch ordinals are not
             # completion percentages because multiple records run at once.
             # Advance the band only when a shard reaches a terminal state.
@@ -3308,8 +3331,8 @@ def _public_genome_progress(
                 state["_activity_message"] = safe_message
             update_state(
                 state,
-                stage="antismash",
-                tool="antiSMASH",
+                stage=detector,
+                tool=detector_label,
                 percent=overall_percent,
                 # A record warning is provisional.  The authoritative
                 # GENOME_PROGRESS milestone decides when the genome is done.
@@ -3320,7 +3343,7 @@ def _public_genome_progress(
             update_stage_state(state, "genome_acquired", "complete", "Genome acquired")
             update_stage_state(
                 state,
-                "antismash",
+                detector,
                 "running",
                 state.get("_activity_message") or "antiSMASH active",
             )
@@ -3333,10 +3356,7 @@ def _public_genome_progress(
             # A rerun appends to the existing job log. Treat its explicit zero
             # milestone as a new attempt so an earlier terminal warning and
             # 100% value cannot mask the genome's current progress.
-            if percent == 0 and (
-                int(state.get("percent", 0) or 0) >= 100
-                or str(state.get("status") or "") in {"complete", "complete_with_warning", "warning", "failed"}
-            ):
+            if percent == 0:
                 state.pop("progress_status", None)
                 state["percent"] = 0
                 state["status"] = "queued"
@@ -3365,6 +3385,8 @@ def _public_genome_progress(
             warning = any(
                 marker in lowered
                 for marker in (
+                    "annotation required",
+                    "supplied plant annotation incompatible",
                     "dropped",
                     "failed",
                     "rejected",
@@ -3378,6 +3400,28 @@ def _public_genome_progress(
                 status = "warning"
             projected_stage = values["stage"]
             projected_tool = values["stage"]
+            plant_admission_failure = (
+                state.get("taxon_group") == "plants"
+                and progress_stage == "annotation"
+                and ("supplied plant annotation incompatible" in lowered or "annotation required" in lowered)
+            )
+            if plant_admission_failure:
+                projected_stage = "plantismash"
+                projected_tool = "plantiSMASH"
+                safe_message = (
+                    "Supplied plant annotation incompatible; plantiSMASH not run"
+                    if "incompatible" in lowered
+                    else "Annotation required; plantiSMASH not run"
+                )
+            annotation_failure_tool = (
+                str(state.get("annotation_method") or "")
+                if warning and percent >= 100 and progress_stage == "annotation"
+                and state.get("annotation_method") in {"funannotate", "braker3"}
+                else ""
+            )
+            if annotation_failure_tool:
+                projected_stage = annotation_failure_tool
+                projected_tool = annotation_failure_tool
             bacterial_terminal_alias = (
                 state.get("taxon_group") == "bacteria"
                 and (
@@ -3402,6 +3446,8 @@ def _public_genome_progress(
                     status = "warning"
                 else:
                     safe_message = "BGC detection complete"
+            if percent >= 100 and not warning:
+                safe_message = "Genome workflow complete"
             state["_activity_message"] = safe_message
             update_state(
                 state,
@@ -3413,23 +3459,23 @@ def _public_genome_progress(
                 observed_at=observed_at,
                 warning=warning,
             )
-            stage_key = progress_stage
+            stage_key = "plantismash" if plant_admission_failure else annotation_failure_tool or progress_stage
             if bacterial_terminal_alias:
                 stage_key = "antismash"
             stage_status = "failed" if warning else (
                 "complete"
                 if (
                     (progress_stage == "antismash" and percent >= 70)
-                    or (progress_stage == "funbgcex" and percent >= 100)
+                    or (progress_stage in {"funbgcex", "plantismash"} and percent >= 100)
                     or progress_stage == "complete"
                 )
                 else "running"
             )
             update_stage_state(state, "genome_acquired", "complete", "Genome acquired")
-            if progress_stage in {"antismash", "funbgcex", "complete"}:
+            if plant_admission_failure or annotation_failure_tool or progress_stage in {"antismash", "plantismash", "funbgcex", "complete"}:
                 if (
                     state.get("annotation_method") == "funannotate"
-                    and progress_stage in {"antismash", "funbgcex", "complete"}
+                    and progress_stage in {"antismash", "plantismash", "funbgcex", "complete"}
                 ):
                     update_stage_state(state, "funannotate", "complete", "Funannotate complete")
                 update_stage_state(state, stage_key, stage_status, safe_message)
@@ -3457,6 +3503,8 @@ def _public_genome_progress(
         if event.kind == "tool":
             tool_marker = event.values
             state = ensure_state(tool_marker.get("genome"))
+            if int(state.get("percent", 0) or 0) >= 100:
+                continue
             marker_tool = public_tool_activity_tool_name(tool_marker.get("tool"))
             marker_tool_lower = marker_tool.lower()
             if marker_tool_lower == "funannotate":
@@ -3466,6 +3514,8 @@ def _public_genome_progress(
                 marker_stage = "antismash"
                 if state.get("taxon_group") == "fungi" and not state.get("annotation_method"):
                     state["annotation_method"] = "existing_cds"
+            elif marker_tool_lower == "plantismash":
+                marker_stage = "plantismash"
             elif marker_tool_lower == "funbgcex":
                 marker_stage = "funbgcex"
             else:
@@ -3507,7 +3557,7 @@ def _public_genome_progress(
             for raw_genome in event.values["genomes"].split(","):
                 ensure_state(raw_genome)
 
-    terminal_job = str(job.get("status") or "").lower() in {"success", "failed"}
+    terminal_job = str(job.get("status") or "").lower() in {"success", "failed", "awaiting_decision", "completed_with_exclusions"}
     output: list[dict[str, object]] = []
     for state in states.values():
         if terminal_job and int(state.get("percent", 0) or 0) < 100:
@@ -3558,6 +3608,29 @@ def _public_genome_progress(
         state.pop("_activity_message", None)
         state.pop("_antismash_records", None)
         state.pop("_antismash_record_total", None)
+    decision = job.get("cohort_decision")
+    if isinstance(decision, dict):
+        by_genome = {str(row.get("genome_id")): row for row in output}
+        for outcome in decision.get("outcomes", []):
+            genome = outcome.get("genome_id")
+            if not isinstance(genome, str):
+                continue
+            row = by_genome.get(genome)
+            if row is None:
+                row = {"genome_id": genome, "genome": genome, "label": genome, "stage_states": {}}
+                output.append(row)
+            failed = outcome.get("state") == "failed"
+            row.update(status="failed" if failed else "complete", terminal=True,
+                       taxon_group=outcome.get("taxon_group"), percent=100,
+                       message=outcome.get("reason"), outcome_category=outcome.get("category"),
+                       excluded=genome in decision.get("excluded", []),
+                       counts=outcome.get("counts"))
+            if failed:
+                states = row.setdefault("stage_states", {})
+                states["annotation"] = {"status": "failed", "message": outcome.get("reason", "Genome failed")}
+                for detector in ("antismash", "funbgcex", "plantismash"):
+                    if detector not in states or states[detector].get("status") != "complete":
+                        states[detector] = {"status": "blocked", "message": "No validated complete genome output"}
     return output
 
 
@@ -3810,7 +3883,7 @@ def _public_activity_from_events(
             continue
 
         if event.kind == "summary_written":
-            add_public_activity_event(events, seen, "summary", "Updated summary outputs", "Crosswalks and shortlist tables", observed_at)
+            add_public_activity_event(events, seen, "summary", "Generated summary tables", "Crosswalks and shortlist tables", observed_at)
             continue
 
         if event.kind == "clinker_prepared":
@@ -3822,7 +3895,7 @@ def _public_activity_from_events(
             continue
 
         if event.kind == "clinker_updated":
-            add_public_activity_event(events, seen, "clinker", "Updated synteny panel outputs", "clinker staging", observed_at)
+            add_public_activity_event(events, seen, "clinker", "Generated synteny panels", "clinker staging", observed_at)
             continue
 
         if event.kind == "figures_started":
@@ -3831,11 +3904,11 @@ def _public_activity_from_events(
             continue
 
         if event.kind == "figures_written":
-            add_public_activity_event(events, seen, "figures", "Updated figure outputs", "Visual summaries", observed_at)
+            add_public_activity_event(events, seen, "figures", "Generated analysis figures", "Visual summaries", observed_at)
             continue
 
         if event.kind == "nplinker_written":
-            add_public_activity_event(events, seen, "nplinker", "Updated NPLinker outputs", "Optional omics follow-up", observed_at)
+            add_public_activity_event(events, seen, "nplinker", "Generated NPLinker results", "Optional omics follow-up", observed_at)
             continue
 
         if event.kind == "run_error" or (
@@ -3956,8 +4029,7 @@ def slurm_scheduler_job_id(job: dict[str, object]) -> str:
 
 
 def job_needs_scheduler_cancel_before_delete(job: dict[str, object]) -> bool:
-    status = str(job.get("status") or "").lower()
-    return status in QUEUED_JOB_STATUSES and bool(slurm_scheduler_job_id(job))
+    return job_needs_scheduler_confirmation(job)
 
 
 def job_queue_status(job: dict[str, object], *, admin: bool) -> dict[str, object] | None:
@@ -4184,6 +4256,7 @@ def job_payload(job: dict[str, object], *, admin: bool, include_public_events: b
                 "expires_at",
                 "completed_at",
                 "failed_at",
+                "cohort_decision",
             ]
             if key in job
         }
@@ -4373,7 +4446,8 @@ def active_worker_cpu_budget(status: dict[str, object] | None = None) -> int | N
         budget = int(admission.get("cpu_budget", 0) or 0)
     except (TypeError, ValueError):
         return None
-    return budget if budget > 0 else None
+    concurrency = max(1, int(worker.get("concurrency", 1)))
+    return max(1, budget // concurrency) if budget > 0 else None
 
 
 def public_cpu_limit(status: dict[str, object] | None = None) -> int:
@@ -4404,6 +4478,19 @@ def hosted_resource_plan(
     bounded whole-job plan.
     """
 
+    status = worker_status()
+    admission = (status.get("worker") or {}).get("resource_admission") or {}
+    memory_budget = None
+    formula = MemoryFormula()
+    if status.get("ready") and not status.get("stale"):
+        try:
+            memory_budget = int(admission.get("memory_budget_mb") or 0) or None
+            if memory_budget is not None:
+                memory_budget = max(1, memory_budget // max(1, int((status.get("worker") or {}).get("concurrency", 1))))
+            formula = MemoryFormula(**admission.get("memory_formula", {}))
+        except (TypeError, ValueError):
+            # Older workers may omit formula details. Admission remains final.
+            memory_budget = None
     return build_hosted_resource_plan(
         cpus,
         genome_count,
@@ -4412,6 +4499,8 @@ def hosted_resource_plan(
         antismash_record_parallelism=PUBLIC_ANTISMASH_RECORD_PARALLELISM,
         funannotate_cpus_per_genome=PUBLIC_FUNANNOTATE_CPUS_PER_GENOME,
         funbgcex_workers_per_genome=PUBLIC_FUNBGCEX_WORKERS_PER_GENOME,
+        memory_budget_mb=memory_budget,
+        memory_formula=formula,
     )
 
 
@@ -5124,6 +5213,8 @@ def ncbi_accession_taxonomy_details(
         taxon_group = "fungi"
     elif tax_id == NCBI_BACTERIAL_TAXON_ID or NCBI_BACTERIAL_TAXON_ID in lineage_ids:
         taxon_group = "bacteria"
+    elif tax_id == 33090 or 33090 in lineage_ids:
+        taxon_group = "plants"
     else:
         taxon_group = "unsupported"
 
@@ -5159,8 +5250,8 @@ def ncbi_scope_error(
     scope = normalize_analysis_scope(analysis_scope)
     taxon_group = str(record.get("taxon_group") or "unsupported")
     taxonomy_name = str(record.get("organism_name") or accession)
-    if taxon_group in {"fungi", "bacteria"} and (
-        scope == "both" or scope == taxon_group
+    if taxon_group in {"fungi", "bacteria", "plants"} and (
+        scope == "mixed" or (scope == "both" and taxon_group in {"fungi", "bacteria"}) or scope == taxon_group
     ):
         return None
     if scope == "fungi":
@@ -5175,7 +5266,7 @@ def ncbi_scope_error(
         )
     return (
         f"NCBI accession '{accession}' is {taxonomy_name} with unsupported taxonomy; "
-        "ClusterWeave accepts fungal and bacterial assemblies only."
+        "Select Plants for annotated green-plant assemblies or Mixed for a plant-containing cohort. Both means fungi plus bacteria."
     )
 
 
@@ -5772,6 +5863,28 @@ def build_submission_taxon_routing(
         return str(exc), {}
 
     for route in routes:
+        if route.get("taxon_group") == "plants":
+            key = str(route["input_key"]).casefold()
+            if route.get("taxon_source") == "ncbi":
+                route["annotation_state"] = "pending"
+                continue
+            matches = [item for item in uploads if safe_logical_input_key(Path(str(item.get("filename") or "")).name).casefold() == key]
+            gbks = [item for item in matches if Path(str(item.get("filename") or "")).suffix.lower() in {".gb", ".gbk", ".gbff"}]
+            fastas = [item for item in matches if Path(str(item.get("filename") or "")).suffix.lower() in PUBLIC_FASTA_EXTENSIONS]
+            if len(gbks) != 1:
+                return f"Annotation required for plant '{route['input_key']}': upload translated GenBank. FASTA+GFF3 conversion is not supported for plants.", {}
+            try:
+                with open_upload_binary(gbks[0]) as handle:
+                    if fastas:
+                        with open_upload_binary(fastas[0]) as paired:
+                            admission = inspect_plant_annotation(handle, paired)
+                    else:
+                        admission = inspect_plant_annotation(handle)
+            except (ValueError, OSError, ImportError) as exc:
+                return f"Plant annotation validation: {exc}", {}
+            route["annotation_state"] = admission["annotation_state"]
+            route["prediction_method"] = "existing_cds"
+            continue
         if route.get("taxon_group") != "fungi":
             continue
         grouped_input = grouped.get(str(route.get("input_key") or "").casefold())
@@ -5826,17 +5939,34 @@ def validate_runtime_request(settings: dict[str, object], status: dict[str, obje
     if not status.get("ready"):
         return "Worker is not ready yet. Wait for bootstrap to finish before submitting a job."
 
+    groups = {
+        str(route.get("taxon_group", ""))
+        for route in settings.get("taxon_routes", [])
+        if isinstance(route, dict)
+    }
+    counts = settings.get("taxon_counts") or {}
+    if isinstance(counts, dict):
+        groups.update(group for group in ("plants", "fungi", "bacteria") if counts.get(group))
+    if settings.get("analysis_scope") == "plants":
+        groups.add("plants")
+    needs_plants = settings_bool(settings, "run_annotation") and "plants" in groups
     capabilities = status.get("capabilities")
-    if not isinstance(capabilities, dict):
-        return None
-
-    stages = capabilities.get("stages")
+    stages = capabilities.get("stages") if isinstance(capabilities, dict) else None
+    if needs_plants and (
+        not isinstance(stages, dict)
+        or not isinstance(stages.get("plantismash"), dict)
+        or not stages["plantismash"].get("available", False)
+    ):
+        return (
+            "Selected stage unavailable: plantismash. The operator must prepare the "
+            "accepted plantiSMASH runtime and its container execution engine before submitting plant detection."
+        )
     if not isinstance(stages, dict):
         return None
 
     checks = [
         ("prepare", settings_bool(settings, "run_genome_prep") and bool(settings.get("has_accession_inputs"))),
-        ("annotation", settings_bool(settings, "run_annotation")),
+        ("annotation", settings_bool(settings, "run_annotation") and groups != {"plants"}),
         ("bigscape", settings_bool(settings, "run_bigscape")),
         ("clinker", settings_bool(settings, "run_clinker") and settings_bool(settings, "execute_clinker")),
         ("nplinker", settings_bool(settings, "run_nplinker")),
@@ -6353,7 +6483,7 @@ class Handler(BaseHTTPRequestHandler):
                 result_file_mime(full),
                 full.read_bytes(),
                 {
-                    "Cache-Control": "public, max-age=86400",
+                    "Cache-Control": "no-store" if rel_path == "third-party/plantismash-source.zip" else "public, max-age=86400",
                     "X-Content-Type-Options": "nosniff",
                 },
             )
@@ -6640,6 +6770,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(HTTPStatus.OK, payload)
                 return True
             payload = full_system_status()
+            if LOCAL_OWNER.enabled and LOCAL_OWNER.authorized(self.headers):
+                try:
+                    payload["local_setup"] = describe_local_setup(os.environ)
+                except ValueError:
+                    payload["local_setup"] = {"configuration_error": True}
             if LOCAL_OWNER.enabled:
                 payload["local_owner_available"] = True
             self._send_json(HTTPStatus.OK, payload)
@@ -6692,6 +6827,8 @@ class Handler(BaseHTTPRequestHandler):
     def _dispatch_post(self) -> None:
         route, _ = parse_path(self.path)
         if self._handle_cache_availability_post(route):
+            return
+        if self._handle_cohort_continue_post(route):
             return
         if self._handle_public_result_post(route):
             return
@@ -6815,6 +6952,38 @@ class Handler(BaseHTTPRequestHandler):
             PUBLIC_RESULT_CONTEXT,
         )
 
+    def _handle_cohort_continue_post(self, route: str) -> bool:
+        match = re.fullmatch(r"/api/(jobs|results)/([^/]+)/continue", route)
+        if not match:
+            return False
+        job = read_job(match[2]) if match[1] == "jobs" and request_is_admin(self) else resolve_public_job(match[2]) if match[1] == "results" else None
+        if job is None or not request_can_read_job(self, job, strict=True):
+            self._not_found("Result not found")
+            return True
+        if PUBLIC_MODE and not SUBMISSIONS_OPEN and not request_is_admin(self):
+            self._send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"detail": "Job intake is paused"})
+            return True
+        payload = read_json_body(self)
+        if job_needs_scheduler_confirmation(job):
+            self._send_json(HTTPStatus.CONFLICT, {"detail": "Scheduler completion is unconfirmed"})
+            return True
+        if not job.get("continuation_id"):
+            runtime_error = validate_runtime_request(base_job_settings(job), worker_status())
+            if runtime_error:
+                self._send_json(HTTPStatus.CONFLICT, {"detail": runtime_error})
+                return True
+            if PUBLIC_MODE and queued_job_count() >= MAX_QUEUED_JOBS:
+                self._send_json(HTTPStatus.TOO_MANY_REQUESTS, {"detail": "Public queue is full"})
+                return True
+        try:
+            response = resume_job(str(job["id"]), payload)
+            if match[1] == "results":
+                response["job_id"] = public_run_id_for_job(job)
+            self._send_json(HTTPStatus.OK if response["duplicate"] else HTTPStatus.ACCEPTED, response)
+        except (cohort_gate.GateError, OSError, KeyError, TypeError):
+            self._send_json(HTTPStatus.CONFLICT, {"detail": "Continuation refused: the decision is stale, incomplete or ineligible. Reload the current outcome."})
+        return True
+
     def _handle_job_rerun_post(self, route: str) -> bool:
         if route.startswith("/api/jobs/") and route.endswith("/rerun"):
             if not request_is_admin(self):
@@ -6831,6 +7000,9 @@ class Handler(BaseHTTPRequestHandler):
                 return True
             if job.get("status") in {"pending", "running"}:
                 self._send_json(HTTPStatus.CONFLICT, {"detail": "Job is already queued or running"})
+                return True
+            if job_needs_scheduler_confirmation(job):
+                self._send_json(HTTPStatus.CONFLICT, {"detail": "Scheduler completion is unconfirmed; wait before rerunning this job"})
                 return True
             payload = read_json_body(self)
             if payload is None:
@@ -6871,9 +7043,15 @@ class Handler(BaseHTTPRequestHandler):
                     status, response = HTTPStatus.NOT_FOUND, {"detail": "Job not found"}
                 elif job.get("status") in {"pending", "running"}:
                     status, response = HTTPStatus.CONFLICT, {"detail": "Job is already queued or running"}
+                elif job_needs_scheduler_confirmation(job):
+                    status, response = HTTPStatus.CONFLICT, {"detail": "Scheduler completion is unconfirmed; wait before rerunning this job"}
+                elif job_delete_path(job_id).exists():
+                    status, response = HTTPStatus.CONFLICT, {"detail": "Job deletion has been requested; wait for it to finish"}
                 elif PUBLIC_MODE and queued_job_count() >= MAX_QUEUED_JOBS:
                     status, response = HTTPStatus.TOO_MANY_REQUESTS, {"detail": "Public queue is full; try again later"}
                 else:
+                    # Explicit retry supersedes cancellation of the previous run.
+                    job_cancel_path(job_id).unlink(missing_ok=True)
                     append_log(job_id, "Re-queued existing job with selected stage rerun settings.")
                     append_log(job_id, "Queued: waiting for worker slot.")
                     lines = read_logs(job_id)
@@ -6891,6 +7069,8 @@ class Handler(BaseHTTPRequestHandler):
                     job["log_count"] = len(lines)
                     job["updated_at"] = now_iso()
                     job["rerun_count"] = int(job.get("rerun_count", 0) or 0) + 1
+                    job.pop("continuation_id", None)
+                    job.pop("cohort_decision", None)
                     write_job(job)
                     enqueue_job(job_id, cpus, settings)
                     status, response = HTTPStatus.ACCEPTED, {"job_id": job_id, "status": "pending", "message": "Rerun queued"}
@@ -7333,34 +7513,38 @@ class Handler(BaseHTTPRequestHandler):
             return
         job_id = parts[3]
 
-        job = read_job(job_id)
-        if job is None:
-            self._not_found(f"Job '{job_id}' not found")
-            return
+        with queue_admission_lock():
+            job = read_job(job_id)
+            if job is None:
+                self._not_found(f"Job '{job_id}' not found")
+                return
 
-        for q in QUEUE_DIR.glob(f"{job_id}*.json"):
-            q.unlink(missing_ok=True)
-        for q in QUEUE_DIR.glob(f"{job_id}*.working"):
-            q.unlink(missing_ok=True)
+            for q in QUEUE_DIR.glob(f"{job_id}*.json"):
+                q.unlink(missing_ok=True)
+            for q in QUEUE_DIR.glob(f"{job_id}*.working"):
+                q.unlink(missing_ok=True)
 
-        if str(job.get("status") or "").lower() == "running" or job_needs_scheduler_cancel_before_delete(job):
-            request_job_cancel(job_id, "Admin delete requested", delete_after_cancel=True)
-            append_log(job_id, "Cancel requested by administrator; stopping active workflow before deleting job data.")
-            job["stage"] = "cancel requested"
-            job["error"] = "Cancel requested by administrator"
-            job["log_count"] = len(read_logs(job_id))
-            job["updated_at"] = now_iso()
-            write_job(job)
+            cancel_before_delete = str(job.get("status") or "").lower() == "running" or job_needs_scheduler_cancel_before_delete(job)
+            if cancel_before_delete:
+                request_job_cancel(job_id, "Admin delete requested", delete_after_cancel=True)
+                append_log(job_id, "Cancel requested by administrator; stopping active workflow before deleting job data.")
+                job["stage"] = "cancel requested"
+                job["error"] = "Cancel requested by administrator"
+                job["log_count"] = len(read_logs(job_id))
+                job["updated_at"] = now_iso()
+                write_job(job)
+            else:
+                target = job_dir(job_id)
+                record_deleted_terminal_job(job)
+                if target.exists():
+                    shutil.rmtree(target, ignore_errors=True)
+
+        if cancel_before_delete:
             self._send_json(
                 HTTPStatus.ACCEPTED,
                 {"job_id": job_id, "status": "cancel_requested", "message": "Active job cancellation requested"},
             )
             return
-
-        target = job_dir(job_id)
-        record_deleted_terminal_job(job)
-        if target.exists():
-            shutil.rmtree(target, ignore_errors=True)
 
         self.send_response(HTTPStatus.NO_CONTENT)
         self._send_cors_headers()

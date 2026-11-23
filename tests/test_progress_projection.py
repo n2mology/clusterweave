@@ -66,6 +66,81 @@ class ProgressProjectionTests(unittest.TestCase):
             ],
         }
 
+    def test_plant_annotation_rejection_is_terminal_without_success_and_resets(self):
+        job = {'id':'rejection', 'status':'running', 'taxon_routes':[
+            {'genome_id':'Arabidopsis_thaliana','taxon_group':'plants','taxon_source':'ncbi'}]}
+        start = 'GENOME_PROGRESS genome=Arabidopsis_thaliana stage=annotation percent=0 bar=[] message="Starting genome"'
+        for detail in ['Supplied plant annotation incompatible: NC_003070.9 / CDS 3258 / TPS3 / NP_173143.4: unexplained_translation_mismatch', 'Annotation required: supply matching translated GenBank']:
+            failure = 'GENOME_PROGRESS genome=Arabidopsis_thaliana stage=annotation percent=100 bar=[] message="'+detail+'"'
+            state = self.app.public_genome_progress(job,[start,failure])[0]
+            self.assertEqual(state['status'],'warning')
+            self.assertTrue(state['terminal'])
+            self.assertEqual(state['stage'],'plantismash')
+            self.assertIn('plantiSMASH not run',state['message'])
+            self.assertEqual(state['stage_states']['plantismash']['status'],'failed')
+            self.assertEqual(state['stage_states']['complete']['status'],'queued')
+            self.assertEqual(state['progress_label'],'')
+            restarted = self.app.public_genome_progress(job,[start,failure,start,
+                'TOOL_RAW genome=Arabidopsis_thaliana tool=plantismash stream=stderr Supplied plant annotation incompatible'])[0]
+            self.assertEqual(restarted['status'],'running')
+            self.assertEqual(restarted['percent'],0)
+            self.assertFalse(restarted['terminal'])
+
+    def test_terminal_annotation_failure_closes_actual_fungal_annotator(self):
+        job={'id':'annotation-failure','status':'running','taxon_routes':[
+            {'genome_id':'Fungus','taxon_group':'fungi','taxon_source':'ncbi'}]}
+        lines=['GENOME_ANNOTATION_DECISION genome=Fungus required=yes method=funannotate message="Preparing annotation"',
+               'TOOL_PROGRESS genome=Fungus tool=funannotate phase=annotation message="Training gene models"',
+               'GENOME_PROGRESS genome=Fungus stage=annotation percent=100 bar=[] message="Dropped: annotation_fallbacks_failed"']
+        state=self.app.public_genome_progress(job,lines)[0]
+        self.assertEqual(state['status'],'warning')
+        self.assertTrue(state['terminal'])
+        self.assertEqual(state['stage_states']['funannotate']['status'],'failed')
+        self.assertEqual(state['stage_states']['complete']['status'],'queued')
+
+    def test_figure_notification_does_not_expose_private_context(self):
+        lines=['[08:00:00] Stage 4/4: running run_figures.sh',
+               '[08:00:01] Wrote figure outputs /analysis/local_only/v1.1.0/private-repair/figure.svg',
+               '[08:00:02] TOOL_RAW genome=plant tool=plantismash stream=stderr private-repeat2 /analysis/local_only/context']
+        result=self.app.public_progress_projection(self.mixed_job(),lines)
+        visible=json.dumps(result.public_events)
+        self.assertIn('Generated analysis figures',visible)
+        for token in ['local_only','v1.1.0','private-repeat2','Updated figure outputs','TOOL_RAW']:
+            self.assertNotIn(token,visible)
+
+    def test_sparse_context_preserves_taxon_identity_across_restart(self):
+        store = importlib.import_module("job_store")
+        job = self.mixed_job()
+        job["taxon_routes"][1]["organism_name"] = "Bacillus subtilis"
+        genome = "bacteria_Bacillus_subtilis_168"
+        route = f'TAXON_ROUTE genome={genome} taxon=bacteria source=ncbi status=accepted message="prediction=prodigal detector=antismash"'
+        start = f'GENOME_PROGRESS genome={genome} stage=annotation percent=0 bar=[----------] message="Starting genome"'
+        record = lambda name, ordinal, message: f'ANTISMASH_RECORD_PROGRESS genome={genome} record={name} ordinal={ordinal}/2 percent=50 bar=[#####-----] message="{message}"'
+        lines = [route, start, record("R2", 2, "antiSMASH record shard complete")]
+        restarted = lines + [
+            record("R1", 1, "antiSMASH record shard complete"),
+            f'GENOME_PROGRESS genome={genome} stage=annotation percent=100 bar=[##########] message="Genome workflow complete"',
+            start,
+            record("R2", 2, "antiSMASH record shard running"),
+            record("R1", 1, "antiSMASH record shard complete"),
+        ]
+        for history in [lines, restarted]:
+            with self.subTest(restarted=history is restarted):
+                checkpoints = {}
+                for index, line in enumerate(history[:-1]):
+                    store._remember_progress(checkpoints, line, index)
+                context = {row["index"]: row["line"] for row in checkpoints.values()}
+                context[len(history) - 1] = history[-1]
+                sparse = [line for _, line in sorted(context.items())]
+                full_rows = self.app.public_genome_progress(job, history)
+                self.assertEqual(full_rows, self.app.public_genome_progress(job, sparse))
+                state = next(row for row in full_rows if row["genome_id"] == genome)
+                self.assertEqual(state["display_label"], "Bacillus subtilis 168")
+                self.assertFalse(state["terminal"])
+                self.assertEqual(state["region_progress"]["processed"], 1)
+                if history is restarted:
+                    self.assertEqual(state["region_progress"]["active"], 1)
+
     @staticmethod
     def mixed_lines() -> list[str]:
         return [
@@ -158,6 +233,35 @@ class ProgressProjectionTests(unittest.TestCase):
                  'TOOL_RAW genome=fungus_one tool=antismash phase=detect message="ACCESSION_CACHE genome=fungus_one stage=annotation_detection outcome=hit"']
         self.assertTrue(all(r["progress_label"] != "CACHED" for r in self.app.public_genome_progress(job, lines)))
 
+    def test_sparse_context_preserves_job_rerun_boundary(self):
+        store = importlib.import_module("job_store")
+        for run_annotation in (True, False):
+            for stage_restarted in (True, False):
+                with self.subTest(run_annotation=run_annotation, stage_restarted=stage_restarted):
+                    job = self.mixed_job()
+                    job["last_rerun_settings"] = {"run_annotation": run_annotation}
+                    history = [
+                        "Stage 1/4: running annotation",
+                        "ACCESSION_CACHE genome=fungus_one stage=annotation_detection outcome=hit",
+                        "Stage 1/4: complete",
+                        "Re-queued existing job with selected stage rerun settings.",
+                    ]
+                    if stage_restarted:
+                        history.append("Stage 1/4: running annotation")
+                    history += ["ordinary diagnostic"] * 21
+                    context = {}
+                    for index, line in enumerate(history[:-20]):
+                        store._remember_progress(context, line, index)
+                    sparse = [row["line"] for row in sorted(context.values(), key=lambda row: row["index"])] + history[-20:]
+                    self.assertEqual(self.app.public_genome_progress(job, history), self.app.public_genome_progress(job, sparse))
+                    state = self.app.public_genome_progress(job, sparse)[0]
+                    self.assertEqual(state["progress_label"], "" if run_annotation else "CACHED")
+                    self.assertIn("Stage 1/4: complete", sparse)
+                    self.assertLess(sparse.index("Stage 1/4: complete"), sparse.index("Re-queued existing job with selected stage rerun settings."))
+        context = {}
+        store._remember_progress(context, "TOOL_RAW Re-queued existing job with selected stage rerun settings.", 0)
+        self.assertEqual(context, {})
+
     def test_combined_projection_matches_both_compatibility_delegates(self) -> None:
         job = self.mixed_job()
         lines = self.mixed_lines()
@@ -208,7 +312,7 @@ class ProgressProjectionTests(unittest.TestCase):
         self.assertEqual(len(projection.public_events), 2)
         self.assertEqual(
             [event["title"] for event in projection.public_events],
-            ["Run reported an error", "Updated summary outputs"],
+            ["Run reported an error", "Generated summary tables"],
         )
         self.assertNotIn(
             "/data/jobs",

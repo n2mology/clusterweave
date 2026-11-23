@@ -71,3 +71,16 @@ test('real server initializes the empty public interface from live status', asyn
   expect(failedRequests).toEqual([]);
   expect(failedResponses).toEqual([]);
 });
+
+test('real server exposes explicit plant and mixed input scopes', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#bootstrap-splash')).toHaveClass(/hidden/);
+  const plant = page.locator('input[name="analysis-scope"][value="plants"]');
+  await page.locator('label').filter({ has: plant }).click();
+  await expect(plant).toBeChecked();
+  await expect(page.locator('#overview h1')).toContainText('plant');
+  const mixed = page.locator('input[name="analysis-scope"][value="mixed"]');
+  await page.locator('label').filter({ has: mixed }).click();
+  await expect(mixed).toBeChecked();
+  await expect(page.locator('#analysis-scope-help')).toContainText('Mixed is the default');
+});

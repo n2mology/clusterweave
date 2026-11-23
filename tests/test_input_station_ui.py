@@ -128,9 +128,11 @@ process.stdout.write(JSON.stringify({
         self.assertFalse(result["adminUpload"])
 
     def test_static_asset_versions_bypass_the_prior_day_cache(self) -> None:
-        self.assertIn("clusterweave.css?v=20261104-exclusions1", self.index)
-        self.assertIn("clusterweave.js?v=20261104-release1", self.index)
-        self.assertIn("intake-taxon-boundary.js?v=20260902-input-station1", self.js)
+        self.assertIn("clusterweave.css?v=20261123-credits1", self.index)
+        self.assertIn("clusterweave.js?v=20261123-release1", self.index)
+        self.assertIn("intake-taxon-boundary.js?v=20261119-extras2", self.js)
+        self.assertIn("job-lifecycle-boundary.js?v=20261123-timezone1", self.js)
+        self.assertIn("diagnostics-access-boundary.js?v=20261123-timezone1", self.js)
         self.assertNotIn("intake-taxon-boundary.js?v=20260727-r12f1-upload-copy1", self.js)
         self.assertNotIn("clusterweave.css?v=20260713-workflow-bars4", self.index)
         self.assertNotIn("clusterweave.js?v=20260713-workflow-bars4", self.index)

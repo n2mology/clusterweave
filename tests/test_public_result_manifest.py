@@ -105,7 +105,9 @@ class PublicResultManifestTests(unittest.TestCase):
                 "clinker/panel/panel.html": "<html>clinker</html>\n",
                 "clinker/panel/panel.js": "window.CLINKER=1;\n",
                 "clinker/panel/inputs/raw.gbk": "LOCUS raw\n",
-                "clinker/panel/panel_manifest.tsv": "source_gbk_path\n/private/raw.gbk\n",
+                "clinker/panel/panel_manifest.tsv": "role\tsource_gbk_path\ntarget\t/private/raw.gbk\ncomparator\t/private/comparator.gbk\n",
+                "clinker/singleton/panel.html": "<html>single locus</html>\n",
+                "clinker/singleton/panel_manifest.tsv": "role\tsource_gbk_path\ntarget\t/private/raw.gbk\n",
                 "clinker/panel/run_panel.sh": "docker run private\n",
                 "input_gbks/genome_a.gbk": "LOCUS staged genome\n",
                 "summary_tables/logs/raw.log": "SECRET=1\n",
@@ -144,6 +146,7 @@ class PublicResultManifestTests(unittest.TestCase):
             self.assertNotIn("data/results/demo/big_scape/output_files/data_sqlite.db", public_files)
             self.assertNotIn("data/results/demo/big_scape/public/clusterweave_viewer.sqlite", public_files)
             self.assertIn("data/results/demo/clinker/panel/panel.html", public_files)
+            self.assertNotIn("data/results/demo/clinker/singleton/panel.html", public_files)
             self.assertIn("data/results/demo/clinker/panel/panel.js", public_files)
             self.assertIn("data/results/demo/input_gbks/genome_a.gbk", public_files)
             self.assertIn("data/results/demo/antismash/genome_a/contig.region001.gbk", public_files)
@@ -249,7 +252,9 @@ class PublicResultManifestTests(unittest.TestCase):
                 "antismash/genome_a/region001.gbk": "LOCUS raw\n",
                 "summary/family_atlas_shortlist.md": "# partial shortlist\n",
                 "summary_tables/ecofun_metadata_normalized.tsv": "accession\tgenome_id_current\n",
-                "clinker/panel/panel_manifest.tsv": "source_gbk_path\n/private/raw.gbk\n",
+                "clinker/panel/panel_manifest.tsv": "role\tsource_gbk_path\ntarget\t/private/raw.gbk\ncomparator\t/private/comparator.gbk\n",
+                "clinker/singleton/panel.html": "<html>single locus</html>\n",
+                "clinker/singleton/panel_manifest.tsv": "role\tsource_gbk_path\ntarget\t/private/raw.gbk\n",
             }
             for rel, content in files.items():
                 target = results_root / rel

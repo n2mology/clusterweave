@@ -1,0 +1,27 @@
+class	label	color	pattern
+NRPS	NRPS	#56D8C1	\bnrps?\b|\bnrp\b
+PKS	PKS	#EC961C	\bpks\b|t[123]pks|transatpks|polyketide|nr-pks|hr-pks
+terpene	Terpene	#A743CC	terpene|\btc\b
+RiPP	RiPP	#5481E3	ripp|lanthipeptide|lassopeptide|thiopeptide|bacteriocin
+saccharide	Saccharide	#F2CF43	saccharide|glycoside
+alkaloid	Alkaloid	#8C6BB1	alkaloid
+cyclopeptide	Cyclopeptide	#4169E1	cyclopeptide
+fatty_acid	Fatty acid	#D55E00	fatty[_ -]acid
+arylpolyene	Arylpolyene	#C4A000	arylpolyene
+betalactone	Beta-lactone	#008B8B	betalactone
+resorcinol	Resorcinol	#B85C80	resorcinol
+hserlactone	Homoserine lactone	#6B8E23	hserlactone
+redox-cofactor	Redox cofactor	#7F6000	redox[-_ ]cofactor
+hydrogen-cyanide	Hydrogen cyanide	#4E79A7	hydrogen[-_ ]cyanide
+phosphonate	Phosphonate	#9C755F	phosphonate
+indole	Indole	#AF7AA1	indole
+NI-siderophore	NRPS-independent siderophore	#2A9D8F	ni[-_ ]siderophore
+triceptide	Triceptide	#F28E2B	triceptide
+lignan	Lignan	#8FBC8F	lignan
+phenolamide	Phenolamide	#BC8F8F	phenolamide
+strictosidine_like	Strictosidine-like	#9370DB	strictosidine[_ -]like
+transporter_associated	Transporter-associated	#778899	transporter[_ -]associated
+hybrid	Multiple classes	#82775B	hybrid
+putative	Putative (type unspecified)	#6D708C	\bputative\b|^plant$
+other	Other (native label)	#A8BFFF	\bother\b
+unclassified	Unclassified	#D7D7D7	\bunclassified\b|\bunknown\b

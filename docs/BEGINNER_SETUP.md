@@ -7,14 +7,17 @@ Compose reads `docker-compose.yml` and starts the related containers together.
 You do not need to install the scientific tools one at a time.
 
 Project-hosted access is coming soon. The trusted local Docker profile is the
-only currently available v1.0.5 path. This release has been
+only currently available v1.1.0 path. This release has been
 validated on Linux x86_64, and the sections below explain the corresponding
-Docker Desktop setup for WSL2, Intel macOS, and Apple Silicon.
+Docker Desktop setup for WSL2, Intel macOS, and Apple Silicon. These instructions
+have not been verified on WSL2 or macOS hosts; the confined plant runtime
+requires Linux as described in [Plant runtime preparation](PLANTISMASH_RUNTIME.md).
 
 ## Before you begin
 
-Use a computer on which you are allowed to run Docker. Give Docker at least 4
-CPUs and 16 GiB of memory. Disk use varies with the genomes and retained
+Use a computer on which you are allowed to run Docker, with at least 4 usable
+CPUs and 20 GiB of host RAM. Allocate at least 4 CPUs and 18 GiB to Docker
+(16 GiB for the worker plus 2 GiB for web); leave room for the host too. Disk use varies with the genomes and retained
 results; the first bootstrap alone includes approximately 6 GiB of antiSMASH and
 Pfam reference data in addition to image layers and temporary files, so a first
 user should begin with tens of GiB free and check growth during real analyses.
@@ -39,6 +42,12 @@ A few terms used below:
 ## Choose the instructions for your computer
 
 ### Windows with WSL2
+
+The nested plant SIF runtime has not been executed on Windows/WSL2. The Linux
+confined profile requires host AppArmor and FUSE support that these instructions
+do not establish for Docker Desktop. Use the runtime check before assuming
+plant submissions are available; a refusal must not be bypassed. See
+[plant runtime preparation](PLANTISMASH_RUNTIME.md).
 
 Windows users run one installation command in an administrator PowerShell, then
 run the ClusterWeave commands in an Ubuntu/WSL terminal. Windows Subsystem for
@@ -70,11 +79,11 @@ Docker daemon.
 4. Open the **Ubuntu/WSL terminal**. Keep the repository in the Linux filesystem
    (for example, under your Ubuntu home directory) rather than under `/mnt/c/`,
    because the Linux filesystem normally gives Docker and the workflow better
-   file-I/O behavior. Install Git if Ubuntu does not already provide it:
+   file-I/O behavior. Install Git, curl and Python 3 if Ubuntu does not already provide them:
 
    ```bash
    sudo apt update
-   sudo apt install -y git curl
+   sudo apt install -y git curl python3
    ```
 
 All remaining Bash commands in this tutorial go in the Ubuntu/WSL terminal, not
@@ -83,12 +92,13 @@ PowerShell.
 ### Linux
 
 Linux users run all commands in the normal terminal for their distribution.
-Install Git, Docker Engine, and the Docker Compose v2 plugin from the official
+Install Git, Python 3.9 or newer, Docker Engine, and the Docker Compose v2 plugin from the official
 instructions for the distribution:
 
 - [Docker Engine installation](https://docs.docker.com/engine/install/)
 - [Docker Compose plugin installation](https://docs.docker.com/compose/install/linux/)
 - [Git downloads and platform instructions](https://git-scm.com/downloads/)
+- [Python downloads](https://www.python.org/downloads/) or your distribution's Python 3 package
 
 Start the Docker daemon according to the distribution's service policy. On a
 systemd distribution, the usual check is:
@@ -109,6 +119,7 @@ Bash-compatible shell. Install:
 
 - [Docker Desktop for Mac](https://docs.docker.com/desktop/setup/install/mac-install/)
 - [Git](https://git-scm.com/downloads/)
+- [Python 3.9 or newer](https://www.python.org/downloads/) for the terminal assistant
 
 Start Docker Desktop and wait until the Docker engine reports that it is
 running. The ClusterWeave compatibility default is `linux/amd64`. Intel Macs run
@@ -123,13 +134,14 @@ Run these commands in the Ubuntu/WSL, Linux, or macOS terminal selected above:
 
 ```bash
 git --version
+python3 --version
 docker --version
 docker compose version
 docker info
 docker run --rm hello-world
 ```
 
-The commands should print versions, Docker daemon information, and a successful
+Confirm Python reports 3.9 or newer. The commands should print versions, Docker daemon information, and a successful
 `hello-world` message. `docker compose version` must use the two-word Compose v2
 form. If `docker info` reports that it cannot connect, stop here and use the
 [daemon troubleshooting section](#docker-daemon-is-unavailable-or-permission-is-denied).
@@ -143,8 +155,8 @@ docker system df
 df -h .
 ```
 
-Docker should report at least 4 CPUs and approximately 17,179,869,184
-memory bytes (16 GiB); a virtualized engine can report slightly less after
+Docker should report at least 4 CPUs and approximately 19,327,352,832
+memory bytes (18 GiB: 16 GiB for the worker and 2 GiB for the web service); a virtualized engine can report slightly less after
 overhead, so confirm the configured allocation as well as the displayed value.
 Docker Desktop users should also inspect **Settings > Resources**, because the
 Docker virtual disk can have a separate limit from the host filesystem. If the
@@ -160,7 +172,7 @@ they are maintained differently:
 - A **tagged archive** is a fixed snapshot downloaded from the GitHub Releases
   page. An archive has no Git history and cannot be updated with `git pull`.
 
-ClusterWeave v1.0.5 is the current public release. Use the
+ClusterWeave v1.1.0 is the current public release. Use the
 [ClusterWeave releases page](https://github.com/n2mology/clusterweave/releases)
 when you need its immutable tag or source archive.
 
@@ -174,10 +186,11 @@ git clone https://github.com/n2mology/clusterweave.git
 cd clusterweave
 ```
 
-For a reproducible v1.0.5 checkout, request the tag explicitly:
+For a reproducible v1.1.0 checkout, use the following commands instead of the
+preceding clone commands. Run them from the parent directory, such as `~`:
 
 ```bash
-git clone --branch v1.0.5 --depth 1 https://github.com/n2mology/clusterweave.git
+git clone --branch v1.1.0 --depth 1 https://github.com/n2mology/clusterweave.git
 cd clusterweave
 ```
 
@@ -209,93 +222,193 @@ loopback. A later local visit renews expired browser access automatically. Fresh
 local jobs remain until you delete them; keep enough disk for retained results.
 Shared hosting uses the separate hosted access profile and configured expiry.
 
-From the repository root, run:
+From the repository root, use the recommended automatic startup:
+
+```bash
+./bin/init_local_instance.sh --defaults
+```
+
+This chooses Conservative resources, a 10-GiB cache with 256 entries and 30-day
+retention, jobs kept until manual deletion, startup after Docker starts, and
+browser opening. It builds/prepares/starts automatically. Keep this terminal
+open until completion. Rerunning it preserves an existing setup and shows how
+to return or resume preparation.
+
+To choose settings interactively instead, run:
 
 ```bash
 ./bin/init_local_instance.sh
 ```
 
-The initializer creates `.env` with mode `0600`, generates a job-token secret
-and administrator token, binds the service to `127.0.0.1:8080`, and sets a
-four-CPU, 16-GiB worker. It also sets
-`CLUSTERWEAVE_MAX_CPUS_PER_JOB=4`, so the local web service does not accept a
-public job larger than its default four-CPU worker can admit.
+The assistant requires Python 3.9 or newer on the host (`python3 --version`).
+It checks the machine before asking you to choose settings. Image builds and
+runtime downloads wait until configuration is saved. Interactive setup asks
+**READY TO WEAVE?**; `--defaults` accepts that step automatically. To inspect the scan alone,
+run this from the ClusterWeave folder:
 
-If `.env` already exists, the initializer leaves it unchanged. Do not paste the
+```bash
+./bin/local_instance.sh scan
+```
+
+The scan shows logical and usable CPUs, installed RAM, currently available RAM,
+any process/container memory ceiling, and Docker's allocation when local Docker
+is reachable. CPU affinity and Linux cgroup limits can reduce usable resources.
+Swap is not counted as RAM. On macOS, available RAM is a page-based estimate.
+Remote Docker endpoints are not inspected by this local assistant.
+
+The verdict distinguishes a machine below the local baseline from one that has
+enough installed RAM but is currently busy. A low Docker allocation needs a
+Docker settings change, not a larger worker setting. Close other memory-heavy
+work or adjust the Docker allocation yourself, then scan again. If the scan is
+incomplete, setup stops rather than guessing. Docker can be unavailable while you
+save host-based choices; scan again after starting Docker, before preparation.
+The host baseline is 4 usable CPUs and 20 GiB of RAM; Docker needs at least
+4 CPUs and 18 GiB. These are installation bounds, not a guarantee that every
+annotation fits. Large fungal annotations may need substantially more memory.
+
+Choose a resource configuration for this machine:
+
+- **Conservative** uses up to four worker CPUs and 16–32 GiB of RAM within the
+  observed limits. It leaves more room for other work.
+- **Maximum available** uses the observed safe worker ceiling. It leaves one
+  usable CPU, 2 GiB for web, and 2 GiB of host memory headroom, and respects
+  Docker's allocation and current host memory availability. A workstation can
+  use its available capacity without a four-CPU cap.
+- **Customize** walks through worker/job CPUs, RAM, web port, cache limits,
+  job input limits and supported Docker-managed storage. Each prompt offers a
+  starting value. A mistyped answer gives you another try.
+
+Both recommendations keep loopback-only browser access and jobs retained until
+manual deletion. The job CPU limit cannot exceed the worker budget. Capacity
+recommendations do not promise scientific suitability or faster processing.
+The scan is repeated before saving, so memory lost
+while you review cannot silently produce an oversized configuration. Docker's
+reported memory is an allocation ceiling, not a live free-memory measurement
+inside its VM. Host observations cannot establish that VM's current headroom.
+
+Both fresh recommendations enable accession caching in a separate Docker volume
+mounted only by the worker. Starting limits are **10 GiB, 256 entries and 30 days
+since population**. Only compatible public accession results are reusable;
+uploaded genomes and job credentials are excluded. Eviction leads to normal
+recomputation. Cache retention is independent of retained jobs. The worker creates
+its private mode-0700 cache root on first startup; no existing cache is migrated.
+Results, uploads, databases and software continue using their existing volumes.
+Leave additional disk for those volumes and filesystem overhead. Custom setup
+can disable caching. Advanced storage placement requires operator-managed mounts;
+the assistant offers the supported separate Docker volume and a cancellation path.
+See [ACCESSION_CACHE.md](ACCESSION_CACHE.md).
+
+Automatic service startup and browser opening are separate choices. `--defaults`
+enables both; the interactive assistant asks. The
+assistant explains them before applying settings. It does not start Docker or
+install host startup hooks. Building and runtime acquisition begin only after
+**READY TO WEAVE?** in interactive setup, or automatic acceptance with `--defaults`.
+Interactive installations use manual startup unless you opt in. The browser choice opens one tab after
+readiness when you explicitly use the start launcher, not at machine boot.
+
+Review the plan, then answer **Shall I save these settings?**. The assistant creates `.env`
+with mode `0600` and generates private credentials without displaying them.
+Cancelling before save leaves the previous configuration intact. If you stop
+after saving, the settings remain available for the next attempt.
+If `.env` already exists, ordinary initialization displays the current supported
+settings and leaves the file unchanged. To review changes explicitly:
+
+```bash
+./bin/init_local_instance.sh --reconfigure
+```
+
+An existing installation keeps its access, retention and cache choices until you
+explicitly change them. Hosted/external installations remain operator-managed.
+The assistant preserves existing instance credentials and unrelated settings.
+After applying local changes, use the start launcher to check prepared assets and
+recreate services with the new settings. No image rebuild is needed for these
+configuration-only choices; source/image updates require a separate rebuild.
+
+For scripted fresh initialization, use the documented noninteractive path:
+
+```bash
+./bin/init_local_instance.sh --non-interactive
+```
+
+It saves Conservative settings with automatic startup/browser opening off and
+does not build or download anything. Select `--recommendation maximum` to use
+the measured safe ceiling. Add `--weave` to explicitly run build/preparation
+without prompts; add `--open-browser` if you want the progress screen to open.
+The ASCII/citation banner appears once at interactive startup and is omitted
+from scripted and JSON output.
+For an explicit scripted change, specify every intended option and `--apply`:
+
+```bash
+./bin/init_local_instance.sh --non-interactive --reconfigure --apply \
+  --worker-cpus 4 --job-cpus 4 --memory-gib 16 --port 8081 \
+  --cache --cache-gib 10 --cache-entries 256 --cache-days 30 \
+  --no-autostart --no-open-browser
+```
+
+Use `--help` to inspect options. Run `./bin/local_instance.sh status` for a
+credential-free review. Do not paste the
 contents of `.env` into an issue, email, screenshot, or support message. The
 file contains credentials that protect local administrator actions and saved
 result links.
 
 ## Change the local web job input limits
 
-New `.env` files set `CLUSTERWEAVE_MAX_ACCESSIONS=50` and
-`CLUSTERWEAVE_MAX_GENOME_FILES=50`. These are the maximum NCBI assembly
-accessions and uploaded genome files accepted by one web job.
-
-From the repository root, open the private `.env` file in a text editor. Change
-one or both values before starting the local instance. For example:
-
-```dotenv
-CLUSTERWEAVE_MAX_ACCESSIONS=75
-CLUSTERWEAVE_MAX_GENOME_FILES=75
-```
-
-Use a positive integer for each setting. `0` is invalid and does not mean
-uncapped. The initializer does not add these settings to an existing `.env`, so
-add them manually when updating an older local instance.
-
-Still at the repository root, check what Compose resolved:
+Fresh setup accepts up to 50 accessions or 50 uploaded genomes per web job.
+Choose **Customize** to change those limits in the CLI. For a scripted change,
+run this in the ClusterWeave folder:
 
 ```bash
-docker compose config --quiet
-docker compose config | grep -E 'CLUSTERWEAVE_MAX_ACCESSIONS|CLUSTERWEAVE_MAX_GENOME_FILES'
+./bin/init_local_instance.sh --reconfigure --non-interactive --apply \
+  --max-accessions 75 --max-genome-files 75
+./bin/local_instance.sh start
 ```
 
-Success means the first command returns without an error and the second prints
-both selected values under the web service.
-
-If the local instance is already running, edit `.env`, then run these commands
-from the repository root:
-
-```bash
-docker compose up -d --no-deps web
-curl --fail http://127.0.0.1:8080/api/system/status
-```
-
-A successful recreation reports the selected values in `public_quota`. The
-browser then displays the same limits and provides that many manual accession
-rows. Next, return to the browser and prepare the intended inputs.
-
-For a first start, continue with the build and start commands below.
-
-Larger counts increase processing time, storage use, and figure complexity.
-Support for a configured count is not a performance or scientific-scale
-guarantee. Synthetic scaling checks cover 75 genomes.
+The initializer preserves existing credentials and results. `start` checks the
+prepared runtimes and recreates services with the selected limits. The browser
+then displays those limits. Larger counts increase processing time, storage use
+and figure complexity; synthetic scaling checks cover 75 genomes, with no
+scientific-scale or performance guarantee.
 
 ## Build and start the local instance
 
-Still at the repository root, run one command at a time:
+After the configuration review and save, the CLI asks **READY TO WEAVE?**.
+Answer yes to begin. You do not need to copy a second sequence of Docker commands.
+The CLI builds the web and worker images and shows Docker's output. Then it starts
+the web service and asks whether you want to open the browser initialization screen
+or keep following the terminal. The browser choice opens before runtime preparation.
+Both views show preparation progress; keep the terminal open until it finishes.
+
+The assistant runs `prepare-runtime` for the standard local runtime assets,
+runs the non-mutating `check-runtime`, then starts the worker. plantiSMASH
+requires separate [plant runtime preparation](PLANTISMASH_RUNTIME.md).
+Prepared assets are verified and reused. The browser moves from initialization
+to the workbench when the worker reports current readiness.
+
+If you answer no, or preparation fails, your saved settings remain. Fix any reported
+problem, then resume from the repository root:
 
 ```bash
-docker compose build
-docker compose run --rm --no-deps worker prepare-runtime
-docker compose run --rm --no-deps worker check-runtime
-docker compose up -d
-docker compose ps
-curl --fail http://127.0.0.1:8080/
+./bin/local_instance.sh weave
 ```
 
-`docker compose build` builds the ClusterWeave web and worker images. The
-explicit `prepare-runtime` command acquires and verifies every supported local
-runtime asset before a job can need it. The following `check-runtime` command is
-a non-mutating warm verification: it must not pull, download, build, install, or
-rewrite the preparation manifest. `docker compose up -d` then starts the
-containers in the background. `docker compose ps` should show the `web` and
-`worker` services running, and the `curl` command should return the HTML landing
-page without an HTTP error.
+`weave` explicitly builds and prepares; it refuses to interrupt a running worker.
+Let any jobs finish, then use `./bin/local_instance.sh stop` before rebuilding.
+A failure keeps the browser progress screen available with an error and a retry
+command. Image builds and runtime downloads can take much longer than the bounded
+service readiness wait (120 seconds by default; `--timeout 300` allows 300).
+No results or volumes are deleted. The CLI does not start Docker itself.
 
-Open [http://127.0.0.1:8080](http://127.0.0.1:8080) in a browser on the same
-computer. WSL2 users normally open this loopback address in their Windows
+For later visits, use `./bin/local_instance.sh start` and `open`. These reuse
+prepared images/assets without building, pulling or acquiring runtimes. Fresh
+worker startup also checks existing assets instead of acquiring missing assets.
+The printed browser URL includes your custom port.
+
+The admin drawer's **Local setup** tab shows a short read-only summary of applied
+budgets, cache limits and return commands. Configuration stays in the CLI.
+Read **Runtime status** for scientific capabilities; a web page alone does not
+mean every tool is prepared.
+
+Open [http://127.0.0.1:8080](http://127.0.0.1:8080) when using the default port. WSL2 users normally open this loopback address in their Windows
 browser while Docker Desktop and the Ubuntu distribution remain running.
 
 ### Understand the first bootstrap
@@ -316,16 +429,13 @@ Image identities and acquired-file SHA-256 values are recorded under the
 private software volume. A later warm prepare or check validates those
 identities and does not reacquire an asset that is already complete.
 
-Follow the worker output:
-
-```bash
-docker compose logs -f worker
-```
+Follow the setup terminal while runtimes are being prepared. Once the worker
+starts, `docker compose logs -f worker` follows its service output.
 
 Expected milestones include `antiSMASH databases ready`, `Pfam-A.hmm ready`,
 `NCBI datasets CLI ready`, image pull/build messages, and finally `Starting
-ClusterWeave worker`. Some phases can take a long time on a first run. Press
-`Ctrl-C` when you want to stop following the text; the containers continue to
+ClusterWeave worker`. Some phases can take a long time on a first run. After setup finishes, press
+`Ctrl-C` to stop following `docker compose logs -f worker`; the containers continue to
 run in the background.
 
 A warning that an optional pull will retry later is different from a ready core
@@ -389,25 +499,99 @@ jobs automatically. **RUN STACK** remembers runs only in the current browser
 context. Keep the private result link separately for direct access; an existing
 installation retains its configured access and expiry policy.
 
-## Stop and restart
+## Return after machine shutdown
 
-Stop the containers while preserving their named volumes:
+Shutdown stops running services. The private `.env`, named Docker volumes,
+prepared software/databases, uploads, retained jobs and result-access credentials
+persist on the same machine. Keep the same `clusterweave` folder, Docker context
+and volumes. The browser's **RUN STACK** is only a convenience; retained jobs are
+available through **Existing results** after local pairing. Saved private result
+links remain usable under the existing access/expiry policy. Do not regenerate
+the instance secret to fix a startup problem. Interrupted scientific work is not
+guaranteed to resume at the exact interrupted step; inspect the job's status.
+
+1. Sign in to your computer. On Windows or macOS, start Docker Desktop and wait
+   for its engine. In WSL2, open the Ubuntu distribution with Docker integration
+   enabled. On Linux Engine, start the Docker daemon using your distribution's
+   normal service procedure.
+2. Open the same Bash-compatible terminal and change into the existing folder,
+   for example `cd ~/clusterweave`. Confirm `docker info` succeeds.
+3. Start ClusterWeave using the prepared images/assets:
+
+   ```bash
+   ./bin/local_instance.sh start
+   ```
+
+4. If browser opening was not selected, run:
+
+   ```bash
+   ./bin/local_instance.sh open
+   ```
+
+5. Open **Existing results** to select a retained job, or use your saved private
+   result link. No new job submission is needed to view saved results.
+
+`open` waits for readiness and opens at most one tab per explicit invocation.
+It does not start stopped services. On Linux desktops it uses `xdg-open`; on
+macOS it uses `open`; WSL uses `wslview` if already available. A headless session
+or unavailable browser integration prints the exact URL for manual opening and
+does not install a helper. In WSL, paste that URL into the Windows browser.
+
+### Optional automatic startup
+
+Choose automatic startup during initialization or reviewed reconfiguration.
+ClusterWeave uses Docker's `unless-stopped` restart policy after services have
+been created and started successfully. Docker must already be running; the
+assistant does not enable OS services or login hooks. A deliberate manual stop
+remains stopped across Docker restarts until you explicitly start it again.
+See [Docker restart policies](https://docs.docker.com/engine/containers/start-containers-automatically/).
+
+On Linux Engine, machine-boot availability depends on the distribution's Docker
+service policy; inspect it with `systemctl status docker` on systemd systems.
+On macOS and Windows, Docker Desktop's **Settings > General > Start Docker Desktop
+when you sign in to your computer** is a separate user-controlled choice. It
+requires an interactive sign-in and is not a promise of service readiness at
+machine boot. WSL2 additionally needs Docker Desktop's integration for the chosen
+distribution. See [Desktop settings](https://docs.docker.com/desktop/settings-and-maintenance/settings/)
+and [Docker's WSL instructions](https://docs.docker.com/desktop/features/wsl/).
+
+Browser opening requires a signed-in desktop. No automatic boot/login browser
+integration is installed. The separate start/open launcher is the return path.
+Linux behavior has automated command/HTTP and isolated-container checks;
+Windows/WSL2 and macOS instructions have not been verified on those hosts.
+If integration is unavailable, use the manual sequence above and the printed URL.
+
+### Stop or disable automatic startup without deleting data
+
+Stop services intentionally:
 
 ```bash
-docker compose stop
+./bin/local_instance.sh stop
 ```
 
-Restart the same local instance:
+Disable automatic startup and launcher browser opening:
 
 ```bash
-docker compose start
+./bin/local_instance.sh disable-autostart
+```
+
+The disable command saves the manual policy in `.env` and updates the existing
+containers' restart policies without starting or stopping them. It is safe to
+repeat. If Docker is unavailable, the saved policy can be updated but existing
+containers still need updating: start Docker, then rerun the disable command.
+Disabling does not interrupt an active job. Stop separately if desired.
+
+The manual Compose return sequence, from the repository root after Docker is
+available and runtimes have been prepared, is:
+
+```bash
+docker compose run --rm --no-deps --pull never worker check-runtime
+docker compose up -d --no-build --pull never
 docker compose ps
-curl --fail http://127.0.0.1:8080/
 ```
 
-`docker compose up -d` is also safe when services need to be recreated after a
-configuration or image change. Never run `docker compose down -v` for routine
-maintenance: `-v` deletes the job and database volumes.
+Open the configured URL after the worker is ready. Never use
+`docker compose down -v` for routine maintenance: `-v` deletes named volumes.
 
 ## Back up job data
 
@@ -456,7 +640,7 @@ actually published and reviewed:
 ```bash
 git fetch --tags origin
 git tag --list
-git switch --detach v1.0.5
+git switch --detach v1.1.0
 docker compose build
 docker compose up -d
 ```
@@ -493,8 +677,9 @@ PowerShell and `docker info` in Ubuntu.
 ### Port 8080 is already in use
 
 One possible explanation for a web container that will not start is another
-program already listening on port 8080. Edit the private `.env` and change both
-values together, for example:
+program already listening on port 8080. Use `./bin/init_local_instance.sh --reconfigure`, select Customize setup, and
+choose an unused web port. The assistant changes the port and URL together.
+For advanced manual configuration, change both values together, for example:
 
 ```text
 HOST_PORT=8081
@@ -521,7 +706,8 @@ docker inspect clusterweave-worker --format '{{.State.OOMKilled}}'
 docker compose logs --tail=200 worker
 ```
 
-Give Docker at least 16 GiB, close other memory-heavy work, and retry one small
+Allow at least 16 GiB for the worker plus 2 GiB for web and host headroom,
+close other memory-heavy work, run `./bin/local_instance.sh scan`, and retry one small
 job. Do not increase genome parallelism, per-stage CPUs, or worker concurrency
 while investigating a memory failure. Large fungal annotations may require more
 than the portable minimum.
@@ -576,10 +762,11 @@ docker compose logs --tail=200 web worker
 ```
 
 A bootstrapping worker is not yet ready to claim jobs. Similarly, a job can stay
-queued while another job holds the four-CPU worker budget. If the worker reports
+queued while another job holds the configured worker CPU budget. If the worker reports
 that a job cannot fit, confirm that `.env` keeps
 `CLUSTERWEAVE_MAX_CPUS_PER_JOB` at or below
-`CLUSTERWEAVE_WORKER_CPU_LIMIT`; the initialized values are both 4.
+`CLUSTERWEAVE_WORKER_CPU_LIMIT`. Initialization sets these values from the
+selected resource configuration.
 
 ### Collect useful logs without exposing secrets
 

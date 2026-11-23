@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from annotation_source import annotation_source, shell_function
+
 import shlex
 import subprocess
 import tempfile
@@ -13,9 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 class BacterialStageOneContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.text = (REPO_ROOT / "run_annotation_and_detection.sh").read_text(
-            encoding="utf-8"
-        )
+        cls.text = annotation_source()
 
     def test_exact_bacteria_prodigal_flags_are_mandatory(self) -> None:
         self.assertIn(
@@ -30,7 +30,7 @@ class BacterialStageOneContractTests(unittest.TestCase):
         self.assertNotIn('"${ant_input}" -prodigal', self.text)
 
     def test_bacterial_route_sanitizes_input_and_skips_funbgcex(self) -> None:
-        process = self.text.split("compute_genome() {", 1)[1]
+        process = shell_function(self.text, "prepare_genome_genbank") + shell_function(self.text, "compute_genome")
         self.assertIn('"${BACTERIAL_GENBANK_SANITIZER}"', process)
         self.assertIn('--record-map "${bacterial_record_map}"', process)
         self.assertIn('bacterial_stage_temp="${staged_gbk}.tmp.${BASHPID:-$$}"', process)

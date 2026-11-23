@@ -8,9 +8,15 @@ import re
 from collections.abc import Iterable, Mapping, Sequence
 from typing import BinaryIO, TextIO
 
+from scientific_profiles import (
+    default_detector_profile,
+    default_prediction_method,
+    summarize_profiles,
+)
 
-ANALYSIS_SCOPES = frozenset({"fungi", "bacteria", "both"})
-TAXON_GROUPS = frozenset({"fungi", "bacteria"})
+
+ANALYSIS_SCOPES = frozenset({"fungi", "bacteria", "both", "plants", "mixed"})
+TAXON_GROUPS = frozenset({"fungi", "bacteria", "plants"})
 MAX_ASSIGNMENT_BYTES = 64 * 1024
 MAX_ASSIGNMENT_ROWS = 100
 INPUT_KEY_RE = re.compile(r"^[A-Za-z0-9._-]{1,120}$")
@@ -39,7 +45,7 @@ def normalize_analysis_scope(value: object) -> str:
     normalized = str(value).strip().lower()
     if normalized not in ANALYSIS_SCOPES:
         raise TaxonRoutingError(
-            "analysis_scope must be one of: fungi, bacteria, both"
+            "analysis_scope must be one of: fungi, bacteria, both, plants, mixed"
         )
     return normalized
 
@@ -75,7 +81,7 @@ def _assignment_group(value: object) -> str:
     group = str(value or "").strip().lower()
     if group not in TAXON_GROUPS:
         raise TaxonRoutingError(
-            "taxon assignment taxon_group must be fungi or bacteria"
+            "taxon assignment taxon_group must be fungi or bacteria or plants"
         )
     return group
 
@@ -289,12 +295,14 @@ def parse_genbank_taxonomy_lines(
         lineage, "Viroids"
     )
     has_eukaryota = _lineage_has(lineage, "Eukaryota")
+    has_plants = 33090 in taxids or _lineage_has(lineage, "Viridiplantae")
     has_nonfungal_eukaryote = any(
         _lineage_has(lineage, name)
         for name in ("Metazoa", "Viridiplantae")
     )
     conflicting_authority = (
         (has_fungi and has_bacteria)
+        or (has_plants and (has_fungi or has_bacteria or has_archaea or has_virus or _lineage_has(lineage, "Metazoa")))
         or (has_fungi and (has_archaea or has_virus or has_nonfungal_eukaryote))
         or (has_bacteria and (has_archaea or has_virus or has_eukaryota))
     )
@@ -307,6 +315,8 @@ def parse_genbank_taxonomy_lines(
         group = "fungi"
     elif has_bacteria:
         group = "bacteria"
+    elif has_plants:
+        group = "plants"
     elif has_archaea or has_virus or has_eukaryota or has_nonfungal_eukaryote:
         group = "unsupported"
     else:
@@ -333,7 +343,7 @@ def parse_genbank_taxonomy_stream(
 
 
 def _scope_allows(scope: str, taxon_group: str) -> bool:
-    return scope == "both" or scope == taxon_group
+    return (scope == "mixed" and taxon_group in TAXON_GROUPS) or (scope == "both" and taxon_group in {"fungi", "bacteria"}) or scope == taxon_group
 
 
 def _safe_taxid(value: object) -> int | None:
@@ -371,9 +381,7 @@ def _route_row(
         "organism_name": str(organism_name or "").strip(),
         "source_accession": str(source_accession or "").strip(),
         "prediction_method": prediction_method,
-        "detector_profile": (
-            "antismash+funbgcex" if taxon_group == "fungi" else "antismash"
-        ),
+        "detector_profile": default_detector_profile(taxon_group),
         "input_path_key": input_key,
         "route_status": "accepted",
         "route_reason": route_reason,
@@ -434,7 +442,7 @@ def build_taxon_routes(
             raise TaxonRoutingError(
                 f"Taxon assignment references unknown input_key '{assignment_keys[normalized]}'"
             )
-        if scope != "both" and group != scope:
+        if not _scope_allows(scope, group):
             raise TaxonRoutingError(
                 f"Taxon assignment for '{canonical_input_keys[normalized]}' conflicts with selected {scope} scope"
             )
@@ -461,9 +469,7 @@ def build_taxon_routes(
                 taxid=record.get("tax_id"),
                 organism_name=record.get("organism_name"),
                 source_accession=accession,
-                prediction_method=(
-                    "prodigal" if taxon_group == "bacteria" else "funannotate"
-                ),
+                prediction_method=default_prediction_method(taxon_group),
                 route_reason="authoritative_ncbi_taxonomy",
             )
         )
@@ -495,9 +501,9 @@ def build_taxon_routes(
             organism_name = authoritative.get("organism_name")
             route_reason = "authoritative_genbank_taxonomy"
         else:
-            if scope == "both" and declared_group is None:
+            if scope in {"both", "mixed"} and declared_group is None:
                 raise TaxonRoutingError(
-                    f"Both scope requires a fungi or bacteria assignment for input_key '{input_key}'"
+                    f"{scope.capitalize()} scope requires an explicit supported taxon assignment for input_key '{input_key}'"
                 )
             taxon_group = declared_group or scope
             taxon_source = "user_declaration"
@@ -505,18 +511,13 @@ def build_taxon_routes(
             organism_name = ""
             route_reason = (
                 "explicit_both_mode_assignment"
-                if scope == "both"
+                if scope in {"both", "mixed"}
                 else f"selected_{scope}_scope_declaration"
             )
 
-        prediction_method = (
-            "prodigal"
-            if taxon_group == "bacteria"
-            else (
-                "existing_cds"
-                if bool(logical_input.get("has_annotated_genbank"))
-                else "funannotate"
-            )
+        prediction_method = default_prediction_method(
+            taxon_group,
+            has_annotated_genbank=bool(logical_input.get("has_annotated_genbank")),
         )
         routes.append(
             _route_row(
@@ -529,6 +530,9 @@ def build_taxon_routes(
                 route_reason=route_reason,
             )
         )
+    for route in routes:
+        if route["taxon_group"] == "plants":
+            route["annotation_state"] = "pending" if route["taxon_source"] == "ncbi" else ("content_check_required" if route["prediction_method"] == "existing_cds" else "annotation_required")
     genome_ids: dict[str, str] = {}
     for route in routes:
         genome_id = str(route.get("genome_id") or "")
@@ -564,23 +568,7 @@ def build_taxon_routes(
 def summarize_taxon_routes(
     routes: Sequence[Mapping[str, object]],
 ) -> tuple[dict[str, int], dict[str, int]]:
-    fungi = sum(1 for row in routes if row.get("taxon_group") == "fungi")
-    bacteria = sum(1 for row in routes if row.get("taxon_group") == "bacteria")
-    total = fungi + bacteria
-    funannotate = sum(
-        1 for row in routes if row.get("prediction_method") == "funannotate"
+    return summarize_profiles(
+        (row.get("taxon_group") for row in routes),
+        (row.get("prediction_method") for row in routes),
     )
-    prodigal = sum(
-        1 for row in routes if row.get("prediction_method") == "prodigal"
-    )
-    taxon_counts = {"fungi": fungi, "bacteria": bacteria, "total": total}
-    applicability_counts = {
-        "funannotate": funannotate,
-        "prodigal": prodigal,
-        "antismash": total,
-        "funbgcex": fungi,
-        "funbgcex_not_applicable_taxon": bacteria,
-        "bigscape": total,
-        "taxon_tree_figure": total,
-    }
-    return taxon_counts, applicability_counts

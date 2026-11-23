@@ -110,8 +110,8 @@ class TaxonSummarySemanticsTests(unittest.TestCase):
                 newline="", encoding="utf-8"
             ) as handle:
                 comparison = list(csv.DictReader(handle))
-            self.assertNotIn("prediction_method", comparison[0])
-            self.assertNotIn("funbgcex_applicability", comparison[0])
+            self.assertEqual(comparison[0]["prediction_method"], "prodigal")
+            self.assertEqual(comparison[0]["funbgcex_applicability"], "not_applicable_taxon")
             self.assertEqual(comparison[0]["genome"], "bacteria_demo")
             self.assertEqual(comparison[0]["scaffold"], "bacteria_demo_NC_000001")
             self.assertEqual(
@@ -125,7 +125,7 @@ class TaxonSummarySemanticsTests(unittest.TestCase):
                 exact = list(csv.DictReader(handle, delimiter="\t"))
             self.assertEqual(len(exact), 1)
             self.assertEqual(exact[0]["exact_product_type"], "NRPS-like")
-            self.assertEqual(exact[0]["display_ontology_version"], "clusterweave-bgc-broad-v1")
+            self.assertEqual(exact[0]["display_ontology_version"], "clusterweave-bgc-display-v3")
 
     def test_fungal_canonical_antismash_json_remains_supported(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

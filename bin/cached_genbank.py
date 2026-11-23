@@ -122,6 +122,7 @@ def make_identity(args) -> dict:
         raise Unavailable("acquired_input")
     source_paths = {name: ROOT / name for name in (
         "bin/accession_cache.py", "bin/cached_genbank.py", "bin/sanitize_bacterial_genbank.py",
+        "annotation_prepare.sh", "annotation_funannotate.sh", "annotation_braker3.sh", "detection_antismash.sh", "detection_funbgcex.sh",
         "bin/annotation_genbank.py", "web/genbank_readiness.py", "run_annotation_and_detection.sh")}
     source_paths["web/genbank_readiness.py"] = Path(genbank_readiness.__file__)
     source = digest_paths(source_paths)

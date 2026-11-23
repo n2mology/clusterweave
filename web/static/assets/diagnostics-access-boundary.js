@@ -12,8 +12,8 @@ export function createDiagnosticsAccessBoundary({
   cssAttributeValue,
   animateOpsPanelToggle,
 }) {
-  const OPS_TABS = ['jobs', 'worker', 'qa'];
-  const OPS_TAB_PANEL_IDS = { jobs: 'jobs-card', worker: 'console-card', qa: 'progress-card' };
+  const OPS_TABS = ['jobs', 'worker', 'qa', 'setup'];
+  const OPS_TAB_PANEL_IDS = { jobs: 'jobs-card', worker: 'console-card', qa: 'progress-card', setup: 'local-setup-guide' };
   const RERUN_PAYLOAD_STAGE_KEYS = [
     'run_genome_prep', 'run_annotation', 'run_bigscape', 'run_summary',
     'run_clinker', 'run_figures', 'run_nplinker',
@@ -84,8 +84,12 @@ export function createDiagnosticsAccessBoundary({
     return documentImpl.getElementById(OPS_TAB_PANEL_IDS[activeTab] || OPS_TAB_PANEL_IDS.jobs);
   }
 
+  function availableOpsTabs() {
+    return OPS_TABS.filter(tab => tab !== 'setup' || documentImpl.getElementById('ops-tab-setup')?.hidden === false);
+  }
+
   function syncOpsTabs() {
-    const selectedTab = OPS_TABS.includes(activeTab) ? activeTab : 'jobs';
+    const selectedTab = availableOpsTabs().includes(activeTab) ? activeTab : 'jobs';
     activeTab = selectedTab;
     documentImpl.body.dataset.opsTab = selectedTab;
     documentImpl.querySelectorAll('.ops-nav-button[data-ops-tab]').forEach(button => {
@@ -107,11 +111,11 @@ export function createDiagnosticsAccessBoundary({
 
   function switchOpsTab(tab, options = {}) {
     if (!canUseAdminSurfaces()) return;
-    activeTab = OPS_TABS.includes(tab) ? tab : 'jobs';
+    activeTab = availableOpsTabs().includes(tab) ? tab : 'jobs';
     syncOpsTabs();
     if (activeTab === 'qa') void hydrateQaLogs({ tail: shouldTailQaLogs(), autoScroll: true });
     if (activeTab === 'jobs') refreshJobHistory();
-    if (activeTab === 'worker') pollSystemStatus();
+    if (activeTab === 'worker' || activeTab === 'setup') pollSystemStatus();
     if (activeTab === 'rerun') {
       const { jobId, job } = activeJob();
       renderRerunPanel(jobId, job);
@@ -128,20 +132,21 @@ export function createDiagnosticsAccessBoundary({
     const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End'];
     if (!keys.includes(event.key)) return;
     event.preventDefault();
-    const current = OPS_TABS.indexOf(activeTab);
+    const tabs = availableOpsTabs();
+    const current = tabs.indexOf(activeTab);
     let next = current >= 0 ? current : 0;
-    if (event.key === 'ArrowLeft') next = (next + OPS_TABS.length - 1) % OPS_TABS.length;
-    if (event.key === 'ArrowRight') next = (next + 1) % OPS_TABS.length;
+    if (event.key === 'ArrowLeft') next = (next + tabs.length - 1) % tabs.length;
+    if (event.key === 'ArrowRight') next = (next + 1) % tabs.length;
     if (event.key === 'Home') next = 0;
-    if (event.key === 'End') next = OPS_TABS.length - 1;
-    switchOpsTab(OPS_TABS[next]);
+    if (event.key === 'End') next = tabs.length - 1;
+    switchOpsTab(tabs[next]);
   }
 
   function openOpsPanel(options = {}) {
     if (!canUseAdminSurfaces()) return;
     lastPanelFocus = options.returnFocus || documentImpl.activeElement || documentImpl.getElementById('ops-panel-toggle');
     setOpsPanelCollapsed(false);
-    if (options.tab) activeTab = OPS_TABS.includes(options.tab) ? options.tab : activeTab;
+    if (options.tab) activeTab = availableOpsTabs().includes(options.tab) ? options.tab : activeTab;
     syncOpsTabs();
     animateOpsPanelToggle(true);
     const focusTarget = options.focusPanel
@@ -281,6 +286,7 @@ export function createDiagnosticsControllerBoundary({
     jobStageEnabled,
     loadJob,
     normalizedResultPath,
+    parseTimestampMs,
     openOpsPanel,
     refreshJobHistory,
     renderJobHistory,
@@ -440,9 +446,10 @@ function renderQaDrawer(job = state.activeJobMeta, files = state.activeResultFil
   const stageText = job ? jobStageDisplay(job) : 'No active workflow stage';
   const project = job ? jobProjectName(job) : 'Open a job from the Jobs tab.';
   const updatedRaw = job && (job.updated_at || job.updatedAt || job.created_at || job.createdAt);
-  const updatedDate = updatedRaw ? new Date(updatedRaw) : null;
+  const updatedMs = parseTimestampMs(updatedRaw);
+  const updatedDate = updatedMs === null ? null : new Date(updatedMs);
   const updatedText = updatedDate && !Number.isNaN(updatedDate.getTime())
-    ? updatedDate.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+    ? updatedDate.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })
     : 'No timestamp yet';
   const rerunJobId = String(state.rerunScopeOpenJobId || '');
   const rerunJob = rerunJobId && (state.jobHistoryById.get(rerunJobId) || (state.activeJobId === rerunJobId ? state.activeJobMeta : null));

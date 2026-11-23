@@ -219,7 +219,12 @@ log "LOGFILE=${LOGFILE}"
 
 [[ -d "${ANTISMASH_ROOT}" ]] || die "ANTISMASH_ROOT not found: ${ANTISMASH_ROOT}"
 
-if ! find_antismash_genome_regions -print -quit 2>/dev/null | grep -q .; then
+plant_regions=0
+if [[ -d "${RESULTS_ROOT}/plantismash" ]] || { [[ -f "${GENOME_TAXON_MANIFEST}" ]] && grep -q $'\tplants\t' "${GENOME_TAXON_MANIFEST}"; }; then
+  plant_regions="$(python3 "${SCRIPT_DIR}/bin/plantismash_consumers.py" check --results "${RESULTS_ROOT}")" || die "Plant native validation failed; grouping cannot report an empty success"
+fi
+
+if [[ "${plant_regions}" == "0" ]] && ! find_antismash_genome_regions -print -quit 2>/dev/null | grep -q .; then
   # A valid antiSMASH run can contain zero regions.  Preserve that biological
   # result as an explicit empty BiG-SCAPE universe instead of turning the
   # whole bacterial workflow into a technical failure or retaining stale
@@ -354,7 +359,7 @@ cexec() {
     mapfile -d '' -t args < <(docker_run_args)
     docker run "${args[@]}" "${BIGSCAPE_DOCKER_IMAGE}" "$@"
   else
-    "${ENGINE}" exec "${BIND_ARGS[@]}" "${SIF_PATH}" "$@"
+    "${ENGINE}" exec --pwd "${BIGSCAPE_OUT}" "${BIND_ARGS[@]}" "${SIF_PATH}" "$@"
   fi
 }
 
@@ -440,6 +445,10 @@ while IFS= read -r -d "" f; do
   printf '%s\t%s\t%s\t%s\n' "$(basename "${out}")" "${genome}" "${route_fields}" "${genome}/${base}" >> "${BIGSCAPE_REGION_CROSSWALK}"
 done < <(find_antismash_genome_regions -print0)
 
+if [[ "${plant_regions}" -gt 0 ]]; then
+  python3 "${SCRIPT_DIR}/bin/plantismash_consumers.py" stage --results "${RESULTS_ROOT}" --destination "${STAGE_DIR}" --crosswalk "${BIGSCAPE_REGION_CROSSWALK}" || die "Plant grouping staging failed"
+fi
+
 region_n="$(find "${STAGE_DIR}" -maxdepth 1 -type f -name "*.gbk" | wc -l | tr -d " ")"
 log "Staged region GBKs: ${region_n} (assembled per-genome roots only)"
 [[ "${region_n}" -gt 0 ]] || die "No region GBKs staged; cannot run BiG-SCAPE"
@@ -479,11 +488,19 @@ if [[ -f "${PROJECT_DIR}/web/tool_runtime.py" ]]; then
   fi
   python3 "${PROJECT_DIR}/web/tool_runtime.py" --output "${RESULTS_ROOT}/reproducibility/tool_observations" --tool FastTree --executable "${FASTTREE_HOST}" >/dev/null || true
 fi
+# SQLite can spill large joins to disk. The isolated runtime's session /tmp
+# is intentionally small; keep spill files inside this job's monitored output
+# volume, which is already mounted by both supported execution backends.
+BIGSCAPE_TMPDIR="${BIGSCAPE_OUT}/.tmp"
+mkdir -p "${BIGSCAPE_TMPDIR}"
 log "Running BiG-SCAPE (inside container) with FastTree on PATH"
 set +e
-cexec env "PATH=${LOCAL_BIN}:$PATH" "${RUN_CMD[@]}" 2>&1 | tee -a "${LOGFILE}"
+cexec env "PATH=${LOCAL_BIN}:$PATH" "TMPDIR=${BIGSCAPE_TMPDIR}" "SQLITE_TMPDIR=${BIGSCAPE_TMPDIR}" "${RUN_CMD[@]}" 2>&1 | tee -a "${LOGFILE}"
 rc=${PIPESTATUS[0]}
 set -e
 
 [[ "${rc}" -eq 0 ]] || die "BiG-SCAPE failed (rc=${rc})"
+if [[ -f "${RESULTS_ROOT}/summary/native_reporting_keys.json" ]]; then
+  python3 "${PROJECT_DIR}/bin/native_comparison_selection.py" --results "${RESULTS_ROOT}" --database "${BIGSCAPE_OUT}/big_scape.db"
+fi
 log "BiG-SCAPE complete. Output: ${BIGSCAPE_OUT}"

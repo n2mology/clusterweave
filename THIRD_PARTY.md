@@ -30,9 +30,16 @@ not legal advice.
 
 ## Software Referenced By The Current Workflow
 
+Runtime acquisition belongs to explicit preparation in `bin/prepare_runtime.py`
+and the tool build recipes. Job runners consume prepared assets. The
+[extension guide](docs/EXTENDING.md) connects these boundaries to packaging and
+consumer validation. The references below identify configured dependencies;
+record the actual image IDs, file hashes and observed versions used by a run.
+
 ### antiSMASH
 
-- Repo reference: `run_annotation_and_detection.sh` pulls `docker://antismash/standalone:8.0.4`.
+- Repo reference: `run_annotation_and_detection.sh` uses the prepared antiSMASH runtime;
+  its configured source is `docker://antismash/standalone:8.0.4`.
 - Upstream terms: antiSMASH is released under AGPL-3.0-or-later and publishes version-specific citation
   guidance at https://docs.antismash.secondarymetabolites.org/about/ and
   https://github.com/antismash/antismash .
@@ -41,6 +48,32 @@ not legal advice.
 - If you redistribute the image or a derived SIF: preserve the AGPL notice. If you modify the software or
   redistribute a modified image, make the corresponding source for those modifications available under the
   AGPL as well.
+
+### Apptainer execution engine
+
+- The Linux amd64 worker build installs official Apptainer 1.5.5, with its Debian
+  package SHA256 pinned in `bin/install_plantismash_engine.sh`. Jobs do not
+  acquire the engine.
+- Upstream source and notices: [Apptainer v1.5.5](https://github.com/apptainer/apptainer/tree/v1.5.5),
+  under BSD-3-Clause. Preserve installed package copyright and component notices
+  when distributing a worker image. The non-setuid installation does not change
+  the worker host security policy.
+
+### plantiSMASH supplied-CDS runtime
+
+- The plant adapter uses the separately prepared plantiSMASH 2.0.4 runtime and
+  the fixed profile in `config/plantismash-profile.json`. It reuses translated
+  green-plant GenBank annotation and never acquires a runtime during a job.
+- The accepted runtime carries AGPL-3.0 terms. Preserve its corresponding source,
+  local modifications and component notices when distributing it or providing a
+  hosted service. The source repository does not include the SIF.
+- Native downloads retain the complete generated native folder and its embedded
+  asset notices. Portable adapters include the ClusterWeave license and this
+  dependency notice. These files do not grant rights to third-party native HTML,
+  reference data or runtime components beyond their own licenses.
+- Cite plantiSMASH: Kautsar et al. (2017), doi:10.1093/nar/gkx305. See
+  [supplied plant annotation](docs/PLANT_INPUTS.md) for the bounded supported scope.
+  Local functional verification is not runtime redistribution or hosted-use clearance.
 
 ### Prodigal
 
@@ -53,9 +86,10 @@ not legal advice.
 
 ### FunBGCeX
 
-- Repo reference: `run_annotation_and_detection.sh` can build a repo-local image from
-  `software/funbgcex/Singularity.def` or `software/funbgcex/Dockerfile`, and the host fallback installs
-  `funbgcex==1.0.1`.
+- Repo reference: `detection_funbgcex.sh` selects a prepared runtime. Explicit preparation
+  can build the local Docker image from `software/funbgcex/Dockerfile`;
+  `software/funbgcex/Singularity.def` supplies the SIF recipe. Native execution
+  requires an already prepared FunBGCeX environment; jobs do not install it.
 - Upstream terms: FunBGCeX is MIT-licensed upstream and includes citation guidance in its README and Zenodo
   records. See https://github.com/ydmatsd/funbgcex , https://pypi.org/project/funbgcex/ , and
   https://doi.org/10.5281/zenodo.17113445 .
@@ -86,7 +120,9 @@ not legal advice.
 
 ### funannotate
 
-- Repo reference: `run_annotation_and_detection.sh` pulls `docker://nextgenusfs/funannotate:v1.8.17`.
+- Repo reference: `annotation_funannotate.sh` consumes prepared funannotate. The local
+  `software/funannotate/Dockerfile` uses `nextgenusfs/funannotate:v1.8.17` as
+  its base and prepares BUSCO datasets before jobs use the derived image.
 - Upstream terms: funannotate is BSD-2-Clause and provides citation metadata in its repository and Zenodo
   records. Its README also notes that GeneMark is not included in the Docker image and must be installed
   separately under GeneMark's own terms. See https://github.com/nextgenusfs/funannotate .
@@ -98,7 +134,8 @@ not legal advice.
 
 ### BiG-SCAPE
 
-- Repo reference: `run_bigscape.sh` pulls `docker://ghcr.io/medema-group/big-scape:2.0.0-beta.6`.
+- Repo reference: `run_bigscape.sh` consumes prepared BiG-SCAPE; its configured source is
+  `docker://ghcr.io/medema-group/big-scape:2.0.0-beta.6`.
 - Upstream terms: BiG-SCAPE is AGPL-3.0 and its README provides citation guidance for BiG-SCAPE 2.0 and
   earlier work. See https://github.com/medema-group/BiG-SCAPE and
   https://raw.githubusercontent.com/medema-group/BiG-SCAPE/master/README.md .
@@ -109,7 +146,7 @@ not legal advice.
 
 ### clinker
 
-- Repo reference: `run_clinker.sh` pulls
+- Repo reference: `run_clinker.sh` consumes prepared clinker; its configured source is
   `docker://quay.io/biocontainers/clinker-py:0.0.32--pyhdfd78af_0`.
 - Upstream terms: clinker is MIT-licensed and asks users to cite the Bioinformatics paper in its README.
   See https://github.com/gamcil/clinker and
@@ -120,8 +157,9 @@ not legal advice.
 
 ### NPLinker
 
-- Repo reference: `run_nplinker.sh` pulls `docker://python:3.11-slim` and then bootstraps
-  `nplinker==2.0.0` into a local virtual environment.
+- Repo reference: explicit runtime preparation provides the `python:3.11-slim` base
+  image and the shared `nplinker==2.0.0` environment. `run_nplinker.sh` checks
+  and uses that prepared environment without installing it during a job.
 - Upstream terms: NPLinker is Apache-2.0, includes a `NOTICE` file in the upstream repository, and points
   users to its original paper from the README. See https://github.com/NPLinker/nplinker .
 - Requirement for the published repo: describe this as an optional environment bootstrap, not a bundled
@@ -156,7 +194,7 @@ not legal advice.
 
 ### FastTree
 
-- Repo reference: `run_bigscape.sh` downloads FastTree v2.2.0 from immutable commit
+- Repo reference: explicit runtime preparation downloads FastTree v2.2.0 from immutable commit
   `29c5e62fbcd93230ee325f9c6a17b81f00e3c72a` at
   `https://raw.githubusercontent.com/morgannprice/fasttree/29c5e62fbcd93230ee325f9c6a17b81f00e3c72a/FastTree` and verifies SHA-256
   `55a9d997813aae2208bd4c2081bfa690e0ecdba2d6c491805d8689415c43e38e`.
@@ -203,7 +241,9 @@ not legal advice.
 
 ### Pfam
 
-- Repo reference: `run_bigscape.sh` downloads `Pfam-A.hmm.gz` from the current Pfam release.
+- Repo reference: explicit runtime preparation acquires Pfam-A and its indexes;
+  `run_bigscape.sh` requires the prepared files. Record their actual content
+  identity because a configured download URL alone does not freeze a release.
 - Upstream terms: Pfam documentation states that Pfam is available under CC0. See
   https://pfam-docs.readthedocs.io/en/latest/pfam.html .
 - Requirement for the published repo: cite Pfam scientifically and record the downloaded release version if
@@ -212,7 +252,7 @@ not legal advice.
 
 ### MIBiG
 
-- Repo reference: `run_bigscape.sh` downloads `mibig_gbk_<version>.tar.gz` from
+- Repo reference: explicit runtime preparation acquires `mibig_gbk_<version>.tar.gz` from
   `https://dl.secondarymetabolites.org/mibig`.
 - Upstream terms: MIBiG 4.0 is an external reference dataset distributed under CC BY 4.0, with citation
   guidance at https://mibig.secondarymetabolites.org/ and in the MIBiG 4.0 Nucleic Acids Research
@@ -253,3 +293,74 @@ longer enough by itself. At that point you should also ship:
   example outputs.
 - Do not ship from this repo without a separate review: pulled SIFs, mirrored OCI images, BRAKER or
   GeneMark bundles, vendored reference tarballs, genome sequences, or cached tool databases.
+
+## Pinned supplied-CDS plantiSMASH source build
+
+`software/plantismash/` contains a public-source build recipe, checksum-bound
+upstream dependency locations, the exact modified source files, scientific file
+checksums, and the plantiSMASH AGPL-3.0-or-later license. Preserve the upstream
+notices in the source wheel and `LICENSE.txt`. `modifications.json` identifies
+the original and modified files; the modifications provide strict completion
+and identity accounting and the accepted compatibility behavior.
+
+The web recipe provides the modified corresponding source and build recipe at
+`/assets/third-party/plantismash-source.zip`. Keep this archive aligned with the
+deployed runtime. The source archive
+includes the complete upstream plantiSMASH package with these modifications,
+not only a patch or a pointer to unavailable private files. Upstream reference:
+https://github.com/plantismash/plantismash .
+
+The supported preparation command obtains packages from their upstream hosts
+and produces a local SIF. It does not publish a prebuilt third-party runtime.
+Package metadata and notices retain their own terms; source-build availability
+is not permission to remove component notices or disregard corresponding-source
+requirements when distributing binaries. Python, Conda packages, HMMER,
+plantiSMASH report assets and other dependencies are not relicensed by
+ClusterWeave. The exact package identities and declared licenses are in
+`sources.lock.json`. Local build and hosted use with the modified-program source
+offer are distinct from future binary-image distribution.
+
+## Confined worker security profiles
+
+`config/security/apptainer-worker.apparmor` and
+`config/security/apptainer-worker-seccomp.json` adapt Moby profiles under the
+Apache License 2.0. Preserve `config/security/MOBY-LICENSE` and
+`upstream-provenance.json`. The local modifications scope namespace and mount
+permissions to the non-setuid SIF worker while retaining the default denials
+and explicit protection for sensitive proc aliases.
+
+
+## Credit drawer dependencies
+
+The Web workflow credits include scientific dependencies bundled with the tool
+runtimes. The BASE + VISUALS tab covers execution infrastructure and visualization
+libraries; CairoSVG is available through the optional phylogeny runtime.
+Buttons summarize upstream terms. Package notices remain authoritative for each
+bundled version and its dependencies.
+
+| Component | Terms and source |
+| --- | --- |
+| CD-HIT 4.8.1 | [GPL-2.0-or-later](https://github.com/weizhongli/cdhit); pinned package identity in `software/plantismash/sources.lock.json` |
+| NCBI BLAST+ 2.12.0 | [Public domain](https://blast.ncbi.nlm.nih.gov/Blast.cgi) |
+| MUSCLE 3.8.31 | [Public domain](https://www.drive5.com/muscle/manual/license.html); this label applies to version 3 |
+| pplacer / guppy | [GPL-3.0](https://github.com/matsen/pplacer) |
+| GraPhlAn | [MIT](https://github.com/biobakery/graphlan) |
+| TreeGraph 2 | [GPL-3.0](https://github.com/bioinfweb/TreeGraph2) |
+| Exonerate | [GPL-3.0](https://github.com/nathanweeks/exonerate) |
+| HMMER 2 / HMMER 3 | GPL-2.0 / BSD-3-Clause; separate runtime generations, both bundled |
+| ETE 3 / ETE 4 | [GPL-3.0](https://etetoolkit.org/); plant and optional phylogeny runtimes respectively |
+| FastTree 2.1.11 / 2.2.0 | Plant package metadata records GPL-2; the separately pinned 2.2.0 source records GPL-3.0 |
+| ConnecTF | [Dataset terms](https://connectf.org/); the retained [plantiSMASH resource deposit](https://zenodo.org/records/16926250) declares CC BY 4.0 |
+| TAIR | [Data terms](https://phoenixbioinformatics.atlassian.net/wiki/spaces/COM/pages/42216430/TAIR+Terms+of+Use); do not apply the public-release license to an unidentified release |
+| Docker Engine / CLI / Compose | Apache-2.0: [Engine](https://github.com/moby/moby/blob/master/LICENSE), [CLI](https://github.com/docker/cli/blob/master/LICENSE), [Compose](https://github.com/docker/compose/blob/main/LICENSE); Docker Desktop has separate terms |
+| micromamba | [BSD-3-Clause](https://github.com/mamba-org/mamba/blob/main/LICENSE) |
+| Python | [PSF-2.0](https://docs.python.org/3/license.html) |
+| GNU Bash | [GPL-3.0-or-later](https://www.gnu.org/software/bash/) |
+| R | [GPL-2.0 or GPL-3.0](https://www.r-project.org/Licenses/) |
+| CairoSVG | [LGPL-3.0](https://github.com/Kozea/CairoSVG) |
+| NumPy | [BSD-3-Clause](https://numpy.org/doc/stable/license.html) |
+| Matplotlib | [Matplotlib license](https://matplotlib.org/stable/project/license.html), based on the PSF license |
+
+Apptainer, Three.js and GSAP notices appear in their existing sections
+above. These credits do not change corresponding-source access or the preserved
+licenses distributed with the runtime and browser assets.

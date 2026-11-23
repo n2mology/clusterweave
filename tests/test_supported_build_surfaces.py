@@ -118,7 +118,7 @@ class SupportedBuildSurfaceTests(unittest.TestCase):
                 source_path = REPO_ROOT / source
                 destination_path = image_root / destination.lstrip("/")
                 if source.endswith("/") and source_path.is_dir():
-                    shutil.copytree(source_path, destination_path)
+                    shutil.copytree(source_path, destination_path, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"))
                 elif source_path.is_file():
                     destination_path.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(source_path, destination_path)
@@ -148,7 +148,7 @@ class SupportedBuildSurfaceTests(unittest.TestCase):
                 source_path = REPO_ROOT / source
                 destination_path = image_root / destination.lstrip("/")
                 if source.endswith("/") and source_path.is_dir():
-                    shutil.copytree(source_path, destination_path)
+                    shutil.copytree(source_path, destination_path, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"))
                 elif source_path.is_file():
                     destination_path.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(source_path, destination_path)
@@ -215,9 +215,10 @@ class SupportedBuildSurfaceTests(unittest.TestCase):
                         check=True,
                     )
                     argv = capture.read_text(encoding="utf-8").splitlines()
-                    self.assertEqual(len(argv), 1)
+                    self.assertEqual(len(argv), 2)
+                    self.assertEqual(argv[0], "/clusterweave/bin/bootstrap_versions.py --observe")
                     self.assertEqual(
-                        argv[0],
+                        argv[1],
                         f"{root / 'prepare runtime.py'} {verb} --profile local-docker "
                         f"--manifest {root / 'runtime manifest.json'} --keep-going",
                     )

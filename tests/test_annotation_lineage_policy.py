@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from annotation_source import annotation_source, runner_source_command, shell_function
+
 import os
 from pathlib import Path
 import shlex
@@ -23,7 +25,7 @@ class AnnotationLineagePolicyTests(unittest.TestCase):
             run_env["GENOME_ROOT"] = str(genome_root)
             command = f"""
 set -euo pipefail
-source <(awk '/^GENOME_MAPPING_FILE=/{{flag=1}} /^funannotate_busco_db_available\\(\\)/{{flag=0}} flag{{print}}' {shlex.quote(str(SCRIPT_PATH))})
+source <(awk '/^GENOME_MAPPING_FILE=/{{flag=1}} /^funannotate_busco_db_available\\(\\)/{{flag=0}} flag{{print}}' {runner_source_command()})
 resolve_funannotate_policy {shlex.quote(genome_id)}
 printf '%s\t%s\t%s\n' "$FUNANNOTATE_RESOLVED_BUSCO_DB" "$FUNANNOTATE_RESOLVED_SPECIES" "$FUNANNOTATE_RESOLVED_SOURCE"
 """
@@ -44,7 +46,7 @@ printf '%s\t%s\t%s\n' "$FUNANNOTATE_RESOLVED_BUSCO_DB" "$FUNANNOTATE_RESOLVED_SP
             log_path.write_text(log_text, encoding="utf-8")
             command = f"""
 set -euo pipefail
-source <(awk '/^GENOME_MAPPING_FILE=/{{flag=1}} /^should_skip_discovered_stem\\(\\)/{{flag=0}} flag{{print}}' {shlex.quote(str(SCRIPT_PATH))})
+source <(awk '/^GENOME_MAPPING_FILE=/{{flag=1}} /^should_skip_discovered_stem\\(\\)/{{flag=0}} flag{{print}}' {runner_source_command()})
 funannotate_predict_failure_status {shlex.quote(str(log_path))}
 """
             run_env = dict(os.environ)
@@ -68,7 +70,7 @@ funannotate_predict_failure_status {shlex.quote(str(log_path))}
             log_path.write_text(log_text, encoding="utf-8")
             command = f"""
 set -euo pipefail
-source <(awk '/^GENOME_MAPPING_FILE=/{{flag=1}} /^should_skip_discovered_stem\\(\\)/{{flag=0}} flag{{print}}' {shlex.quote(str(SCRIPT_PATH))})
+source <(awk '/^GENOME_MAPPING_FILE=/{{flag=1}} /^should_skip_discovered_stem\\(\\)/{{flag=0}} flag{{print}}' {runner_source_command()})
 funannotate_busco_training_fallback_threshold {shlex.quote(str(log_path))}
 """
             run_env = dict(os.environ)
@@ -94,7 +96,7 @@ funannotate_busco_training_fallback_threshold {shlex.quote(str(log_path))}
             log_path.write_text(log_text, encoding="utf-8")
             command = f"""
 set -euo pipefail
-source <(awk '/^GENOME_MAPPING_FILE=/{{flag=1}} /^should_skip_discovered_stem\\(\\)/{{flag=0}} flag{{print}}' {shlex.quote(str(SCRIPT_PATH))})
+source <(awk '/^GENOME_MAPPING_FILE=/{{flag=1}} /^should_skip_discovered_stem\\(\\)/{{flag=0}} flag{{print}}' {runner_source_command()})
 funannotate_predict_failed_in_p2g {shlex.quote(str(log_path))}
 """
             result = subprocess.run(
@@ -111,7 +113,7 @@ funannotate_predict_failed_in_p2g {shlex.quote(str(log_path))}
     def public_tool_activity_message(self, tool: str, line: str) -> tuple[int, str]:
         command = f"""
 set -euo pipefail
-source <(awk '/^tool_activity_public_message\\(\\)/{{flag=1}} /^tool_activity_emit_progress\\(\\)/{{flag=0}} flag{{print}}' {shlex.quote(str(SCRIPT_PATH))})
+source <(awk '/^tool_activity_public_message\\(\\)/{{flag=1}} /^tool_activity_emit_progress\\(\\)/{{flag=0}} flag{{print}}' {runner_source_command()})
 if message="$(tool_activity_public_message {shlex.quote(tool)} {shlex.quote(line)})"; then
   printf '0\t%s\n' "$message"
 else
@@ -215,7 +217,7 @@ fi
     def run_annotation_fallback_probe(self) -> tuple[str, str]:
         command = f"""
 set -euo pipefail
-source <(awk '/^GENOME_MAPPING_FILE=/{{flag=1}} /^ANTISMASH_FLAGS_CANDIDATES=/{{flag=0}} flag{{print}}' {shlex.quote(str(SCRIPT_PATH))})
+source <(awk '/^GENOME_MAPPING_FILE=/{{flag=1}} /^ANTISMASH_FLAGS_CANDIDATES=/{{flag=0}} flag{{print}}' {runner_source_command()})
 run_funannotate_predict_to_gbk() {{
   FUNANNOTATE_LAST_FAILURE_STATUS="funannotate_busco_training_insufficient"
   FUNANNOTATE_LAST_FAILURE_DETAIL="validated_busco_models=153 required_training_models=200 busco_db=fungi policy=taxonomy:mucorales"
@@ -306,13 +308,13 @@ printf '%s\t%s\n' "$ANNOTATION_FALLBACK_FAILURE_REASON" "$ANNOTATION_FALLBACK_FA
         self.assertEqual(message, "funannotate reported an error")
 
     def test_training_fallback_is_checked_before_p2g_retry(self) -> None:
-        text = SCRIPT_PATH.read_text(encoding="utf-8")
-        classifiers = "funannotate_predict_failed_in_p2g() {" + text.split(
-            "funannotate_predict_failed_in_p2g() {", 1
-        )[1].split("should_skip_discovered_stem() {", 1)[0]
-        predict = "run_funannotate_predict_to_gbk() {" + text.split(
-            "run_funannotate_predict_to_gbk() {", 1
-        )[1].split("annotate_genome_with_fallbacks() {", 1)[0]
+        text = annotation_source()
+        classifiers = "\n".join(shell_function(text, name) for name in (
+            "funannotate_predict_failed_in_p2g", "funannotate_predict_failure_status",
+            "funannotate_normalize_min_training_models_fallback",
+            "funannotate_busco_training_fallback_threshold", "funannotate_record_predict_failure",
+        ))
+        predict = shell_function(text, "run_funannotate_predict_to_gbk")
         with tempfile.TemporaryDirectory(prefix="cluster weave retries ") as tmp:
             root = Path(tmp)
             work = root / "work with spaces"
@@ -450,7 +452,8 @@ ENGINE=apptainer
 FUNANNOTATE_SIF={shlex.quote(str(missing_sif))}
 FUNANNOTATE_BUILD_SCRIPT={shlex.quote(str(builder))}
 AUTO_BUILD_FUNANNOTATE_SIF=1
-source <(awk '/^runtime_preparation_hint\\(\\)/{{flag=1}} /^ensure_primary_tooling\\(\\)/{{flag=0}} flag{{print}}' {shlex.quote(str(SCRIPT_PATH))})
+{shell_function(annotation_source(), 'runtime_preparation_hint')}
+{shell_function(annotation_source(), 'ensure_funannotate_sif_runtime')}
 ensure_funannotate_sif_runtime
 """
             result = subprocess.run(

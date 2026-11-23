@@ -135,8 +135,8 @@ def _progress_rules():
     for root in (Path(__file__).parent, Path("/clusterweave/web")):
         try:
             contract = json.loads((root / "static/assets/progress-tree-contract.json").read_text())
-            rules = contract["stage_markers"] + [r for r in contract["legacy_records"] if r.get("node_level") == "stage"]
-            return [(re.compile(rule["pattern"], re.I), rule["workflow_stage"]) for rule in rules if rule.get("workflow_stage")]
+            rules = contract["stage_markers"] + contract["records"] + contract["legacy_records"]
+            return [(re.compile(rule["pattern"], re.I), rule) for rule in rules]
         except (OSError, ValueError, KeyError):
             continue
     return []
@@ -156,11 +156,46 @@ def _remember_progress(progress, line, index):
         if updated == message:
             break
         message = updated
+    # Keep the explicit job attempt boundary for API and tree hydration.
+    # It is not a stage record, but dropping it revives prior completed genomes.
+    if message == "Re-queued existing job with selected stage rerun settings.":
+        # The tree assigns the boundary to its preceding workflow stage. Keep
+        # that stage history even when later markers replace its checkpoints.
+        for old in list(progress):
+            if old.startswith("job:rerun_stage:"):
+                del progress[old]
+        stages = [(key, row) for key, row in progress.items() if key.endswith(":stage")]
+        for key, row in stages:
+            progress["job:rerun_stage:" + key] = row
+        progress["job:rerun"] = {"index": index, "line": line[:4096]}
+        return
     if not _PROGRESS_PATTERN.search(message):
         return
-    for pattern, stage in _PROGRESS_RULES:
-        if pattern.search(message):
-            progress[stage] = {"index": index, "line": line[:4096]}
+    for pattern, rule in _PROGRESS_RULES:
+        match = pattern.search(message)
+        if match:
+            values = dict(zip(rule.get("fields", []), match.groups()))
+            stage = rule.get("workflow_stage", "terminal")
+            genome = values.get("genome", "")
+            tool = values.get("record_stage", values.get("tool", rule.get("tool", "")))
+            kind = rule.get("kind", "stage")
+            key = f"{stage}:{genome}:{tool}:{kind}"
+            if kind in {"antismash_record", "plant_record"}:
+                key += ":" + values.get("record", values.get("ordinal", ""))
+                prior = progress.get(key)
+                if prior and re.search(r"(?:complete|failed|invalid|cancelled)", prior["line"], re.I) and not re.search(r"(?:complete|failed|invalid|cancelled)", line, re.I):
+                    return
+            record = {"index": index, "line": line[:4096]}
+            if genome:
+                # Preserve initial row order and explicit restarts as well as the latest state.
+                prefix = f"{stage}:{genome}:"
+                if kind == "genome_progress" and values.get("percentage") == "0":
+                    for old in list(progress):
+                        # Keep the latest taxonomy identity across attempt resets.
+                        if old.startswith(prefix) and not old.endswith(":taxon_route"):
+                            del progress[old]
+                progress.setdefault(prefix + "first", record)
+            progress[key] = record
             break
 
 
@@ -268,7 +303,7 @@ def apply_retention_metadata(job: dict[str, Any]) -> None:
         job["retention_days"] = days
 
     status = str(job.get("status", "")).lower()
-    if status == "success":
+    if status in {"success", "completed_with_exclusions"}:
         job.setdefault("completed_at", job.get("updated_at") or now_iso())
         job.pop("failed_at", None)
         if days is not None:
@@ -368,7 +403,7 @@ def compact_job_summary(job: dict[str, Any]) -> dict[str, Any]:
             "id", "public_run_id", "name", "project_name", "status", "stage", "created_at",
             "updated_at", "completed_at", "failed_at", "expires_at",
             "retention_days", "log_count", "rerun_count", "analysis_scope",
-            "taxon_counts", "applicability_counts",
+            "taxon_counts", "applicability_counts", "cohort_decision",
         )
         if key in job
     }
@@ -815,11 +850,23 @@ def write_retention_totals(totals: dict[str, Any]) -> None:
 
 
 def record_deleted_terminal_job(job: dict[str, Any]) -> None:
-    if str(job.get("status") or "").lower() not in {"success", "failed"}:
+    if str(job.get("status") or "").lower() not in {"success", "failed", "completed_with_exclusions"}:
         return
     totals = read_retention_totals()
     totals["completed_jobs_deleted"] = int(totals.get("completed_jobs_deleted") or 0) + 1
     write_retention_totals(totals)
+
+
+def job_needs_scheduler_confirmation(job: dict[str, Any]) -> bool:
+    scheduler = job.get("scheduler") if isinstance(job.get("scheduler"), dict) else {}
+    managed = (
+        str(job.get("executor") or "").lower() == "slurm"
+        or str(scheduler.get("kind") or "").lower() == "slurm"
+        or bool(job.get("slurm_job_id"))
+    )
+    if not managed or scheduler.get("state") == "SUBMIT_FAILED":
+        return False
+    return not bool(scheduler.get("terminal_confirmed_at"))
 
 
 def job_is_expired(job: dict[str, Any], now: datetime | None = None) -> bool:
@@ -827,7 +874,9 @@ def job_is_expired(job: dict[str, Any], now: datetime | None = None) -> bool:
     # can legitimately remain queued longer than the retention window during a
     # large public backlog, and running jobs must never be removed underneath an
     # active worker merely because their creation timestamp is old.
-    if str(job.get("status") or "").lower() not in {"success", "failed"}:
+    if str(job.get("status") or "").lower() not in {"success", "failed", "completed_with_exclusions"}:
+        return False
+    if job_needs_scheduler_confirmation(job):
         return False
     expires_at = job.get("expires_at")
     if not expires_at:
@@ -848,18 +897,22 @@ def sweep_expired_jobs(now: datetime | None = None) -> dict[str, Any]:
 
     for job in list_jobs():
         job_id = str(job.get("id") or "")
-        if not job_id or not job_is_expired(job, now):
+        if not job_id:
             continue
-        target = job_dir(job_id)
-        size, files = path_size_and_file_count(target)
-        shutil.rmtree(target, ignore_errors=True)
-        for q in QUEUE_DIR.glob(f"{job_id}*.json"):
-            q.unlink(missing_ok=True)
-        for q in QUEUE_DIR.glob(f"{job_id}*.working"):
-            q.unlink(missing_ok=True)
-        deleted_jobs += 1
-        deleted_files += files
-        deleted_bytes += size
+        with queue_admission_lock():
+            current = read_job(job_id)
+            if current is None or not job_is_expired(current, now):
+                continue
+            target = job_dir(job_id)
+            size, files = path_size_and_file_count(target)
+            shutil.rmtree(target, ignore_errors=True)
+            for q in QUEUE_DIR.glob(f"{job_id}*.json"):
+                q.unlink(missing_ok=True)
+            for q in QUEUE_DIR.glob(f"{job_id}*.working"):
+                q.unlink(missing_ok=True)
+            deleted_jobs += 1
+            deleted_files += files
+            deleted_bytes += size
 
     totals["expired_jobs_deleted"] = int(totals.get("expired_jobs_deleted") or 0) + deleted_jobs
     totals["completed_jobs_deleted"] = int(totals.get("completed_jobs_deleted") or 0) + deleted_jobs

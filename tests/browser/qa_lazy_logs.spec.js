@@ -276,14 +276,14 @@ test('admin job selection is metadata-only and QA lazily pages logs', async ({ p
   await page.getByRole('tab', { name: 'QA Console' }).click();
   await expect.poll(() => logRequests.length).toBe(1);
   await expect(page.locator('[data-qa-log-view="tree"]')).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('#log-terminal .progress-tree-row')).toHaveCount(40);
+  await expect(page.locator('#log-terminal .progress-tree-row')).toHaveCount(41);
   expect(logRequests[0]).toContain('tail=500');
   await expect(page.locator('#load-earlier-logs')).toBeVisible();
   const treeScrollBefore = await page.locator('#log-terminal').evaluate(term => { term.scrollTop = 80; return term.scrollTop; });
   expect(treeScrollBefore).toBeGreaterThan(0);
 
   await page.locator('#load-earlier-logs').click();
-  await expect(page.locator('#log-terminal .progress-tree-row')).toHaveCount(40);
+  await expect(page.locator('#log-terminal .progress-tree-row')).toHaveCount(41);
   const treeScrollAfter = await page.locator('#log-terminal').evaluate(term => term.scrollTop);
   expect(Math.abs(treeScrollAfter - treeScrollBefore)).toBeLessThanOrEqual(1);
   await page.locator('[data-qa-log-view="raw"]').click();
@@ -305,7 +305,7 @@ test('admin job selection is metadata-only and QA lazily pages logs', async ({ p
   await expect(page.locator('#log-terminal')).toHaveAttribute('aria-label', 'Selected run progress tree');
   const antiSmashBranch = page.locator('#log-terminal [data-tree-key="tool:annotation:fungus_one:antiSMASH"]');
   await expect(antiSmashBranch).toHaveCount(1);
-  await expect(antiSmashBranch.locator('.progress-tree-meter')).toContainText('[######----]  60% - Scanning protein domains · 20m 00s active');
+  await expect(antiSmashBranch.locator('.progress-tree-meter')).toContainText('[          ]  --% - Run ended; terminal detail is absent from this history');
   await expect(page.locator('#log-terminal [data-tree-state="warning"]')).toHaveCount(30);
   await expect(page.locator('#log-terminal img')).toHaveCount(0);
   expect(await page.evaluate(() => globalThis.qaInjected)).toBeUndefined();
@@ -507,9 +507,9 @@ test('running admin job hydrates sanitized genome progress without QA logs', asy
   const lateAntismash = page.locator('#bgc-genome-progress-grid .genome-progress-row').first();
   await expect(lateAntismash.locator('.genome-progress-percent')).toHaveCount(0);
   await expect(lateAntismash.locator('.genome-progress-status')).toHaveText(
-    'Region (2/7) · 3 active · Scanning protein domains',
+    'Record shards: 2/7 complete · 3 active · Scanning protein domains',
   );
-  await expect(lateAntismash.locator('[role="progressbar"]')).toHaveAttribute('aria-valuenow', '29');
+  await expect(lateAntismash.locator('[role="progressbar"]')).toHaveAttribute('aria-valuenow', '66');
   await expect(lateAntismash.locator('.genome-progress-segment')).toHaveCount(5);
   const runningRuntime = page.locator('#results-job-runtime');
   await expect(runningRuntime).toBeVisible();
@@ -539,7 +539,25 @@ test('running admin job hydrates sanitized genome progress without QA logs', asy
   await expect(bigscape).toHaveAttribute('data-tree-state', 'running');
   await expect(page.locator('#log-terminal [data-tree-key="stage:annotation"]')).toHaveAttribute('data-tree-state', 'complete');
   await page.evaluate(() => syncActiveAdminLogs(false));
-  await expect(page.locator('#log-terminal [data-tree-key="activity:bigscape"]')).toContainText('distance calculation continues');
+  await expect(page.locator('#log-terminal [data-tree-key="activity:bigscape"]')).toContainText('Processing analysis output');
+  // This assertion controls request order explicitly. Stop the ordinary poll
+  // timer so it cannot add a third request to the two-response fixture.
+  await page.evaluate(() => stopPolling());
+  // Two requests share a cursor. The larger response arrives first; the late
+  // smaller response must not renumber old lines or rewind the UI/cursor.
+  const held = [];
+  await page.route(`**/api/jobs/${runningInternalId}/logs?since=*`, route => { held.push(route); });
+  await page.evaluate(() => { globalThis.overlappingLogs = [syncActiveAdminLogs(false), syncActiveAdminLogs(false)]; });
+  await expect.poll(() => held.length).toBe(2);
+  expect(held.map(r => new URL(r.request().url()).searchParams.get('since'))).toEqual(['1001', '1001']);
+  await held[1].fulfill({status:200,contentType:'application/json',body:JSON.stringify({
+    start:1001,end:1003,total:1003,generation:'running-generation',lines:['older activity','latest activity']})});
+  await expect.poll(() => page.evaluate(() => logCursor)).toBe(1003);
+  await held[0].fulfill({status:200,contentType:'application/json',body:JSON.stringify({
+    start:1001,end:1002,total:1002,generation:'running-generation',lines:['older activity']})});
+  await page.evaluate(() => Promise.all(overlappingLogs));
+  expect(await page.evaluate(() => ({cursor:logCursor,total:logTotal}))).toEqual({cursor:1003,total:1003});
+  await expect(page.locator('#log-terminal [data-tree-key="activity:bigscape"]')).toHaveAttribute('data-raw-line-index', '1002');
 });
 
 test('late metadata from an earlier admin selection cannot replace the active job', async ({ page }) => {

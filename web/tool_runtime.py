@@ -17,6 +17,9 @@ DIGEST = re.compile(r"(?:sha256:)?[0-9a-f]{64}\Z")
 TAG = re.compile(r"(?:[0-9]{4}-[0-9]{2}-[0-9]{2}|v?[0-9]+(?:\.[0-9]+){1,3}(?:[ab][0-9]+|[-+][A-Za-z0-9._+-]+|\.[A-Za-z][A-Za-z0-9._+-]*)?)\Z")
 COMMANDS = {
     "R": ["Rscript", "--version"],
+    "plantiSMASH": ["/usr/local/bin/plantismash", "--version"],
+    "CD-HIT": ["cd-hit", "-h"],
+    "MUSCLE": ["muscle", "-version"], "pplacer": ["pplacer", "--version"],
     "antiSMASH": ["antismash", "--version"], "Prodigal": ["prodigal", "-v"],
     "BiG-SCAPE": ["/opt/conda/bin/python", "/home/mambauser/BiG-SCAPE/bigscape.py", "--version"],
     "funannotate": ["funannotate", "--version"], "BRAKER3": ["braker.pl", "--version"],
@@ -63,7 +66,7 @@ def safe_observation(value):
     version = value.get("version")
     if isinstance(version, str) and TAG.fullmatch(version):
         record["version"] = version
-    for key in ("runtime_sha256", "executable_sha256"):
+    for key in ("runtime_sha256", "executable_sha256", "source_sha256", "source_lock_sha256"):
         if isinstance(value.get(key), str) and DIGEST.fullmatch(value[key]):
             record[key] = value[key]
     tag = value.get("configured_tag")
@@ -127,6 +130,11 @@ def observe(tool, backend="native", runtime="", python="python3", executable=Non
             if code == 0:
                 command[0] = "/venv/bin/funannotate"
         code, output = (0, observed_text) if observed_text is not None else bounded_run(prefix + command)
+        # The exact supported Exonerate binary prints its banner and exits 1.
+        if tool == "Exonerate" and code == 1:
+            banner = re.search(r"(?im)^exonerate from exonerate version ([0-9]+(?:\.[0-9]+)+)\s*$", output)
+            if banner:
+                record["version"] = banner[1]
         # Prodigal and FastTree print their version with a nonzero help status.
         if tool == "funannotate" and code == 1:
             # The supported funannotate CLI exits 1 after printing its version.

@@ -78,6 +78,7 @@ test('input CTA validates first and submits only after the chartreuse state', as
   });
 
   await page.goto(baseUrl);
+  await page.locator('label').filter({ has: page.locator('input[name="analysis-scope"][value="fungi"]') }).click();
   await page.locator('#project-name').fill('validation_fixture');
   await page.locator('#file-input').setInputFiles({
     name: 'fixture.fna',
@@ -601,6 +602,8 @@ test('run stack restores the bounded detailed accession receipt after another jo
   for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto(baseUrl);
+    // Dynamic API module initialization completes after the document load event.
+    await page.waitForFunction(() => apiResultBoundary !== null);
     await page.evaluate(({ metadata, jobB }) => {
       sessionStorage.clear();
       const receiptA = {

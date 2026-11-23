@@ -1,0 +1,20 @@
+const {test,expect}=require('@playwright/test');
+const fs=require('fs'),path=require('path');
+const out=process.env.CLUSTERWEAVE_REPAIR_EVIDENCE;
+for(const width of [1440,390]) test(`parallel shard counts without redundant station activity at ${width}px`,async({page})=>{
+ await page.setViewportSize({width,height:1000});await page.goto('http://127.0.0.1:4173');
+ await expect(page.locator('#bgc-tool-activity-chip')).toHaveCount(0);
+ await page.evaluate(()=>{document.body.innerHTML='<div id="bgc-workflow-station" class="bgc-workflow-station has-genome-progress dna-panel" style="position:relative;min-height:400px"><div class="genome-progress-layer"><div>Three genome workflows</div><div>Populus • Merging plantiSMASH record outputs</div></div></div><div id="log-terminal" class="log-terminal"></div>'});
+ await page.evaluate(()=>setBgcWorkflowAggregatePresentationSuspended(true));
+ await expect(page.locator('.genome-progress-layer')).toBeVisible();
+ await page.evaluate(async()=>{const m=await import('/assets/progress-tree.js');const contract=await(await fetch('/assets/progress-tree-contract.json')).json();window.cv=m.createProgressTreeConsole({documentImpl:document,contract,createRawLineElement:t=>Object.assign(document.createElement('div'),{textContent:t})});
+ window.lines=['GENOME_PROGRESS genome=Plant stage=annotation percent=0 bar=[] message="Starting genome"','PLANT_RECORD_PROGRESS genome=Plant record=2 ordinal=2/3 state=complete','PLANT_RECORD_PROGRESS genome=Plant record=1 ordinal=1/3 state=complete','PLANT_RECORD_PROGRESS genome=Plant record=2 ordinal=2/3 state=running','TOOL_HEARTBEAT genome=Plant tool=plantismash phase=detect elapsed=45s'];
+ cv.hydrate({jobId:'isolated',logGeneration:'1',start:0,lines});});
+ const tool=page.locator('[data-tree-key="tool:annotation:Plant:plantiSMASH"]');await expect(tool).toContainText('58%');await expect(tool).toContainText('2/3 complete');
+ await page.evaluate(()=>cv.hydrate({jobId:'isolated',logGeneration:'1',start:100,context:lines.map((line,index)=>({line,index})),lines:['TOOL_RAW genome=Plant tool=plantismash stream=stdout private diagnostics']}));await expect(tool).toContainText('58%');
+ await page.evaluate(()=>cv.hydrate({jobId:'isolated',logGeneration:'1',start:50,prepend:true,context:lines.map((line,index)=>({line,index})),lines:['older diagnostic']}));await expect(tool).toContainText('58%');
+ await page.evaluate(()=>cv.append({jobId:'isolated',logGeneration:'1',start:101,lines:['PLANT_RECORD_PROGRESS genome=Plant record=3 ordinal=3/3 state=complete','TOOL_PROGRESS genome=Plant tool=plantismash phase=detect message="Merging plantiSMASH record outputs"']}));await expect(tool).toContainText('69%');await expect(tool).toHaveAttribute('data-tree-state','running');await expect(tool).toContainText('Merging');
+ if(out)await page.screenshot({path:path.join(out,`progress-repair-${width}.png`),fullPage:true});
+ await page.evaluate(()=>cv.append({jobId:'isolated',logGeneration:'1',start:103,lines:['GENOME_PROGRESS genome=Plant stage=annotation percent=0 bar=[] message="Starting genome"','PLANT_RECORD_PROGRESS genome=Plant record=1 ordinal=1/3 state=running']}));await expect(tool).toContainText('35%');
+ await page.evaluate(()=>cv.setMode('raw'));await expect(page.locator('#log-terminal')).toContainText('private diagnostics');
+});

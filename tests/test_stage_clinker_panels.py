@@ -28,6 +28,21 @@ def write_tsv(path: Path, fieldnames: list[str], rows: list[dict[str, str]]) -> 
 
 
 class StageClinkerPanelsTests(unittest.TestCase):
+    def test_materialized_mibig_version_is_not_inferred_from_predictor_hit(self):
+        from Bio import SeqIO
+        from Bio.Seq import Seq
+        from Bio.SeqRecord import SeqRecord
+        module=load_module()
+        with tempfile.TemporaryDirectory() as folder:
+            p=Path(folder)/'BGC0001315.gbk'
+            record=SeqRecord(Seq('ACGT'),id='BGC0001315',annotations={'molecule_type':'DNA'})
+            SeqIO.write(record,p,'genbank')
+            identity=module.materialized_mibig_identity(p,'BGC0001315.3')
+            self.assertEqual(identity['reference_record_id'],'BGC0001315')
+            self.assertEqual(identity['matched_reference_accession'],'BGC0001315.3')
+            self.assertEqual(len(identity['reference_sha256']),64)
+            with self.assertRaises(ValueError):module.materialized_mibig_identity(p,'BGC0001316.3')
+
     def test_compound_slug_collision_uses_selected_gcf_not_region(self) -> None:
         module = load_module()
         shared = {
@@ -491,7 +506,7 @@ class StageClinkerPanelsTests(unittest.TestCase):
             run_panel_text = run_panel.read_text(encoding="utf-8")
             self.assertIn(f"PROJECT_ROOT={project_root.resolve().as_posix()}", run_panel_text)
             self.assertIn(f"REPO_ROOT={REPO_ROOT.resolve().as_posix()}", run_panel_text)
-            self.assertIn('POSTPROCESS_PY="${PROJECT_ROOT}/bin/postprocess_clinker_html.py"', run_panel_text)
+            self.assertIn('POSTPROCESS_PY="${SCRIPT_DIR}/postprocess_clinker_html.py"', run_panel_text)
             self.assertIn(
                 'POSTPROCESS_FALLBACK_PY="${REPO_ROOT}/bin/postprocess_clinker_html.py"',
                 run_panel_text,
@@ -500,8 +515,9 @@ class StageClinkerPanelsTests(unittest.TestCase):
             self.assertIn("helper not found under ${PROJECT_ROOT}/bin or ${REPO_ROOT}/bin", run_panel_text)
             self.assertIn('DOCKER_ARGS+=(--workdir "${SCRIPT_DIR}")', run_panel_text)
             self.assertIn('docker run "${DOCKER_ARGS[@]}"', run_panel_text)
-            self.assertTrue((results_root / "clinker" / "panels" / "atlas" / "bacteria" / "genome_c" / "product_c" / "run_panel.sh").exists())
-            self.assertTrue((results_root / "clinker" / "panels" / "atlas" / "bacteria" / "genome_d" / "product_d" / "run_panel.sh").exists())
+            self.assertFalse((results_root / "clinker" / "panels" / "atlas" / "bacteria" / "genome_c" / "product_c" / "run_panel.sh").exists())
+            self.assertFalse((results_root / "clinker" / "panels" / "atlas" / "bacteria" / "genome_d" / "product_d" / "run_panel.sh").exists())
+            self.assertEqual([r['status'] for r in manifest_rows[1:]], ['skipped_no_comparator'] * 2)
             self.assertFalse((results_root / "clinker" / "panels" / "atlas" / "fungi" / "genome_b" / "product_b").exists())
             self.assertFalse((results_root / "clinker" / "panels" / "atlas" / "fungi" / "genome_a" / "product_a__region001").exists())
 

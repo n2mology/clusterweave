@@ -65,7 +65,7 @@ def main(argv: list[str] | None = None) -> int:
         except (OSError, TypeError, ValueError) as exc:
             print(f"{job_id}\tSUMMARY_FAILED\t{type(exc).__name__}", file=sys.stderr)
             failed += 1
-        if str(job.get("status") or "").lower() not in {"success", "failed"}:
+        if str(job.get("status") or "").lower() not in {"success", "failed", "awaiting_decision", "completed_with_exclusions"}:
             continue
         base = JOBS_DIR / job_id
         if not (base / PUBLIC_RESULTS_MANIFEST_PATH).is_file():

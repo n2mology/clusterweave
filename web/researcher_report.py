@@ -13,6 +13,8 @@ import shutil
 import stat
 
 from tool_runtime import observe, safe_observation, TAG
+from plant_identity import public_producer, matching_producers
+from plant_versions import native_helper_versions
 
 REPORT_FILES = {"METHODS.md", "run_metadata.json", "resources.tsv", "CITATIONS.bib", "CITATION.cff"}
 DIGEST = re.compile(r"(?:sha256:)?[0-9a-f]{64}\Z")
@@ -25,9 +27,13 @@ TOOLS = {
     "SNAP": ("snap", "https://github.com/KorfLab/SNAP", ""),
     "DIAMOND": ("diamond", "https://github.com/bbuchfink/diamond", ""),
     "HMMER": ("hmmscan", "http://hmmer.org/", ""),
+    "CD-HIT": ("cd-hit", "https://github.com/weizhongli/cdhit", ""),
+    "MUSCLE": ("muscle", "https://www.drive5.com/muscle/", ""),
+    "pplacer": ("pplacer", "https://github.com/matsen/pplacer", ""),
     "Exonerate": ("exonerate", "https://github.com/nathanweeks/exonerate", ""),
     "BLAST+": ("blastp", "https://blast.ncbi.nlm.nih.gov/", ""),
     "antiSMASH": ("antismash", "https://antismash.secondarymetabolites.org/", "10.1093/nar/gkaf334"),
+    "plantiSMASH": ("plantismash", "https://github.com/plantismash/plantismash", "10.1093/nar/gkx305"),
     "BiG-SCAPE": ("bigscape", "https://github.com/medema-group/BiG-SCAPE", ""),
     "FunBGCeX": ("", "https://github.com/ydmatsd/funbgcex", ""),
     "funannotate": ("funannotate", "https://github.com/nextgenusfs/funannotate", ""),
@@ -82,7 +88,7 @@ def taxon_metadata(result):
             if index >= 4096:
                 raise ValueError("Taxon metadata bound exceeded")
             label, group = row.get("genome_id", ""), row.get("taxon_group", "")
-            if re.fullmatch(r"[A-Za-z0-9_.-]{1,240}", label) and group in {"bacteria", "fungi"}:
+            if re.fullmatch(r"[A-Za-z0-9_.-]{1,240}", label) and group in {"bacteria", "fungi", "plants"}:
                 accession = row.get("source_accession", "")
                 value = {"taxon_group": group, "accession": accession if ACCESSION.fullmatch(accession) else None}
                 if label in conflicts or label in rows and rows[label] != value:
@@ -148,7 +154,7 @@ def probe_annotation_runtimes(env):
 def source_fingerprint(root):
     digest = hashlib.sha256()
     paths = set()
-    for pattern in ("*.sh", "*.cff", "bin/*.py", "web/*.py", "scripts/**/*.py", "scripts/**/*.sh", "config/*.env"):
+    for pattern in ("*.sh", "*.cff", "bin/*.py", "web/*.py", "scripts/**/*.py", "scripts/**/*.sh", "config/*.env", "config/*.json", "web/static/assets/*.js", "web/static/assets/*.json", "Dockerfile.*"):
         paths.update(root.glob(pattern))
     # Worker orchestration lives separately from the scientific source tree.
     if root.as_posix() == "/clusterweave":
@@ -195,7 +201,7 @@ def _safe_identity(value):
         return None
     result["contract"] = contract
     route = value.get("route") or {}
-    if route.get("taxon") in {"bacteria", "fungi"}:
+    if route.get("taxon") in {"bacteria", "fungi", "plants"}:
         result["route"] = {"taxon": route["taxon"]}
     for key in ("genome_sha256", "source_sha256", "runtime_sha256"):
         if not DIGEST.fullmatch(str(value.get(key, ""))):
@@ -236,7 +242,7 @@ def _cache_records(result):
                                 "producer_execution": producer,
                                 "materializer_scheduling": _safe_scheduling(record.get("materializer_scheduling")),
                                 "population": record.get("population") if record.get("population") in {"published", "duplicate", "rejected", "not-attempted"} else "other"})
-            except (OSError, ValueError, TypeError, AttributeError):
+            except (OSError, ValueError, TypeError, AttributeError, RecursionError):
                 continue
     except OSError:
         pass
@@ -302,6 +308,307 @@ def _manifest_rows(result):
         return list(csv.DictReader(io.StringIO(read_record(result / "summary_tables/run_manifest.tsv", result, 1024 * 1024).decode()), delimiter="\t"))[:4096]
     except (OSError, ValueError, UnicodeError, csv.Error):
         return []
+
+
+# These readers project evidence only; scientific parsers and tables stay authoritative.
+_GENOME_ID = re.compile(r"[A-Za-z0-9_.-]{1,240}\Z")
+_OUTCOME_LIMIT = 16 * 1024 * 1024
+# Native JSON includes sequence/feature data for whole chromosomes.
+_NATIVE_JSON_LIMIT = 256 * 1024 * 1024
+_INACTIVE_ROUTES = {"failed", "invalid", "rejected", "unresolved", "unsupported"}
+
+
+def _record_stamp(path, result, limit=1024 * 1024):
+    try:
+        before = path.lstat()
+        raw = read_record(path, result, limit)
+        after = path.lstat()
+        signature = lambda s: (s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns)
+        if signature(before) != signature(after):
+            return None
+        return [*signature(after), hashlib.sha256(raw).hexdigest()]
+    except (OSError, ValueError):
+        return None
+
+
+def _outcome_snapshot(result):
+    cache = {}
+    available = True
+    try:
+        directory = result / "reproducibility/accession_cache"
+        if any(p.is_symlink() for p in (directory, *directory.parents)):
+            raise ValueError("Linked provenance directory")
+        if directory.exists():
+            with os.scandir(directory) as entries:
+                for index, entry in enumerate(entries):
+                    if index >= 4096:
+                        raise ValueError("Provenance inventory bound exceeded")
+                    label = entry.name.removesuffix(".detection.json")
+                    if entry.name.endswith(".detection.json") and _GENOME_ID.fullmatch(label):
+                        cache[label] = _record_stamp(Path(entry.path), result, 65536)
+        elif directory.is_symlink():
+            raise ValueError("Linked provenance directory")
+    except (OSError, ValueError):
+        available = False
+    return {"manifest": _record_stamp(result / "summary_tables/run_manifest.tsv", result),
+            "cache": cache, "cache_available": available}
+
+
+def begin_scientific_stage(result, state):
+    """Bind reporting to the existing stage, without creating execution metadata."""
+    context = state.setdefault("scientific_attempt", {})
+    context["before"] = _outcome_snapshot(result)
+    context["stage_outcome"] = "running"
+
+
+def finish_scientific_stage(result, state, outcome):
+    context = state.setdefault("scientific_attempt", {})
+    context["after"] = _outcome_snapshot(result)
+    context["stage_outcome"] = outcome
+    _persist_execution_state(result, state)
+
+
+def _persist_execution_state(result, state):
+    """Keep immutable-attempt evidence independent of the detector cache."""
+    fields = ("scientific_attempt", "annotation_observations", "dependency_observations",
+              "observation_run", "source_sha256", "annotation_attempts",
+              "retrieval_observations", "reference_observations", "producer_version_recoveries")
+    value = {key: state[key] for key in fields if key in state}
+    value["schema"] = 1
+    path = result / "reproducibility/scientific_execution.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(value, sort_keys=True))
+    temporary.replace(path)
+
+
+def _outcome_rows(path, result, required):
+    raw = read_record(path, result, 1024 * 1024).decode("utf-8-sig")
+    reader = csv.DictReader(io.StringIO(raw), delimiter="\t", strict=True)
+    fields = reader.fieldnames or []
+    if len(fields) != len(set(fields)) or not required <= set(fields):
+        raise ValueError("Incomplete outcome header")
+    rows = []
+    for index, row in enumerate(reader):
+        if index >= 4096 or None in row or any(v is None for v in row.values()):
+            raise ValueError("Incomplete or oversized outcome inventory")
+        rows.append(row)
+    return rows
+
+
+def _outcome_token(value):
+    return value if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_+-]{1,64}", value) else None
+
+
+def _verified_detection(record, route):
+    """Check the supported complete detection identity and its canonical key.
+
+    This report-only check mirrors the existing v2/v3 identity envelope. It does
+    not inspect a live store, validate a bundle or create new cache provenance.
+    """
+    try:
+        value = record["identity"]
+        expected = {"schema", "contract", "accession", "genome_sha256", "route", "source_sha256",
+                    "runtime_sha256", "tools", "containers", "databases", "models", "parameters"}
+        if (not isinstance(value, dict) or set(value) != expected or type(value["schema"]) is not int or value["schema"] != 1
+                or value["contract"] not in {"accession-detection-v2", "accession-detection-v3"}
+                or value["accession"] != route.get("source_accession")
+                or not ACCESSION.fullmatch(str(value["accession"]))
+                or value["route"] != {"taxon": route.get("taxon_group"), "annotation": "per-genome"}):
+            return False
+        digest = lambda v: isinstance(v, str) and re.fullmatch(r"[0-9a-f]{64}", v)
+        if not all(digest(value[k]) for k in ("genome_sha256", "source_sha256", "runtime_sha256")):
+            return False
+        images = {} if value["containers"] == "not-used" else value["containers"]
+        if not isinstance(images, dict) or not set(images) <= {"antismash", "funbgcex", "funannotate"}:
+            return False
+        if value["route"]["taxon"] == "fungi" and "funbgcex" not in images:
+            return False
+        if not all(digest(v) for v in images.values()):
+            return False
+        canonical = lambda v: json.dumps(v, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode()
+        parameters = {"configuration_sha256", "genome_label_sha256"}
+        if value["contract"] == "accession-detection-v3":
+            parameters.add("partition_sha256")
+        return (value["tools"] == {"pipeline": value["source_sha256"], "native": value["runtime_sha256"]}
+                and isinstance(value["databases"], dict) and set(value["databases"]) == {"antismash"}
+                and digest(value["databases"]["antismash"])
+                and value["models"] == {"embedded": hashlib.sha256(canonical({"native": value["runtime_sha256"], "images": images})).hexdigest()}
+                and isinstance(value["parameters"], dict) and set(value["parameters"]) == parameters
+                and all(digest(v) for v in value["parameters"].values())
+                and record.get("key") == hashlib.sha256(canonical(value)).hexdigest())
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+def _detector_count(result, label, taxon, detector):
+    directory = result / detector / label
+    try:
+        read_record(directory / ".done", result)
+        if detector == "antismash":
+            if not read_record(directory / "index.html", result, _OUTCOME_LIMIT):
+                return "incomplete_output", None
+            names = [label + ".bacteria.antismash.json", label + ".antismash.json"]
+            if taxon != "bacteria":
+                names.reverse()
+            path = next((directory / n for n in names if os.path.lexists(directory / n)), directory / names[0])
+            value = json.loads(read_record(path, result, _NATIVE_JSON_LIMIT))
+            records = value.get("records") if isinstance(value, dict) else None
+            if not isinstance(records, list) or not records:
+                return "unavailable_evidence", None
+            count = 0
+            for record in records:
+                areas = record.get("areas") if isinstance(record, dict) else None
+                if not isinstance(areas, list) or any(not isinstance(a, dict) for a in areas):
+                    return "unavailable_evidence", None
+                count += len(areas)
+        else:
+            raw = read_record(directory / "allBGCs.csv", result, _OUTCOME_LIMIT).decode("utf-8-sig")
+            reader = csv.DictReader(io.StringIO(raw), strict=True)
+            fields = reader.fieldnames or []
+            if len(fields) != len(set(fields)) or not {"BGC no.", "Scaffold", "Start position", "End position"} <= set(fields):
+                return "unavailable_evidence", None
+            count = 0
+            for row in reader:
+                if None in row or any(v is None for v in row.values()) or not all(row[k].strip() for k in ("BGC no.", "Scaffold", "Start position", "End position")):
+                    return "unavailable_evidence", None
+                count += 1
+                if count > 100000:
+                    return "unavailable_evidence", None
+        return "findings_reported" if count else "zero_reported", count
+    except FileNotFoundError:
+        return "incomplete_output", None
+    except (OSError, ValueError, UnicodeError, csv.Error, RecursionError):
+        return "unavailable_evidence", None
+
+
+def scientific_outcomes(result, state):
+    """Inventory accepted genomes independently of positive-only scientific tables."""
+    try:
+        manifest = _outcome_rows(result / "summary_tables/run_manifest.tsv", result, {"genome_id", "gbk_status", "antismash_status", "funbgcex_status"})
+    except (OSError, ValueError, UnicodeError, csv.Error):
+        manifest = []
+    by_label, duplicate_rows = {}, set()
+    for row in manifest:
+        label = row["genome_id"]
+        if label in by_label:
+            duplicate_rows.add(label)
+        by_label[label] = row
+    route_path = result / "summary_tables/genome_taxon_manifest.tsv"
+    source, complete = "genome_taxon_manifest", True
+    try:
+        routes = _outcome_rows(route_path, result, {"genome_id", "taxon_group"})
+    except FileNotFoundError:
+        if os.path.lexists(route_path) or any(p.is_symlink() for p in route_path.parents):
+            source, routes, complete = "unavailable", [], False
+        else:
+            source, routes, complete = "run_manifest_partial", manifest, False
+    except (OSError, ValueError, UnicodeError, csv.Error):
+        source, routes, complete = "unavailable", [], False
+    cohort, ambiguous, folded = {}, set(), {}
+    for row in routes:
+        label = row.get("genome_id", "")
+        if not _GENOME_ID.fullmatch(label) or label in {".", ".."}:
+            complete = False
+            continue
+        if label.casefold() in folded:
+            ambiguous.update((label, folded[label.casefold()]))
+            complete = False
+        folded[label.casefold()] = label
+        if row.get("route_status", "").lower() in _INACTIVE_ROUTES:
+            continue
+        if row.get("taxon_group") not in {"bacteria", "fungi", "plants"}:
+            ambiguous.add(label); complete = False
+        cohort.setdefault(label, row)
+    context = state.get("scientific_attempt", {})
+    selected = context.get("annotation_selected")
+    selected = selected if type(selected) is bool else None
+    stage = context.get("stage_outcome", "unknown")
+    if stage not in {"not_started", "running", "complete", "failed", "cancelled"}:
+        stage = "unknown"
+    before, after = context.get("before", {}), context.get("after", {})
+    now = _outcome_snapshot(result)
+    bound = (selected is True and stage in {"complete", "failed", "cancelled"}
+             and bool(after.get("manifest")) and before.get("manifest") != after["manifest"]
+             and after["manifest"] == now["manifest"])
+    genomes = []
+    for label, route in cohort.items():
+        row = by_label.get(label, {})
+        conflict = (label in ambiguous or label in duplicate_rows or
+                    row.get("taxon_group") not in {None, "", route.get("taxon_group")})
+        current = bound and not conflict
+        cache_use = "none"
+        if label in now["cache"] or not now["cache_available"]:
+            cache_use = "unknown"
+            stamp = now["cache"].get(label)
+            if (current and stamp and before.get("cache_available") and after.get("cache_available")
+                    and stamp == after.get("cache", {}).get(label) and stamp != before.get("cache", {}).get(label)):
+                try:
+                    record = json.loads(read_record(result / "reproducibility/accession_cache" / (label + ".detection.json"), result))
+                    # A fresh native attempt does not depend on cache availability.
+                    # Only the named cache-unavailable miss has a null identity;
+                    # hits still require the complete original producer envelope.
+                    unavailable_miss = (record.get("schema") == 1 and record.get("outcome") == "miss"
+                                        and record.get("reason") == "cache_unavailable"
+                                        and record.get("identity") is None and record.get("key") is None
+                                        and record.get("population") == "rejected")
+                    if ((_verified_detection(record, route) or unavailable_miss) and
+                            _record_stamp(result / "reproducibility/accession_cache" / (label + ".detection.json"), result, 65536) == stamp):
+                        cache_use = {"hit": "cache_reuse", "miss": "execution"}.get(record.get("outcome"), "unknown")
+                except (OSError, ValueError, TypeError, RecursionError):
+                    pass
+        genome = {"genome_id": label, "taxon_group": route.get("taxon_group") if not conflict else "unknown",
+                  "planned_prediction_method": _outcome_token(route.get("prediction_method")),
+                  "planned_detector_profile": _outcome_token(route.get("detector_profile")),
+                  "recorded_prediction_method": _outcome_token(row.get("prediction_method"))}
+        gbk = row.get("gbk_status", "")
+        ready = gbk in {"original_ok", "staged_ok", "bacterial_sequence_sanitized", "funannotate_fixed", "braker3_fixed"}
+        annotation_failed = gbk in {"missing", "missing_genbank", "no_bacterial_sequence_input", "bacterial_staging_failed",
+            "bacterial_sanitizer_failed", "original_missing_translations", "no_fasta_for_annotation", "annotation_fallbacks_failed",
+            "funannotate_busco_training_insufficient", "funannotate_training_models_insufficient", "funannotate_no_translations",
+            "braker3_no_translations"}
+        for detector, key in (("annotation", "gbk_status"), ("antismash", "antismash_status"), ("funbgcex", "funbgcex_status")):
+            status = row.get(key, "")
+            recorded, count = "unavailable_evidence", None
+            use, scope = "unknown", "retained" if row else "unavailable"
+            if detector == "annotation":
+                recorded = "ready" if ready else "failed" if annotation_failed else "unavailable_evidence"
+                if current and ready:
+                    use = ("cache_reuse" if cache_use == "cache_reuse" else "unknown" if cache_use == "unknown" else
+                           "execution" if gbk in {"funannotate_fixed", "braker3_fixed"} else
+                           "preparation" if gbk == "bacterial_sequence_sanitized" else "input_reuse")
+            elif status in {"ran_ok", "ran_ok_sanitized", "skipped_done"}:
+                recorded, count = _detector_count(result, label, route.get("taxon_group"), detector)
+                if current:
+                    use = "cache_reuse" if cache_use == "cache_reuse" else "unknown" if cache_use == "unknown" else "retained_reuse" if status == "skipped_done" else "execution"
+            elif status == "failed":
+                recorded = "failed"
+            elif status == "skipped":
+                recorded = "blocked" if annotation_failed else "not_run"
+            elif status == "not_applicable_taxon" and detector == "funbgcex" and route.get("taxon_group") == "bacteria":
+                recorded = "not_applicable"
+            if conflict:
+                recorded, count, use, scope = "unknown", None, "unknown", "ambiguous"
+            if current:
+                if use == "cache_reuse":
+                    scope = "original_cache_producer"
+                elif use == "retained_reuse":
+                    scope = "retained"
+                elif use != "unknown" or recorded in {"failed", "blocked", "not_run", "not_applicable"}:
+                    scope = "current_attempt"
+            outcome = recorded if current and (use != "unknown" or scope == "current_attempt") else "unknown"
+            if selected is False:
+                outcome, use = "not_run", "not_run"
+            if detector == "funbgcex" and route.get("taxon_group") == "bacteria" and not conflict:
+                outcome = "not_applicable"
+            genome[detector] = {"current_outcome": outcome, "current_use": use,
+                                "finding_count": count if current and use != "unknown" and selected is not False else None,
+                                "recorded_outcome": recorded, "recorded_finding_count": count,
+                                "recorded_status": _outcome_token(status), "record_scope": scope}
+        genomes.append(genome)
+    return {"schema": 1, "cohort_source": source, "cohort_complete": complete,
+            "annotation_selected": selected, "canonical_stage_outcome": stage, "genomes": genomes,
+            "count_scope": "Native reported areas/rows; zero reported findings does not establish biological absence. Counts do not change scientific matching or denominators."}
 
 
 def _row_tools(row):
@@ -435,19 +742,64 @@ def collect_run_versions(result, work, env, state, log_lines=()):
             references = [{"name": "MIBiG", "version": mibig, "evidence": "selected reference in BiG-SCAPE invocation", "url": "https://mibig.secondarymetabolites.org/"}]
     if has_output(result, "big_scape", ("index.html", "*_clustering_c*.tsv")):
         state["reference_observations"] = references
+    _persist_execution_state(result, state)
+
+
+def native_result_rows(result):
+    """Read receipt-bound retained plant results without relabeling antiSMASH."""
+    path = result / "summary_tables/native_detection.json"
+    try:
+        value = json.loads(read_record(path, result, 1024 * 1024))
+    except FileNotFoundError:
+        return []
+    if value.get("schema") != "native-detection-v1":
+        raise ValueError("Unsupported native detection record")
+    rows, seen = [], set()
+    for row in value["genomes"]:
+        label = row["genome_id"]
+        if not _GENOME_ID.fullmatch(label) or label in seen:
+            raise ValueError("Ambiguous native genome identity")
+        seen.add(label)
+        if row["state"] in {"SUCCESS_WITH_CALLS", "SUCCESSFUL_EMPTY"}:
+            relative = Path(row["completion_path"])
+            if relative.is_absolute() or ".." in relative.parts:
+                raise ValueError("Invalid native receipt path")
+            raw = read_record(result / relative, result, 1024 * 1024)
+            if hashlib.sha256(raw).hexdigest() != row["completion_sha256"]:
+                raise ValueError("Native completion identity differs")
+            receipt = json.loads(raw)
+            if not receipt.get("completed") or not matching_producers(receipt.get("producer"), row["producer"]):
+                raise ValueError("Native producer is not complete")
+            if type(row["calls"]) is not int or row["calls"] < 0 or (row["calls"] == 0) != (row["state"] == "SUCCESSFUL_EMPTY"):
+                raise ValueError("Invalid native outcome count")
+        elif row.get("calls") is not None:
+            raise ValueError("Unvalidated native outcome cannot supply a count")
+        row = dict(row, producer=public_producer(row["producer"]))
+        rows.append(row)
+    return rows
 
 
 def build_report(result, *, state=None, root=None, status="unknown"):
-    state = state or {}
+    if state is None:
+        try:
+            state = json.loads(read_record(result / "reproducibility/scientific_execution.json", result))
+            if state.get("schema") != 1:
+                raise ValueError("Unsupported durable scientific execution evidence")
+        except FileNotFoundError:
+            state = {}
     root = root or Path(__file__).resolve().parents[1]
     taxa = taxon_metadata(result)
     cache = _cache_records(result)
+    scientific = scientific_outcomes(result, state)
+    native_rows = native_result_rows(result)
+    scientific_by_label = {g["genome_id"]: g for g in scientific["genomes"]}
     tools = set()
     for entry in cache:
         recovery = [safe for raw in state.get("producer_version_recoveries", [])
                     if (safe := _safe_recovery(raw, entry))]
         if recovery:
             entry["version_recovery"] = recovery
+    if any(r["state"] in {"SUCCESS_WITH_CALLS", "SUCCESSFUL_EMPTY"} for r in native_rows): tools.add("plantiSMASH")
     outcomes = []
     fresh_tools = set()
     reused_tools = set()
@@ -462,19 +814,20 @@ def build_report(result, *, state=None, root=None, status="unknown"):
     for path in (result / "reproducibility/accession_cache").glob("*.detection.json"):
         try:
             record = json.loads(read_record(path, result))
-            if record.get("outcome") == "hit":
+            if (record.get("outcome") == "hit" and scientific_by_label.get(path.name.removesuffix(".detection.json"), {}).get("antismash", {}).get("current_use") == "cache_reuse"):
                 label = path.name.removesuffix(".detection.json")
                 hit_labels.add(label)
                 if DIGEST.fullmatch(str(record.get("key", ""))):
                     expected_producers[record["key"]] = _row_tools(manifest_by_label.get(label, {}))
-        except (OSError, ValueError, TypeError, AttributeError):
+        except (OSError, ValueError, TypeError, AttributeError, RecursionError):
             pass
     for entry in cache:
         if entry["outcome"] == "hit" and entry["identity"]["contract"].startswith("accession-detection-"):
             producer_observations.extend(entry["producer_execution"].get("tool_versions", []))
             producer_observations.extend(entry.get("version_recovery", []))
             recorded = entry["producer_execution"].get("tool_versions", [])
-            reused_tools.update(r["tool"] for r in recorded)
+            if entry.get("key") in expected_producers:
+                reused_tools.update(r["tool"] for r in recorded)
             if entry.get("key") in expected_producers:
                 expected_producers[entry["key"]].update(r["tool"] for r in recorded)
         if entry["identity"]["contract"] == "accession-snapshot-v2":
@@ -510,16 +863,17 @@ def build_report(result, *, state=None, root=None, status="unknown"):
             if predictor:
                 row_tools.add(predictor)
             row_fresh = set()
+            projection = scientific_by_label.get(row.get("genome_id"), {})
             cached = row.get("genome_id") in hit_labels
             failed = False
             if cached:
                 reused_tools.update(row_tools)
             else:
-                if row.get("antismash_status", "").startswith("ran_ok"):
+                if projection.get("antismash", {}).get("current_use") == "execution":
                     row_fresh.add("antiSMASH")
                     if predictor == "Prodigal": row_fresh.add(predictor)
-                if row.get("funbgcex_status") == "ran_ok": row_fresh.add("FunBGCeX")
-                if predictor and row.get("gbk_status") == method + "_fixed": row_fresh.add(predictor)
+                if projection.get("funbgcex", {}).get("current_use") == "execution": row_fresh.add("FunBGCeX")
+                if predictor and projection.get("annotation", {}).get("current_use") == "execution": row_fresh.add(predictor)
                 attempted = predictor == "funannotate" and row.get("genome_id") in attempts
                 failed = predictor == "funannotate" and row.get("gbk_status") != "funannotate_fixed" and (
                     attempted or row.get("gbk_status") in {"funannotate_busco_training_insufficient",
@@ -529,11 +883,11 @@ def build_report(result, *, state=None, root=None, status="unknown"):
                 fresh_tools.update(row_fresh)
                 existing_tools.update(row_tools - row_fresh - ({predictor} if failed else set()))
             label = row.get("genome_id", "")
-            if re.fullmatch(r"[A-Za-z0-9_.-]{1,240}", label):
+            if isinstance(label, str) and re.fullmatch(r"[A-Za-z0-9_.-]{1,240}", label):
                 outcome = {"genome_id": label}
                 for key in ("taxon_group", "prediction_method", "detector_profile", "gbk_status", "antismash_status", "funbgcex_status"):
                     value = row.get(key, "")
-                    if re.fullmatch(r"[A-Za-z0-9_+-]{1,64}", value): outcome[key] = value
+                    if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_+-]{1,64}", value): outcome[key] = value
                 outcomes.append(outcome)
     except (OSError, ValueError, UnicodeError, csv.Error):
         pass
@@ -541,6 +895,39 @@ def build_report(result, *, state=None, root=None, status="unknown"):
     artifacts = external_artifacts(result)
     observations = []
     executed_images = {}
+    for row in native_rows:
+        if row.get("state") not in {"SUCCESS_WITH_CALLS", "SUCCESSFUL_EMPTY"}:
+            continue
+        native_root = result / "plantismash" / row["genome_id"]
+        execution = json.loads(read_record(native_root / "execution.json", result, 1024 * 1024))
+        runtime = execution.get("sif_sha256")
+        if not DIGEST.fullmatch(str(runtime or "")) or runtime != row.get("sif_sha256"):
+            raise ValueError("Plant runtime observation differs from its native outcome")
+        native_index = native_root / "native/index.html"
+        if (native_root / "native/shards").is_dir():
+            native_index = next(iter(sorted((native_root / "native/shards").glob("*/native/index.html"))), native_index)
+        text = read_record(native_index, result, _NATIVE_JSON_LIMIT).decode()
+        version = re.search(r'antiSMASH ver\.([0-9]+(?:\.[0-9]+)+)', text)
+        if not version:
+            raise ValueError("Validated plant output omitted its native version evidence")
+        observation = safe_observation({"tool":"plantiSMASH", "backend":"apptainer", "version":version[1], "runtime_sha256":runtime})
+        observation["version_observation"] = "native report bound to exact producer runtime"
+        observations.append(observation)
+        projection = scientific_by_label.get(row["genome_id"], {})
+        plant_fresh = projection.get("annotation", {}).get("record_scope") == "current_attempt" and row.get("reuse") == "executed"
+        if plant_fresh:
+            fresh_tools.add("plantiSMASH")
+        else:
+            producer_observations.append(observation)
+            observations.remove(observation)
+        helpers = native_helper_versions(native_root / 'native', runtime, root)
+        for helper in helpers:
+            tools.add(helper['tool'])
+            if plant_fresh:
+                fresh_tools.add(helper['tool'])
+                observations.append(helper)
+            else:
+                producer_observations.append(helper)
     for entry in cache:
         if entry["outcome"] == "miss" and entry["identity"]["contract"].startswith("accession-detection-"):
             containers = entry["identity"].get("containers")
@@ -591,6 +978,13 @@ def build_report(result, *, state=None, root=None, status="unknown"):
     for record in producer_observations:
         if record["tool"] in TOOLS:
             tools.add(record["tool"])
+    available_versions = [safe for raw in state.get("annotation_observations", []) if (safe := safe_observation(raw)) and safe.get("version") and safe["tool"] in fresh_tools]
+    dropped = [safe["tool"] for safe in available_versions if not any(r["tool"] == safe["tool"] and r.get("version") == safe["version"] for r in observations)]
+    if dropped:
+        raise ValueError("Executed tool version evidence was omitted: " + ", ".join(sorted(set(dropped))))
+    missing_tools = (fresh_tools | reused_tools) - tools
+    if missing_tools:
+        raise ValueError("Executed scientific tools missing from methods: " + ", ".join(sorted(missing_tools)))
     references = []
     for record in state.get("reference_observations", []):
         if (isinstance(record, dict) and record.get("name") == "MIBiG" and
@@ -642,11 +1036,11 @@ def build_report(result, *, state=None, root=None, status="unknown"):
                     "citation_record": fields, "source_sha256": state.get("source_sha256"),
                     "controller_image_sha256": state.get("controller_image_sha256"),
                     "note": "The release citation alone does not identify modified source; use the captured source and producer hashes."},
-        "configuration": state.get("configuration", {}), "inputs": inputs, "source_inputs": state.get("source_inputs", []), "analysis_outcomes": outcomes, "cache": cache,
+        "configuration": state.get("configuration", {}), "inputs": inputs, "source_inputs": state.get("source_inputs", []), "analysis_outcomes": outcomes, "scientific_outcomes": scientific, "cache": cache,
         "observed_external_artifacts": artifacts,
         "external_artifact_scope": "Recorded software/reference inventory; presence alone does not establish use. Paths and source URIs are excluded.",
         "cache_record_scope": "Only recorded complete supported identities are listed. Missing or unsupported historical records do not establish a hit or a miss.",
-        "tools": tool_records, "references": references,
+        "tools": tool_records, "references": references, "native_detection": native_rows,
         "resources": resources, "unmeasured_stages": state.get("unmeasured_stages", []),
         "resource_note": "Configured CPU limits are not consumption. Native CPU is wait4 accounting. Container CPU and combined memory are sampled observations; exact aggregate peak RAM is not collected. Canonical workflow resource rows combine its internal tools. Missing historical metrics and producer timings remain unavailable."}
     methods = ["# ClusterWeave methods and run information", "",
@@ -661,6 +1055,14 @@ def build_report(result, *, state=None, root=None, status="unknown"):
         unavailable = "version evidence unavailable for current execution" if tool["name"] in fresh_tools else "historical version evidence unavailable"
         evidence = "; ".join(part for part in (tool["use"], coverage_note, tool["version_observation"] if tool["version"] else unavailable, runtime_details) if part)
         methods.append(f"| {tool['name']} | {tool['version'] or 'not recorded'} | {evidence} | {('https://doi.org/' + tool['citation_doi']) if tool['citation_doi'] else tool['url']} |")
+    if native_rows:
+        methods += ["", "Plant grouping retains the unchanged BiG-SCAPE overlap and length selection. Excluded content can include distinct genes or domains. Input ordering and technical copies can change distances; stable family assignments or horizontal transfer are not established."]
+        methods += ["", "## Native plant detection", "", "| Genome | Original producer | Retained outcome | BGC calls |", "| --- | --- | --- | --- |"]
+        for row in native_rows:
+            methods.append("| " + " | ".join(str(row.get(k, "unknown")) for k in ("genome_id", "producer", "state", "calls")) + " |")
+            if row.get("not_evaluated_record_count"):
+                methods.append(f"{row['genome_id']}: {row['not_evaluated_record_count']} original records without CDS were not evaluated by the supplied-CDS native profile. Their sequences remain in the original GenBank and identity inventory; no gene prediction or BGC absence is inferred for these records.")
+        methods += ["", "Native detection rows summarize validated scientific outputs. The tool table distinguishes current execution, verified cache reuse and retained evidence. Detector-specific counts are not a unique-region union; unevaluated records do not establish biological absence."]
     methods += ["", "Executable versions, configured image tags and immutable runtime hashes are recorded separately in run_metadata.json. Each cache recovery records its cache key and the matching original runtime or executable checksum."]
     if references:
         methods += ["", "## Reference datasets", "", "| Reference | Version used | Evidence |", "| --- | --- | --- |"]
@@ -672,10 +1074,21 @@ def build_report(result, *, state=None, root=None, status="unknown"):
         for outcome in outcomes:
             methods.append("| " + " | ".join(outcome.get(key, "not recorded") for key in ("genome_id", "taxon_group", "prediction_method", "detector_profile", "gbk_status", "antismash_status", "funbgcex_status")) + " |")
         methods += ["", "Annotation failure statuses identify genomes excluded from BGC detection. Skipped detection does not establish an absence of BGCs."]
+    methods += ["", "## Scientific outcomes", "",
+                "Accepted-genome inventory: " + scientific["cohort_source"] + "; cohort completeness: " + ("complete" if scientific["cohort_complete"] else "unknown/partial") + ".",
+                "Current outcome/use is separate from recorded evidence and its scope. Unbound historical statuses do not establish current execution. " + scientific["count_scope"], "",
+                "| Genome | Evidence | Current outcome | Current use | Current reported count | Recorded outcome | Recorded count | Record scope |",
+                "| --- | --- | --- | --- | --- | --- | --- | --- |"]
+    for genome in scientific["genomes"]:
+        for name in ("annotation", "antismash", "funbgcex"):
+            evidence = genome[name]
+            methods.append("| " + " | ".join(str(v) if v is not None else "unknown" for v in
+                (genome["genome_id"], name, evidence["current_outcome"], evidence["current_use"], evidence["finding_count"],
+                 evidence["recorded_outcome"], evidence["recorded_finding_count"], evidence["record_scope"])) + " |")
     if metadata["configuration"]:
         methods += ["", "## Recorded configuration", "", "| Parameter | Value |", "| --- | --- |"]
         methods += [f"| {key} | {value} |" for key, value in sorted(metadata["configuration"].items())]
-    methods += ["", "## Inputs and analysis", "", "Staged GenBank inputs are grouped by bacteria/fungi in this package; unclassified inputs are labelled explicitly. The runtime input_gbks layout remains flat. Input checksums and the recorded configuration are in run_metadata.json.", "",
+    methods += ["", "## Inputs and analysis", "", "Staged GenBank inputs are grouped by bacteria/fungi/plants in this package; unclassified inputs are labelled explicitly. The runtime input_gbks layout remains flat. Input checksums and the recorded configuration are in run_metadata.json.", "",
         "Validated cached annotation and detection are analysis used by this job and are included in its methods and citations. Cache records retain the original computation, tool versions and producer identities. Execution records describe work computed during this run; downstream analyses retain their own provenance.", "",
         "## Time and resources", "", metadata["resource_note"], "",
         f"Processing start (UTC): {metadata['processing_started_at_utc'] or 'not recorded'}. Processing end before packaging (UTC): {metadata['processing_finished_at_utc'] or 'not recorded'}.",

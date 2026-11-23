@@ -10,6 +10,7 @@ DATA_ROOT="${DATA_ROOT:-${PROJECT_ROOT}/data}"
 RESULTS_ROOT="${RESULTS_ROOT:-${DATA_ROOT}/results/${PROJECT_NAME}}"
 FUNGI_GENOME_ROOT="${FUNGI_GENOME_ROOT:-${GENOME_ROOT:-${DATA_ROOT}/genomes/fungi/${PROJECT_NAME}}}"
 BACTERIA_GENOME_ROOT="${BACTERIA_GENOME_ROOT:-${DATA_ROOT}/genomes/bacteria/${PROJECT_NAME}}"
+PLANTS_GENOME_ROOT="${PLANTS_GENOME_ROOT:-${DATA_ROOT}/genomes/plants/${PROJECT_NAME}}"
 GENOME_ROOT="${GENOME_ROOT:-${FUNGI_GENOME_ROOT}}"
 GENOME_TAXON_MANIFEST="${GENOME_TAXON_MANIFEST:-${RESULTS_ROOT}/summary_tables/genome_taxon_manifest.tsv}"
 WORK_ROOT="${WORK_ROOT:-/tmp/$(basename "${RESULTS_ROOT}")_work}"
@@ -43,6 +44,8 @@ log "This wrapper intentionally runs download -> rename -> flatten once per non-
 mkdir -p "${PREP_ROOT}" "${FUNGI_GENOME_ROOT}" "${BACTERIA_GENOME_ROOT}" "$(dirname "${GENOME_TAXON_MANIFEST}")"
 FUNGI_ACCESSIONS="${PREP_ROOT}/accessions.fungi.txt"
 BACTERIA_ACCESSIONS="${PREP_ROOT}/accessions.bacteria.txt"
+PLANTS_ACCESSIONS="${PREP_ROOT}/accessions.plants.txt"
+: > "${PLANTS_ACCESSIONS}"
 : > "${FUNGI_ACCESSIONS}"
 : > "${BACTERIA_ACCESSIONS}"
 
@@ -63,7 +66,7 @@ count_accessions() {
 }
 
 if [[ "${manifest_has_routes}" -eq 1 ]]; then
-  awk -F '\t' -v fungi_out="${FUNGI_ACCESSIONS}" -v bacteria_out="${BACTERIA_ACCESSIONS}" '
+  awk -F '\t' -v fungi_out="${FUNGI_ACCESSIONS}" -v bacteria_out="${BACTERIA_ACCESSIONS}" -v plants_out="${PLANTS_ACCESSIONS}" '
     FNR == NR {
       line=$0
       sub(/\r$/, "", line)
@@ -84,11 +87,12 @@ if [[ "${manifest_has_routes}" -eq 1 ]]; then
       taxon=tolower($(h["taxon_group"]))
       if (taxon == "fungi") print requested[key] >> fungi_out
       else if (taxon == "bacteria") print requested[key] >> bacteria_out
+      else if (taxon == "plants") print requested[key] >> plants_out
     }
   ' "${ACCESSIONS_FILE}" "${GENOME_TAXON_MANIFEST}"
 
   requested_count="$(count_accessions "${ACCESSIONS_FILE}")"
-  routed_count=$(( $(count_accessions "${FUNGI_ACCESSIONS}") + $(count_accessions "${BACTERIA_ACCESSIONS}") ))
+  routed_count=$(( $(count_accessions "${FUNGI_ACCESSIONS}") + $(count_accessions "${BACTERIA_ACCESSIONS}") + $(count_accessions "${PLANTS_ACCESSIONS}") ))
   [[ "${routed_count}" -eq "${requested_count}" ]] \
     || die "Immutable taxon routes cover ${routed_count}/${requested_count} requested accessions"
 else
@@ -142,6 +146,7 @@ prepare_taxon() {
   fi
 }
 
+prepare_taxon plants "${PLANTS_ACCESSIONS}" "${PLANTS_GENOME_ROOT}" "${PLANTS_GENOME_ROOT}/accessions_plantsID_taxonomyID.txt"
 prepare_taxon \
   fungi "${FUNGI_ACCESSIONS}" "${FUNGI_GENOME_ROOT}" \
   "${FUNGI_GENOME_ROOT}/accessions_fungusID_taxonomyID.txt"

@@ -1,0 +1,11 @@
+.local-setup-body { display: grid; gap: .6rem; padding: .8rem; min-width: 0; }
+.local-setup-body p { margin: 0; overflow-wrap: anywhere; }
+.local-setup-summary { margin: 0; display: grid; gap: .45rem; }
+.local-setup-summary > div { display: grid; grid-template-columns: minmax(6rem, 1fr) minmax(0, 2fr); gap: .65rem; padding-bottom: .4rem; border-bottom: 1px solid var(--ink); }
+.local-setup-summary dt { font-weight: 700; }
+.local-setup-summary dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.local-setup-body code { font: .75rem var(--mono); overflow-wrap: anywhere; }
+#ops-tab-setup[hidden] { display: none !important; }
+@media (max-width: 520px) {
+  .local-setup-summary > div { grid-template-columns: 1fr; gap: .15rem; }
+}

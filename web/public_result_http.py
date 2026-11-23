@@ -21,7 +21,7 @@ from public_results import (
 
 
 _MAX_RESOLVE_BODY_BYTES = 8192
-_GENERATED_BUNDLE_CATEGORIES = {"antismash", "funbgcex", "bigscape", "synteny"}
+_GENERATED_BUNDLE_CATEGORIES = {"antismash", "plantismash", "funbgcex", "bigscape", "synteny"}
 _OPTIONAL_BUNDLE_SUFFIXES = {
     ".css",
     ".eot",

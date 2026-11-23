@@ -88,6 +88,21 @@ class TaxonDownstreamSemanticsTests(unittest.TestCase):
         self.assertIn("funbgcex=not_applicable_taxon", notes)
         self.assertNotIn("consensus=antiSMASH-only", notes)
 
+    def test_plant_crosswalk_preserves_applicability_and_producer_label(self) -> None:
+        crosswalk = load_module("plant_crosswalk_under_test", "bin/build_bgc_gcf_crosswalk.py")
+        notes = crosswalk.build_notes(
+            {"antismash_bgc_id": "plant.cluster001", "taxon_group": "plants",
+             "detector": "plantismash", "producer": "plantismash-2.0.4-private-repeat2"},
+            "plant__plant.cluster001", "GCF_1", "exact_record", 1,
+        )
+        self.assertIn("funbgcex=not_applicable_taxon", notes)
+        self.assertNotIn("consensus=antiSMASH-only", notes)
+        ranking = load_module("plant_ranking_under_test", "bin/build_candidate_tables.py")
+        self.assertEqual(
+            ranking.parse_consensus("plant.cluster001", "", "not_applicable_taxon", "plantismash"),
+            ("plantiSMASH (complete applicable detector set)", 4),
+        )
+
     def test_integrated_ranking_gives_equivalent_complete_detector_sets_tier_parity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project_root = Path(tmp)

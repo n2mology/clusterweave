@@ -3,12 +3,13 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-<meta name="description" content="ClusterWeave runs fungal, bacterial, or mixed biosynthetic gene cluster discovery from public genome assemblies, NCBI accessions, and supported genome uploads." />
+<meta name="description" content="ClusterWeave runs fungal, bacterial, plant, or mixed biosynthetic gene cluster discovery from public genome assemblies, NCBI accessions, and supported genome uploads." />
 <meta name="robots" content="index, follow" />
 <title>ClusterWeave</title>
 <link rel="icon" href="/favicon.ico?v=20260722-ui-colors" type="image/x-icon" sizes="16x16 32x32 48x48 64x64 128x128 256x256">
-<link rel="stylesheet" href="assets/clusterweave.css?v=20261104-exclusions1">
-<link rel="stylesheet" href="assets/progress-tree.css?v=20260730-stage-tree1">
+<link rel="stylesheet" href="assets/clusterweave.css?v=20261123-credits1">
+<link rel="stylesheet" href="assets/progress-tree.css?v=20261119-extras2">
+<link rel="stylesheet" href="assets/local-setup.css?v=20261104-setup3">
 <meta name="clusterweave-game-asset" content="assets/clusterweave-game.css?v=20260721-play-centered2" data-kind="style">
 <meta name="clusterweave-game-asset" content="assets/clusterweave-game-content.js?v=20260714-runner6" data-kind="script">
 <meta name="clusterweave-game-asset" content="assets/clusterweave-game-core.js?v=20260714-runner6" data-kind="script">
@@ -42,6 +43,7 @@
 
 <div class="app alt06-app">
   <header class="wrap bar" aria-label="ClusterWeave header">
+    <div>
     <a class="logo" href="#overview" data-nav-target="overview" aria-label="ClusterWeave" onclick="returnToIdleHome(event)">
       <svg class="logo-mark" role="img" aria-label="ClusterWeave" focusable="false" id="Layer_1" xmlns="http://www.w3.org/2000/svg" width="5154.8466258" height="2411.6503067" version="1.1" viewBox="0 0 5154.8466258 2411.6503067">
   <!-- Generator: Adobe Illustrator 30.4.0, SVG Export Plug-In . SVG Version: 2.1.4 Build 226)  -->
@@ -64,6 +66,7 @@
   <path d="M3916.2125366,1540.9961574l108.5251465-130.0749512v260.1497803l-108.5251465-130.0748291ZM4186.4095581,1410.9218166h-161.671875v260.1497803h191.4001465v-235.0256348c0-13.8757324-13.3098145-25.1241455-29.7282715-25.1241455ZM2608.1395385,1540.9940822l-131.043335-130.0749512v260.1497803l131.043335-130.0748291ZM1975.9087036,1671.0696437h501.1873779v-260.1497803h-475.189209c-14.3583984,0-25.9981689,9.3702393-25.9981689,20.9289551v239.2208252ZM3420.1939819,1540.9938381l-133.204834-130.0749512v260.1497803l133.204834-130.0748291h-.0002441.0002441ZM2725.6131713,1671.0692775h561.3762207v-260.1497803h-534.869873c-14.6391602,0-26.5063477,9.3702393-26.5063477,20.9289551v239.2208252ZM1674.1158569,1671.068301v-260.1497803l-106.0750732,130.0749512,106.0750732,130.0748291ZM1832.4758422,1410.9192531h-158.3599854v260.1497803h187.0792236v-235.3178711c0-13.7142334-12.8580322-24.8319092-28.7191162-24.8319092h-.0001221ZM1147.9672363,1540.9957912l-102.336731-130.0749512-.000061,260.1497803,102.336792-130.0748291ZM865.1444824,1671.0712306h180.4859619v-260.1497803h-152.5623779c-15.4217834,0-27.9236145,11.2763672-27.9236145,25.1865234v234.9632568h.0000305ZM4965.9671753,1540.9964015l-147.6953125-130.0749512v260.1497803l147.6953125-130.0748291ZM4333.7364624,1671.0719631h484.5354004v-260.1497803h-454.4228516c-16.6308594,0-30.112793,11.2261963-30.112793,25.0743408v235.0754395h.0002441ZM3836.7035034,1540.9946926l-108.6821289-130.0766602v260.1533203l108.6821289-130.0766602ZM3536.3443725,1671.0719631h191.677002v-260.1533203h-161.6467285c-16.5852051,0-30.0302734,11.3463135-30.0302734,25.3426514v234.8106689ZM1348.0653808,1540.9934719l-111.7045288-130.0749512-.000061,260.1497803,111.7045898-130.0748291ZM1490.1222046,1540.9934719l-114.6702881-130.0749512-.000061,260.1497803,114.6703491-130.0748291Z"/>
 </svg>
     </a>
+    </div>
     <div class="runtime-status-compat" aria-hidden="true">
       <details class="runtime-status-menu" id="runtime-status-menu">
         <summary class="status-chip status-unknown" id="runtime-status-chip"><span class="signal-lamp" aria-hidden="true"></span><span class="runtime-status-label">Runtime: checking</span></summary>
@@ -106,11 +109,12 @@
           <fieldset class="analysis-scope-selector" id="analysis-scope-selector" aria-describedby="analysis-scope-help">
             <legend>Analysis scope</legend>
             <div class="analysis-scope-options">
-              <label><input type="radio" name="analysis-scope" value="fungi" checked onchange="handleAnalysisScopeChange()" /><span>Fungi</span></label>
-              <label><input type="radio" name="analysis-scope" value="both" onchange="handleAnalysisScopeChange()" /><span>Both</span></label>
+              <label><input type="radio" name="analysis-scope" value="fungi" onchange="handleAnalysisScopeChange()" /><span>Fungi</span></label>
               <label><input type="radio" name="analysis-scope" value="bacteria" onchange="handleAnalysisScopeChange()" /><span>Bacteria</span></label>
+              <label><input type="radio" name="analysis-scope" value="plants" onchange="handleAnalysisScopeChange()" /><span>Plants</span></label>
+              <label><input type="radio" name="analysis-scope" value="mixed" checked onchange="handleAnalysisScopeChange()" /><span>Mixed</span></label>
             </div>
-            <span class="sr-only" id="analysis-scope-help">Choose which biological domain this new run accepts. Fungi is the compatibility default.</span>
+            <span class="sr-only" id="analysis-scope-help">Mixed is the default and supports fungi, bacteria and plants. Plants require translated GenBank; taxonomy verification alone does not validate CDS or enable prediction. Annotation content must pass server and worker validation.</span>
           </fieldset>
         </div>
         <div class="setup-access-head"><strong id="setup-access-title">Run setup / access</strong><span class="access-head-controls"><span id="setup-access-meta">Saved return path</span><button class="access-collapse-toggle run-setup-access-toggle" id="run-setup-access-toggle" type="button" onclick="toggleRunSetupAccessPanel()" aria-controls="run-setup-access-body" aria-expanded="true" aria-label="Collapse run setup access">▴</button></span></div>
@@ -304,7 +308,6 @@
           <h2 id="workflow-title">Workflow waiting</h2>
           <div class="workflow-grid">
             <div class="dna-panel bgc-workflow-station" id="bgc-workflow-station" aria-label="DNA workflow progress">
-              <span class="tool-activity-chip" id="bgc-tool-activity-chip" data-state="idle">WAITING</span>
               <section class="genome-progress-layer" id="bgc-genome-progress-layer" aria-labelledby="bgc-genome-progress-title" hidden>
                 <div class="genome-progress-head">
                   <strong id="bgc-genome-progress-title">Genome workflow progress</strong>
@@ -325,6 +328,8 @@
           <div class="failure-note" id="failure-note">The workflow could not complete. Review the reported error before retrying.</div>
         </div>
       </section>
+
+      <section id="cohort-decision" class="module cohort-decision" aria-label="Genome exclusion decision" hidden></section>
 
       <aside class="module results-panel" id="results-card" tabindex="-1" aria-label="Result blocks">
         <div class="module-head"><strong>Result blocks</strong><span class="results-run-state"><time class="results-job-runtime" id="results-job-runtime" aria-label="Total job runtime" hidden></time><span id="results-status">Token view</span></span></div>
@@ -447,6 +452,7 @@
         <button class="tool-credit-tab" id="tool-credit-support-tab" data-tool-credit-tab="support" type="button" role="tab" aria-controls="tool-credit-support-panel" aria-selected="true" onclick="switchToolCreditTab('support')" onkeydown="handleToolCreditTabKeydown(event)">Support</button>
         <button class="tool-credit-tab" id="tool-credit-web-tab" data-tool-credit-tab="web" type="button" role="tab" aria-controls="tool-credit-web-panel" aria-selected="false" tabindex="-1" onclick="switchToolCreditTab('web')" onkeydown="handleToolCreditTabKeydown(event)">Web workflow</button>
         <button class="tool-credit-tab" id="tool-credit-local-tab" data-tool-credit-tab="local" type="button" role="tab" aria-controls="tool-credit-local-panel" aria-selected="false" tabindex="-1" onclick="switchToolCreditTab('local')" onkeydown="handleToolCreditTabKeydown(event)">Local options</button>
+        <button class="tool-credit-tab" id="tool-credit-base-tab" data-tool-credit-tab="base" type="button" role="tab" aria-controls="tool-credit-base-panel" aria-selected="false" tabindex="-1" onclick="switchToolCreditTab('base')" onkeydown="handleToolCreditTabKeydown(event)">BASE + VISUALS</button>
       </div>
       <section class="tool-credit-group tool-credit-support" id="tool-credit-support-panel" role="tabpanel" aria-labelledby="tool-credit-support-tab">
         <a class="pmi-support-link" href="https://pmiweb.ornl.gov/" target="_blank" rel="noopener">
@@ -458,6 +464,7 @@
           <a class="tool-credit-link" href="https://github.com/ncbi/datasets" target="_blank" rel="noopener">NCBI Datasets + Dataformat<sup>PUBLIC DOMAIN</sup></a>
           <a class="tool-credit-link" href="https://www.ncbi.nlm.nih.gov/datasets/genome/" target="_blank" rel="noopener">NCBI GenBank + RefSeq<sup>DATA POLICY</sup></a>
           <a class="tool-credit-link" href="https://www.ncbi.nlm.nih.gov/taxonomy" target="_blank" rel="noopener">NCBI Taxonomy<sup>DATA POLICY</sup></a>
+          <a class="tool-credit-link" href="https://github.com/plantismash/plantismash" target="_blank" rel="noopener">plantiSMASH<sup>AGPL-3.0+</sup></a>
           <a class="tool-credit-link" href="https://antismash.secondarymetabolites.org/" target="_blank" rel="noopener">antiSMASH<sup>AGPL-3.0+</sup></a>
           <a class="tool-credit-link" href="https://github.com/hyattpd/Prodigal" target="_blank" rel="noopener">Prodigal<sup>GPL-3.0</sup></a>
           <a class="tool-credit-link" href="https://github.com/ydmatsd/funbgcex" target="_blank" rel="noopener">FunBGCeX<sup>MIT</sup></a>
@@ -465,13 +472,24 @@
           <a class="tool-credit-link" href="https://busco.ezlab.org/" target="_blank" rel="noopener">BUSCO<sup>MIT</sup></a>
           <a class="tool-credit-link" href="https://github.com/Gaius-Augustus/Augustus" target="_blank" rel="noopener">AUGUSTUS<sup>Artistic-1.0</sup></a>
           <a class="tool-credit-link" href="https://github.com/bbuchfink/diamond" target="_blank" rel="noopener">DIAMOND<sup>GPL-3.0</sup></a>
-          <a class="tool-credit-link" href="https://github.com/EddyRivasLab/hmmer" target="_blank" rel="noopener">HMMER<sup>BSD-3-Clause</sup></a>
+          <a class="tool-credit-link" href="https://github.com/EddyRivasLab/hmmer" target="_blank" rel="noopener">HMMER 3<sup>BSD-3-Clause</sup></a>
           <a class="tool-credit-link" href="https://biopython.org/" target="_blank" rel="noopener">Biopython<sup>BIOPYTHON LICENSE</sup></a>
           <a class="tool-credit-link" href="https://github.com/medema-group/BiG-SCAPE" target="_blank" rel="noopener">BiG-SCAPE<sup>AGPL-3.0</sup></a>
-          <a class="tool-credit-link" href="https://github.com/morgannprice/fasttree" target="_blank" rel="noopener">FastTree<sup>GPL-3.0</sup></a>
+          <a class="tool-credit-link" href="https://github.com/morgannprice/fasttree" target="_blank" rel="noopener">FastTree 2.1 / 2.2<sup>GPL-2.0 / GPL-3.0</sup></a>
           <a class="tool-credit-link" href="https://github.com/gamcil/clinker" target="_blank" rel="noopener">clinker<sup>MIT</sup></a>
           <a class="tool-credit-link" href="https://mibig.secondarymetabolites.org/" target="_blank" rel="noopener">MIBiG<sup>CC BY 4.0</sup></a>
           <a class="tool-credit-link" href="https://pfam-docs.readthedocs.io/" target="_blank" rel="noopener">Pfam<sup>CC0</sup></a>
+          <a class="tool-credit-link" href="https://blast.ncbi.nlm.nih.gov/Blast.cgi" target="_blank" rel="noopener">NCBI BLAST+<sup>PUBLIC DOMAIN</sup></a>
+          <a class="tool-credit-link" href="https://github.com/weizhongli/cdhit" target="_blank" rel="noopener">CD-HIT<sup>GPL-2.0+</sup></a>
+          <a class="tool-credit-link" href="https://www.drive5.com/muscle/manual/license.html" target="_blank" rel="noopener">MUSCLE 3<sup>PUBLIC DOMAIN</sup></a>
+          <a class="tool-credit-link" href="https://github.com/matsen/pplacer" target="_blank" rel="noopener">pplacer + guppy<sup>GPL-3.0</sup></a>
+          <a class="tool-credit-link" href="https://github.com/biobakery/graphlan" target="_blank" rel="noopener">GraPhlAn<sup>MIT</sup></a>
+          <a class="tool-credit-link" href="https://github.com/bioinfweb/TreeGraph2" target="_blank" rel="noopener">TreeGraph 2<sup>GPL-3.0</sup></a>
+          <a class="tool-credit-link" href="https://github.com/nathanweeks/exonerate" target="_blank" rel="noopener">Exonerate<sup>GPL-3.0</sup></a>
+          <a class="tool-credit-link" href="http://hmmer.org/" target="_blank" rel="noopener">HMMER 2<sup>GPL-2.0</sup></a>
+          <a class="tool-credit-link" href="https://etetoolkit.org/" target="_blank" rel="noopener">ETE 3<sup>GPL-3.0</sup></a>
+          <a class="tool-credit-link" href="https://connectf.org/" target="_blank" rel="noopener">ConnecTF<sup>DATA TERMS</sup></a>
+          <a class="tool-credit-link" href="https://www.arabidopsis.org/" target="_blank" rel="noopener">TAIR<sup>DATA TERMS</sup></a>
         </div>
       </section>
       <section class="tool-credit-group" id="tool-credit-local-panel" role="tabpanel" aria-labelledby="tool-credit-local-tab" hidden>
@@ -486,7 +504,22 @@
           <a class="tool-credit-link" href="https://github.com/iqtree/iqtree2" target="_blank" rel="noopener">IQ-TREE 2<sup>GPL-2.0</sup></a>
           <a class="tool-credit-link" href="https://github.com/etetoolkit/ete" target="_blank" rel="noopener">ETE 4<sup>GPL-3.0</sup></a>
           <a class="tool-credit-link" href="https://github.com/inab/trimal" target="_blank" rel="noopener">trimAl<sup>GPL-3.0</sup></a>
-          <a class="tool-credit-link" href="https://github.com/Kozea/CairoSVG" target="_blank" rel="noopener">CairoSVG<sup>LGPL-3.0</sup></a>
+        </div>
+      </section>
+      <section class="tool-credit-group" id="tool-credit-base-panel" role="tabpanel" aria-labelledby="tool-credit-base-tab" hidden>
+        <div class="tool-credit-grid">
+          <a class="tool-credit-link" href="https://docs.docker.com/engine/" target="_blank" rel="noopener">Docker Engine + CLI<sup>Apache-2.0</sup></a>
+          <a class="tool-credit-link" href="https://github.com/docker/compose" target="_blank" rel="noopener">Docker Compose<sup>Apache-2.0</sup></a>
+          <a class="tool-credit-link" href="https://apptainer.org/" target="_blank" rel="noopener">Apptainer<sup>BSD-3-Clause</sup></a>
+          <a class="tool-credit-link" href="https://mamba.readthedocs.io/" target="_blank" rel="noopener">micromamba<sup>BSD-3-Clause</sup></a>
+          <a class="tool-credit-link" href="https://www.python.org/" target="_blank" rel="noopener">Python<sup>PSF-2.0</sup></a>
+          <a class="tool-credit-link" href="https://www.gnu.org/software/bash/" target="_blank" rel="noopener">GNU Bash<sup>GPL-3.0+</sup></a>
+          <a class="tool-credit-link" href="https://www.r-project.org/" target="_blank" rel="noopener">R<sup>GPL-2.0 OR GPL-3.0</sup></a>
+          <a class="tool-credit-link" href="https://numpy.org/" target="_blank" rel="noopener">NumPy<sup>BSD-3-Clause</sup></a>
+          <a class="tool-credit-link" href="https://matplotlib.org/" target="_blank" rel="noopener">Matplotlib<sup>MATPLOTLIB LICENSE</sup></a>
+          <a class="tool-credit-link" href="https://threejs.org/" target="_blank" rel="noopener">Three.js<sup>MIT</sup></a>
+          <a class="tool-credit-link" href="https://gsap.com/" target="_blank" rel="noopener">GSAP<sup>STANDARD LICENSE</sup></a>
+          <a class="tool-credit-link" href="https://cairosvg.org/" target="_blank" rel="noopener">CairoSVG<sup>LGPL-3.0</sup></a>
         </div>
       </section>
     </div>
@@ -507,6 +540,7 @@
       <button class="drawer-tab ops-nav-button active" id="ops-tab-jobs" type="button" role="tab" data-ops-tab="jobs" aria-controls="jobs-card" aria-selected="true" tabindex="0" onclick="switchOpsTab('jobs')" onkeydown="handleOpsTabKeydown(event)">Jobs</button>
       <button class="drawer-tab ops-nav-button" id="ops-tab-worker" type="button" role="tab" data-ops-tab="worker" aria-controls="console-card" aria-selected="false" tabindex="-1" onclick="switchOpsTab('worker')" onkeydown="handleOpsTabKeydown(event)">Worker</button>
       <button class="drawer-tab ops-nav-button" id="ops-tab-qa" type="button" role="tab" data-ops-tab="qa" aria-controls="progress-card" aria-selected="false" tabindex="-1" onclick="switchOpsTab('qa')" onkeydown="handleOpsTabKeydown(event)">QA Console</button>
+      <button class="drawer-tab ops-nav-button" id="ops-tab-setup" type="button" role="tab" data-ops-tab="setup" aria-controls="local-setup-guide" aria-selected="false" tabindex="-1" onclick="switchOpsTab('setup')" onkeydown="handleOpsTabKeydown(event)" hidden>Local setup</button>
       <button class="drawer-tab ops-nav-button" id="ops-tab-rerun" type="button" role="tab" data-ops-tab="rerun" aria-controls="rerun-panel" aria-selected="false" tabindex="-1" onclick="switchOpsTab('rerun')" onkeydown="handleOpsTabKeydown(event)" hidden inert aria-hidden="true">Rerun</button>
       <button class="drawer-close" type="button" aria-label="Close diagnostics" onclick="closeOpsPanel({ returnFocus: true })">▼</button>
     </div>
@@ -514,6 +548,24 @@
       <section class="drawer-panel ops-tab-panel" id="jobs-card" role="tabpanel" aria-labelledby="ops-tab-jobs" data-ops-panel="jobs" tabindex="-1">
         <div class="diagnostic-panel-head"><b>Submitted jobs</b><span id="job-history-summary">Live job queue</span></div>
         <div class="diagnostic-scroll diagnostic-job-list job-history" id="job-history" aria-label="Submitted jobs"></div>
+      </section>
+      <section class="drawer-panel ops-tab-panel" id="local-setup-guide" role="tabpanel" aria-labelledby="ops-tab-setup" data-ops-panel="setup" tabindex="-1" hidden>
+        <div class="diagnostic-panel-head"><b>Local setup</b><span>Configured in your terminal</span></div>
+        <div class="local-setup-body diagnostic-scroll">
+          <p id="local-setup-readiness" role="status"></p>
+          <dl id="local-setup-choices" class="local-setup-summary">
+            <div><dt>Worker</dt><dd><span id="local-setup-cpus"></span> CPUs / <span id="local-setup-memory"></span></dd></div>
+            <div><dt>CPUs per job</dt><dd id="local-setup-job-cpus"></dd></div>
+            <div><dt>Browser</dt><dd><code id="local-setup-url"></code></dd></div>
+            <div><dt>Accession cache</dt><dd id="local-setup-cache"></dd></div>
+            <div><dt>Jobs</dt><dd id="local-setup-retention"></dd></div>
+            <div><dt>Return choices</dt><dd id="local-setup-startup"></dd></div>
+          </dl>
+          <p>Change settings: <code>./bin/init_local_instance.sh --reconfigure</code></p>
+          <p>Return: <code>./bin/local_instance.sh start</code></p>
+          <p>Scan: <code>./bin/local_instance.sh scan</code><br>Disable automatic startup: <code>./bin/local_instance.sh disable-autostart</code></p>
+          <a href="https://github.com/n2mology/clusterweave/blob/main/docs/BEGINNER_SETUP.md" target="_blank" rel="noopener">Setup and recovery instructions</a>
+        </div>
       </section>
       <section class="drawer-panel ops-tab-panel" id="console-card" role="tabpanel" aria-labelledby="ops-tab-worker" data-ops-panel="worker" tabindex="-1" hidden>
         <div class="diagnostic-panel-head"><b>Worker</b><span id="worker-drawer-summary">Waiting for worker telemetry</span></div>
@@ -560,6 +612,8 @@
   <div class="archive-download-detail" id="archive-download-detail">Preparing the full result package.</div>
 </aside>
 
-<script src="assets/clusterweave.js?v=20261104-release1"></script>
+
+
+<script src="assets/clusterweave.js?v=20261123-release1"></script>
 </body>
 </html>

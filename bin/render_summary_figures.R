@@ -41,49 +41,17 @@ parse_args <- function(args) {
   options
 }
 
-category_levels <- c("NRP", "PKS", "RiPP", "Terpene", "Hybrid", "Other")
-category_palette <- c(
-  NRP = "#56D8C1",
-  PKS = "#EC961C",
-  RiPP = "#5481E3",
-  Terpene = "#A743CC",
-  Hybrid = "#82775B",
-  Other = "#A8BFFF"
-)
-
+display_rules <- read.delim(file.path(dirname(get_script_path()), "..", "config", "bgc-display-classes.tsv"), stringsAsFactors = FALSE, check.names = FALSE, quote = "")
+category_levels <- display_rules$class
+category_palette <- setNames(display_rules$color, category_levels)
 normalize_condensed_category <- function(x) {
-  text <- ifelse(is.na(x), "", x)
-  text <- trimws(text)
-  text <- gsub("_", " ", text, fixed = TRUE)
-  text <- gsub("\\s+", " ", text)
-  token <- tolower(text)
-  if (token == "") {
-    return("Other")
-  }
-  if (grepl("hybrid", token)) {
-    return("Hybrid")
-  }
-  has_nrp <- grepl("nrps|nrp", token)
-  has_pks <- grepl("pks|polyketide", token)
-  has_ripp <- grepl("ripp", token)
-  has_terpene <- grepl("terpene|\\btc\\b|cyclase|synthase", token)
-  major_count <- sum(c(has_nrp, has_pks, has_ripp, has_terpene))
-  if (major_count > 1) {
-    return("Hybrid")
-  }
-  if (has_nrp) {
-    return("NRP")
-  }
-  if (has_pks) {
-    return("PKS")
-  }
-  if (has_ripp) {
-    return("RiPP")
-  }
-  if (has_terpene) {
-    return("Terpene")
-  }
-  "Other"
+  text <- ifelse(is.na(x), "", trimws(x))
+  hits <- display_rules$class[vapply(display_rules$pattern, function(pattern) nzchar(pattern) && grepl(pattern, text, ignore.case = TRUE, perl = TRUE), logical(1))]
+  informative <- setdiff(hits, c("other", "unclassified", "putative"))
+  if (length(informative) > 1 || "hybrid" %in% informative) return("hybrid")
+  if (length(informative)) return(informative[1])
+  if (length(hits)) return(hits[1])
+  "unclassified"
 }
 
 clean_label <- function(x) {
@@ -99,6 +67,9 @@ display_tool_label <- function(x) {
   token <- tolower(trimws(ifelse(is.na(x), "", x)))
   if (token == "antismash") {
     return("antiSMASH")
+  }
+  if (token == "plantismash") {
+    return("plantiSMASH")
   }
   if (token == "funbgcex") {
     return("FunBGCeX")
@@ -150,10 +121,14 @@ plot_bgc_totals <- function(summary_df, out_path) {
   bgc_df$genome <- as.character(bgc_df$genome)
   bgc_df$tool <- as.character(bgc_df$tool)
   bgc_df$total <- suppressWarnings(as.numeric(bgc_df$total))
-  bgc_df$total[is.na(bgc_df$total)] <- 0
+  # Missing/failed counts are unknown, never successful-empty zero calls.
+  known <- is.finite(bgc_df$total) & bgc_df$total >= 0
+  if (any(!known)) warning("Unknown BGC counts omitted from the summary figure")
+  bgc_df <- bgc_df[known, , drop = FALSE]
+  if (nrow(bgc_df) == 0L) return(FALSE)
 
   genomes <- unique(bgc_df$genome)
-  preferred_tools <- c("antismash", "funbgcex")
+  preferred_tools <- c("antismash", "plantismash", "funbgcex")
   tools_seen <- unique(bgc_df$tool)
   tool_order <- c(
     tools_seen[tolower(tools_seen) %in% preferred_tools][
@@ -167,12 +142,11 @@ plot_bgc_totals <- function(summary_df, out_path) {
     return(FALSE)
   }
 
-  column_meta <- expand.grid(
-    tool = tool_order,
-    genome = genomes,
-    stringsAsFactors = FALSE
-  )
-  column_meta <- column_meta[, c("genome", "tool")]
+  # Only observed genome/tool pairs are applicable. A Cartesian product would
+  # fabricate plant antiSMASH/FunBGCeX columns and fungal plantiSMASH zeros.
+  column_meta <- unique(bgc_df[, c("genome", "tool"), drop = FALSE])
+  column_meta <- column_meta[order(match(column_meta$genome, genomes),
+                                   match(column_meta$tool, tool_order)), , drop = FALSE]
   totals_mat <- matrix(
     0,
     nrow = length(category_levels),
@@ -194,7 +168,8 @@ plot_bgc_totals <- function(summary_df, out_path) {
 
   used_palette <- category_palette[rownames(totals)]
   plot_width <- max(10, min(18, 2.4 * length(unique(column_meta$genome)) + 4.5))
-  plot_height <- 6.5
+  dense_genomes <- length(unique(column_meta$genome)) > 6L
+  plot_height <- max(if (dense_genomes) 9.5 else 6.5, nrow(totals) * 0.24 + 1.5)
   grDevices::svg(out_path, width = plot_width, height = plot_height)
   old_par <- par(no.readonly = TRUE)
   on.exit({
@@ -202,7 +177,7 @@ plot_bgc_totals <- function(summary_df, out_path) {
     dev.off()
   }, add = TRUE)
   layout(matrix(c(1, 2), nrow = 1), widths = c(5.2, 1.2))
-  par(mar = c(9.5, 5, 4, 1) + 0.1, xpd = FALSE)
+  par(mar = c(if (dense_genomes) 20.5 else 9.5, 5, 4, 1) + 0.1, xpd = FALSE)
   space <- rep(0.25, ncol(totals))
   first_in_genome <- !duplicated(column_meta$genome)
   space[first_in_genome] <- 0.45
@@ -251,16 +226,17 @@ plot_bgc_totals <- function(summary_df, out_path) {
     1,
     at = genome_centers,
     labels = vapply(names(genome_centers), shorten_label, character(1)),
+    las = if (dense_genomes) 2 else 0,
     tick = FALSE,
     cex.axis = 0.72,
     line = 5.2
   )
-  mtext("Genome", side = 1, line = 7.5, cex = 0.82)
+  mtext("Genome", side = 1, line = if (dense_genomes) 18.5 else 7.5, cex = 0.82)
   par(mar = c(0, 0, 4, 0) + 0.1)
   plot.new()
   legend(
     "topleft",
-    legend = rownames(totals),
+    legend = display_rules$label[match(rownames(totals), display_rules$class)],
     fill = used_palette,
     bty = "n",
     cex = 0.82,

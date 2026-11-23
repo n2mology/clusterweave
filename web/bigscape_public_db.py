@@ -31,7 +31,7 @@ from result_policy import (
 )
 
 
-RAW_BIGSCAPE_DATABASE_FILENAMES = {"big_scape.db", "data_sqlite.db"}
+RAW_BIGSCAPE_DATABASE_FILENAMES = {"big_scape.db", "data_sqlite.db", "output.db"}
 PUBLIC_EXPORT_VERSION = PUBLIC_BIGSCAPE_EXPORT_VERSION
 PUBLIC_PATH_POLICY = PUBLIC_BIGSCAPE_PATH_POLICY
 PUBLIC_EXPORT_TABLE = PUBLIC_BIGSCAPE_EXPORT_TABLE
@@ -2018,6 +2018,7 @@ def find_raw_bigscape_databases(results_root: Path) -> list[Path]:
     candidates: list[Path] = []
     relative_candidates = (
         Path("big_scape.db"),
+        Path("output.db"),
         Path("data_sqlite.db"),
         Path("output_files") / "data_sqlite.db",
         Path("output_files") / "big_scape.db",

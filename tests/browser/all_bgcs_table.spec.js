@@ -91,11 +91,11 @@ test('ALL BGC defaults to All and scrolls without stealing search focus', async 
   await expect(organism).toHaveValue('');
   await expect(page.locator('.all-bgc-table tbody tr')).toHaveCount(28);
   await expect(page.locator('.all-bgc-table thead th')).toHaveText([
-    'Organism ↑', 'Kingdom', 'Detector support', 'antiSMASH region',
-    'antiSMASH BGC class', 'KnownClusterBlast score', 'KnownCluster accession',
+    'Organism ↑', 'Kingdom', 'Detector support', 'BGC detection tool', 'BGC Record', 'BGC Class', 'KnownClusterBlast score', 'KnownCluster accession',
     'KnownCluster product', 'ClusterCompare score', 'ClusterCompare compounds',
     'ClusterCompare organism', 'FunBGCeX core enzymes', 'FunBGCeX similar BGC',
-    'FunBGCeX similarity score', 'FunBGCeX putative product',
+    'FunBGCeX similarity score', 'FunBGCeX putative product', 'Core Domains', 'Subgroup ID Prediction', 'CD-HIT',
+    'plantiSMASH KnownClusterBlast score', 'plantiSMASH KnownCluster accession', 'plantiSMASH KnownCluster product',
   ]);
 
   const wrap = page.locator('.all-bgc-table-wrap');
@@ -167,7 +167,7 @@ test('ATLAS shows domain sections, member genomes, and numerically scored annota
   ]);
   await expect(page.locator('.atlas-table').first().locator('thead th')).toHaveText([
     'Rank', 'Representative organism', 'BiG-SCAPE CC', 'GCF families', 'BGCs',
-    'Genome count', 'Genome members', 'BGC class', 'Scored annotation hits', 'Note',
+    'Genome count', 'Genome members', 'BGC class', 'Core domains', 'Subgroup ID Prediction', 'CD-HIT', 'Scored annotation hits', 'Note',
   ]);
   await expect(page.locator('.atlas-table tbody tr')).toHaveCount(3);
   await expect(page.locator('.atlas-rank-badge')).toHaveText(['1', '2', '3']);
@@ -184,4 +184,42 @@ test('ATLAS shows domain sections, member genomes, and numerically scored annota
   });
   expect(headerStyle.paddingLeft).toBeGreaterThan(8);
   expect(headerStyle.whiteSpace).toBe('normal');
+});
+
+test('quoted multiline plant fields, zero scores and unavailable scores retain their meaning', async ({page}) => {
+  await page.goto(baseUrl);
+  await page.evaluate(async()=>{
+    document.body.innerHTML='<div id="summary-reader-doc"></div>';
+    activeJobId='parserfixture';activePublicRunId='AAAAAAAAAAAAAAAAAAAAAA';
+    const file=installResultArtifactDescriptor({id:'CCCCCCCCCCCCCCCCCCCCCC',category:'summary',kind:'csv',role:'all-bgcs',filename:'all_tools_bgc_comparison.csv',previewable:true});
+    const text='\uFEFFgenome,taxon_group,producer,antismash_bgc_id,antismash_knowncluster_similarity_score,antismash_knowncluster_accession,antismash_knowncluster_product,knownclusterblast_status,plantismash_cds_count\r\n"Plant, one",plants,plantismash,r1,0,BGC0001248.3,"quoted ""product"",\nsecond line",,5\r\nPlant_two,plants,plantismash,r2,,,,not_run,0\r\nPlant_three,plants,plantismash,r3,,,,,\r\n';
+    const original=window.fetch;window.fetch=async()=>new Response(text);
+    try {await loadAllBgcReaderFile(file)} finally {window.fetch=original}
+  });
+  const rows=page.locator('.all-bgc-table tbody tr');await expect(rows).toHaveCount(3);
+  const first=rows.filter({hasText:'quoted "product",'});await expect(first).toContainText('second line');
+  await expect(first.locator('td').nth(6)).toHaveText('0');
+  await expect(first.getByRole('link',{name:'BGC0001248.3'})).toHaveAttribute('href','https://mibig.secondarymetabolites.org/repository/BGC0001248.3/');
+  await expect(rows.filter({hasText:'Plant two'})).toContainText('—');
+  await expect(rows.filter({hasText:'Plant three'})).toContainText('—');
+});
+
+
+test('plant fields preserve zeros and versioned MIBiG cluster IDs', async ({page}) => {
+  await page.goto(baseUrl);
+  await page.evaluate(async () => {
+    document.body.innerHTML='<div id="summary-reader-doc"></div>';
+    activeJobId='parserfixture';activePublicRunId='AAAAAAAAAAAAAAAAAAAAAA';
+    const file=installResultArtifactDescriptor({id:'CCCCCCCCCCCCCCCCCCCCCZ',category:'summary',kind:'csv',role:'all-bgcs',filename:'all_tools_bgc_comparison.csv',previewable:true});
+    const text='genome,taxon_group,producer,plantismash_cdhit_count,plantismash_knowncluster_similarity_score,plantismash_knowncluster_accession\nP,plants,plantismash,0,0,BGC0001315.3_c1\n';
+    const original=window.fetch;window.fetch=async()=>new Response(text);
+    try {await loadAllBgcReaderFile(file)} finally {window.fetch=original}
+  });
+  const row=page.locator('.all-bgc-table tbody tr');
+  await expect(row.locator('td').nth(17)).toHaveText('—');
+  await expect(row.locator('td').nth(18)).toHaveText('0');
+  await expect(row.locator('td').nth(19)).toHaveText('0');
+  await expect(row.getByRole('link',{name:'BGC0001315.3_c1',exact:true})).toHaveAttribute('href','https://mibig.secondarymetabolites.org/repository/BGC0001315.3/');
+  const atlas=await page.evaluate(()=>atlasAnnotationHits({plantismash_knowncluster_product:'fixture product',plantismash_knowncluster_accession:'BGC0001315.3_c1',plantismash_knowncluster_similarity_score:0}));
+  expect(atlas).toBe('plantiSMASH KnownClusterBlast: fixture product · BGC0001315.3_c1 · score 0');
 });

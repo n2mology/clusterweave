@@ -3,18 +3,22 @@ set -euo pipefail
 IFS=$' \n\t'
 
 CLUSTERWEAVE_RAW_OUTPUT=0
+CLUSTERWEAVE_CONTINUE_DECISION=""
 for argument in "$@"; do
   case "${argument}" in
+    --continue-with-exclusions=*)
+      CLUSTERWEAVE_CONTINUE_DECISION="${argument#*=}"
+      ;;
     --raw)
       CLUSTERWEAVE_RAW_OUTPUT=1
       ;;
     --help|-h)
-      printf '%s\n' "Usage: bash run_clusterweave.sh [--raw]"
+      printf '%s\n' "Usage: bash run_clusterweave.sh [--raw] [--continue-with-exclusions=DECISION_ID]"
       exit 0
       ;;
     *)
       printf '%s\n' "Unknown run_clusterweave.sh option: ${argument}" >&2
-      printf '%s\n' "Usage: bash run_clusterweave.sh [--raw]" >&2
+      printf '%s\n' "Usage: bash run_clusterweave.sh [--raw] [--continue-with-exclusions=DECISION_ID]" >&2
       exit 2
       ;;
   esac
@@ -99,11 +103,11 @@ start_interactive_tree_if_supported() {
   python_cmd="$(resolve_python_cmd)" || return 0
   exec "${python_cmd}" "${renderer}" \
     --project "${PROJECT_NAME}" \
-    -- bash "${BASH_SOURCE[0]}" --raw
+    -- bash "${BASH_SOURCE[0]}" --raw ${CLUSTERWEAVE_CONTINUE_DECISION:+--continue-with-exclusions=${CLUSTERWEAVE_CONTINUE_DECISION}}
 }
 git_value() {
   local args=("$@")
-  git -C "${PROJECT_DIR}" "${args[@]}" 2>/dev/null || true
+  GIT_OPTIONAL_LOCKS=0 git -c diff.autoRefreshIndex=false -C "${PROJECT_DIR}" "${args[@]}" 2>/dev/null || true
 }
 write_provenance_manifest() {
   local manifest_path="${REPRO_ROOT}/run_clusterweave_manifest.tsv"
@@ -173,17 +177,10 @@ annotation_manifest_total_count() {
 annotation_manifest_usable_count() {
   local manifest="$1"
   [[ -s "${manifest}" ]] || { printf '0\n'; return 0; }
-  awk -F '\t' '
-    NR == 1 { for (i = 1; i <= NF; i++) h[$i] = i; next }
-    NR > 1 {
-      gbk = $(h["gbk_used"])
-      gbk_status = $(h["gbk_status"])
-      antismash_status = $(h["antismash_status"])
-      if (gbk != "" && gbk_status != "annotation_fallbacks_failed" && (antismash_status == "ran_ok" || antismash_status == "ran_ok_sanitized" || antismash_status == "skipped_done")) count++
-    }
-    END { print count + 0 }
-  ' "${manifest}"
+  "$(resolve_python_cmd)" "${SCRIPT_DIR}/bin/annotation_stage_outputs.py" \
+    --manifest "${manifest}" --results "${RESULTS_ROOT}"
 }
+
 annotation_manifest_status_summary() {
   local manifest="$1"
   [[ -s "${manifest}" ]] || { printf '%s\n' 'manifest missing'; return 0; }
@@ -250,6 +247,29 @@ require_annotation_stage_outputs() {
 
 start_interactive_tree_if_supported
 
+# A hosted worker supplies an authenticated decision context. A standalone
+# invocation uses a durable local context and holds a lock through execution.
+if [[ -z "${CLUSTERWEAVE_COHORT_CONTEXT:-}" && -z "${CLUSTERWEAVE_JOB_ID:-}" ]] && { [[ "${RUN_STAGE_ANNOTATION}" == "1" ]] || [[ -n "${CLUSTERWEAVE_CONTINUE_DECISION}" ]]; }; then
+  local_control="${RESULTS_ROOT%/*}/.cohort-decisions/${PROJECT_NAME}"
+  mkdir -p "${local_control}"
+  exec {cohort_lock_fd}>"${local_control}/run.lock"
+  flock -n "${cohort_lock_fd}" || die "Another local cohort attempt is active"
+  export CLUSTERWEAVE_COHORT_CONTEXT="${local_control}/context.json"
+  export CLUSTERWEAVE_COHORT_CONTROL="${local_control}/current.json"
+  if [[ -n "${CLUSTERWEAVE_CONTINUE_DECISION}" ]]; then
+    cohort_rc=0
+    cohort_exports="$("$(resolve_python_cmd)" "${SCRIPT_DIR}/bin/cohort_control.py" continue --results "${RESULTS_ROOT}" --control "${CLUSTERWEAVE_COHORT_CONTROL}" --context "${CLUSTERWEAVE_COHORT_CONTEXT}" --decision "${CLUSTERWEAVE_CONTINUE_DECISION}")" || cohort_rc=$?
+    [[ "${cohort_rc}" -ne 76 ]] || { log "This exclusion decision already completed; no work queued."; exit 0; }
+    [[ "${cohort_rc}" -eq 0 ]] || exit "${cohort_rc}"
+    LOCAL_COHORT_ACCEPTED_CONTROL="${CLUSTERWEAVE_COHORT_CONTROL}"
+    eval "${cohort_exports}"
+    REPRO_ROOT="${RESULTS_ROOT}/reproducibility"
+    unset CLUSTERWEAVE_COHORT_CONTEXT CLUSTERWEAVE_COHORT_CONTROL
+  else
+    "$(resolve_python_cmd)" "${SCRIPT_DIR}/bin/cohort_control.py" init --results "${RESULTS_ROOT}" --control "${CLUSTERWEAVE_COHORT_CONTROL}" --context "${CLUSTERWEAVE_COHORT_CONTEXT}"
+  fi
+fi
+
 [[ -x "${RUN_ANNOTATION_STAGE}" ]] || die "Missing executable stage runner: ${RUN_ANNOTATION_STAGE}"
 [[ -x "${RUN_BIGSCAPE}" ]] || die "Missing executable stage runner: ${RUN_BIGSCAPE}"
 [[ -x "${RUN_SUMMARY}" ]] || die "Missing executable stage runner: ${RUN_SUMMARY}"
@@ -286,7 +306,15 @@ write_provenance_manifest
 
 if [[ "${RUN_STAGE_ANNOTATION}" == "1" ]]; then
   log "Stage 1/4: running run_annotation_and_detection.sh"
-  bash "${RUN_ANNOTATION_STAGE}"
+  annotation_rc=0
+  bash "${RUN_ANNOTATION_STAGE}" || annotation_rc=$?
+  if [[ -n "${CLUSTERWEAVE_COHORT_CONTEXT:-}" ]]; then
+    "$(resolve_python_cmd)" "${SCRIPT_DIR}/web/cohort_gate.py" evaluate \
+      --results "${RESULTS_ROOT}" --control "${CLUSTERWEAVE_COHORT_CONTROL}" \
+      --context "${CLUSTERWEAVE_COHORT_CONTEXT}" --exit-code "${annotation_rc}"
+  elif [[ "${annotation_rc}" -ne 0 ]]; then
+    exit "${annotation_rc}"
+  fi
   require_annotation_stage_outputs
   log "Stage 1/4: complete"
 else
@@ -318,4 +346,9 @@ else
 fi
 
 write_external_artifacts_manifest
-log "Canonical workflow complete."
+if [[ -n "${LOCAL_COHORT_ACCEPTED_CONTROL:-}" ]]; then
+  "$(resolve_python_cmd)" "${SCRIPT_DIR}/bin/cohort_control.py" complete --results "${RESULTS_ROOT}" --control "${LOCAL_COHORT_ACCEPTED_CONTROL}" --context "${local_control}/context.json" --decision "${CLUSTERWEAVE_CONTINUE_DECISION}"
+  log "Completed with exclusions; original failed genome attempts remain failed."
+else
+  log "Canonical workflow complete."
+fi

@@ -84,6 +84,16 @@ class ClinkerLabelTests(unittest.TestCase):
         result = self.module.strip_display_artifacts("Acyl-CoA dehydrogenase (Eurofung)")
         self.assertEqual(result, "Acyl-CoA dehydrogenase")
 
+    def test_reprocessing_replaces_layout_once(self):
+        html = '<style></style>\n  d3.select("#btn-save-svg")'
+        once = self.module.apply_html_defaults(html)
+        twice = self.module.apply_html_defaults(once)
+        self.assertEqual(twice.count('function layoutClusterWeaveLabels()'), 1)
+        self.assertNotIn('new ResizeObserver', twice)
+        self.assertEqual(twice.count('window.addEventListener("resize"'), 1)
+        self.assertEqual(twice.count('/* clusterweave-layout */'), 1)
+        self.assertIn('div#plot {width: calc(100vw - 370px)', twice)
+
     def test_apply_html_defaults_sets_readable_panel_defaults(self) -> None:
         html = """
 const data={};
@@ -114,10 +124,13 @@ function plot(data) {
         patched = self.module.apply_html_defaults(html)
         self.assertIn("scaleFactor: 12", patched)
         self.assertIn("spacing: 70", patched)
+        self.assertIn("rotation: 45", patched)
+        self.assertNotIn("new ResizeObserver", patched)
+        self.assertNotIn("const placed = []", patched)
         self.assertIn("hideLocusCoordinates: true", patched)
         self.assertIn('id="input-gene-labels" checked', patched)
         self.assertIn('id="input-link-group-colour" checked', patched)
-        self.assertIn('id="input-link-label-show" checked', patched)
+        self.assertNotIn('id="input-link-label-show" checked', patched)
 
 
 if __name__ == "__main__":

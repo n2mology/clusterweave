@@ -150,7 +150,7 @@ def _clinker_descriptor_context(rel_path: str) -> tuple[str, str, str]:
             track = candidate
             break
     for index, part in enumerate(lowered):
-        if part not in {"fungi", "bacteria"}:
+        if part not in {"fungi", "bacteria", "plants"}:
             continue
         taxon_group = part
         if index + 1 < len(parts) - 1:
@@ -175,6 +175,12 @@ def _artifact_category(rel_path: str) -> tuple[str, str, str, str]:
     if root == "antismash":
         category = "antismash"
         tool = "antiSMASH"
+        if len(parts) >= 2:
+            genome_label = parts[1]
+            family_parts = full_parts[: offset + 2]
+    elif root in {"plantismash", "native_bgc"}:
+        category = "plantismash"
+        tool = "plantiSMASH"
         if len(parts) >= 2:
             genome_label = parts[1]
             family_parts = full_parts[: offset + 2]
@@ -259,7 +265,7 @@ def _artifact_role(rel_path: str, category: str, kind: str) -> str:
     if result_is_public_bigscape_database(rel_path):
         return "public-database"
     if kind == "html":
-        if category == "antismash":
+        if category in {"antismash", "plantismash"}:
             if "region" in stem:
                 return "region"
             return "index" if filename in {"index.html", "index.htm"} else "page"
@@ -272,7 +278,7 @@ def _artifact_role(rel_path: str, category: str, kind: str) -> str:
                 return "index"
             return "page"
         return "index" if filename in {"index.html", "index.htm"} else "page"
-    return "asset" if category in {"antismash", "funbgcex", "bigscape", "synteny"} else kind
+    return "asset" if category in {"antismash", "plantismash", "funbgcex", "bigscape", "synteny"} else kind
 
 
 def _artifact_label(rel_path: str, category: str, filename: str) -> str:
@@ -301,6 +307,8 @@ def _artifact_is_listed(category: str, kind: str, role: str, rel_path: str, fami
     except ValueError:
         return False
     filename = Path(rel_path).name.lower()
+    if category == "plantismash":
+        return (role == "index" and depth <= 3) or (filename == "complete-native.zip" and depth == 1)
     if category == "antismash":
         return role == "index" and depth <= 2
     if category == "funbgcex":

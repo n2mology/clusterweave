@@ -5,6 +5,7 @@ import copy
 from contextlib import redirect_stdout
 import importlib.util
 import io
+import gzip
 import json
 import multiprocessing
 import os
@@ -101,6 +102,16 @@ class BundleSafetyTests(unittest.TestCase):
             with self.subTest(variable=name), mock.patch.dict(os.environ, {name: str(directory)}, clear=True):
                 with self.assertRaisesRegex(cache.Unavailable, "external_native_runtime"):
                     adapter.native_runtime_supported()
+
+    def test_streamed_packing_preserves_existing_cache_bytes(self):
+        files = {"a.txt": b"annotation" * 100, "b.txt": b"sequence" * 10000}
+        raw = io.BytesIO()
+        with tarfile.open(fileobj=raw, mode="w", format=tarfile.USTAR_FORMAT) as archive:
+            for name, data in sorted(files.items()):
+                info = tarfile.TarInfo(name)
+                info.size, info.mode = len(data), 0o600
+                archive.addfile(info, io.BytesIO(data))
+        self.assertEqual(adapter.pack(files), gzip.compress(raw.getvalue(), mtime=0))
 
     def test_bundle_canonical_order_and_metadata(self):
         files = {"b/file.txt": b"second", "a.txt": b"first", "empty.txt": b""}
@@ -263,7 +274,11 @@ class BundleSafetyTests(unittest.TestCase):
             (source / "bin" / name).write_text("original\n")
         (source / "web").mkdir()
         (source / "web/resource_policy.py").write_text("original policy\n")
+        (source / "web/scientific_profiles.py").write_text("original profiles\n")
+        (source / "web/taxon_routing.py").write_text("original routes\n")
         (source / "run_annotation_and_detection.sh").write_text("scientific runner\n")
+        for name in ("annotation_prepare.sh", "annotation_funannotate.sh", "annotation_braker3.sh", "detection_antismash.sh", "detection_funbgcex.sh"):
+            (source / name).write_text("original module\n")
         with mock.patch.object(adapter, "ROOT", source):
             original = adapter.source_digest()
             (source / "bin/accession_cache.py").write_text("new cache storage\n")
@@ -341,7 +356,7 @@ class BundleSafetyTests(unittest.TestCase):
 
     def test_cache_wrapper_preserves_parallel_computation_failure(self):
         text = (ROOT / "run_annotation_and_detection.sh").read_text()
-        wrapper = "process_genome() (" + text.split("process_genome() (", 1)[1].split("\n)\n\nidx=0", 1)[0] + "\n)\n"
+        wrapper = "process_genome() (" + text.split("process_genome() (", 1)[1].split("\n)\n", 1)[0] + "\n)\n"
         marker = self.root / "must_not_run"
         script = '''set -euo pipefail
 route_taxon_for_genome() { echo bacteria; }
@@ -493,7 +508,8 @@ q=pathlib.Path(sys.argv[2]);q.write_text(q.read_text()+'x' if q.exists() else 'x
             emitted = io.StringIO()
             with redirect_stdout(emitted):
                 self.assertEqual(adapter.retrieve(args), 0)
-            self.assertEqual(emitted.getvalue(), "ACCESSION_CACHE genome=GCF_999999999.1 stage=retrieval outcome=hit\n")
+            self.assertEqual([line for line in emitted.getvalue().splitlines() if line.startswith("ACCESSION_CACHE ")], ["ACCESSION_CACHE genome=GCF_999999999.1 stage=retrieval outcome=hit"])
+            self.assertIn("phase=lookup state=finished elapsed_seconds=", emitted.getvalue())
             self.assertEqual(json.loads(args.provenance.read_bytes())["outcome"], "hit")
             self.assertEqual(count.read_text(), "x")
             with mock.patch.dict(os.environ, {"FORCE": "1"}):
@@ -502,6 +518,7 @@ q=pathlib.Path(sys.argv[2]);q.write_text(q.read_text()+'x' if q.exists() else 'x
             self.assertEqual(count.read_text(), "xx")
             self.assertEqual(json.loads(args.provenance.read_bytes())["reason"], "forced")
 
+    @mock.patch.dict(os.environ, {"PATH": "/usr/bin:/bin"}, clear=True)
     def test_scientific_identity_is_accession_local_across_volume_locations(self):
         identities = []
         for name in ("volume_a", "volume_b"):
@@ -554,6 +571,7 @@ q=pathlib.Path(sys.argv[2]);q.write_text(q.read_text()+'x' if q.exists() else 'x
             "database_stamp": adapter.tree_stamp(database), "settings": settings}
         return args, ctx
 
+    @mock.patch.dict(os.environ, {"PATH": "/usr/bin:/bin"}, clear=True)
     def test_scheduling_changes_reuse_but_scientific_and_unvalidated_tool_settings_do_not(self):
         for taxon in ("bacteria", "fungi"):
             args, ctx = self.scheduling_case(taxon)
@@ -574,6 +592,7 @@ q=pathlib.Path(sys.argv[2]);q.write_text(q.read_text()+'x' if q.exists() else 'x
                 with mock.patch.object(adapter, "PARTITION_SHA256", "c" * 64):
                     self.assertNotEqual(adapter.detection_identity(args, ctx), original)
 
+    @mock.patch.dict(os.environ, {"PATH": "/usr/bin:/bin"}, clear=True)
     def test_cross_allocation_hit_keeps_producer_resources_and_materializes_independent_files(self):
         args, ctx = self.scheduling_case()
         store = self.store
@@ -596,6 +615,7 @@ q=pathlib.Path(sys.argv[2]);q.write_text(q.read_text()+'x' if q.exists() else 'x
             self.assertEqual(materialized.stat().st_nlink, 1)
             self.assertEqual(store.lookup(original, lambda p: adapter.validate_bundle(p, original))[0], payload)
 
+    @mock.patch.dict(os.environ, {"PATH": "/usr/bin:/bin"}, clear=True)
     def test_existing_fungal_annotations_ignore_an_unused_annotation_cpu_budget(self):
         from Bio import SeqIO
         from Bio.Seq import Seq

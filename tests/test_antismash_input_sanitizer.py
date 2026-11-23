@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from annotation_source import runner_source_command
+
 import os
 from pathlib import Path
 import shlex
@@ -92,7 +94,7 @@ PYFIXTURE
             command = rf"""
 set -euo pipefail
 ANTISMASH_INPUT_PREPARER={shlex.quote(str(REPO_ROOT / "bin" / "prepare_antismash_input.py"))}
-source <(awk '/^filter_gbk_drop_gene_less_records\(\)/{{flag=1}} /^###############################################################################$/ && flag{{seen += 1; if (seen == 2) flag=0}} flag{{print}}' {shlex.quote(str(SCRIPT_PATH))})
+source <(awk '/^filter_gbk_drop_gene_less_records\(\)/{{flag=1}} /^###############################################################################$/ && flag{{seen += 1; if (seen == 2) flag=0}} flag{{print}}' {runner_source_command()})
 funbgcex_python_exec() {{
   docker run -i --rm \
     -v "$SANITIZER_TEST_TMP:$SANITIZER_TEST_TMP" \

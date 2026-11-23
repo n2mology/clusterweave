@@ -15,17 +15,19 @@ annotation and BGC detection tools, groups related BGCs into gene cluster famili
 (GCFs), and produces tables, synteny views, and taxon-aware figures that can be
 reviewed together.
 
-The workflow accepts fungal, bacterial, or mixed datasets. NCBI taxonomy is the
+The current source workflow accepts fungal, bacterial, plant, or mixed datasets. NCBI taxonomy is the
 authority for accession inputs, and ClusterWeave records one route for each
 genome before the downstream stages begin. Fungal genomes may use existing
 protein features or funannotate when annotation is needed; bacterial genomes use
 feature-free sequence with Prodigal gene finding. antiSMASH and BiG-SCAPE apply
-to both domains, while FunBGCeX applies only to fungi.
+to fungi and bacteria, while FunBGCeX applies only to fungi. Plants require
+compatible supplied translated GenBank CDS and use plantiSMASH; they can join
+BiG-SCAPE comparisons without implying equivalent biology across taxa.
 
-> Web-hosted access: **Coming soon.** ClusterWeave v1.0.5 is currently
+> Web-hosted access: **Coming soon.** ClusterWeave v1.1.0 is currently
 > available only for local use through the Docker interface described below.
 
-Version 1.0.5 is the current public ClusterWeave release.
+Version 1.1.0 is the current public ClusterWeave release.
 
 [Watch the ClusterWeave fungal demo on YouTube](https://youtu.be/pCHNmzbBZ0Y).
 
@@ -40,21 +42,22 @@ itself.
 
 The results depend on the submitted assemblies, upstream reference data, tool
 versions, and selected settings. Zero predicted BGCs can be a valid result.
-Similarly, a missing FunBGCeX value for a bacterium means that the fungal-only
+Similarly, a missing FunBGCeX value for a bacterium or plant means that the fungal-only
 tool was not applicable; it should not be interpreted as a failed bacterial
-report. A genome without usable annotation can be excluded while the job
-completes with the remaining genomes. Check the exclusion notice and methods;
+report. When an annotation failure is eligible for exclusion, the user must
+explicitly choose to continue with the remaining genomes. Check the exclusion notice and methods;
 missing annotation or skipped detection does not show BGC absence. Experimental
 validation and subject-matter review remain necessary.
 
 ## Run a job
 
-Version 1.0.5 runs through the local interface. After starting a local instance,
+The current source checkout runs through the local interface. After starting a local instance,
 open [http://127.0.0.1:8080](http://127.0.0.1:8080) and follow these steps:
 
-1. In **INPUT STATION**, keep **New run** selected and choose **Fungi**,
-   **Bacteria**, or **Both**. The scope describes which domains the run accepts;
-   NCBI taxonomy still determines the route for each accession.
+1. In **INPUT STATION**, keep **New run** selected. **Mixed** is the default;
+   choose **Fungi**, **Bacteria**, or **Plants** to restrict the intake. NCBI
+   taxonomy determines the accession route but does not validate plant CDS.
+   Saved jobs and explicit CLI/API callers retain historical `both` = fungi + bacteria.
 2. Add NCBI GenBank/RefSeq assembly accessions one per row, paste or upload a
    one-accession-per-line `.txt` file, or upload supported FASTA or GenBank
    genome files. The interface shows the active accession, file-size, upload,
@@ -74,8 +77,9 @@ open [http://127.0.0.1:8080](http://127.0.0.1:8080) and follow these steps:
 
    - **ANTISMASH** opens per-genome antiSMASH reports and region files.
    - **FUNBGCEX** opens fungal FunBGCeX results when the tool applies.
+   - **PLANTISMASH** opens supplied-CDS plant reports when the tool applies.
    - **BIG-SCAPE** opens the sanitized viewer and its public-safe database copy.
-   - **CLINKER** separates fungal and bacterial synteny panels where available.
+   - **CLINKER** opens applicable selected-family synteny panels.
    - **SUMMARY** presents comparison tables and review-oriented summaries.
    - **FIGURES** presents taxon-specific multipanels and taxonomy/BGC/GCF
      context figures.
@@ -84,7 +88,8 @@ Select **Download package** when you want to preserve a run for review outside
 the browser. The downloaded ZIP is the run's full workbench archive. It contains
 the reports and tables shown in the interface, the staged genome GenBank files
 used by the downstream analysis, the antiSMASH region GenBank files, and the
-canonical FunBGCeX BGC GenBank files when FunBGCeX applies. (`.gbk` is a common
+canonical FunBGCeX BGC GenBank files when FunBGCeX applies. Plant outputs include
+the plantiSMASH report, exports and record mappings. (`.gbk` is a common
 filename extension for a GenBank file.) Individual result rows also provide
 **Open** or **Download** when that file is eligible for result access.
 
@@ -126,41 +131,79 @@ processing resources. Missing measurements are explicit. Native CPU accounting
 and sampled container/memory observations have different scopes; configured
 limits are not reported as consumption. See [reproducibility](docs/REPRODUCIBILITY.md).
 Staged GenBank files are grouped under `input_gbks/bacteria/`,
-`input_gbks/fungi/` or `input_gbks/unclassified/` in the ZIP. Internal pipeline
+`input_gbks/fungi/`, `input_gbks/plants/` or `input_gbks/unclassified/` in the ZIP. Internal pipeline
 paths remain flat. Existing signed ZIPs remain unchanged.
+
+For supplied-CDS plant analysis, use the [pinned source preparation](docs/PLANTISMASH_RUNTIME.md)
+and [confined Linux SIF profile](docs/CONFINED_SIF.md). This profile runs native
+tools inside the worker without granting application jobs Docker daemon access.
+Nested SIF execution on Windows/WSL2 and macOS has not been measured; Linux
+execution does not establish those platform results.
 
 ## Local Docker start
 
 The trusted local profile supports Docker Engine with Compose v2 on Linux and
-Docker Desktop on Windows/WSL2 or macOS. Give Docker at least 4 CPUs and 16 GiB
-of memory, and leave enough disk for container images, approximately 6 GiB of
+Docker Desktop on Windows/WSL2 or macOS. Use a host with at least 4 usable CPUs and 20 GiB
+of RAM; allocate at least 4 CPUs and 18 GiB to Docker (16 GiB for the worker plus 2 GiB for web), and leave enough disk for container images, approximately 6 GiB of
 initial reference databases, temporary work, and retained results. The release
 has Linux x86_64 build and smoke evidence. WSL2 and macOS use the same pinned
 amd64 images, although host integration and Apple Silicon emulation can affect
 performance.
 
-Install Git and Docker, then run these commands in a Bash-compatible terminal:
+Install Git, Docker and [Python 3.9 or newer](https://www.python.org/downloads/)
+on the host, then run these commands in a Bash-compatible terminal:
 
 ```bash
 git clone https://github.com/n2mology/clusterweave.git
 cd clusterweave
-./bin/init_local_instance.sh
-docker compose build
-docker compose run --rm --no-deps worker prepare-runtime
-docker compose run --rm --no-deps worker check-runtime
-docker compose up -d
-docker compose ps
-curl --fail http://127.0.0.1:8080/
+./bin/init_local_instance.sh --defaults
 ```
 
-The initializer creates a private mode-0600 `.env` with local secrets and keeps
-an existing `.env` unchanged. The initialized profile gives the worker 4 CPUs
-and 16 GiB, and `CLUSTERWEAVE_MAX_CPUS_PER_JOB=4` ensures that a public job
-accepted by the local web service cannot request more than the worker's default
-`CLUSTERWEAVE_WORKER_CPU_LIMIT=4`.
+This recommended route accepts Conservative resource limits, enables the bounded
+cache, keeps jobs until manual deletion, enables service startup after Docker
+starts, and opens the configured browser URL. It builds images, prepares/checks
+runtimes, and starts the pipeline without questions. The first run may take a
+while; keep the terminal open. Repeating it preserves an existing configuration.
+
+For interactive customization, use:
+
+```bash
+./bin/init_local_instance.sh
+```
+
+The assistant scans CPU/RAM capacity and offers **Conservative**, **Maximum
+available** and **Customize**. Both recommendations reserve room for the host and
+web service; capacity is not measured scientific performance. Review and save,
+then confirm **READY TO WEAVE?** to begin the build. The CLI shows the build first
+and offers the browser initialization screen as soon as web responds, before
+runtime downloads. Progress continues in the terminal. Configuration stays in
+the CLI; the admin drawer's **Local setup** tab is a read-only reference.
+
+The assistant creates a private mode-0600 `.env` with local secrets and keeps
+an existing `.env` unchanged unless you request reconfiguration.
+Custom prompts show current limits and suggested values. The job CPU limit stays
+at or below the worker budget. Run `./bin/local_instance.sh scan` to check again;
+`scan --json` prints the same observations for scripts. Capacity checks do not
+establish scientific suitability or measured performance.
+
+Both fresh recommendations enable a separate worker-only accession cache:
+10 GiB, 256 entries and 30 days since population. Compatible public accession
+results can be reused; eviction causes normal recomputation. Uploaded/private
+inputs remain excluded. Existing configurations keep their cache choice until
+reviewed reconfiguration. See [cache storage and identity](docs/ACCESSION_CACHE.md).
 
 Fresh local setups keep jobs until you delete them. Hosted jobs expire after
-30 days by default; the shared accession cache has separate storage limits.
+30 days by default; cache retention is independent. Use
+`./bin/init_local_instance.sh --reconfigure` to review changes. Automatic startup
+after Docker starts and browser opening on later launcher starts are separate
+choices, enabled by `--defaults` and prompted during interactive setup. The first-run browser progress choice is independent. Return after shutdown with `./bin/local_instance.sh start`, then
+`./bin/local_instance.sh open`; disable with
+`./bin/local_instance.sh disable-autostart`. No host startup hooks are installed.
+If you save settings and pause before preparation, resume with
+`./bin/local_instance.sh weave`. Scripted initialization uses
+`./bin/init_local_instance.sh --non-interactive --recommendation conservative`;
+add `--weave` only when you intend to build and download runtimes.
+The [beginner guide](docs/BEGINNER_SETUP.md) covers readiness and platform limits.
 
 New configurations select `CLUSTERWEAVE_ACCESS_PROFILE=local-owner` and bind
 only to `127.0.0.1`. Open the exact printed URL. The local-owner profile trusts
@@ -214,11 +257,12 @@ Increasing either count can increase processing time, storage use, and figure
 complexity. Configurable acceptance is not a performance or scientific-scale
 guarantee; the synthetic coverage extends to 75 genomes.
 
-`prepare-runtime` acquires every supported local runtime asset, including the
+`prepare-runtime` acquires the standard local runtime assets listed here: the
 antiSMASH and Pfam data, NCBI Datasets tools, pinned third-party images,
 FunBGCeX and BUSCO-baked funannotate images, FastTree, MiBIG, and the shared
 NPLinker environment. It records image identities and file checksums in the
-private software volume. `check-runtime` verifies the same state without
+private software volume. plantiSMASH requires separate
+[plant runtime preparation](docs/PLANTISMASH_RUNTIME.md). `check-runtime` verifies the same state without
 pulling, downloading, building, installing, or rewriting its manifest.
 
 The worker still runs the same startup subset for compatibility when services
@@ -304,6 +348,7 @@ evidence, not biological ground truth.
 | [`docs/BEGINNER_SETUP.md`](docs/BEGINNER_SETUP.md) | First local installation, first job, backup, update, and troubleshooting tutorial |
 | [`docs/INSTALL.md`](docs/INSTALL.md) | Detailed local profile, configuration, platform, and troubleshooting reference |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Shipped web, queue, worker, taxonomy, and result boundaries |
+| [`docs/EXTENDING.md`](docs/EXTENDING.md) | Contributor routes for annotators, BGC detection tools, figures and optional analyses |
 | [`docs/WEB_RUNTIME.md`](docs/WEB_RUNTIME.md) | Current runtime, resource admission, result access, and security behavior |
 | [`docs/CADES_SLURM_BACKEND.md`](docs/CADES_SLURM_BACKEND.md) | External Slurm executor setup and validation |
 | [`docs/ACCESSION_CACHE.md`](docs/ACCESSION_CACHE.md) | Optional accession-result reuse, identity, storage limits and operator inspection |
@@ -318,10 +363,11 @@ evidence, not biological ground truth.
 | [`CHANGELOG.md`](CHANGELOG.md) | Version history |
 
 The canonical scientific stages remain shell-first. `run_clusterweave.sh` calls
-the annotation/BGC, BiG-SCAPE, summary, clinker, figure, and optional follow-up
-entrypoints, while focused Python helpers transform and render declared outputs.
-The web/browser layer stages the same workflow rather than maintaining a second
-scientific implementation.
+the annotation/BGC, BiG-SCAPE, summary and clinker entrypoints. The web pipeline
+prepares inputs first, then invokes the wrapper, figures and selected follow-ups,
+and packages results. Direct CLI users invoke preparation and follow-up scripts
+explicitly. Focused Python helpers transform and render declared outputs; the
+[extension guide](docs/EXTENDING.md) connects these modules to their consumers.
 
 ## Manuscript, authorship, and conceptualization
 
@@ -351,7 +397,7 @@ DE-AC05-00OR22725.
 Citation metadata is in [`CITATION.cff`](CITATION.cff). The companion software
 record resolves at
 [doi:10.11578/PMI/dc.20260608.2](https://doi.org/10.11578/PMI/dc.20260608.2).
-Version 1.0.5 is the current public release.
+Version 1.1.0 is the current public release.
 
 ClusterWeave's own source is available under the
 [BSD 3-Clause License](LICENSE). Downloaded tools, containers, databases, and

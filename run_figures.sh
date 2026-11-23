@@ -358,25 +358,28 @@ BIGSCAPE_NETWORK_OUTPUT_DIR="${BIGSCAPE_NETWORK_OUTPUT_DIR:-${RESULTS_ROOT}/figu
 
 FUNGI_COUNT=0
 BACTERIA_COUNT=0
+PLANTS_COUNT=0
 if [[ -s "${GENOME_TAXON_MANIFEST}" ]]; then
-  read -r FUNGI_COUNT BACTERIA_COUNT < <(
+  read -r FUNGI_COUNT BACTERIA_COUNT PLANTS_COUNT < <(
     awk -F '\t' '
       NR == 1 { for (i = 1; i <= NF; i++) h[$i] = i; next }
-      { taxon = $(h["taxon_group"]); if (taxon == "fungi") fungi++; else if (taxon == "bacteria") bacteria++ }
-      END { print fungi + 0, bacteria + 0 }
+      { taxon = $(h["taxon_group"]); if (taxon == "fungi") fungi++; else if (taxon == "bacteria") bacteria++; else if (taxon == "plants") plants++ }
+      END { print fungi + 0, bacteria + 0, plants + 0 }
     ' "${GENOME_TAXON_MANIFEST}"
   )
 else
   case "${ANALYSIS_SCOPE}" in
     bacteria) BACTERIA_COUNT=1 ;;
+    plants) PLANTS_COUNT=1 ;;
+    mixed) die "Mixed figures require the validated genome taxon manifest." ;;
     both) FUNGI_COUNT=1; BACTERIA_COUNT=1 ;;
     *) FUNGI_COUNT=1 ;;
   esac
 fi
-log "FIGURE_TAXON_CONTEXT scope=${ANALYSIS_SCOPE} fungi=${FUNGI_COUNT} bacteria=${BACTERIA_COUNT}"
+log "FIGURE_TAXON_CONTEXT scope=${ANALYSIS_SCOPE} fungi=${FUNGI_COUNT} bacteria=${BACTERIA_COUNT} plants=${PLANTS_COUNT}"
 
 FUNGAL_SUMMARY_TABLE="${SUMMARY_TABLE}"
-if [[ "${FUNGI_COUNT}" -gt 0 && "${BACTERIA_COUNT}" -gt 0 && -s "${SUMMARY_TABLE}" ]]; then
+if [[ "${FUNGI_COUNT}" -gt 0 && "$((BACTERIA_COUNT + PLANTS_COUNT))" -gt 0 && -s "${SUMMARY_TABLE}" ]]; then
   FIGURE_WORK_ROOT="${WORK_ROOT:-${RESULTS_ROOT}/tmp}/figures"
   mkdir -p "${FIGURE_WORK_ROOT}"
   FUNGAL_SUMMARY_TABLE="${FIGURE_WORK_ROOT}/fungal_summary.csv"
@@ -569,6 +572,10 @@ render_taxon_bigscape_multipanel \
   bacteria "${BACTERIA_COUNT}" bacteria_big_scape_multipanel \
   "${SUMMARY_TABLE}" "${BACTERIAL_BIGSCAPE_METADATA_TSV}" \
   "${BACTERIAL_BIGSCAPE_ECOLOGY_FIELD}"
+
+render_taxon_bigscape_multipanel \
+  plants "${PLANTS_COUNT}" plants_big_scape_multipanel \
+  "${SUMMARY_TABLE}" "${BIGSCAPE_NETWORK_ANNOTATION_TABLE}" "${BACTERIAL_BIGSCAPE_ECOLOGY_FIELD}"
 
 if [[ "${RUN_TAXON_TREE_FIGURE}" == "1" ]]; then
   if [[ ! -f "${RENDER_PHYLO_TAXON_PROFILE_PY}" ]]; then

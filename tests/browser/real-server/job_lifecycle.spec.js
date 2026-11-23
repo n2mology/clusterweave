@@ -164,7 +164,7 @@ test('real server renders sanitized running progress under reduced motion', asyn
   const runningRow = page.locator('#bgc-genome-progress-grid .genome-progress-row').first();
   await expect(runningRow).toContainText('running fungus');
   await expect(runningRow).toContainText('Scanning protein domains');
-  await expect(runningRow.locator('[role="progressbar"]')).toHaveAttribute('aria-valuenow', '20');
+  await expect(runningRow.locator('[role="progressbar"]')).toHaveAttribute('aria-valuenow', '42');
   expect(JSON.stringify(activity)).not.toContain('private_record');
   expect(JSON.stringify(activity)).not.toContain('/data/jobs');
   expect(await page.evaluate(() => reducedMotionPreferred())).toBe(true);
@@ -212,13 +212,13 @@ test('real server opens an attested completed result reader with keyboard contro
   await figure.focus();
   await expect(figure).toBeFocused();
   await page.keyboard.press('+');
-  await expect(figure.locator('.figure-zoom-reset')).toHaveText('120%');
+  await expect(page.locator('#viz-container .figure-panel .figure-zoom-reset')).toHaveText('120%');
   await page.keyboard.press('-');
-  await expect(figure.locator('.figure-zoom-reset')).toHaveText('100%');
+  await expect(page.locator('#viz-container .figure-panel .figure-zoom-reset')).toHaveText('100%');
   await page.keyboard.press('+');
-  await expect(figure.locator('.figure-zoom-reset')).toHaveText('120%');
+  await expect(page.locator('#viz-container .figure-panel .figure-zoom-reset')).toHaveText('120%');
   await page.keyboard.press('Escape');
-  await expect(figure.locator('.figure-zoom-reset')).toHaveText('100%');
+  await expect(page.locator('#viz-container .figure-panel .figure-zoom-reset')).toHaveText('100%');
   const openHref = await page.locator('#viz-container .figure-actions a', { hasText: 'Open' }).getAttribute('href');
   expect(new URL(openHref).pathname).toBe(`/api/results/${fixture.runId}/artifacts/${figureArtifact.id}`);
   expect(openHref).not.toContain(fixture.token);

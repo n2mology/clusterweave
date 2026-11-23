@@ -6,7 +6,7 @@ let accessionFileSourceSerial = 0;
 let genomeCheckCache = new Map();
 let genbankTaxonomyAuthorityCache = new Map();
 let brutalInputNotices = new Map();
-let stagedAnalysisScope = 'fungi';
+let stagedAnalysisScope = 'mixed';
 let stagedTaxonAssignments = new Map();
 let stagedTaxonAssignmentSources = new Map();
 let taxonAssignmentSidecar = null;
@@ -103,14 +103,14 @@ let clusterweaveGameDemandWired = false;
 let clusterweaveGameConnectionState = navigator.onLine === false ? 'browser-offline' : 'connected';
 
 const GSAP_BROWSER_PATH = 'vendor/gsap-3.15.0/gsap.min.js';
-const WORKFLOW_DNA_MODULE_PATH = new URL('assets/workflow-dna-progress.js?v=20260713-fanout-ui1', window.location.href).toString();
+const WORKFLOW_DNA_MODULE_PATH = new URL('assets/workflow-dna-progress.js?v=20261119-extras2', window.location.href).toString();
 const API_RESULT_MODULE_PATH = new URL('assets/api-result-boundary.js?v=20261030-local-owner1', window.location.href).toString();
-const RESULT_READER_MODULE_PATH = new URL('assets/result-reader-boundary.js?v=20260827-bigscape-family1', window.location.href).toString();
-const INTAKE_TAXON_MODULE_PATH = new URL('assets/intake-taxon-boundary.js?v=20260902-input-station1', window.location.href).toString();
-const JOB_LIFECYCLE_MODULE_PATH = new URL('assets/job-lifecycle-boundary.js?v=20261104-exclusions1', window.location.href).toString();
-const PROGRESS_TREE_MODULE_PATH = new URL('assets/progress-tree.js?v=20261104-exclusions1', window.location.href).toString();
-const PROGRESS_TREE_CONTRACT_PATH = new URL('assets/progress-tree-contract.json?v=20261104-exclusions1', window.location.href).toString();
-const DIAGNOSTICS_ACCESS_MODULE_PATH = new URL('assets/diagnostics-access-boundary.js?v=20260727-r12h1', window.location.href).toString();
+const RESULT_READER_MODULE_PATH = new URL('assets/result-reader-boundary.js?v=20261123-viewer1', window.location.href).toString();
+const INTAKE_TAXON_MODULE_PATH = new URL('assets/intake-taxon-boundary.js?v=20261119-extras2', window.location.href).toString();
+const JOB_LIFECYCLE_MODULE_PATH = new URL('assets/job-lifecycle-boundary.js?v=20261123-timezone1', window.location.href).toString();
+const PROGRESS_TREE_MODULE_PATH = new URL('assets/progress-tree.js?v=20261123-release1', window.location.href).toString();
+const PROGRESS_TREE_CONTRACT_PATH = new URL('assets/progress-tree-contract.json?v=20261122-native1', window.location.href).toString();
+const DIAGNOSTICS_ACCESS_MODULE_PATH = new URL('assets/diagnostics-access-boundary.js?v=20261123-timezone1', window.location.href).toString();
 const MOTION_MODULE_PATH = new URL('assets/motion-boundary.js?v=20260727-r12h1', window.location.href).toString();
 const CLUSTERWEAVE_GAME_ASSET_SELECTOR = 'meta[name="clusterweave-game-asset"]';
 let apiResultBoundary = null;
@@ -414,6 +414,7 @@ const diagnosticsAccessBoundaryInstalled = new Promise((resolve, reject) => {
         jobStageEnabled,
         loadJob,
         normalizedResultPath,
+        parseTimestampMs,
         openOpsPanel,
         refreshJobHistory,
         renderJobHistory,
@@ -1183,7 +1184,7 @@ function resetToIdleWorkbench() {
   setDrawerText('log-count', '0 lines');
   const rerunPanel = document.getElementById('rerun-panel');
   if (rerunPanel) rerunPanel.innerHTML = '';
-  resetStagedAnalysisState('fungi');
+  resetStagedAnalysisState('mixed');
   markActiveJobCard('');
   showEmptyResults();
   document.getElementById('upload-card')?.classList.remove('upload-card-locked');
@@ -1247,7 +1248,7 @@ function toggleCard(id) {
 }
 
 function switchToolCreditTab(name) {
-  const names = ['support', 'web', 'local'];
+  const names = ['support', 'web', 'local', 'base'];
   const selected = names.includes(name) ? name : 'support';
   document.querySelectorAll('.tool-credit-tab').forEach(tab => {
     const active = tab.dataset.toolCreditTab === selected;
@@ -1820,7 +1821,7 @@ function ecologyReceiptRows() {
 function collectRunSetupAcceptedInputs() {
   const rows = [];
   const scope = normalizeAnalysisScope(stagedAnalysisScope);
-  const declaredGroup = scope === 'both' ? '' : scope;
+  const declaredGroup = ['both', 'mixed'].includes(scope) ? '' : scope;
   const accessionSource = new Map();
   accessionFileSources.forEach((source) => {
     source.accessions.forEach((accession) => {
@@ -1842,7 +1843,7 @@ function collectRunSetupAcceptedInputs() {
       label: item.inputKey,
       kind: 'Genome upload',
       source: item.files.map(file => file.name).join(' + '),
-      taxonGroup: scope === 'both'
+      taxonGroup: ['both', 'mixed'].includes(scope)
         ? decision.taxonGroup
         : scope,
     });
@@ -1858,6 +1859,8 @@ function currentRunSetupTaxaLabel() {
   const scope = normalizeAnalysisScope(stagedAnalysisScope);
   if (scope === 'bacteria') return 'bacterial genome intake / Prodigal';
   if (scope === 'both') return 'fungi + bacteria genome intake';
+  if (scope === 'plants') return 'plant translated GenBank / plantiSMASH';
+  if (scope === 'mixed') return 'fungi, bacteria and plants / annotation validation required';
   const buscoDb = document.getElementById('funannotate-busco-db')?.value.trim();
   return buscoDb ? `${buscoDb} / fungal genome intake` : 'fungal genome intake';
 }
@@ -1984,7 +1987,7 @@ function receiptAcceptedInputItems(receipt) {
           || metadata.taxon_group
           || metadata.taxonGroup
           || assignmentByInput.get(receiptInputKey(receiptGenomeStem(label)))
-          || (receiptScope === 'both' ? '' : receiptScope),
+          || (['both', 'mixed'].includes(receiptScope) ? '' : receiptScope),
       ),
       taxId,
       orderName: item.orderName || item.order_name || metadata.order_name || metadata.orderName || '',
@@ -2051,16 +2054,17 @@ function receiptOrganismLine(receipt, item) {
 function receiptTaxaLine(receipt, item) {
   const itemTaxa = String(item.taxa || '').trim();
   if (itemTaxa) return itemTaxa;
+  const group = normalizeTaxonGroup(item.taxonGroup);
+  if (group) {
+    if (item.kind === 'NCBI accession') return `${group} / NCBI taxonomy`;
+    return { fungi: 'fungal genome intake', bacteria: 'bacterial genome intake', plants: 'plant genome intake / translated CDS required' }[group];
+  }
   const receiptTaxa = String(receipt.taxa || receipt.taxonomy || receipt.taxonomyLabel || '').trim();
   if (receiptTaxa) return receiptTaxa;
-  if (item.taxonGroup === 'bacteria') return item.kind === 'NCBI accession' ? 'bacteria / NCBI taxonomy' : 'bacterial genome intake';
-  if (item.taxonGroup === 'fungi') return item.kind === 'NCBI accession' ? 'fungi / NCBI taxonomy' : 'fungal genome intake';
   const scope = normalizeAnalysisScope(receipt.analysisScope || receipt.analysis_scope);
-  if (scope === 'bacteria') return item.kind === 'NCBI accession' ? 'bacteria / NCBI taxonomy' : 'bacterial genome intake';
-  if (scope === 'both') return item.kind === 'NCBI accession' ? 'NCBI taxonomy pending' : 'mixed genome intake';
-  if (item.kind === 'NCBI accession') return 'fungi / NCBI taxonomy';
-  if (item.kind === 'Genome upload') return 'fungal genome intake';
-  return 'input taxonomy from stored run';
+  if (['both', 'mixed'].includes(scope)) return item.kind === 'NCBI accession' ? 'NCBI taxonomy pending' : 'input taxonomy pending';
+  if (item.kind === 'NCBI accession') return `${scope} / NCBI taxonomy`;
+  return { fungi: 'fungal genome intake', bacteria: 'bacterial genome intake', plants: 'plant genome intake / translated CDS required' }[scope];
 }
 
 function receiptTaxonIdLine(item) {
@@ -2186,11 +2190,9 @@ function runSetupReceiptFromJob(job) {
     accessionMetadata: Array.isArray(inputSummary.accession_metadata) ? inputSummary.accession_metadata : [],
     inputSummary,
     organismName: String(settings.funannotate_organism_name || settings.funannotateOrganismName || '').trim(),
-    taxa: context.scope === 'bacteria'
-      ? 'bacterial genome intake / Prodigal'
-      : context.scope === 'both'
-        ? 'fungi + bacteria genome intake'
-        : 'fungal genome intake',
+    taxa: { fungi: 'fungal genome intake', bacteria: 'bacterial genome intake / Prodigal',
+      both: 'fungi + bacteria genome intake', plants: 'plant translated GenBank / plantiSMASH',
+      mixed: 'fungi, bacteria and plants / annotation validation required' }[context.scope],
     analysisScope: context.scope,
     taxonCounts: context.taxonCounts,
     taxonAssignments: inputSummary.taxon_assignments || inputSummary.taxonAssignments || {},
@@ -2384,7 +2386,7 @@ function renderRunSetupAccessPanel(payload = {}) {
       taxonCounts: receipt.taxonCounts || receipt.taxon_counts || payload.taxonCounts || payload.taxon_counts || {},
     };
     const counts = normalizeTaxonCounts(context.taxonCounts);
-    const countLabel = counts.known ? ` · ${counts.fungi} fungi / ${counts.bacteria} bacteria` : '';
+    const countLabel = counts.known ? ` · ${counts.fungi} fungi / ${counts.bacteria} bacteria / ${counts.plants} plants` : '';
     analysisScope.textContent = `${analysisScopeLabel(context.scope)}${countLabel}`;
   }
   if (target) target.textContent = receipt.targetGenome || 'Not selected';
@@ -3054,8 +3056,8 @@ function applyPreset(name) {
   syncControlState();
 }
 
-const ANALYSIS_SCOPES = new Set(['fungi', 'both', 'bacteria']);
-const TAXON_GROUPS = new Set(['fungi', 'bacteria']);
+const ANALYSIS_SCOPES = new Set(['fungi', 'both', 'bacteria', 'plants', 'mixed']);
+const TAXON_GROUPS = new Set(['fungi', 'bacteria', 'plants']);
 
 function normalizeAnalysisScope(value, fallback = 'fungi') {
   const scope = String(value || '').trim().toLowerCase();
@@ -3066,6 +3068,8 @@ function analysisScopeLabel(value) {
   const scope = normalizeAnalysisScope(value);
   if (scope === 'bacteria') return 'Bacteria';
   if (scope === 'both') return 'Both';
+  if (scope === 'plants') return 'Plants';
+  if (scope === 'mixed') return 'Mixed';
   return 'Fungi';
 }
 
@@ -3078,7 +3082,7 @@ function normalizeTaxonCounts(value) {
   const counts = value && typeof value === 'object' ? value : {};
   const fungiValue = counts.fungi ?? counts.fungal ?? counts.fungi_count ?? counts.fungal_count;
   const bacteriaValue = counts.bacteria ?? counts.bacterial ?? counts.bacteria_count ?? counts.bacterial_count;
-  const known = fungiValue !== undefined || bacteriaValue !== undefined;
+  const known = fungiValue !== undefined || bacteriaValue !== undefined || counts.plants !== undefined;
   const finiteCount = raw => {
     const number = Number(raw || 0);
     return Number.isFinite(number) && number > 0 ? Math.trunc(number) : 0;
@@ -3086,6 +3090,7 @@ function normalizeTaxonCounts(value) {
   return {
     fungi: finiteCount(fungiValue),
     bacteria: finiteCount(bacteriaValue),
+    plants: finiteCount(counts.plants),
     known,
   };
 }
@@ -3127,10 +3132,13 @@ function activeAnalysisContext() {
 function analysisCapabilities(context = activeAnalysisContext()) {
   const scope = normalizeAnalysisScope(context?.scope);
   const counts = normalizeTaxonCounts(context?.taxonCounts);
-  const countsKnown = counts.known && (counts.fungi + counts.bacteria > 0);
-  const hasFungi = countsKnown ? counts.fungi > 0 : scope !== 'bacteria';
-  const hasBacteria = countsKnown ? counts.bacteria > 0 : scope !== 'fungi';
+  const countsKnown = counts.known && (counts.fungi + counts.bacteria + counts.plants > 0);
+  const hasFungi = countsKnown ? counts.fungi > 0 : ['fungi', 'both', 'mixed'].includes(scope);
+  const hasBacteria = countsKnown ? counts.bacteria > 0 : ['bacteria', 'both', 'mixed'].includes(scope);
+  const hasPlants = countsKnown ? counts.plants > 0 : ['plants', 'mixed'].includes(scope);
   return Object.freeze({
+    hasPlants,
+    plantismash: hasPlants,
     scope,
     taxonCounts: counts,
     hasFungi,
@@ -3139,10 +3147,10 @@ function analysisCapabilities(context = activeAnalysisContext()) {
     funannotate: hasFungi,
     funbgcex: hasFungi,
     antismash: hasFungi || hasBacteria,
-    bigscape: hasFungi || hasBacteria,
+    bigscape: hasFungi || hasBacteria || hasPlants,
     fungalFigures: hasFungi,
     bacterialFigures: hasBacteria,
-    taxonomyTree: hasFungi || hasBacteria,
+    taxonomyTree: hasFungi || hasBacteria || hasPlants,
   });
 }
 
@@ -3247,7 +3255,7 @@ function parseTaxonAssignmentSidecarText(text) { return intakeTaxonBoundary.pars
 async function loadTaxonAssignmentSidecar(file) { return intakeControllerBoundary.loadTaxonAssignmentSidecar(...arguments); }
 function removeTaxonAssignmentSidecar() { return intakeControllerBoundary.removeTaxonAssignmentSidecar(...arguments); }
 async function handleAnalysisScopeChange() { return intakeControllerBoundary.handleAnalysisScopeChange(...arguments); }
-function resetStagedAnalysisState(scope = 'fungi') { return intakeControllerBoundary.resetStagedAnalysisState(...arguments); }
+function resetStagedAnalysisState(scope = 'mixed') { return intakeControllerBoundary.resetStagedAnalysisState(...arguments); }
 function accessionLimit() { return intakeControllerBoundary.accessionLimit(...arguments); }
 function normalizeAccessionDraft(value) { return intakeControllerBoundary.normalizeAccessionDraft(...arguments); }
 function normalizeShortToken(value, maxLength = 20) { return intakeControllerBoundary.normalizeShortToken(...arguments); }
@@ -3841,7 +3849,6 @@ function setBgcWorkflowGenomeLayerSuspended(suspended) {
 function setBgcWorkflowAggregatePresentationSuspended(suspended) {
   const hidden = !!suspended;
   [
-    document.getElementById('bgc-tool-activity-chip'),
     document.querySelector('#bgc-workflow-station > .workflow-tool-status'),
     document.querySelector('#bgc-workflow-station > .workflow-caption'),
     document.getElementById('bgc-dna-progress-region'),
@@ -5411,12 +5418,19 @@ function appendSystemLog(text) { return diagnosticsControllerBoundary.appendSyst
 // ── Bootstrap Management ──────────────────────────────────────────────────────
 let bootstrapComplete = false;
 const bootstrapSteps = [
+  { key: 'plantismash', label: 'plantiSMASH runtime' },
   { key: 'antismash', label: 'antiSMASH databases' },
   { key: 'pfam', label: 'Pfam database' },
   { key: 'ncbi_cli', label: 'NCBI Datasets CLI' },
   { key: 'clinker_image', label: 'clinker image pre-pull' },
   { key: 'bigscape_image', label: 'BiG-SCAPE image pre-pull' },
   { key: 'funbgcex_image', label: 'FunBGCeX image build' },
+  { key: 'braker3_image', label: 'BRAKER3 image' },
+  { key: 'funannotate_image', label: 'funannotate image' },
+  { key: 'nplinker_image', label: 'NPLinker base image' },
+  { key: 'fasttree', label: 'FastTree' },
+  { key: 'mibig', label: 'MiBIG GenBank data' },
+  { key: 'nplinker_environment', label: 'NPLinker environment' },
   { key: 'starting_worker', label: 'Worker startup' },
 ];
 
@@ -5425,12 +5439,19 @@ const bootstrapPhaseOrder = ['prepare', ...bootstrapSteps.map(s => s.key), 'read
 function phaseToLabel(phase) {
   const map = {
     prepare: 'Preparing bootstrap',
+    plantismash: 'Checking plantiSMASH runtime',
     antismash: 'Downloading antiSMASH databases',
     pfam: 'Downloading Pfam database',
     ncbi_cli: 'Preparing NCBI Datasets CLI',
     funbgcex_image: 'Preparing FunBGCeX image',
     clinker_image: 'Pulling clinker image',
     bigscape_image: 'Pulling BiG-SCAPE image',
+    braker3_image: 'Preparing BRAKER3 image',
+    funannotate_image: 'Preparing funannotate image',
+    nplinker_image: 'Preparing NPLinker base image',
+    fasttree: 'Preparing FastTree',
+    mibig: 'Preparing MiBIG GenBank data',
+    nplinker_environment: 'Preparing NPLinker environment',
     starting_worker: 'Starting worker process',
     ready: 'Worker ready',
     idle: 'Worker idle',
@@ -5460,6 +5481,35 @@ function isFullSystemStatus(system) {
     Object.prototype.hasOwnProperty.call(system, 'runtime') ||
     Object.prototype.hasOwnProperty.call(system, 'capabilities')
   ));
+}
+
+function renderLocalSetupGuide(system) {
+  const guide = document.getElementById('local-setup-guide');
+  const tab = document.getElementById('ops-tab-setup');
+  if (!guide || !tab) return;
+  const settings = system?.local_setup;
+  tab.hidden = !settings;
+  if (!settings) {
+    if (tab.getAttribute('aria-selected') === 'true') switchOpsTab('jobs', { focus: false });
+    guide.hidden = true;
+    return;
+  }
+  const put = (id, text) => { document.getElementById(id).textContent = text; };
+  if (settings.configuration_error) {
+    put('local-setup-readiness', 'An advanced configuration is in use. Review it in the terminal.');
+    ['local-setup-cpus', 'local-setup-memory', 'local-setup-job-cpus', 'local-setup-url', 'local-setup-retention', 'local-setup-cache', 'local-setup-startup'].forEach(id => put(id, 'Not displayed'));
+    return;
+  }
+  put('local-setup-readiness', system.ready && !system.stale
+    ? 'Worker ready. Check Runtime status for prepared scientific capabilities.'
+    : 'Web is here. The worker is not ready yet; check Runtime status and worker logs.');
+  put('local-setup-cpus', settings.worker_cpus);
+  put('local-setup-memory', `${settings.worker_memory_gib} GiB`);
+  put('local-setup-job-cpus', settings.job_cpus);
+  put('local-setup-url', settings.url);
+  put('local-setup-retention', `${settings.job_retention}.`);
+  put('local-setup-cache', `${settings.cache_enabled ? 'On' : 'Off'}: ${settings.cache_max_bytes / 1073741824} GiB / ${settings.cache_max_entries} entries / ${settings.cache_max_age_seconds / 86400} days since population.`);
+  put('local-setup-startup', `After Docker starts: ${settings.automatic_startup ? 'automatic' : 'manual'}. Browser on launcher start: ${settings.open_browser ? 'on' : 'off'}.`);
 }
 
 async function fetchSystemStatus(options = {}) {
@@ -5504,6 +5554,7 @@ async function fetchSystemStatus(options = {}) {
       runtimeCapabilities = null;
       renderRuntimeBanner();
     }
+    renderLocalSetupGuide(payload);
     if (options.renderRuntime !== false) updateRuntimeStatusPanel(payload);
     if (options.renderWorker !== false) renderWorkerDrawer(payload);
     return payload;
@@ -5525,13 +5576,20 @@ function updateBootstrapSteps(system) {
   const stepsList = document.getElementById('bootstrap-steps');
   stepsList.innerHTML = bootstrapSteps.map((s) => {
     const idx = bootstrapPhaseOrder.indexOf(s.key);
-    const done = phaseIdx > idx || (system && system.ready === true);
-    const running = !done && phase === s.key;
+    const plant = s.key === 'plantismash';
+    const available = system?.capabilities?.stages?.plantismash?.available;
+    // Worker readiness does not imply that this optional runtime is available.
+    const done = plant ? available === true
+      : (phase !== 'error' && phaseIdx > idx) || system?.ready === true;
+    const running = !done && phase === s.key && (!plant || available !== false);
     const cls = done ? 'done' : (running ? 'running' : '');
+    const state = plant && !done && !running
+      ? (available === false ? 'Unavailable' : 'Not yet verified') : '';
+    const label = state ? `${s.label}: ${state}` : s.label;
     return `
-    <div class="bootstrap-step ${cls}">
+    <div class="bootstrap-step ${cls}" data-bootstrap-step="${s.key}">
       <span class="bootstrap-step-icon" aria-hidden="true"></span>
-      <div>${s.label}</div>
+      <div>${label}</div>
     </div>
   `;
   }).join('');
@@ -5755,7 +5813,7 @@ async function initializeApp() {
   renderOpenedRuns();
   wireRunStackDismissal();
   await intakeTaxonBoundaryReady;
-  resetStagedAnalysisState('fungi');
+  resetStagedAnalysisState('mixed');
   renderAcceptedAccessions();
   initializeBrutalInputStation();
   switchEntryTab('new');

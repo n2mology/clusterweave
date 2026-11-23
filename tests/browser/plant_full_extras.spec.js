@@ -1,0 +1,40 @@
+const {test,expect}=require('@playwright/test');
+const fs=require('fs'),path=require('path');
+const evidence=process.env.CLUSTERWEAVE_FULL_EXTRAS_EVIDENCE;
+const base=process.env.CLUSTERWEAVE_FULL_EXTRAS_BASE_URL||'http://127.0.0.1:4182';
+for(const width of [1440,390])test(`complete native plant genome, empty record and figures at ${width}px`,async({page})=>{
+ test.skip(!evidence,'Complete private real outputs are opt-in');test.setTimeout(120000);
+ const a=JSON.parse(fs.readFileSync(path.join(evidence,'mixed-access.json')));
+ await page.setViewportSize({width,height:1000});await page.goto(`${base}/#/results/${a.run_id}/${a.token}`);
+ await page.waitForFunction(()=>typeof activeResultFiles!=='undefined'&&activeResultFiles.length>0);
+ const block=page.locator('[data-output-key="plantismash"]');await block.click();await expect(page.locator('#files-container .artifact-reader-head')).toContainText('Per-genome plantiSMASH HTML views.');await expect(page.locator('#files-container .artifact-reader-head')).toContainText('1 view');await expect(page.locator('#files-container .artifact-reader-title')).toHaveText('PLANTISMASH');
+ await expect(page.locator('#files-container')).toContainText('Populus trichocarpa');
+ const pending=page.waitForEvent('popup');await page.locator('#files-container').getByRole('link',{name:'Open',exact:true}).click();const popup=await pending;await popup.setViewportSize({width,height:1000});
+ const errors=[],failures=[];popup.on('pageerror',e=>errors.push(String(e)));popup.on('response',r=>{if(r.status()>=400)failures.push(r.status());});
+ await expect(popup.locator('iframe')).toHaveAttribute('sandbox','allow-scripts allow-downloads',{timeout:30000});const f=popup.frameLocator('#clusterweave-tool-result-preview');
+ await expect(f.locator('#clusterweave-plant-genome-overview tbody tr')).toHaveCount(76);
+ await f.locator('#clusterweave-plant-records summary').click();
+ await f.getByRole('link',{name:'NC_037285.2',exact:true}).click();
+ await expect(f.locator('#cluster-overview')).toBeVisible({timeout:30000});
+ await expect.poll(()=>f.locator('body').evaluate(b=>[...b.ownerDocument.images].filter(i=>i.getAttribute('src')&&(!i.complete||!i.naturalWidth)).length)).toBe(0);
+ const assets=await f.locator('body').evaluate(b=>({styles:b.ownerDocument.styleSheets.length,scripts:b.ownerDocument.scripts.length}));expect(assets.styles).toBeGreaterThan(0);expect(assets.scripts).toBeGreaterThan(0);
+ await f.getByRole('link',{name:'Cluster 6',exact:true}).click();
+ const hmmOnly=f.locator('#cluster-6 tr').filter({hasText:'LOC18094088'}).filter({hasText:'SDR460A_(PLR-IFR)'});
+ await expect(hmmOnly).toHaveCount(1);
+ await expect(hmmOnly.locator('td').last()).toHaveText('SDR460A_(PLR-IFR) (E: 4e-147)');
+ await f.getByRole('link',{name:'1',exact:true}).click();
+ const gbkPending=popup.waitForEvent('download');await f.locator('#cluster-1').getByRole('link',{name:'Download cluster GenBank file',exact:true}).click();const gbk=await gbkPending;expect(gbk.suggestedFilename()).toMatch(/\.gbk$/);await gbk.saveAs(path.join(evidence,`full-${width}-${gbk.suggestedFilename()}`));
+ await f.locator('#download').click();const xlsPending=popup.waitForEvent('download');await f.getByRole('link',{name:'Download XLS overview file',exact:true}).click();const xls=await xlsPending;expect(xls.suggestedFilename()).toMatch(/\.xlsx$/);await xls.saveAs(path.join(evidence,`full-${width}-${xls.suggestedFilename()}`));
+ await popup.screenshot({path:path.join(evidence,`full-native-${width}.png`),fullPage:true});
+ await popup.getByRole('button',{name:'Genome overview',exact:true}).click();await expect(f.locator('#clusterweave-plant-genome-overview tbody tr')).toHaveCount(76);await f.locator('#clusterweave-plant-records summary').click();await expect(f.locator('#clusterweave-plant-records a')).toHaveCount(33);
+ await f.getByRole('link',{name:'NC_009143.1',exact:true}).click();await expect(f.locator('body')).toContainText('No secondary metabolite clusters were found in the input sequence(s)');
+ await popup.screenshot({path:path.join(evidence,`full-empty-${width}.png`),fullPage:true});expect(errors).toEqual([]);expect(failures).toEqual([]);await popup.close();
+ await page.locator('[data-output-key="figures"]').click();
+ const tabs=page.locator('[data-figure-view]');expect(await tabs.count()).toBeGreaterThan(0);
+ const keys=await tabs.evaluateAll(nodes=>nodes.map(n=>n.dataset.figureView));
+ for(const key of keys){
+  await page.locator(`[data-figure-view="${key}"]`).click();
+  await expect.poll(()=>page.locator('.figure-svg-preview').count()).toBeGreaterThan(0);
+  await page.locator('#viz-container').screenshot({path:path.join(evidence,`full-figure-${key.replace(/[^a-z0-9_-]/gi,'_')}-${width}.png`)});
+ }
+});

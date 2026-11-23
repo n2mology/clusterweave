@@ -12,14 +12,14 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from job_store import now_iso, read_job, write_job
+    from job_store import job_needs_scheduler_confirmation, now_iso, queue_admission_lock, read_job, write_job
     from public_results import public_run_id_for_job
 except ImportError:  # pragma: no cover - package-style imports in local tests
-    from .job_store import now_iso, read_job, write_job
+    from .job_store import job_needs_scheduler_confirmation, now_iso, queue_admission_lock, read_job, write_job
     from .public_results import public_run_id_for_job
 
 
-TERMINAL_STATUSES = {"success", "failed"}
+TERMINAL_STATUSES = {"success", "failed", "completed_with_exclusions"}
 
 
 def env_bool(name: str, default: bool = False) -> bool:
@@ -143,6 +143,8 @@ def input_summary_lines(job: dict[str, Any]) -> list[str]:
 
 def result_status_label(status: str) -> str:
     normalized = str(status or "").lower()
+    if normalized == "completed_with_exclusions":
+        return "completed with exclusions"
     if normalized == "success":
         return "complete"
     if normalized == "failed":
@@ -191,7 +193,8 @@ def sanitized_failure_reason(job: dict[str, Any]) -> str:
 
 def build_job_email(job: dict[str, Any], link: str, access_code: str = "") -> EmailMessage:
     status = str(job.get("status") or "unknown")
-    status_label = result_status_label(status)
+    cancelled = status == "failed" and str(job.get("stage") or "").lower() == "cancelled"
+    status_label = "cancelled" if cancelled else result_status_label(status)
     job_id = public_run_id_for_job(job) or "unknown"
     project = str(job.get("project_name") or job.get("name") or "ClusterWeave project")
     submitted = display_timestamp(job.get("created_at"))
@@ -223,6 +226,19 @@ def build_job_email(job: dict[str, Any], link: str, access_code: str = "") -> Em
             "",
             "If you found ClusterWeave useful, please cite the project using",
             docs_link(),
+            "",
+        ]
+    elif cancelled:
+        body = [
+            "Dear ClusterWeave user,",
+            "",
+            lead,
+            "",
+            "This job was cancelled. Logs and any partial results remain available under the result retention policy.",
+            "",
+            *result_lines,
+            "",
+            result_retention_line(job),
             "",
         ]
     else:
@@ -290,41 +306,61 @@ def deliver_email(message: EmailMessage) -> None:
         smtp.send_message(message)
 
 
-def maybe_send_terminal_notification(job_id: str) -> dict[str, Any] | None:
+def maybe_send_terminal_notification(
+    job_id: str, *, cancellation_confirmed: bool = False, expected_attempt: int | None = None,
+) -> dict[str, Any] | None:
     if not smtp_enabled():
         return None
-    job = read_job(job_id)
-    if not job:
-        return None
-    status = str(job.get("status") or "").lower()
-    if status not in TERMINAL_STATUSES:
-        return None
-    email = str(job.get("notify_email") or "").strip()
-    if not email or not validate_email(email):
-        return None
-    notification = job.get("notification") if isinstance(job.get("notification"), dict) else {}
-    if notification.get("status") == status and notification.get("sent_at"):
-        return notification
+    with queue_admission_lock():
+        job = read_job(job_id)
+        if not job or job_needs_scheduler_confirmation(job):
+            return None
+        if expected_attempt is not None and int(job.get("rerun_count") or 0) != expected_attempt:
+            return None
+        status = str(job.get("status") or "").lower()
+        if status not in TERMINAL_STATUSES:
+            return None
+        email = str(job.get("notify_email") or "").strip()
+        if not email or not validate_email(email):
+            return None
+        attempt = int(job.get("rerun_count") or 0)
+        notification = job.get("notification") if isinstance(job.get("notification"), dict) else {}
+        if notification.get("attempt", 0) == attempt and (
+            notification.get("sent_at") or notification.get("delivery") in {"sending", "sent", "unknown"}
+        ):
+            return notification
+        cancelled = status == "failed" and str(job.get("stage") or "").lower() == "cancelled"
+        if cancelled and not cancellation_confirmed:
+            return None
+        outcome = {
+            "attempt": attempt,
+            "status": status,
+            "outcome": "cancelled" if cancelled else status,
+            "attempted_at": now_iso(),
+            "delivery": "sending",
+        }
+        token = add_email_read_token(job)
+        job["notification"] = outcome
+        write_job(job)
 
-    token = add_email_read_token(job)
-    write_job(job)
-    link = result_link(job, token)
-    message = build_job_email(job, link, token)
+    message = build_job_email(job, result_link(job, token), token)
+    identity = hashlib.sha256(f"{job_id}:{attempt}".encode("utf-8")).hexdigest()
+    message["Message-ID"] = f"<clusterweave.{identity}@clusterweave.invalid>"
     try:
         deliver_email(message)
-        outcome = {
-            "status": status,
-            "sent_at": now_iso(),
-            "delivery": "sent",
-        }
+        outcome = {**outcome, "sent_at": now_iso(), "delivery": "sent"}
+    except (
+        smtplib.SMTPConnectError, smtplib.SMTPHeloError, smtplib.SMTPAuthenticationError,
+        smtplib.SMTPSenderRefused, smtplib.SMTPRecipientsRefused, smtplib.SMTPDataError,
+    ):
+        # Explicit SMTP rejection permits a later lifecycle invocation to retry.
+        outcome = {**outcome, "delivery": "failed", "error": "SMTP delivery failed"}
     except Exception:
-        outcome = {
-            "status": status,
-            "attempted_at": now_iso(),
-            "delivery": "failed",
-            "error": "SMTP delivery failed",
-        }
-    latest = read_job(job_id) or job
-    latest["notification"] = outcome
-    write_job(latest)
+        # A lost acknowledgement may follow acceptance. Do not resend automatically.
+        outcome = {**outcome, "delivery": "unknown", "error": "SMTP delivery could not be confirmed"}
+    with queue_admission_lock():
+        latest = read_job(job_id)
+        if latest and int(latest.get("rerun_count") or 0) == attempt:
+            latest["notification"] = outcome
+            write_job(latest)
     return outcome

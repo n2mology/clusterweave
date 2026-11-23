@@ -20,6 +20,8 @@ try:
         job_cancel_requested,
         job_delete_path,
         job_dir,
+        job_needs_scheduler_confirmation,
+        queue_admission_lock,
         list_jobs,
         now_iso,
         read_job,
@@ -35,6 +37,8 @@ except ImportError:  # pragma: no cover - package-style imports in local tests
         job_cancel_requested,
         job_delete_path,
         job_dir,
+        job_needs_scheduler_confirmation,
+        queue_admission_lock,
         list_jobs,
         now_iso,
         read_job,
@@ -48,7 +52,7 @@ Claim = tuple[str, int, dict[str, Any]]
 ClaimProvider = Callable[[], Claim | None]
 CommandRunner = Callable[[list[str], int], subprocess.CompletedProcess[str]]
 
-TERMINAL_STATUSES = {"success", "failed"}
+TERMINAL_STATUSES = {"success", "failed", "awaiting_decision", "completed_with_exclusions"}
 SLURM_PENDING_STATES = {
     "PENDING",
     "CONFIGURING",
@@ -504,76 +508,112 @@ class SlurmBackend:
             return {}
         return payload if isinstance(payload, dict) else {}
 
+    def _read_same_attempt(self, job: dict[str, Any]) -> dict[str, Any] | None:
+        current = read_job(str(job.get("id") or ""))
+        if current is None or int(current.get("rerun_count") or 0) != int(job.get("rerun_count") or 0):
+            return None
+        if slurm_job_id_for(current) != slurm_job_id_for(job):
+            return None
+        return current
+
     def cancel_job(self, job: dict[str, Any]) -> None:
         job_id = str(job.get("id") or "")
         if not job_id:
             return
-        scheduler_id = slurm_job_id_for(job)
-        if scheduler_id:
-            result = self._run(["scancel", scheduler_id])
+        with queue_admission_lock():
+            meta = self._read_same_attempt(job)
+            if meta is None or not job_needs_scheduler_confirmation(meta):
+                return
+            scheduler_id = slurm_job_id_for(meta)
+            scheduler = slurm_scheduler_metadata(meta)
+            if not scheduler_id:
+                detail = "Scheduler job id is unavailable; cancellation remains unconfirmed"
+                if scheduler.get("cancel_error") != detail:
+                    append_log(job_id, f"Slurm: {detail}.")
+                self._set_scheduler_metadata(meta, cancel_error=detail)
+            else:
+                attempts = int(scheduler.get("cancel_attempts") or 0)
+                if scheduler.get("cancel_requested_at") or attempts >= 3:
+                    return
+                self._set_scheduler_metadata(meta, cancel_attempts=attempts + 1, cancel_attempted_at=now_iso())
+            if str(meta.get("status") or "").lower() not in TERMINAL_STATUSES:
+                meta["stage"] = "cancel requested"
+            meta["log_count"] = len(read_logs(job_id))
+            meta["updated_at"] = now_iso()
+            write_job(meta)
+        if not scheduler_id:
+            return
+
+        result = self._run(["scancel", scheduler_id])
+        with queue_admission_lock():
+            meta = self._read_same_attempt(job)
+            if meta is None:
+                return
             if result.returncode == 0:
                 append_log(job_id, f"Slurm: requested cancellation for scheduler job {scheduler_id}.")
+                scheduler = self._set_scheduler_metadata(meta, cancel_requested_at=now_iso())
+                scheduler.pop("cancel_error", None)
             else:
-                detail = _safe_scheduler_detail(
-                    result.stderr or result.stdout or "scancel failed"
-                )
+                detail = _safe_scheduler_detail(result.stderr or result.stdout or "scancel failed")
                 append_log(job_id, f"Slurm: scancel for scheduler job {scheduler_id} failed: {detail}")
-        else:
-            append_log(job_id, "Slurm: cancellation requested before scheduler job id was recorded.")
-
-        cancel_request = self._read_cancel_request(job_id)
-        meta = read_job(job_id) or dict(job)
-        meta["status"] = "failed"
-        meta["stage"] = "cancelled"
-        meta["error"] = str(cancel_request.get("reason") or "Cancelled by administrator")
-        self._set_scheduler_metadata(
-            meta,
-            state="CANCELLED",
-            clusterweave_status="failed",
-            cancelled_at=now_iso(),
-        )
-        meta["log_count"] = len(read_logs(job_id))
-        meta["updated_at"] = now_iso()
-        write_job(meta)
-        maybe_send_terminal_notification(job_id)
-        if cancel_request.get("delete_after_cancel") or job_delete_path(job_id).exists():
-            shutil.rmtree(job_dir(job_id), ignore_errors=True)
+                self._set_scheduler_metadata(meta, cancel_error=detail)
+            meta["log_count"] = len(read_logs(job_id))
+            meta["updated_at"] = now_iso()
+            write_job(meta)
 
     def apply_polled_state(self, job: dict[str, Any], state: str) -> None:
         job_id = str(job.get("id") or "")
         if not job_id:
             return
         normalized = normalize_slurm_state(state)
-        meta = read_job(job_id) or dict(job)
-        previous_status = str(meta.get("status") or "").lower()
-        previous_scheduler_state = str(slurm_scheduler_metadata(meta).get("state") or "")
         status, stage, error = clusterweave_status_for_slurm_state(normalized)
+        terminal = status in TERMINAL_STATUSES
+        with queue_admission_lock():
+            meta = self._read_same_attempt(job)
+            if meta is None:
+                return
+            previous_status = str(meta.get("status") or "").lower()
+            previous_scheduler_state = str(slurm_scheduler_metadata(meta).get("state") or "")
+            if normalized != previous_scheduler_state:
+                append_log(job_id, f"Slurm: scheduler state is {normalized}.")
+            if normalized == "CANCELLED" or previous_status not in TERMINAL_STATUSES:
+                meta["status"] = status
+                meta["stage"] = "cancel requested" if not terminal and job_cancel_requested(job_id) else stage
+                if error is not None or terminal:
+                    meta["error"] = error
+                if normalized == "CANCELLED":
+                    meta["error"] = str(self._read_cancel_request(job_id).get("reason") or error)
+            checked_at = now_iso()
+            scheduler = self._set_scheduler_metadata(meta, state=normalized, clusterweave_status=status, last_checked_at=checked_at)
+            if terminal:
+                scheduler["terminal_confirmed_at"] = checked_at
+                if normalized == "CANCELLED":
+                    scheduler["cancelled_at"] = checked_at
+            else:
+                scheduler.pop("terminal_confirmed_at", None)
+            meta["log_count"] = len(read_logs(job_id))
+            meta["updated_at"] = checked_at
+            write_job(meta)
 
-        if normalized != previous_scheduler_state:
-            append_log(job_id, f"Slurm: scheduler state is {normalized}.")
+        if terminal:
+            self._finish_confirmed_job(job)
 
-        if previous_status not in TERMINAL_STATUSES and status in TERMINAL_STATUSES:
-            meta["status"] = status
-            meta["stage"] = stage
-            meta["error"] = error
-        elif previous_status not in TERMINAL_STATUSES:
-            meta["status"] = status
-            meta["stage"] = stage
-            if error is not None:
-                meta["error"] = error
-
-        self._set_scheduler_metadata(
-            meta,
-            state=normalized,
-            clusterweave_status=status,
-            last_checked_at=now_iso(),
+    def _finish_confirmed_job(self, job: dict[str, Any]) -> None:
+        job_id = str(job.get("id") or "")
+        with queue_admission_lock():
+            current = self._read_same_attempt(job)
+            if current is None or job_needs_scheduler_confirmation(current):
+                return
+        maybe_send_terminal_notification(
+            job_id, cancellation_confirmed=True,
+            expected_attempt=int(job.get("rerun_count") or 0),
         )
-        meta["log_count"] = len(read_logs(job_id))
-        meta["updated_at"] = now_iso()
-        write_job(meta)
-
-        if previous_status not in TERMINAL_STATUSES and status in TERMINAL_STATUSES:
-            maybe_send_terminal_notification(job_id)
+        with queue_admission_lock():
+            current = self._read_same_attempt(job)
+            if current is None or job_needs_scheduler_confirmation(current):
+                return
+            if self._read_cancel_request(job_id).get("delete_after_cancel") or job_delete_path(job_id).exists():
+                shutil.rmtree(job_dir(job_id), ignore_errors=True)
 
     def poll_once(self) -> list[str]:
         active_job_ids: list[str] = []
@@ -581,32 +621,28 @@ class SlurmBackend:
             job_id = str(job.get("id") or "")
             if not job_id:
                 continue
-            status = str(job.get("status") or "").lower()
+            if not job_needs_scheduler_confirmation(job):
+                if slurm_scheduler_metadata(job).get("terminal_confirmed_at") and (
+                    job_delete_path(job_id).exists() or self._read_cancel_request(job_id).get("delete_after_cancel")
+                ):
+                    self._finish_confirmed_job(job)
+                continue
             scheduler_id = slurm_job_id_for(job)
-            if not scheduler_id:
-                continue
-            scheduler_state = normalize_slurm_state(slurm_scheduler_metadata(job).get("state"))
-            scheduler_status, _, _ = clusterweave_status_for_slurm_state(scheduler_state)
-            if status not in {"pending", "running"} and scheduler_status in TERMINAL_STATUSES:
-                continue
             if job_cancel_requested(job_id):
                 self.cancel_job(job)
-                continue
-            state = self.poll_scheduler_state(scheduler_id)
-            self.apply_polled_state(job, state)
-            updated = read_job(job_id) or job
-            if str(updated.get("status") or "").lower() in {"pending", "running"}:
+            if scheduler_id:
+                state = self.poll_scheduler_state(scheduler_id)
+                self.apply_polled_state(job, state)
+            updated = read_job(job_id)
+            if updated and job_needs_scheduler_confirmation(updated):
                 active_job_ids.append(job_id)
         return active_job_ids
 
     def active_managed_job_ids(self) -> list[str]:
-        ids: list[str] = []
-        for job in list_jobs():
-            if str(job.get("status") or "").lower() not in {"pending", "running"}:
-                continue
-            if slurm_job_id_for(job):
-                ids.append(str(job.get("id")))
-        return sorted(ids)
+        return sorted(
+            str(job["id"]) for job in list_jobs()
+            if job.get("id") and job_needs_scheduler_confirmation(job)
+        )
 
     def submit_waiting_claims(self) -> list[str]:
         if self.claim_next_job is None:

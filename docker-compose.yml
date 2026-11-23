@@ -3,11 +3,16 @@
 #
 # Usage:
 #   ./bin/init_local_instance.sh
+#   # Confirm READY TO WEAVE? to build, prepare/check runtimes and start.
+#   ./bin/local_instance.sh weave  # resume explicit first-run preparation
+#   ./bin/local_instance.sh start  # return using prepared images/assets
+#   docker compose down
+#
+# Equivalent explicit preparation commands for operators:
 #   docker compose build
 #   docker compose run --rm --no-deps worker prepare-runtime
 #   docker compose run --rm --no-deps worker check-runtime
 #   docker compose up -d
-#   docker compose down
 #   docker compose logs -f web
 #
 # The web UI is available at http://127.0.0.1:8080 by default.
@@ -28,7 +33,7 @@ services:
       dockerfile: Dockerfile.web
     image: clusterweave-web:latest
     container_name: clusterweave-web
-    restart: unless-stopped
+    restart: "${CLUSTERWEAVE_LOCAL_RESTART_POLICY:-unless-stopped}"
     ports:
       - "${CLUSTERWEAVE_BIND_ADDRESS:-127.0.0.1}:${HOST_PORT:-8080}:8080"
     volumes:
@@ -39,6 +44,15 @@ services:
       - job_data:/data
     environment:
       SERVICE_MODE: web
+      HOST_PORT: "${HOST_PORT:-8080}"
+      CLUSTERWEAVE_WORKER_CPU_LIMIT: "${CLUSTERWEAVE_WORKER_CPU_LIMIT:-4}"
+      CLUSTERWEAVE_WORKER_MEM_LIMIT: "${CLUSTERWEAVE_WORKER_MEM_LIMIT:-16g}"
+      CLUSTERWEAVE_ACCESSION_CACHE_ROOT: "${CLUSTERWEAVE_ACCESSION_CACHE_ROOT:-}"
+      CLUSTERWEAVE_ACCESSION_CACHE_MAX_BYTES: "${CLUSTERWEAVE_ACCESSION_CACHE_MAX_BYTES:-10737418240}"
+      CLUSTERWEAVE_ACCESSION_CACHE_MAX_ENTRIES: "${CLUSTERWEAVE_ACCESSION_CACHE_MAX_ENTRIES:-256}"
+      CLUSTERWEAVE_ACCESSION_CACHE_MAX_AGE_SECONDS: "${CLUSTERWEAVE_ACCESSION_CACHE_MAX_AGE_SECONDS:-2592000}"
+      CLUSTERWEAVE_LOCAL_RESTART_POLICY: "${CLUSTERWEAVE_LOCAL_RESTART_POLICY:-unless-stopped}"
+      CLUSTERWEAVE_LOCAL_OPEN_BROWSER: "${CLUSTERWEAVE_LOCAL_OPEN_BROWSER:-0}"
       DATA_DIR: /data
       ANTISMASH_DB_DIR: /databases/antismash
       PFAM_DIR: /databases/pfam
@@ -69,8 +83,8 @@ services:
       # Submission floor and conservative public execution shape. The web
       # planner clamps every stage so its peak CPU demand fits the job budget.
       CLUSTERWEAVE_MIN_FREE_DISK_GB: "${CLUSTERWEAVE_MIN_FREE_DISK_GB:-0}"
-      CLUSTERWEAVE_PUBLIC_GENOME_PARALLELISM: "${CLUSTERWEAVE_PUBLIC_GENOME_PARALLELISM:-1}"
-      CLUSTERWEAVE_PUBLIC_ANTISMASH_RECORD_PARALLELISM: "${CLUSTERWEAVE_PUBLIC_ANTISMASH_RECORD_PARALLELISM:-1}"
+      CLUSTERWEAVE_PUBLIC_GENOME_PARALLELISM: "${CLUSTERWEAVE_PUBLIC_GENOME_PARALLELISM:-2}"
+      CLUSTERWEAVE_PUBLIC_ANTISMASH_RECORD_PARALLELISM: "${CLUSTERWEAVE_PUBLIC_ANTISMASH_RECORD_PARALLELISM:-2}"
       CLUSTERWEAVE_PUBLIC_FUNANNOTATE_CPUS_PER_GENOME: "${CLUSTERWEAVE_PUBLIC_FUNANNOTATE_CPUS_PER_GENOME:-4}"
       CLUSTERWEAVE_PUBLIC_FUNBGCEX_WORKERS_PER_GENOME: "${CLUSTERWEAVE_PUBLIC_FUNBGCEX_WORKERS_PER_GENOME:-2}"
       # Optional completion/failure email. Supply real values through host env
@@ -99,20 +113,29 @@ services:
       start_period: 60s
 
   worker:
+    # Reap exited orphan tool processes after cancellation.
+    init: true
     platform: "${CLUSTERWEAVE_DOCKER_PLATFORM:-linux/amd64}"
     build:
       context: .
       dockerfile: Dockerfile.worker
     image: clusterweave-worker:latest
     container_name: clusterweave-worker
-    restart: unless-stopped
+    restart: "${CLUSTERWEAVE_LOCAL_RESTART_POLICY:-unless-stopped}"
     volumes:
       - antismash_db:/databases/antismash
       - pfam_db:/databases/pfam
       - job_data:/data
+      # Scientific cache is separate from job data and never mounted by web/tools.
+      - accession_cache:/var/cache/clusterweave
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       SERVICE_MODE: worker
+      CLUSTERWEAVE_ACCESSION_CACHE_ROOT: "${CLUSTERWEAVE_ACCESSION_CACHE_ROOT:-}"
+      CLUSTERWEAVE_ACCESSION_CACHE_MAX_BYTES: "${CLUSTERWEAVE_ACCESSION_CACHE_MAX_BYTES:-10737418240}"
+      CLUSTERWEAVE_ACCESSION_CACHE_MAX_ENTRIES: "${CLUSTERWEAVE_ACCESSION_CACHE_MAX_ENTRIES:-256}"
+      CLUSTERWEAVE_ACCESSION_CACHE_MAX_AGE_SECONDS: "${CLUSTERWEAVE_ACCESSION_CACHE_MAX_AGE_SECONDS:-2592000}"
+      CLUSTERWEAVE_LOCAL_PREPARED_ONLY: "${CLUSTERWEAVE_LOCAL_PREPARED_ONLY:-0}"
       DATA_DIR: /data
       ANTISMASH_DB_DIR: /databases/antismash
       PFAM_DIR: /databases/pfam
@@ -160,6 +183,9 @@ services:
       PHYLOGENY_RETAIN_SCRATCH: "${PHYLOGENY_RETAIN_SCRATCH:-0}"
       PHYLOGENY_RUNTIME: "${PHYLOGENY_RUNTIME:-docker}"
       PHYLOGENY_DOCKER_IMAGE: "${PHYLOGENY_DOCKER_IMAGE:-clusterweave-phylogeny:1.0.0}"
+      # Optional accepted SIF in the prepared /data/software/plantismash directory.
+      PLANTISMASH_SIF: "${PLANTISMASH_SIF:-}"
+      PLANTISMASH_ENGINE: "${PLANTISMASH_ENGINE:-apptainer}"
       PHYLOGENY_SIF_PATH: "${PHYLOGENY_SIF_PATH:-/clusterweave/software/phylogeny/clusterweave_phylogeny_1.0.0.sif}"
       RUN_CROSS_KINGDOM_EVIDENCE: "${RUN_CROSS_KINGDOM_EVIDENCE:-${RUN_HGT_EVIDENCE:-0}}"
       WORKER_CONCURRENCY: "${WORKER_CONCURRENCY:-1}"
@@ -217,3 +243,4 @@ volumes:
     driver: local
   job_data:
     driver: local
+  accession_cache: {}

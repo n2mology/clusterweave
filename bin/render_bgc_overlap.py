@@ -12,6 +12,7 @@ from xml.sax.saxutils import escape
 
 import render_bigscape_multipanel as multipanel
 import render_bigscape_network as network
+from bgc_display import LABELS
 
 
 CLASS_ORDER = multipanel.CHART_CLASSES
@@ -382,7 +383,7 @@ def class_horizontal_bar_chart(
     top_space = 8.0
     row_h = 16.0
     row_gap = 6.0
-    label_w = 72.0
+    label_w = max(72.0, max(len(LABELS[category]) for category, _ in items) * 6.3 + 12.0)
     right = 4.0
     plot_x = x + label_w
     plot_y = y + top_space
@@ -412,7 +413,7 @@ def class_horizontal_bar_chart(
             f'data-value="{escape(value_label)}" data-percent="{escape(union_percent)}" '
             f'data-tool-percent="{escape(tool_percent)}"'
         )
-        lines.append(svg_text(plot_x - 8.0, bar_y + row_h / 2.0 + 4.0, category, 10, "700", "end"))
+        lines.append(svg_text(plot_x - 8.0, bar_y + row_h / 2.0 + 4.0, LABELS[category], 11, "700", "end"))
         lines.append(
             f'<rect x="{plot_x:.1f}" y="{bar_y:.1f}" width="{bar_w:.1f}" height="{row_h:.1f}" '
             f'fill="{fill}" stroke="#FFFFFF" stroke-width="0.8" {attrs}>'

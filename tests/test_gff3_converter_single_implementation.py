@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from annotation_source import annotation_source, shell_function
+
 from pathlib import Path
 import subprocess
 import tempfile
@@ -12,12 +14,7 @@ TRACKED_CONVERTER = REPO_ROOT / "bin" / "gff3_to_gbk_with_translations.py"
 
 
 def setup_converter_function() -> str:
-    text = PIPELINE.read_text(encoding="utf-8")
-    return "setup_converter() {" + text.split("setup_converter() {", 1)[1].split(
-        "\n}\n\n###############################################################################\n"
-        "# Input discovery/resolution",
-        1,
-    )[0] + "\n}\n"
+    return shell_function(annotation_source(), "setup_converter")
 
 
 class Gff3ConverterSingleImplementationTests(unittest.TestCase):

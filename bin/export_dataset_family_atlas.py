@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import re
 from collections import defaultdict
 from pathlib import Path
 import sys
@@ -187,6 +188,27 @@ def assign_atlas_review_buckets(
             covered_regions.update(cc_regions)
 
 
+def include_reference_panels(rows, stage_limit):
+    """Include a reported MIBiG comparison for genomes without a family panel.
+
+    The stager additionally requires the actual reference GenBank file. An
+    accession hint alone never makes an executable or public Clinker panel.
+    """
+    staged = [row for row in rows if row['manual_review_bucket'] == 'atlas_now']
+    represented = {clean(row.get('genome')) for row in staged}
+    for row in rows:
+        genome = clean(row.get('genome'))
+        if not genome or genome in represented or len(staged) >= stage_limit:
+            continue
+        annotation = ' '.join(clean(row.get(key)) for key in ['nearest_mibig_or_annotation_if_available','plantismash_knowncluster_accession'])
+        if not re.search(r'\bBGC\d{7}(?:\.\d+)?(?:_c\d+)?\b', annotation):
+            continue
+        row['manual_review_bucket'] = 'atlas_now'
+        row['recommended_followup'] = 'Compare this locus with its reported MIBiG reference; product identity is not assigned'
+        staged.append(row)
+        represented.add(genome)
+
+
 def build_safe_claim_text(row: dict[str, object]) -> str:
     genome = clean(row.get("genome")) or "unresolved genome"
     region = clean(row.get("antismash_region")) or "unresolved region"
@@ -352,6 +374,10 @@ def main() -> None:
 
     metadata_rows = read_tsv_rows(metadata_path) if metadata_path.exists() else []
     ranking_rows = read_tsv_rows(ranking_path)
+    comparison_path = summary_root / "all_tools_bgc_comparison.csv"
+    with comparison_path.open(newline="", encoding="utf-8-sig") if comparison_path.exists() else __import__('contextlib').nullcontext([]) as handle:
+        comparison = {(r.get('genome'),r.get('antismash_bgc_id')):r for r in csv.DictReader(handle)}
+
     # A successful antiSMASH run may legitimately contain zero regions. In
     # that case BiG-SCAPE has no annotations or clustering tables and the
     # correct atlas is a header-only, insufficient-data result.
@@ -443,6 +469,11 @@ def main() -> None:
                 )
             else:
                 genome_id, region = "", ""
+            native = comparison.get((genome_id, region))
+            if native is not None:
+                # Clustering may collapse or omit native plant products. Keep the
+                # completed detector's complete class composition in the atlas.
+                class_name = clean(native.get("antismash_bgc_class")) or "unclassified"
             if genome_id:
                 ecology_by_genome.setdefault(genome_id, ecology_group(""))
                 bucket["dataset_genomes"].add(genome_id)
@@ -601,7 +632,14 @@ def main() -> None:
 
     assign_atlas_review_buckets(shortlist_rows, candidate_regions_by_cc, args.stage_limit, args.min_records)
     for row in shortlist_rows:
+        native = comparison.get((row.get('genome'),row.get('antismash_region')), {})
+        for key in ['producer','native_profile','knownclusterblast_status','clustercompare_status','predictor_core_domains','predictor_product_prediction','plantismash_subgroup_prediction','plantismash_cdhit_count','plantismash_knowncluster_similarity_score','plantismash_knowncluster_accession','plantismash_knowncluster_product']:
+            row[key] = native.get(key, '')
+        if not clean(row.get('nearest_mibig_or_annotation_if_available')) and clean(row.get('plantismash_knowncluster_accession')):
+            row['nearest_mibig_or_annotation_if_available'] = ' | '.join(filter(None, [
+                clean(row.get('plantismash_knowncluster_accession')), clean(row.get('plantismash_knowncluster_product'))]))
         row["safe_claim_text"] = build_safe_claim_text(row)
+    include_reference_panels(shortlist_rows, args.stage_limit)
 
     write_tsv(
         global_out,
@@ -674,6 +712,7 @@ def main() -> None:
             "gcf_nonfocus_genome_count",
             "consensus_support",
             "annotation_support_tier",
+            "producer", "native_profile", "knownclusterblast_status", "clustercompare_status", "predictor_core_domains", "predictor_product_prediction", "plantismash_subgroup_prediction", "plantismash_cdhit_count", "plantismash_knowncluster_similarity_score", "plantismash_knowncluster_accession", "plantismash_knowncluster_product",
             "nearest_mibig_or_annotation_if_available",
             "antismash_knowncluster_product",
             "antismash_knowncluster_accession",

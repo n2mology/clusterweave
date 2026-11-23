@@ -48,9 +48,11 @@ export function createIntakeTaxonBoundary({
     const hasArchaea = clientLineageHas(lineage, 'Archaea');
     const hasVirus = clientLineageHas(lineage, 'Viruses') || clientLineageHas(lineage, 'Viroids');
     const hasEukaryota = clientLineageHas(lineage, 'Eukaryota');
+    const hasPlants = taxids.includes(33090) || clientLineageHas(lineage, 'Viridiplantae');
     const hasNonfungalEukaryote = ['Metazoa', 'Viridiplantae'].some(name => clientLineageHas(lineage, name));
     const conflicting = (
       (hasFungi && hasBacteria)
+      || (hasPlants && (hasFungi || hasBacteria || hasArchaea || hasVirus || clientLineageHas(lineage, 'Metazoa')))
       || (hasFungi && (hasArchaea || hasVirus || hasNonfungalEukaryote))
       || (hasBacteria && (hasArchaea || hasVirus || hasEukaryota))
     );
@@ -65,18 +67,19 @@ export function createIntakeTaxonBoundary({
     let taxonGroup = '';
     if (hasFungi) taxonGroup = 'fungi';
     else if (hasBacteria) taxonGroup = 'bacteria';
+    else if (hasPlants) taxonGroup = 'plants';
     else if (hasArchaea || hasVirus || hasEukaryota || hasNonfungalEukaryote) {
       return {
         status: 'unsupported',
         taxonGroup: 'unsupported',
-        reason: 'GenBank source taxonomy is outside the supported Fungi/Bacteria scope',
+        reason: 'GenBank source taxonomy is outside the supported fungal, bacterial or green-plant scope',
       };
     }
     if (!taxonGroup) {
       return {
         status: 'ambiguous',
         taxonGroup: '',
-        reason: 'GenBank source taxonomy does not resolve to Fungi or Bacteria',
+        reason: 'GenBank source taxonomy does not resolve to Fungi, Bacteria or green plants',
       };
     }
     return {
@@ -114,7 +117,7 @@ export function createIntakeTaxonBoundary({
   }
 
   function clientTaxonAssignmentDecision(authority, assignedGroup = '', inputKey = 'genome') {
-    const assigned = ['fungi', 'bacteria'].includes(String(assignedGroup || '').trim().toLowerCase())
+    const assigned = ['fungi', 'bacteria', 'plants'].includes(String(assignedGroup || '').trim().toLowerCase())
       ? String(assignedGroup).trim().toLowerCase()
       : '';
     const resolvedAuthority = authority && typeof authority === 'object'
@@ -178,7 +181,7 @@ export function createIntakeTaxonBoundary({
         return;
       }
       if (!taxonGroup) {
-        issues.push(`Unsupported taxon_group on line ${lineNumber}; use fungi or bacteria.`);
+        issues.push(`Unsupported taxon_group on line ${lineNumber}; use fungi, bacteria or plants.`);
         return;
       }
       const previous = assignments.get(canonicalKey);
@@ -281,6 +284,7 @@ export function createIntakeControllerBoundary({
 
   function ncbiAssemblyAccessionHelp() {
     const scope = normalizeAnalysisScope(state.stagedAnalysisScope);
+    if (scope === 'plants' || scope === 'mixed') return 'Plant accessions require usable NCBI CDS checked after retrieval, or matching translated GenBank. Annotation metadata alone does not establish readiness.';
     if (scope === 'bacteria') return 'Use current bacterial NCBI assembly accessions like GCA_000005845.2.';
     if (scope === 'both') return 'Use current fungal or bacterial NCBI assembly accessions; the server resolves authoritative NCBI taxonomy.';
     return NCBI_ASSEMBLY_ACCESSION_HELP;
@@ -303,7 +307,15 @@ export function createIntakeControllerBoundary({
     const hero = document.querySelector('#overview h1');
     const project = document.getElementById('project-name');
     if (hero) {
-      if (scope === 'bacteria') {
+      if (scope === 'plants' || scope === 'mixed') {
+        const label = scope === 'plants' ? 'Discover the hidden potential of plants' : 'Discover the hidden potential of plants fungi and bacteria';
+        hero.setAttribute('aria-label', label);
+        hero.replaceChildren(...label.split(' ').map((word, index) => {
+          const span = document.createElement('span');
+          span.textContent = word + (index < label.split(' ').length - 1 ? ' ' : '');
+          return span;
+        }));
+      } else if (scope === 'bacteria') {
         hero.setAttribute('aria-label', 'Discover the hidden potential of bacteria');
         hero.innerHTML = '<span>Discover</span><span>the</span><span>hidden</span><span>potential</span><span>of</span><span>bacteria</span>';
       } else if (scope === 'both') {
@@ -315,7 +327,7 @@ export function createIntakeControllerBoundary({
       }
     }
     if (project) {
-      project.placeholder = scope === 'bacteria' ? 'bacterial_survey' : scope === 'both' ? 'microbial_survey' : 'fungal_survey';
+      project.placeholder = scope === 'plants' ? 'plant_survey' : scope === 'mixed' ? 'mixed_survey' : scope === 'bacteria' ? 'bacterial_survey' : scope === 'both' ? 'microbial_survey' : 'fungal_survey';
     }
   }
 
@@ -365,7 +377,7 @@ export function createIntakeControllerBoundary({
 
   function stagedTaxonGroupForFileName(name) {
     const scope = normalizeAnalysisScope(state.stagedAnalysisScope);
-    if (scope !== 'both') return scope;
+    if (!['both', 'mixed'].includes(scope)) return scope;
     const canonicalKey = canonicalGenomeInputKey(name);
     const logicalInput = logicalGenomeInputs().find(item => item.canonicalKey === canonicalKey);
     const authority = logicalInput ? logicalGenomeAuthority(logicalInput) : null;
@@ -386,7 +398,7 @@ export function createIntakeControllerBoundary({
   }
 
   function taxonAssignmentsPayload() {
-    if (normalizeAnalysisScope(state.stagedAnalysisScope) !== 'both') return {};
+    if (!['both', 'mixed'].includes(normalizeAnalysisScope(state.stagedAnalysisScope))) return {};
     const payload = {};
     logicalGenomeInputs().forEach((item) => {
       const decision = logicalGenomeTaxonAssignmentDecision(item);
@@ -402,7 +414,7 @@ export function createIntakeControllerBoundary({
     const decisions = logical.map(item => ({ item, ...logicalGenomeTaxonAssignmentDecision(item) }));
     const assignable = decisions.filter(decision => decision.requiresAssignment);
     const currentKeys = new Set(logical.map(item => item.canonicalKey));
-    const unresolved = normalizeAnalysisScope(state.stagedAnalysisScope) === 'both'
+    const unresolved = ['both', 'mixed'].includes(normalizeAnalysisScope(state.stagedAnalysisScope))
       ? assignable.filter(decision => !decision.assigned).map(decision => decision.item)
       : [];
     const unknownSidecarKeys = [];
@@ -443,7 +455,7 @@ export function createIntakeControllerBoundary({
     const status = document.getElementById('taxon-assignment-status');
     if (!panel || !list || !status) return;
     const validation = taxonAssignmentValidation();
-    const visible = normalizeAnalysisScope(state.stagedAnalysisScope) === 'both' && validation.assignable.length > 0;
+    const visible = ['both', 'mixed'].includes(normalizeAnalysisScope(state.stagedAnalysisScope)) && validation.assignable.length > 0;
     panel.hidden = !visible;
     panel.classList.toggle('hidden', !visible);
     if (!visible) {
@@ -464,6 +476,7 @@ export function createIntakeControllerBoundary({
           </span>
           <label class="taxon-assignment-cell" role="cell"><input type="radio" name="${escapeHtml(groupName)}" value="fungi" aria-label="Assign ${escapeHtml(item.inputKey)} to fungi" ${assigned === 'fungi' ? 'checked' : ''} onchange="setLogicalGenomeTaxonAssignment('${escapeHtml(jsKey)}','fungi')" /><span class="sr-only">Fungi</span></label>
           <label class="taxon-assignment-cell" role="cell"><input type="radio" name="${escapeHtml(groupName)}" value="bacteria" aria-label="Assign ${escapeHtml(item.inputKey)} to bacteria" ${assigned === 'bacteria' ? 'checked' : ''} onchange="setLogicalGenomeTaxonAssignment('${escapeHtml(jsKey)}','bacteria')" /><span class="sr-only">Bacteria</span></label>
+          ${normalizeAnalysisScope(state.stagedAnalysisScope) === 'mixed' ? `<label class="taxon-assignment-cell" role="cell"><input type="radio" name="${escapeHtml(groupName)}" value="plants" aria-label="Assign ${escapeHtml(item.inputKey)} to plants" ${assigned === 'plants' ? 'checked' : ''} onchange="setLogicalGenomeTaxonAssignment('${escapeHtml(jsKey)}','plants')" /><span class="sr-only">Plants</span></label>` : ''}
         </div>`;
     }).join('');
     const issueCount = validation.issues.length;
@@ -559,7 +572,7 @@ export function createIntakeControllerBoundary({
     renderFileList();
   }
 
-  function resetStagedAnalysisState(scope = 'fungi') {
+  function resetStagedAnalysisState(scope = 'mixed') {
     state.stagedAnalysisScope = normalizeAnalysisScope(scope);
     state.stagedTaxonAssignments = new Map();
     state.stagedTaxonAssignmentSources = new Map();
@@ -641,7 +654,7 @@ export function createIntakeControllerBoundary({
     const organism = String(result?.organism_name || '').trim();
     const taxonGroup = String(result?.taxon_group || '').trim();
     const authority = [organism, taxonGroup].filter(Boolean).join(' / ');
-    return `VERIFIED BY NCBI${source}${authority ? ` - ${authority}.` : '.'}`;
+    return `VERIFIED BY NCBI${source}${authority ? ` - ${authority}.` : '.'}${taxonGroup === 'plants' ? ' Taxonomy only; translated CDS validation is pending. No plant prediction is available.' : ''}`;
   }
 
   async function validateAcceptedAccessions() {
@@ -1579,6 +1592,7 @@ export function createIntakeControllerBoundary({
       const domain = taxonGroup === 'bacteria' ? 'bacterial' : taxonGroup === 'fungi' ? 'fungal' : 'genome';
       return { readiness: 'invalid', reason: `Looks like protein FASTA or arbitrary text; upload a nucleotide ${domain} assembly FASTA.` };
     }
+    if (taxonGroup === 'plants') return { readiness: 'plant_annotation_required', reason: 'Annotation required: supply matching translated GenBank for plant inputs. No plant prediction or FASTA+GFF3 conversion is available.' };
     if (taxonGroup === 'bacteria') {
       return {
         readiness: 'raw_fasta_requires_prodigal',
@@ -1588,7 +1602,7 @@ export function createIntakeControllerBoundary({
     if (!taxonGroup) {
       return {
         readiness: 'taxon_assignment_required',
-        reason: 'Nucleotide FASTA structure passed. Choose Fungi or Bacteria for this logical genome before submission.',
+        reason: 'Nucleotide FASTA structure passed. Choose Fungi, Bacteria or Plants for this logical genome before submission.',
       };
     }
     return {
@@ -1616,6 +1630,7 @@ export function createIntakeControllerBoundary({
     const effectiveTaxonGroup = genbankAuthority.status === 'resolved' ? genbankAuthority.taxonGroup : taxonGroup;
     const hasCds = /^\s+CDS\b/m.test(raw);
     const hasTranslation = /\/translation\s*=/.test(raw);
+    if (effectiveTaxonGroup === 'plants') return { readiness: hasCds && hasTranslation ? 'plant_annotation_pending' : 'plant_annotation_required', reason: hasCds && hasTranslation ? 'Plant CDS found. Sequence, translation, partial features and any paired FASTA remain pending authoritative server validation.' : 'Annotation required: upload translated plant GenBank. Fungal annotation and Tiberius are not used.', genbankAuthority };
     if (effectiveTaxonGroup === 'bacteria') {
       return {
         readiness: 'bacterial_genbank_prodigal_ready',
@@ -1630,7 +1645,7 @@ export function createIntakeControllerBoundary({
     if (!effectiveTaxonGroup) {
       return {
         readiness: 'taxon_assignment_required',
-        reason: 'GenBank structure passed. Choose Fungi or Bacteria for this logical genome before submission.',
+        reason: 'GenBank structure passed. Choose Fungi, Bacteria or Plants for this logical genome before submission.',
         genbankAuthority,
       };
     }
@@ -1667,13 +1682,13 @@ export function createIntakeControllerBoundary({
     const taxonGroup = stagedTaxonGroupForFileName(file.name);
     if (PUBLIC_FASTA_EXTENSIONS.has(fileExt)) {
       const fasta = classifyClientFastaText(file.name, text, taxonGroup);
-      if (fasta.readiness === 'invalid') return fasta;
+      if (fasta.readiness === 'invalid' || taxonGroup === 'plants') return fasta;
       return {
         readiness: 'client_preflight_unconfirmed',
         reason: taxonGroup === 'bacteria'
           ? 'Large bacterial FASTA preview passed; full server validation will confirm sequence structure before the Prodigal route.'
           : !taxonGroup
-            ? 'Large FASTA preview passed; choose Fungi or Bacteria, then full server validation runs on submission.'
+            ? 'Large FASTA preview passed; assign its taxon before authoritative server validation.'
             : 'Large fungal FASTA preview passed in the browser; full server validation runs when you submit.',
       };
     }
@@ -1691,12 +1706,14 @@ export function createIntakeControllerBoundary({
       const effectiveTaxonGroup = genbankAuthority.status === 'resolved' ? genbankAuthority.taxonGroup : taxonGroup;
       return {
         readiness: 'client_preflight_unconfirmed',
-        reason: effectiveTaxonGroup === 'bacteria'
+        reason: effectiveTaxonGroup === 'plants'
+          ? 'Large plant GenBank preview passed; every record, sequence, translated CDS and any paired FASTA require authoritative server validation. No plant prediction is available.'
+          : effectiveTaxonGroup === 'bacteria'
           ? genbankAuthority.status === 'resolved'
             ? 'Large GenBank preview contains authoritative bacterial taxonomy; the server will verify every record before feature stripping and Prodigal.'
             : 'Large bacterial GenBank preview passed; full server validation will confirm sequence structure before feature stripping and Prodigal.'
           : !effectiveTaxonGroup
-            ? 'Large GenBank preview passed; choose Fungi or Bacteria, then full server validation runs on submission.'
+            ? 'Large GenBank preview passed; assign its taxon before authoritative server validation.'
             : genbankAuthority.status === 'resolved'
               ? 'Large GenBank preview contains authoritative fungal taxonomy; the server will verify every record, ORIGIN, and CDS readiness.'
               : 'Large fungal GenBank preview passed; full server validation will confirm ORIGIN, CDS translations, and same-stem FASTA pairing.',
@@ -2070,6 +2087,18 @@ export function createIntakeControllerBoundary({
           seenKinds.add(uploadKind);
           seenStemKinds.set(stemKey, seenKinds);
         }
+        if (check.readiness === 'plant_annotation_required') {
+          const pairedGenbank = state.selectedFiles.find(other =>
+            publicGenomeStem(other.name).toLowerCase() === stemKey
+            && PUBLIC_GENBANK_EXTENSIONS.has(ext(other.name)));
+          const pairedCheck = pairedGenbank && state.genomeCheckCache.get(genomeFileCheckKey(pairedGenbank));
+          const pairedPending = uploadKind === 'fasta' && pairedCheck
+            && ['plant_annotation_pending', 'client_preflight_unconfirmed'].includes(pairedCheck.readiness);
+          level = pairedPending ? 'warning' : 'blocked';
+          reason = pairedPending
+            ? 'Plant FASTA and same-stem GenBank supplied; sequence and translated CDS matching remain pending server validation. No plant prediction is available.'
+            : 'Annotation required: supply translated plant GenBank. FASTA alone cannot run plantiSMASH and no plant predictor is available.';
+        }
         if (check.readiness === 'genbank_requires_fallback_or_translations') {
           const pairedKinds = genomeStemKinds.get(stemKey) || new Set();
           if (pairedKinds.has('fasta')) {
@@ -2093,7 +2122,7 @@ export function createIntakeControllerBoundary({
         'blocked',
         'Taxon assignment',
         item.inputKey,
-        'Both mode requires a Fungi or Bacteria declaration for this logical genome before submission.',
+        'Mixed intake requires a Fungi, Bacteria or Plants declaration for this logical genome before submission.',
       );
     });
     assignmentValidation.authorityIssues.forEach(({ inputKey, issue }) => {
@@ -2103,7 +2132,7 @@ export function createIntakeControllerBoundary({
       addInputCheckRow(rows, 'blocked', 'Taxon assignment sidecar', TAXON_ASSIGNMENTS_FILENAME, issue);
     });
     assignmentValidation.generalIssues.forEach((issue) => {
-      addInputCheckRow(rows, 'blocked', 'Taxon assignment', 'Both mode', issue);
+      addInputCheckRow(rows, 'blocked', 'Taxon assignment', analysisScopeLabel(state.stagedAnalysisScope), issue);
     });
     if (state.taxonAssignmentSidecar && !assignmentValidation.issues.length) {
       addInputCheckRow(
@@ -2320,11 +2349,11 @@ export function createIntakeControllerBoundary({
     setProjectNameRequiredState(projectMissing);
     if (submitShell) submitShell.classList.toggle('is-project-locked', projectMissing);
     const assignmentValidation = taxonAssignmentValidation();
-    const assignmentBlocked = normalizeAnalysisScope(state.stagedAnalysisScope) === 'both'
+    const assignmentBlocked = ['both', 'mixed'].includes(normalizeAnalysisScope(state.stagedAnalysisScope))
       && (assignmentValidation.unresolved.length > 0 || assignmentValidation.issues.length > 0);
     const assignmentMessage = assignmentValidation.issues[0]
       || (assignmentValidation.unresolved.length
-        ? `${assignmentValidation.unresolved.length} logical genome assignment${assignmentValidation.unresolved.length === 1 ? '' : 's'} required in Both mode.`
+        ? `${assignmentValidation.unresolved.length} logical genome assignment${assignmentValidation.unresolved.length === 1 ? '' : 's'} required for mixed intake.`
         : '');
     setBrutalInputNotice('taxon-assignment', '');
     const checkerState = renderInputChecker();
@@ -2521,10 +2550,10 @@ export function createIntakeControllerBoundary({
     }
     if (state.selectedFiles.length === 0 && manualLines.length === 0) return;
     const assignmentValidation = taxonAssignmentValidation();
-    if (normalizeAnalysisScope(state.stagedAnalysisScope) === 'both'
+    if (['both', 'mixed'].includes(normalizeAnalysisScope(state.stagedAnalysisScope))
         && (assignmentValidation.unresolved.length || assignmentValidation.issues.length)) {
       const message = assignmentValidation.issues[0]
-        || `${assignmentValidation.unresolved.length} logical genome assignment${assignmentValidation.unresolved.length === 1 ? '' : 's'} required in Both mode.`;
+        || `${assignmentValidation.unresolved.length} logical genome assignment${assignmentValidation.unresolved.length === 1 ? '' : 's'} required for mixed intake.`;
       document.getElementById('upload-status').textContent = message;
       renderFileList();
       return;
@@ -2561,7 +2590,7 @@ export function createIntakeControllerBoundary({
       renderFileList();
       const refreshedAssignment = taxonAssignmentValidation();
       const refreshedChecker = renderInputChecker();
-      const refreshedAssignmentBlocked = normalizeAnalysisScope(state.stagedAnalysisScope) === 'both'
+      const refreshedAssignmentBlocked = ['both', 'mixed'].includes(normalizeAnalysisScope(state.stagedAnalysisScope))
         && (refreshedAssignment.unresolved.length || refreshedAssignment.issues.length);
       if (blockedAccessionPreflight() || (!canUseAdminSurfaces() && refreshedChecker.blocked > 0) || refreshedAssignmentBlocked) {
         state.validatedIntakeSignature = '';

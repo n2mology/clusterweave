@@ -41,19 +41,9 @@ PRODUCT_LABEL_CELL_TOP_PADDING = 4.0
 FONT_SIZE_INCREMENT = 2
 
 
-CLASS_COLORS = {
-    "NRPS": "#56D8C1",
-    "PKS": "#EC961C",
-    "terpene": "#A743CC",
-    "RiPP": "#5481E3",
-    "hybrid": "#82775B",
-    "saccharide": "#F7A389",
-    "other": "#A8BFFF",
-    UNKNOWN: "#BDBDBD",
-}
-
-
-CLASS_ORDER = ["NRPS", "PKS", "terpene", "RiPP", "hybrid", "saccharide", "other", UNKNOWN]
+from bgc_display import COLORS, ORDER, classify as display_class, LABELS
+CLASS_COLORS = {**COLORS, UNKNOWN: COLORS["unclassified"]}
+CLASS_ORDER = [*ORDER, UNKNOWN]
 NONINFORMATIVE_ECOLOGY = {UNKNOWN, "unlabeled", "unlabelled", "none", "na", "n/a"}
 
 
@@ -194,34 +184,8 @@ def derive_sample_id(record: str, gbk: str, organism: str, is_mibig: bool) -> st
 
 
 def normalize_bgc_class(raw_class: str, category: str = "") -> str:
-    """Condense raw antiSMASH/BiG-SCAPE labels into stable visual classes."""
-    text = f"{clean(raw_class)} {clean(category)}".lower()
-    if not text.strip():
-        return UNKNOWN
-
-    has_nrps = bool(re.search(r"\bnrps?\b|\bnrp\b|nrps-like", text))
-    has_pks = bool(re.search(r"\bpks\b|t1pks|transatpks|polyketide|nr-pks|hr-pks", text))
-    has_ripp = "ripp" in text or "lanthipeptide" in text or "lassopeptide" in text
-    has_terpene = "terpene" in text or bool(re.search(r"\btc\b|cyclase|synthase", text))
-    has_saccharide = "saccharide" in text or "glycoside" in text
-
-    major_hits = [
-        label
-        for label, present in [
-            ("NRPS", has_nrps),
-            ("PKS", has_pks),
-            ("RiPP", has_ripp),
-            ("terpene", has_terpene),
-            ("saccharide", has_saccharide),
-        ]
-        if present
-    ]
-    if len(major_hits) > 1:
-        return "hybrid"
-    if major_hits:
-        return major_hits[0]
-    return "other"
-
+    # A broad grouping category must not override a native product label.
+    return display_class(clean(raw_class) or clean(category))
 
 def stable_label_color(label: str) -> str:
     text = clean(label)
@@ -335,7 +299,7 @@ def load_nodes(clustering_path: Path, annotations: dict[str, dict[str, str]]) ->
         sample_id = derive_sample_id(record, gbk, organism, is_mibig)
         bgc_class = normalize_bgc_class(raw_class, annotation_category)
 
-        if bgc_class == UNKNOWN:
+        if bgc_class in {UNKNOWN, "unclassified"}:
             warnings.append(f"Missing BGC class for record: {record}")
 
         nodes[record] = NodeRecord(
@@ -361,6 +325,21 @@ def load_nodes(clustering_path: Path, annotations: dict[str, dict[str, str]]) ->
     if not nodes:
         raise ValueError(f"No nodes could be loaded from: {clustering_path}")
     return nodes, warnings
+
+
+def apply_native_classes(nodes: dict[str, NodeRecord], annotation_table: Path | None) -> None:
+    """Use the exact native BGC crosswalk for submitted loci, preserving raw engine labels."""
+    if annotation_table is None or not annotation_table.exists():
+        return
+    labels: dict[str, set[str]] = defaultdict(set)
+    for row in read_table_rows(annotation_table):
+        record = clean(row.get("bigscape_record")) or clean(row.get("Record"))
+        if record in nodes and not nodes[record].is_mibig and "antismash_class" in row:
+            labels[record].add(clean(row.get("antismash_class")) or "unclassified")
+    for record, values in labels.items():
+        node = nodes[record]
+        node.bgc_class = normalize_bgc_class(";".join(sorted(values)), "")
+        node.fill_color = CLASS_COLORS.get(node.bgc_class, CLASS_COLORS[UNKNOWN])
 
 
 def text_has_mibig_accession(text: str) -> bool:
@@ -620,7 +599,7 @@ def load_taxon_groups(
     for row in read_table_rows(annotation_table, delimiter=delimiter):
         record = clean(row.get("bigscape_record")) or clean(row.get("Record"))
         taxon = clean(row.get("taxon_group")).lower()
-        if not record or taxon not in {"fungi", "bacteria"}:
+        if not record or taxon not in {"fungi", "bacteria", "plants"}:
             continue
         previous = taxon_by_record.get(record)
         if previous is not None and previous != taxon:
@@ -1475,6 +1454,7 @@ def render_svg(
         "edges represent BiG-SCAPE similarity."
     ),
     sample_display_labels: dict[str, str] | None = None,
+    additional_classes: Iterable[str] = (),
 ) -> None:
     r = node_radius(len(nodes))
     show_ecology = has_ecology_signal(nodes)
@@ -1610,15 +1590,15 @@ def render_svg(
         y += 20
     y += 14
 
-    lines.append(svg_text(legend_x, y, "BGC Class Fill", 14, "700"))
-    legend_text_widths.append(estimated_svg_text_width("BGC Class Fill", 14, "700"))
+    lines.append(svg_text(legend_x, y, "BGC and GCF Class Fill", 14, "700"))
+    legend_text_widths.append(estimated_svg_text_width("BGC and GCF Class Fill", 14, "700"))
     y += 28
-    used_classes = sorted({node.bgc_class for node in nodes.values()}, key=lambda value: CLASS_ORDER.index(value) if value in CLASS_ORDER else len(CLASS_ORDER))
+    used_classes = sorted({node.bgc_class for node in nodes.values()} | set(additional_classes), key=lambda value: CLASS_ORDER.index(value) if value in CLASS_ORDER else len(CLASS_ORDER))
     for class_name in used_classes:
         color = CLASS_COLORS.get(class_name, CLASS_COLORS["other"])
         lines.append(f'<circle cx="{legend_x + 12:.1f}" cy="{y - 5:.1f}" r="12" fill="{color}" stroke="#333333" stroke-width="1.1"/>')
-        legend_text_widths.append(32.0 + estimated_svg_text_width(class_name, 11))
-        lines.append(svg_text(legend_x + 32, y, class_name, 11))
+        legend_text_widths.append(32.0 + estimated_svg_text_width(LABELS.get(class_name, class_name), 13))
+        lines.append(svg_text(legend_x + 32, y, LABELS.get(class_name, class_name), 13))
         y += 30
     y += 10
 
@@ -1668,6 +1648,7 @@ def render_svg(
     )
 
     output_width = int(math.ceil(max(layout.section_right, legend_box_x + legend_box_w + legend_padding, 1.0)))
+    layout.height = max(layout.height, int(math.ceil(legend_box_y + legend_box_h + legend_padding)))
     accessible_title = clean(svg_title) or "BiG-SCAPE gene cluster family network"
     accessible_description = clean(svg_description) or (
         "Network of biosynthetic gene clusters grouped by BiG-SCAPE."
@@ -1918,6 +1899,7 @@ def main(argv: list[str] | None = None) -> int:
 
     nodes, node_warnings = load_nodes(inputs.clustering_path, annotations)
     warnings.extend(node_warnings)
+    apply_native_classes(nodes, annotation_table)
     mibig_annotated_records, mibig_annotation_warnings = load_mibig_annotation_records(annotation_table)
     warnings.extend(mibig_annotation_warnings)
     warnings.extend(mark_mibig_annotations(nodes, mibig_annotated_records))

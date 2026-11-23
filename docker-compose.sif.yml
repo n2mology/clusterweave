@@ -1,0 +1,129 @@
+# Linux confined SIF profile. Explicit preparation precedes service startup.
+# Render with: docker compose -f docker-compose.sif.yml config
+# Start web with Compose; bin/sif_worker_container.py creates the worker from
+# this rendered configuration, including the narrowly scoped proc mount policy.
+name: "${CLUSTERWEAVE_INSTANCE:?Set a unique instance name}"
+services:
+  web:
+    extends:
+      file: docker-compose.yml
+      service: web
+    image: "${CLUSTERWEAVE_WEB_IMAGE:?Set the verified web image}"
+    container_name: "${CLUSTERWEAVE_INSTANCE}-web"
+    cpus: "1"
+    pids_limit: 256
+    user: "65534:65534"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes: !override
+      - type: volume
+        source: job_data
+        target: /data
+        read_only: false
+        volume:
+          nocopy: true
+      - type: volume
+        source: antismash_db
+        target: /databases/antismash
+        read_only: true
+        volume:
+          nocopy: true
+      - type: volume
+        source: pfam_db
+        target: /databases/pfam
+        read_only: true
+        volume:
+          nocopy: true
+    environment:
+      CLUSTERWEAVE_WORKER_CPU_LIMIT: "${CLUSTERWEAVE_WORKER_CPU_LIMIT:-4}"
+      CLUSTERWEAVE_WORKER_MEM_LIMIT: "${CLUSTERWEAVE_WORKER_MEM_LIMIT:-16g}"
+  worker:
+    # Reap exited orphan tool processes after cancellation.
+    init: true
+    extends:
+      file: docker-compose.yml
+      service: worker
+    profiles: [sif-worker-template]
+    image: "${CLUSTERWEAVE_WORKER_IMAGE:?Set the verified worker image}"
+    container_name: "${CLUSTERWEAVE_INSTANCE}-worker"
+    user: "65534:65534"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+      - "apparmor:${CLUSTERWEAVE_APPARMOR_PROFILE:-clusterweave-sif-worker}"
+      - seccomp:./config/security/apptainer-worker-seccomp.json
+    devices:
+      - /dev/fuse:/dev/fuse:rw
+    labels:
+      org.clusterweave.runtime: confined-sif-v1
+    volumes: !override
+      - type: volume
+        source: job_data
+        target: /data
+        read_only: false
+        volume:
+          nocopy: true
+      - type: volume
+        source: software
+        target: /data/software
+        read_only: true
+        volume:
+          nocopy: true
+      - type: volume
+        source: accession_cache
+        target: /var/cache/clusterweave
+        read_only: false
+        volume:
+          nocopy: true
+      - type: volume
+        source: antismash_db
+        target: /databases/antismash
+        read_only: true
+        volume:
+          nocopy: true
+      - type: volume
+        source: pfam_db
+        target: /databases/pfam
+        read_only: true
+        volume:
+          nocopy: true
+    tmpfs: !override
+      - /tmp:rw,exec,nosuid,nodev,size=4g
+    environment:
+      PATH: /clusterweave/bin/confined-apptainer:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      HOME: /tmp
+      CLUSTERWEAVE_RUNTIME_MODE: hpc
+      CLUSTERWEAVE_ENABLE_DOCKER_SOCKET: "0"
+      CLUSTERWEAVE_LOCAL_PREPARED_ONLY: "1"
+      ENGINE: apptainer
+      PLANTISMASH_ENGINE: /usr/bin/apptainer
+      PLANTISMASH_SIF: "${PLANTISMASH_SIF:-/data/software/plantismash/plant.sif}"
+      CLUSTERWEAVE_ACCESSION_CACHE_ROOT: /var/cache/clusterweave/accessions
+      AUTO_INSTALL_NCBI_CLI: "0"
+      PREPULL_FUNBGCEX_IMAGE: "0"
+      AUTO_BUILD_FUNBGCEX_DOCKER: "0"
+      PREPULL_CLINKER_IMAGE: "0"
+      PREPULL_BIGSCAPE_IMAGE: "0"
+      FUNBGCEX_USE_DOCKER_IMAGE: "0"
+      BIGSCAPE_USE_DOCKER_IMAGE: "0"
+      CLINKER_USE_DOCKER_IMAGE: "0"
+      NPLINKER_USE_DOCKER_IMAGE: "0"
+      NPLINKER_SIF_PATH: "${NPLINKER_SIF_PATH:-/data/software/nplinker/nplinker_python3.11.sif}"
+      NPLINKER_VENV_DIR: "${NPLINKER_VENV_DIR:-/data/software/nplinker/venv}"
+      PHYLOGENY_RUNTIME: apptainer
+      PHYLOGENY_SIF_PATH: "${PHYLOGENY_SIF_PATH:-/data/software/phylogeny/clusterweave_phylogeny_1.0.0.sif}"
+      WORKER_CONCURRENCY: "${WORKER_CONCURRENCY:-1}"
+      WORKER_MIN_FREE_DISK_GB: "${WORKER_MIN_FREE_DISK_GB:-50}"
+    pids_limit: "${CLUSTERWEAVE_WORKER_PIDS_LIMIT:-1024}"
+volumes:
+  job_data: {}
+  software: {}
+  accession_cache: {}
+  antismash_db:
+    external: true
+    name: "${CLUSTERWEAVE_ANTISMASH_VOLUME:?Set a prepared reference volume}"
+  pfam_db:
+    external: true
+    name: "${CLUSTERWEAVE_PFAM_VOLUME:?Set a prepared reference volume}"

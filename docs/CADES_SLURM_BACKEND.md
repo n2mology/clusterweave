@@ -274,7 +274,7 @@ BIGSCAPE_SIF_PATH=<SHARED_CLUSTERWEAVE_SOFTWARE_CACHE_DIR>/bigscape/bigscape_2.0
 CLINKER_SIF_PATH=<SHARED_CLUSTERWEAVE_SOFTWARE_CACHE_DIR>/clinker/clinker-py_0.0.32--pyhdfd78af_0.sif
 ```
 
-Prebuild or pre-stage large SIF assets where policy allows. Avoid job-time downloads for public runs whenever possible.
+Prepare runtime images and databases before submitting jobs. Jobs do not acquire missing runtimes.
 
 ### Stage antiSMASH SIF
 

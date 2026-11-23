@@ -20,8 +20,8 @@ fonts, WebGPU builds, local reference media, or unused plugin files.
   - `build/three.module.min.js`
   - `build/three.core.min.js` because `three.module.min.js` imports this same-package core module
 - Date checked: 2026-06-12
-- Usage: optional Three.js WeaveMap depth layer only; the DOM/SVG WeaveMap remains the accessible
-  source of truth and fallback.
+- Usage: the optional DNA workflow progress display. Text progress remains available
+  when the WebGL display cannot run.
 
 ## GSAP 3.15.0
 
@@ -41,5 +41,5 @@ fonts, WebGPU builds, local reference media, or unused plugin files.
   - `dist/gsap.min.js`
 - Package metadata checked from `package.json`; official standard license page checked for dates.
 - Date checked: 2026-06-12
-- Usage: optional DOM transition polish only. No GSAP plugins, source maps, examples, package tree,
+- Usage: optional DOM transitions only. No GSAP plugins, source maps, examples, package tree,
   or runtime package resolution are part of the browser load path.

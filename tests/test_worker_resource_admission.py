@@ -69,6 +69,25 @@ class WorkerResourceAdmissionTests(unittest.TestCase):
                 os.environ[key] = value
         self.tmp.cleanup()
 
+    def test_three_jobs_with_three_genomes_and_three_shards_fit_dedicated_vm(self):
+        from resource_policy import MemoryFormula, build_hosted_resource_plan, estimate_job_resources
+        formula = MemoryFormula(base_memory_mb=1024, per_genome_memory_mb=1024,
+            per_antismash_shard_memory_mb=1792, per_annotation_cpu_memory_mb=128,
+            per_funbgcex_worker_memory_mb=64, safety_factor=1.2, minimum_memory_mb=8192)
+        plan = build_hosted_resource_plan(21, 3, {}, genome_parallelism=3,
+            antismash_record_parallelism=3, funannotate_cpus_per_genome=8,
+            funbgcex_workers_per_genome=2, memory_budget_mb=30000, memory_formula=formula)
+        self.assertEqual((plan.genome_parallelism, plan.antismash_record_parallelism, plan.antismash_shard_cpus), (3, 3, 2))
+        estimate = estimate_job_resources(21, plan.as_settings(), 3, memory_formula=formula)
+        request = self.worker.JobResourceReservation(estimate.cpu_slots, estimate.memory_mb)
+        admission = self.worker.ResourceAdmission(cpu_budget=63, memory_budget_mb=90000, max_jobs=3)
+        for name in ['one', 'two', 'three']:
+            self.assertTrue(admission.reserve(name, request))
+        self.assertFalse(admission.reserve('four', request))
+        self.assertLessEqual(admission.allocated_memory_mb, 90000)
+        admission.release('two')
+        self.assertTrue(admission.reserve('four', request))
+
     def create_job(
         self,
         job_id: str,

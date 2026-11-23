@@ -132,6 +132,10 @@ export class WorkflowDnaProgress {
     this.root = new THREE.Group();
     this.root.rotation.x = -0.08;
     this.scene.add(this.root);
+    this.helixScale = new THREE.Group();
+    this.helixSpin = new THREE.Group();
+    this.root.add(this.helixScale);
+    this.helixScale.add(this.helixSpin);
 
     this.addLights();
     this.createGeometries();
@@ -197,14 +201,14 @@ export class WorkflowDnaProgress {
       top.userData = { t: (index + 0.5) / (SEGMENTS - 1), rail: 'top' };
       bottom.userData = { t: (index + 0.5) / (SEGMENTS - 1), rail: 'bottom' };
       this.backboneSegments.push(top, bottom);
-      this.root.add(top, bottom);
+      this.helixSpin.add(top, bottom);
     }
 
     for (let index = 0; index < SEGMENTS; index += RUNG_STEP) {
       const rung = new THREE.Mesh(this.rungGeometry, this.material(COLORS.idleRung, 0.62, 0.01));
       rung.userData = { t: index / (SEGMENTS - 1) };
       this.rungs.push(rung);
-      this.root.add(rung);
+      this.helixSpin.add(rung);
     }
 
     this.ballMaterial = this.material(COLORS.head, 0.38, 0.08);
@@ -225,11 +229,11 @@ export class WorkflowDnaProgress {
   helixPoint(index, offset, target) {
     const t = index / (SEGMENTS - 1);
     const x = AXIS_MIN + (AXIS_MAX - AXIS_MIN) * t;
-    const angle = t * TURNS * TWO_PI + offset + this.phase;
+    const angle = t * TURNS * TWO_PI + offset;
     return target.set(
       x,
       Math.cos(angle) * this.profile.radius,
-      Math.sin(angle) * this.profile.radius * this.profile.depthScale,
+      Math.sin(angle) * this.profile.radius,
     );
   }
 
@@ -271,6 +275,7 @@ export class WorkflowDnaProgress {
   }
 
   updateGeometry() {
+    this.helixScale.scale.z = this.profile.depthScale;
     for (let index = 0; index < SEGMENTS - 1; index += 1) {
       this.helixPoint(index, 0, this.topA);
       this.helixPoint(index + 1, 0, this.topB);
@@ -306,7 +311,7 @@ export class WorkflowDnaProgress {
     this.applyCameraProfile();
     this.applyColors();
     this.geometryDirty = true;
-    this.renderFrame(performance.now(), true);
+    if (!this.shouldAnimate() || this.suspended) this.renderFrame(performance.now(), true);
     this.syncAnimationLoop();
   }
 
@@ -335,14 +340,14 @@ export class WorkflowDnaProgress {
   renderFrame(now, force = false) {
     if (this.disposed || this.suspended) return;
     if (!force && now - this.lastRenderTime < FRAME_INTERVAL_MS) return;
-    const delta = Math.min(0.05, Math.max(0, (now - this.lastFrameTime) / 1000));
+    const delta = Math.max(0, (now - this.lastFrameTime) / 1000);
     this.lastFrameTime = now;
     this.lastRenderTime = now;
     if (this.shouldAnimate()) {
       this.phase += delta * 1.15;
-      this.updateGeometry();
-      this.geometryDirty = false;
-    } else if (force || this.geometryDirty) {
+      this.helixSpin.rotation.x = this.phase;
+    }
+    if (force || this.geometryDirty) {
       this.updateGeometry();
       this.geometryDirty = false;
     }

@@ -1,5 +1,37 @@
 # Changelog
 
+## 1.1.0 - 2026-11-23
+
+- Add supplied-CDS plantiSMASH analysis for annotated green-plant GenBank inputs,
+  with explicit plant and mixed-taxon routing. Preserve historical `both` as
+  fungi plus bacteria; new intake defaults to Mixed.
+- Add pinned plant runtime preparation and a confined Linux SIF worker profile.
+  Verify prepared assets before execution and retain original runtime identities
+  in cached and historical results.
+- Include plant reports, analysis extras, sequence exports and record mappings
+  in browser results and downloadable packages. Preserve original annotations
+  separately from the records selected for BiG-SCAPE comparison.
+- Require an explicit decision before continuing eligible partially failed
+  cohorts. Bind continuation to the original inputs and processing attempt;
+  preserve failed outputs and exclude unaccepted genomes from downstream work.
+- Add a terminal setup assistant with resource scanning, bounded cache settings,
+  readiness checks and local start, stop and browser-opening commands.
+- Coordinate genome and record parallelism with CPU and memory admission.
+  Report record completion, retained results, exclusions and terminal outcomes
+  consistently in CLI and browser progress, including NCBI download failures.
+- Improve plant and BiG-SCAPE report loading, comparison selection, portable
+  outputs and figure layout while retaining tool identities and missing-data
+  distinctions.
+- Correct browser timezone handling and timestamp-only job updates. Expand
+  component credits and report plant runtime availability during startup.
+- Separate annotation and detection responsibilities into shared modules and
+  document the input, runtime, cache and result contracts for contributors.
+
+Plant analysis requires compatible supplied translated CDS and a prepared
+runtime; it does not predict plant genes. Successful execution and shared
+families do not establish biological accuracy or cross-taxon equivalence.
+Nested plant SIF execution on Windows/WSL2 and macOS has not been measured.
+
 ## 1.0.5 - 2026-11-04
 
 - Add an optional, bounded accession-result cache for versioned public NCBI

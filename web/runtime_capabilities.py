@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import os
+import sys
 import shutil
 import subprocess
+import time
+import copy
 from pathlib import Path
 from typing import Any
 
@@ -137,6 +140,53 @@ def _sequence_phylogeny_stage(
     return stage
 
 
+# The worker publishes status each second. Rehashing the SIF and launching a
+# namespace probe on every heartbeat blocks cancellation and queue handling.
+# This cache is only for status; every native run still verifies the runtime.
+_PLANT_PROBE_CACHE = None
+
+
+def _probe_file_identity(path):
+    try:
+        st = Path(path).stat()
+        return (str(Path(path).resolve()), st.st_dev, st.st_ino, st.st_size,
+                st.st_mtime_ns, st.st_ctime_ns)
+    except (OSError, TypeError):
+        return (str(path), None)
+
+
+def plantismash_capability() -> dict[str, Any]:
+    global _PLANT_PROBE_CACHE
+    path = Path(os.environ.get("PLANTISMASH_SIF") or str(Path(os.environ.get("CLUSTERWEAVE_SOFTWARE_ROOT", "/data/software")) / "plantismash/plant.sif"))
+    engine = os.environ.get("PLANTISMASH_ENGINE", "apptainer")
+    root = Path(os.environ.get("CLUSTERWEAVE_ROOT", Path(__file__).resolve().parents[1]))
+    resolved = shutil.which(engine)
+    key = tuple(_probe_file_identity(p) for p in
+                (path, resolved, root / 'bin/plantismash_runtime.py',
+                 root / 'config/plantismash-profile.json', root / 'bin/plantismash_prereqs.py',
+                 root / 'bin/plantismash_native.py')) + (engine,)
+    now = time.monotonic()
+    if _PLANT_PROBE_CACHE is not None:
+        previous_key, expires, previous = _PLANT_PROBE_CACHE
+        if key == previous_key and now < expires:
+            return copy.deepcopy(previous)
+    ready = False
+    detail = "Accepted plantiSMASH SIF and execution engine are not configured"
+    if Path(engine).name in {"apptainer", "singularity"} and resolved and path.is_file():
+        command = [sys.executable, str(root / "bin/plantismash_runtime.py"), "check", "--sif", str(path), "--engine", engine]
+        try:
+            check = subprocess.run(command, capture_output=True, text=True, timeout=45)
+            ready = check.returncode == 0
+            detail = "Supplied translated plant CDS; isolated extras prerequisites verified" if ready else check.stderr.strip()[-2400:]
+        except (OSError, subprocess.SubprocessError) as error:
+            detail = "plantiSMASH worker execution check failed: " + str(error)
+    value = _stage(ready, detail, [] if ready else ["prepared plantiSMASH with working worker isolation"])
+
+    value.update(support="annotated-green-plants", locally_prepared=ready, experimental_prediction=False, producer="plantismash-2.0.4-clusterweave-extras-v3", profile="annotated-plants-2.0.4-extras-v3")
+    _PLANT_PROBE_CACHE = (key, time.monotonic() + (60 if ready else 5), copy.deepcopy(value))
+    return value
+
+
 def runtime_health() -> dict[str, Any]:
     """Describe the worker runtime without mutating host/container state."""
     executor = os.environ.get("CLUSTERWEAVE_EXECUTOR", "local").strip().lower() or "local"
@@ -212,6 +262,7 @@ def runtime_health() -> dict[str, Any]:
                 "scancel": has_scancel,
             },
             "stages": {
+            "plantismash": plantismash_capability(),
                 "prepare": _stage(scheduler_ready, scheduler_detail, missing),
                 "annotation": _stage(scheduler_ready, scheduler_detail, missing),
                 "bigscape": _stage(scheduler_ready, scheduler_detail, missing),
@@ -234,14 +285,26 @@ def runtime_health() -> dict[str, Any]:
         nplinker_available = docker_ready
         nplinker_missing = [] if nplinker_available else ["docker socket"]
     else:
-        annotation_available = sif_ready
-        annotation_missing = [] if annotation_available else ["singularity/apptainer"]
-        bigscape_available = sif_ready
-        bigscape_missing = [] if bigscape_available else ["singularity/apptainer"]
-        clinker_available = sif_ready or has_clinker
-        clinker_missing = [] if clinker_available else ["singularity/apptainer or local clinker"]
-        nplinker_available = sif_ready
-        nplinker_missing = [] if nplinker_available else ["singularity/apptainer"]
+        software = Path(os.environ.get("CLUSTERWEAVE_SOFTWARE_ROOT", "/data/software"))
+        def prepared(name: str, relative: str) -> bool:
+            path = Path(os.environ.get(name) or str(software / relative))
+            return path.is_file() and path.stat().st_size > 0
+        annotation_missing = [] if sif_ready else ["singularity/apptainer"]
+        for variable, relative in (("ANTISMASH_SIF", "antismash/antismash_standalone.sif"),
+                                   ("FUNBGCEX_SIF", "funbgcex/funbgcex_bundle.sif")):
+            if not prepared(variable, relative):
+                annotation_missing.append(variable)
+        annotation_available = not annotation_missing
+        bigscape_missing = [] if sif_ready else ["singularity/apptainer"]
+        if not prepared("BIGSCAPE_SIF_PATH", "big_scape/bigscape_2.0.0-beta.6.sif"):
+            bigscape_missing.append("BIGSCAPE_SIF_PATH")
+        bigscape_available = not bigscape_missing
+        clinker_available = has_clinker or (sif_ready and prepared("CLINKER_SIF_PATH", "clinker/clinker-py_0.0.32--pyhdfd78af_0.sif"))
+        clinker_missing = [] if clinker_available else ["prepared clinker SIF and engine, or local clinker"]
+        nplinker_available = sif_ready and prepared("NPLINKER_SIF_PATH", "nplinker/nplinker_python3.11.sif")
+        nplinker_python = Path(os.environ.get("NPLINKER_VENV_DIR") or str(software / "nplinker/venv")) / "bin/python"
+        nplinker_available = nplinker_available and nplinker_python.is_file() and os.access(nplinker_python, os.X_OK)
+        nplinker_missing = [] if nplinker_available else ["prepared NPLinker SIF, Python environment and engine"]
 
     return {
         "mode": runtime_mode,
@@ -257,6 +320,7 @@ def runtime_health() -> dict[str, Any]:
         "rscript": has_rscript,
         "ncbi_datasets": has_ncbi_datasets,
         "stages": {
+            "plantismash": plantismash_capability(),
             "prepare": _stage(
                 has_ncbi_datasets,
                 "NCBI Datasets CLI available for accession retrieval" if has_ncbi_datasets else "NCBI Datasets CLI unavailable for accession retrieval",

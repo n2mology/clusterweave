@@ -50,13 +50,49 @@
       "key": "cross_kingdom_evidence",
       "label": "Cross-kingdom evidence follow-up",
       "optional": true
+    },
+    {
+      "key": "workflow",
+      "label": "ClusterWeave",
+      "optional": true
     }
   ],
   "records": [
     {
+      "kind": "tool_execution",
+      "pattern": "^TOOL_EXECUTION\\s+genome=(\\S+)\\s+tool=(\\S+)\\s+state=(complete|failed)\\s+exit_code=(-?\\d+)\\s*$",
+      "fields": [
+        "genome",
+        "tool",
+        "execution_state",
+        "exit_code"
+      ],
+      "workflow_stage": "annotation",
+      "node_level": "tool",
+      "state_field": "execution_state",
+      "permanent": true
+    },
+    {
+      "kind": "tool_finished",
+      "pattern": "^TOOL_PROGRESS\\s+genome=(\\S+)\\s+tool=(\\S+)\\s+phase=\\S+\\s+message=\"(?:funannotate|antiSMASH|FunBGCeX|plantiSMASH|Prodigal|BRAKER3) finished\"\\s*$",
+      "fields": [
+        "genome",
+        "tool"
+      ],
+      "workflow_stage": "annotation",
+      "node_level": "tool",
+      "state": "complete",
+      "permanent": true,
+      "message": "Complete"
+    },
+    {
       "kind": "genome_excluded",
       "pattern": "^GENOME_EXCLUDED\\s+genome=([A-Za-z0-9_.-]+)\\s+reason=([A-Za-z0-9_+-]+)\\s+message=\"([^\"]*)\"\\s*$",
-      "fields": ["genome", "reason", "display_message"],
+      "fields": [
+        "genome",
+        "reason",
+        "display_message"
+      ],
       "workflow_stage": "annotation",
       "node_level": "genome",
       "state": "failed"
@@ -64,7 +100,11 @@
     {
       "kind": "exclusion_summary",
       "pattern": "^GENOME_EXCLUSION_SUMMARY\\s+excluded=([0-9]+)\\s+total=([0-9]+)\\s+message=\"([^\"]*)\"\\s*$",
-      "fields": ["excluded", "total", "display_message"],
+      "fields": [
+        "excluded",
+        "total",
+        "display_message"
+      ],
       "workflow_stage": "annotation",
       "node_level": "activity",
       "state": "warning_terminal",
@@ -172,6 +212,22 @@
       "state": "running"
     },
     {
+      "kind": "plant_record",
+      "pattern": "^PLANT_RECORD_PROGRESS\\s+genome=(\\S+)\\s+record=(\\d+)\\s+ordinal=(\\d+)/(\\d+)\\s+state=(\\w+)\\s*$",
+      "fields": [
+        "genome",
+        "record",
+        "ordinal",
+        "total",
+        "record_state"
+      ],
+      "workflow_stage": "annotation",
+      "node_level": "tool",
+      "tool": "plantiSMASH",
+      "state": "running",
+      "progress_status": "detecting"
+    },
+    {
       "kind": "antismash_record",
       "pattern": "^ANTISMASH_RECORD_PROGRESS\\s+genome=(\\S+)\\s+record=(\\S+)\\s+ordinal=(\\d+)/(\\d+)\\s+percent=(\\d+)\\s+bar=\\[[^\\]]*\\]\\s+message=\"(.*)\"\\s*$",
       "fields": [
@@ -192,6 +248,7 @@
         "braker3": "annotating",
         "annotation": "annotating",
         "antismash": "detecting",
+        "plantismash": "detecting",
         "funbgcex": "detecting"
       }
     },
@@ -211,6 +268,7 @@
         "annotation": "",
         "funannotate": "funannotate",
         "antismash": "antiSMASH",
+        "plantismash": "plantiSMASH",
         "funbgcex": "FunBGCeX"
       },
       "terminal_on_percent": true,
@@ -220,6 +278,7 @@
         "braker3": "annotating",
         "annotation": "annotating",
         "antismash": "detecting",
+        "plantismash": "detecting",
         "funbgcex": "detecting"
       }
     },
@@ -241,6 +300,7 @@
         "braker3": "annotating",
         "annotation": "annotating",
         "antismash": "detecting",
+        "plantismash": "detecting",
         "funbgcex": "detecting"
       }
     },
@@ -263,6 +323,7 @@
         "braker3": "annotating",
         "annotation": "annotating",
         "antismash": "detecting",
+        "plantismash": "detecting",
         "funbgcex": "detecting"
       }
     }
@@ -371,6 +432,14 @@
     }
   ],
   "legacy_records": [
+    {
+      "kind": "cwd_fallback",
+      "pattern": "^WARNING: Error changing the container working directory\\. Using '/' instead: chdir /nonexistent: no such file or directory$",
+      "node_level": "activity",
+      "state": "warning",
+      "message": "Container used its default working directory; execution continued",
+      "permanent": false
+    },
     {
       "kind": "genome_started",
       "pattern": "^\\[(\\d+)/(\\d+)\\]\\s+genome=(\\S+)",
@@ -485,10 +554,10 @@
       "message": "Preparing results package"
     },
     {
-      "kind": "package_complete",
+      "kind": "workflow_complete",
       "pattern": "\\bCanonical ClusterWeave workflow finished successfully\\b",
       "fields": [],
-      "workflow_stage": "package",
+      "workflow_stage": "workflow",
       "node_level": "stage",
       "state": "complete",
       "message": "Complete",
@@ -535,7 +604,7 @@
     },
     {
       "kind": "nplinker_update",
-      "pattern": "\\b(?:NPLinker|GNPS|MassIVE)\\b",
+      "pattern": "^NPLinker:\\s+(?:running|loading|linking)\\b",
       "fields": [],
       "workflow_stage": "nplinker",
       "node_level": "stage",
@@ -556,7 +625,7 @@
     },
     {
       "state": "failed",
-      "pattern": "\\b(?:FATAL|ERROR|FAILED|failed with exit code)\\b",
+      "pattern": "\\b(?:FATAL|ERROR|FAILED|failed with exit code|Supplied plant annotation incompatible)\\b|^Annotation required:",
       "permanent": true
     },
     {
@@ -600,5 +669,9 @@
       "label": "COMPLETE",
       "detail": "Genome annotation and detection completed."
     }
-  }
+  },
+  "ignored_patterns": [
+    "^TOOL_RAW\\b",
+    "^TOOL_RAW_TRUNCATED\\b"
+  ]
 }

@@ -21,18 +21,13 @@ from xml.sax.saxutils import escape
 import render_bigscape_network as network
 
 
-CHART_CLASSES = ["NRPS", "PKS", "terpene", "RiPP", "hybrid", "other"]
-CHART_COLORS = {
-    "NRPS": network.CLASS_COLORS["NRPS"],
-    "PKS": network.CLASS_COLORS["PKS"],
-    "terpene": network.CLASS_COLORS["terpene"],
-    "RiPP": network.CLASS_COLORS["RiPP"],
-    "hybrid": network.CLASS_COLORS["hybrid"],
-    "other": network.CLASS_COLORS["other"],
-}
+from bgc_display import ORDER, COLORS, LABELS, classify as display_class
+CHART_CLASSES = list(ORDER)
+CHART_COLORS = dict(COLORS)
 CHART_ROWS_BY_TAXON = {
     "fungi": [("BGC", "funbgcex"), ("BGC", "antismash"), ("GCF", "antismash")],
     "bacteria": [("BGC", "antismash"), ("GCF", "antismash")],
+    "plants": [("BGC", "plantismash"), ("GCF", "plantismash")],
 }
 DEFAULT_CANVAS_WIDTH = 2400
 DEFAULT_MIN_HEIGHT = 0
@@ -58,6 +53,8 @@ def display_tool_label(value: str) -> str:
     token = clean(value).casefold()
     if token == "antismash":
         return "antiSMASH"
+    if token == "plantismash":
+        return "plantiSMASH"
     if token == "funbgcex":
         return "FunBGCeX"
     return clean(value)
@@ -71,31 +68,7 @@ def shorten(text: str, limit: int = 30) -> str:
 
 
 def normalize_chart_class(value: str) -> str:
-    text = re.sub(r"[_;/|.+-]+", " ", clean(value).lower())
-    if not text:
-        return "other"
-    has_nrps = bool(re.search(r"\bnrps?\b|\bnrp\b|nrps-like", text))
-    has_pks = bool(re.search(r"\bpks\b|t1pks|polyketide|nr-pks|hr-pks", text))
-    has_ripp = "ripp" in text or "lanthipeptide" in text or "lassopeptide" in text
-    has_terpene = "terpene" in text or bool(re.search(r"\btc\b|cyclase|synthase", text))
-    major_hits = [
-        label
-        for label, present in [
-            ("NRPS", has_nrps),
-            ("PKS", has_pks),
-            ("RiPP", has_ripp),
-            ("terpene", has_terpene),
-        ]
-        if present
-    ]
-    if len(major_hits) > 1:
-        return "hybrid"
-    if major_hits:
-        return major_hits[0]
-    if "hybrid" in text:
-        return "hybrid"
-    return "other"
-
+    return display_class(value)
 
 def read_summary_rows(path: Path) -> list[dict[str, str]]:
     if not path.exists():
@@ -187,7 +160,8 @@ def chart_height_for_summary(summary_path: Path, taxon_group: str = "fungi") -> 
 def nice_tick_step(max_value: float, target_ticks: int = 5) -> float:
     if max_value <= 0:
         return 1.0
-    raw = max_value / max(1, target_ticks)
+    # BGC and GCF counts have no fractional ticks.
+    raw = max(1.0, max_value / max(1, target_ticks))
     exponent = math.floor(math.log10(raw))
     fraction = raw / (10**exponent)
     if fraction <= 1:
@@ -216,6 +190,21 @@ def svg_text(
         f'font-size="{max(4, size + FONT_SIZE_INCREMENT)}" font-weight="{weight}" text-anchor="{anchor}" '
         f'fill="{fill}"{extra}>{escape(text)}</text>'
     )
+
+
+def count_legend(summary_path, taxon_group, x, y, width):
+    _, matrix = count_matrix(summary_path, taxon_group)
+    used = [c for c in CHART_CLASSES if any(row.get(c, 0) > 0 for row in matrix.values())]
+    lines = []; left = x
+    for category in used:
+        label = LABELS[category]
+        item_width = 30 + len(label) * 8
+        if x > left and x + item_width > left + width:
+            x = left; y += 26
+        lines.append(f'<rect data-class="{category}" x="{x:.1f}" y="{y-12:.1f}" width="16" height="16" fill="{CHART_COLORS[category]}"/>')
+        lines.append(svg_text(x+23, y, label, 11))
+        x += item_width
+    return lines, y + 24
 
 
 def chart_lines(
@@ -338,13 +327,15 @@ def write_count_chart_svg(
     sample_display_labels: dict[str, str] | None = None,
 ) -> None:
     width = 620
-    height = int(chart_height_for_summary(summary_path, taxon_group) + 68.0)
+    chart_height = chart_height_for_summary(summary_path, taxon_group)
+    legend, bottom = count_legend(summary_path, taxon_group, 34, chart_height + 64, 540)
+    height = int(bottom + 16)
     body = chart_lines(
         summary_path,
         34.0,
         34.0,
         540.0,
-        height - 68.0,
+        chart_height,
         warnings,
         taxon_group,
         sample_display_labels=sample_display_labels,
@@ -353,6 +344,7 @@ def write_count_chart_svg(
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
         '<rect x="0" y="0" width="100%" height="100%" fill="#FFFFFF"/>',
         *body,
+        *legend,
         "</svg>",
     ]
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -493,6 +485,7 @@ def prepare_network_data(args: argparse.Namespace) -> tuple[network.BigscapeInpu
 
     nodes, node_warnings = network.load_nodes(inputs.clustering_path, annotations)
     warnings.extend(node_warnings)
+    network.apply_native_classes(nodes, annotation_table)
     mibig_annotated_records, mibig_annotation_warnings = network.load_mibig_annotation_records(annotation_table)
     warnings.extend(mibig_annotation_warnings)
     warnings.extend(network.mark_mibig_annotations(nodes, mibig_annotated_records))
@@ -641,6 +634,8 @@ def render_multipanel(args: argparse.Namespace) -> int:
     )
     shift_singletons_to_min_height(layout, nodes, edges, args.min_height)
     chart_h = chart_height_for_summary(summary_path, args.taxon_group)
+    _, matrix = count_matrix(summary_path, args.taxon_group)
+    used_classes = {c for c in CHART_CLASSES if any(row.get(c, 0) > 0 for row in matrix.values())}
     layout.height = max(layout.height, int(math.ceil(chart_y + chart_h + margin)))
     layout.legend_x = layout.section_right + 52.0
     layout.width = min(layout.width, int(math.ceil(layout.legend_x + 520.0 + margin)))
@@ -651,7 +646,7 @@ def render_multipanel(args: argparse.Namespace) -> int:
         svg_text(
             network_column_x,
             42,
-            f"Connected {'fungal' if args.taxon_group == 'fungi' else 'bacterial'} GCFs",
+            f"Connected {dict(fungi='fungal', bacteria='bacterial', plants='plant')[args.taxon_group]} GCFs",
             18,
             "700",
         ),
@@ -669,9 +664,10 @@ def render_multipanel(args: argparse.Namespace) -> int:
         ),
     ]
 
+
     base = output_dir / prefix
     svg_path = base.with_suffix(".svg")
-    taxon_label = "Fungal" if args.taxon_group == "fungi" else "Bacterial"
+    taxon_label = {"fungi":"Fungal", "bacteria":"Bacterial", "plants":"Plant"}[args.taxon_group]
     genome_label = "genome" if len(genomes) == 1 else "genomes"
     network.render_svg(
         svg_path,
@@ -680,6 +676,7 @@ def render_multipanel(args: argparse.Namespace) -> int:
         layout,
         inputs,
         pre_body_lines=body_lines,
+        additional_classes=used_classes,
         section_titles={"large": None, "medium_small": None},
         section_x=network_column_x,
         svg_title=f"{taxon_label} BGC and GCF multipanel",

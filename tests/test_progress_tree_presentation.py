@@ -144,6 +144,37 @@ process.stdout.write(JSON.stringify(events));
         )
         self.assertEqual(lines, semantic_fixture(), "classification must not alter canonical lines")
 
+    def test_plant_admission_failure_is_not_complete_in_either_classifier(self):
+        lines = [
+            'GENOME_PROGRESS genome=Plant stage=annotation percent=100 bar=[] message="Supplied plant annotation incompatible: unexplained_translation_mismatch"',
+            'GENOME_PROGRESS genome=Plant stage=annotation percent=100 bar=[] message="Annotation required: supply translated GenBank"',
+            'TOOL_RAW genome=Plant tool=plantismash stream=stderr Supplied plant annotation incompatible',
+        ]
+        events = [TREE.classify_progress_line(self.contract,line,i,'annotation') for i,line in enumerate(lines)]
+        self.assertEqual([e['state'] for e in events[:2]],['failed','failed'])
+        self.assertEqual(events[2]['kind'],'diagnostic')
+        module_uri = "data:text/javascript;base64," + base64.b64encode(BROWSER_TREE_PATH.read_bytes()).decode()
+        source = f"import {{classifyProgressTreeLine}} from {json.dumps(module_uri)}; const contract={json.dumps(self.contract)}; process.stdout.write(JSON.stringify({json.dumps(lines)}.map((line,i)=>classifyProgressTreeLine(contract,line,i,'annotation'))));"
+        browser = run_node_json(source)
+        self.assertEqual([e['state'] for e in browser[:2]],['failed','failed'])
+        self.assertEqual(browser[2]['kind'],'diagnostic')
+
+    def test_recovered_matplotlib_warning_and_plant_spelling_match_browser(self):
+        lines = [
+            'TOOL_PROGRESS genome=Fungus tool=antismash phase=detect message="antiSMASH reported a recoverable Matplotlib cache warning"',
+            'TOOL_PROGRESS genome=Plant tool=plantismash phase=detect message="Scanning protein domains"',
+            '[ERROR] Fungus: antiSMASH exited with code 17',
+        ]
+        python_events = [TREE.classify_progress_line(self.contract, line, i, "annotation") for i, line in enumerate(lines)]
+        module_uri = "data:text/javascript;base64," + base64.b64encode(BROWSER_TREE_PATH.read_bytes()).decode()
+        source = f"import {{classifyProgressTreeLine}} from {json.dumps(module_uri)}; const contract={json.dumps(self.contract)}; process.stdout.write(JSON.stringify({json.dumps(lines)}.map((line,i)=>classifyProgressTreeLine(contract,line,i,'annotation'))));"
+        browser_events = run_node_json(source)
+        self.assertEqual([e['state'] for e in python_events], [e['state'] for e in browser_events])
+        self.assertNotEqual(python_events[0]['state'], 'failed')
+        self.assertEqual(python_events[1]['tool'], 'plantiSMASH')
+        self.assertEqual(browser_events[1]['tool'], 'plantiSMASH')
+        self.assertEqual(python_events[2]['state'], 'failed')
+
     def test_zero_drop_summaries_preserve_real_warnings(self):
         lines = ["[INFO] total=3 processed=3 dropped=0", "[INFO] total=3 processed=2 dropped=1",
                  "[WARN] dropped=0 but annotation incomplete", "[ERROR] failed=0 dropped=0: genuine error",
@@ -178,7 +209,7 @@ process.stdout.write(JSON.stringify(events));
         lines += ['GENOME_PROGRESS genome=Cached stage=annotation percent=100 bar=[##########] message="Genome dropped: annotation failed"']
         self.assertEqual(labels(lines)["genome:annotation:Cached"], "")
 
-    def test_heartbeats_update_one_branch_and_retain_measured_progress(self) -> None:
+    def test_heartbeats_update_one_branch_without_ordinal_based_percentage(self) -> None:
         model = TREE.build_progress_tree(
             self.contract,
             enumerate(semantic_fixture()[:10]),
@@ -193,10 +224,10 @@ process.stdout.write(JSON.stringify(events));
         ]
         self.assertEqual(1, len(antismash_nodes))
         node = antismash_nodes[0]
-        self.assertEqual(60, node.percentage)
+        self.assertEqual(35, node.percentage)
         self.assertEqual(1200, node.elapsed)
         self.assertEqual("Scanning protein domains", node.message)
-        self.assertIn("[######----]  60%", TREE.progress_status(node))
+        self.assertIn("35%", TREE.progress_status(node))
 
     def test_mixed_taxa_terminal_states_unknown_lines_and_optional_stage(self) -> None:
         lines = semantic_fixture()
@@ -372,6 +403,7 @@ class CliProgressTreeTests(unittest.TestCase):
                 "RUN_STAGE_SUMMARY",
                 "RUN_STAGE_CLINKER",
                 "CAPTURE_EXTERNAL_ARTIFACTS",
+                "CLUSTERWEAVE_JOB_ID",
                 "TERM",
                 "LC_ALL",
                 "NO_COLOR",
@@ -407,7 +439,10 @@ class CliProgressTreeTests(unittest.TestCase):
         header = 'genome_id\tgbk_used\tgbk_status\tantismash_status\n'
         manifest.write_text(header + 'Good\tstaged.gbk\toriginal_ok\tran_ok\n'
                             'Dropped\t\tfunannotate_busco_training_insufficient\tskipped\n')
-        env = {**self.env, 'RUN_STAGE_ANNOTATION': '1', 'RUN_STAGE_BIGSCAPE': '1'}
+        # Exercise the stage-output guard with stubbed hosted stages; separate cohort
+        # tests cover standalone decision admission and authenticated continuation.
+        env = {**self.env, 'CLUSTERWEAVE_JOB_ID': 'stage-output-fixture',
+               'RUN_STAGE_ANNOTATION': '1', 'RUN_STAGE_BIGSCAPE': '1'}
         completed = self.run_redirected('--raw', env=env)
         self.assertEqual(completed.returncode, 0, completed.stdout)
         self.assertEqual(completed.stdout.count('GENOME_EXCLUDED genome=Dropped '), 1)

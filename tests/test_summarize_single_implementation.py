@@ -19,32 +19,7 @@ OUTPUT_PATHS = (
     "summary/all_tools_shared_unshared_summary.csv",
     "summary_tables/antismash_product_types_exact.tsv",
 )
-EXPECTED_DIGESTS: dict[str, dict[str, str]] = {
-    "zero": {
-        "summary/all_tools_scaffold_comparison.csv": "e2ab11e43eb206935a1cf2d44d8a6fb112e85860bfb8aeabc76af5bdd3652e39",
-        "summary/all_tools_bgc_comparison.csv": "ab54dca1009cc26374a5b93d111ac76da6e7b0e2e5c994071db9f853aa87eea3",
-        "summary/all_tools_shared_unshared_summary.csv": "dd9891c0c837db92a743c0c4379201b948ebda23e9181887ece7cf623fb2f058",
-        "summary_tables/antismash_product_types_exact.tsv": "2845c02fa04001889d673f5e004a15fec511227b8f241e79083e4d775011cd05",
-    },
-    "fungal": {
-        "summary/all_tools_scaffold_comparison.csv": "c70625a4adc09152a2aedc1de7cfe628a57cca31b16a2a5fdeb552db53c50575",
-        "summary/all_tools_bgc_comparison.csv": "0cc85d9f923fa6bceaf699bb8253fcf1357188205aad296ce9c43371cf7d2ba5",
-        "summary/all_tools_shared_unshared_summary.csv": "e2fa6f4cbffe3486b012ad3e8844a020d12e200c9508b3ff6e039982f52951ea",
-        "summary_tables/antismash_product_types_exact.tsv": "cf54906a18c15931a94397c222a676ac58c811fb6ba32d24c4a93dc63efd7fa2",
-    },
-    "bacterial": {
-        "summary/all_tools_scaffold_comparison.csv": "aab5f938b9dbf3afbbd9df55d45217d3bcf95a91deea8364bafe0465fa7c3ce9",
-        "summary/all_tools_bgc_comparison.csv": "1ba4e425bd88d7c92d0296281b9daad05e7691a8ad1c56cd5b458fa3fe80ddb5",
-        "summary/all_tools_shared_unshared_summary.csv": "dd1999cf69055b41a4466f8e0b08128ee6b447e38340546478c6ff4881b90e47",
-        "summary_tables/antismash_product_types_exact.tsv": "7ef3cd9c6b5c80b209c9c35aad4fe8d6ac4422eb60836f70523c64d5c8cf7ce3",
-    },
-    "mixed": {
-        "summary/all_tools_scaffold_comparison.csv": "7518f3c7aab1f63a8d955b9e570b4679bed9fbab2cc972a9fe5c36977448df3a",
-        "summary/all_tools_bgc_comparison.csv": "50e64497077f340180e18e3f19268e4f0a68e34818a72d9d8ed7f4bf5fc5c098",
-        "summary/all_tools_shared_unshared_summary.csv": "258e354175c71b363af585868ca7381f73b5df62bb3e970959fa0e3a91833a08",
-        "summary_tables/antismash_product_types_exact.tsv": "b43010ea04ff1d7f98f20c23d36fbd3b96ad48a22a78bdcd33f93310c41d6973",
-    },
-}
+EXPECTED_DIGESTS: dict[str, dict[str, str]] = {'zero': {'summary/all_tools_scaffold_comparison.csv': 'e2ab11e43eb206935a1cf2d44d8a6fb112e85860bfb8aeabc76af5bdd3652e39', 'summary/all_tools_bgc_comparison.csv': '060d9795a06573c9e2ae9daf85c7859b93ae3fbcd257a98f50b2a6afc181f71f', 'summary/all_tools_shared_unshared_summary.csv': 'dd9891c0c837db92a743c0c4379201b948ebda23e9181887ece7cf623fb2f058', 'summary_tables/antismash_product_types_exact.tsv': '2845c02fa04001889d673f5e004a15fec511227b8f241e79083e4d775011cd05'}, 'fungal': {'summary/all_tools_scaffold_comparison.csv': 'e4021fd8d78cb35afc700542434e325e3eac1101c4bfa771818ee551c6493b21', 'summary/all_tools_bgc_comparison.csv': '3ddd0d19d96cd5714472abd3c62b49dabaaaf14343c8ddecf78ca997677cfc98', 'summary/all_tools_shared_unshared_summary.csv': '34da21090c20af9d8812f334b1b01c8ddc09ca47f7c24eb06badaab88e288465', 'summary_tables/antismash_product_types_exact.tsv': 'fbeb82144364a87abcbc7573488ac54af31e5e21958be6e7980ae2b14556c60d'}, 'bacterial': {'summary/all_tools_scaffold_comparison.csv': 'aab5f938b9dbf3afbbd9df55d45217d3bcf95a91deea8364bafe0465fa7c3ce9', 'summary/all_tools_bgc_comparison.csv': 'd57f9e41d3d0c5f77b202ed58a2086e66f2ae93eb04f5d0ef691329c4b02ff26', 'summary/all_tools_shared_unshared_summary.csv': 'dd1999cf69055b41a4466f8e0b08128ee6b447e38340546478c6ff4881b90e47', 'summary_tables/antismash_product_types_exact.tsv': '1edbf0414fc58ed94632ed2c731ee18986dbc1ec72f2d1ba01d60dfa9d596285'}, 'mixed': {'summary/all_tools_scaffold_comparison.csv': '7518f3c7aab1f63a8d955b9e570b4679bed9fbab2cc972a9fe5c36977448df3a', 'summary/all_tools_bgc_comparison.csv': '1a7fc27f8f5a0d421e5b43cccc000cea01828367a0845148842db8aec7af8139', 'summary/all_tools_shared_unshared_summary.csv': '258e354175c71b363af585868ca7381f73b5df62bb3e970959fa0e3a91833a08', 'summary_tables/antismash_product_types_exact.tsv': 'e595635997a8c32b7399ada003c3c396a083e93bb038d8cc887eec7372d345e2'}}
 
 
 def write_recorder(path: Path) -> None:

@@ -24,6 +24,136 @@ from taxon_routing import (  # noqa: E402
 
 
 class TaxonRoutingTests(unittest.TestCase):
+    def test_frozen_mixed_accession_and_upload_routes(self) -> None:
+        logical_inputs = [
+            {
+                "input_key": "z_existing",
+                "has_annotated_genbank": True
+            },
+            {
+                "input_key": "a_fallback",
+                "has_annotated_genbank": False
+            },
+            {
+                "input_key": "b_bacterial",
+                "has_annotated_genbank": True,
+                "authoritative_taxonomy": {
+                    "taxon_group": "bacteria",
+                    "taxid": 2,
+                    "organism_name": "Fixture bacterium"
+                }
+            }
+        ]
+        accessions = [
+            {
+                "accession": "GCA_000003.1",
+                "taxon_group": "bacteria",
+                "tax_id": 2,
+                "organism_name": "Accession bacterium"
+            },
+            {
+                "accession": "GCA_000001.1",
+                "taxon_group": "fungi",
+                "tax_id": 4751,
+                "organism_name": "Accession fungus",
+                "has_annotated_genbank": True
+            }
+        ]
+        expected = [
+            {
+                "input_key": "GCA_000001.1",
+                "genome_id": "GCA_000001.1",
+                "taxon_group": "fungi",
+                "taxon_source": "ncbi",
+                "taxid": 4751,
+                "organism_name": "Accession fungus",
+                "source_accession": "GCA_000001.1",
+                "prediction_method": "funannotate",
+                "detector_profile": "antismash+funbgcex",
+                "input_path_key": "GCA_000001.1",
+                "route_status": "accepted",
+                "route_reason": "authoritative_ncbi_taxonomy"
+            },
+            {
+                "input_key": "GCA_000003.1",
+                "genome_id": "GCA_000003.1",
+                "taxon_group": "bacteria",
+                "taxon_source": "ncbi",
+                "taxid": 2,
+                "organism_name": "Accession bacterium",
+                "source_accession": "GCA_000003.1",
+                "prediction_method": "prodigal",
+                "detector_profile": "antismash",
+                "input_path_key": "GCA_000003.1",
+                "route_status": "accepted",
+                "route_reason": "authoritative_ncbi_taxonomy"
+            },
+            {
+                "input_key": "a_fallback",
+                "genome_id": "a_fallback",
+                "taxon_group": "fungi",
+                "taxon_source": "user_declaration",
+                "taxid": None,
+                "organism_name": "",
+                "source_accession": "",
+                "prediction_method": "funannotate",
+                "detector_profile": "antismash+funbgcex",
+                "input_path_key": "a_fallback",
+                "route_status": "accepted",
+                "route_reason": "explicit_both_mode_assignment"
+            },
+            {
+                "input_key": "b_bacterial",
+                "genome_id": "b_bacterial",
+                "taxon_group": "bacteria",
+                "taxon_source": "genbank_source",
+                "taxid": 2,
+                "organism_name": "Fixture bacterium",
+                "source_accession": "",
+                "prediction_method": "prodigal",
+                "detector_profile": "antismash",
+                "input_path_key": "b_bacterial",
+                "route_status": "accepted",
+                "route_reason": "authoritative_genbank_taxonomy"
+            },
+            {
+                "input_key": "z_existing",
+                "genome_id": "z_existing",
+                "taxon_group": "fungi",
+                "taxon_source": "user_declaration",
+                "taxid": None,
+                "organism_name": "",
+                "source_accession": "",
+                "prediction_method": "existing_cds",
+                "detector_profile": "antismash+funbgcex",
+                "input_path_key": "z_existing",
+                "route_status": "accepted",
+                "route_reason": "explicit_both_mode_assignment"
+            }
+        ]
+        actual = build_taxon_routes("both", logical_inputs, accessions, {'z_existing': 'fungi', 'a_fallback': 'fungi'})
+        self.assertEqual(actual, expected)
+        self.assertEqual([list(row) for row in actual], [list(row) for row in expected])
+        self.assertEqual(
+            summarize_taxon_routes(actual),
+            (
+                {
+                    "fungi": 3,
+                    "bacteria": 2,
+                    "total": 5
+                },
+                {
+                    "funannotate": 2,
+                    "prodigal": 2,
+                    "antismash": 5,
+                    "funbgcex": 3,
+                    "funbgcex_not_applicable_taxon": 2,
+                    "bigscape": 5,
+                    "taxon_tree_figure": 5
+                },
+            ),
+        )
+
     def test_scope_normalization_preserves_historical_fungal_default(self) -> None:
         self.assertEqual(normalize_analysis_scope(None), "fungi")
         self.assertEqual(normalize_analysis_scope(""), "fungi")

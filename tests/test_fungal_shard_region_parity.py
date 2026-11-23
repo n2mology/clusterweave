@@ -1,3 +1,4 @@
+from annotation_source import annotation_source, shell_function
 from pathlib import Path
 import subprocess
 import tempfile
@@ -8,9 +9,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def run_sharded_fixture(root: Path, scenario: str) -> tuple[subprocess.CompletedProcess[str], Path]:
-    pipeline = (REPO_ROOT / "run_annotation_and_detection.sh").read_text(
-        encoding="utf-8"
-    )
+    pipeline = annotation_source()
     function = "run_antismash_sharded() {" + pipeline.split(
         "run_antismash_sharded() {", 1
     )[1].split(
@@ -18,9 +17,9 @@ def run_sharded_fixture(root: Path, scenario: str) -> tuple[subprocess.Completed
         "# Per-genome logging sync + manifest",
         1,
     )[0] + "\n}\n"
-    completion_functions = "antismash_outputs_valid() {" + pipeline.split(
-        "antismash_outputs_valid() {", 1
-    )[1].split("\n\nfunbgcex_outputs_valid()", 1)[0]
+    completion_functions = "\n".join(shell_function(pipeline, name) for name in (
+        "antismash_outputs_valid", "antismash_done", "mark_antismash_done",
+    ))
     record_ids = root / "record_ids.txt"
     record_ids.write_text("recordA\nrecordB\n", encoding="utf-8")
     ant_input = root / "Fungus_fixture.gbk"
@@ -108,9 +107,7 @@ def run_sharded_fixture(root: Path, scenario: str) -> tuple[subprocess.Completed
 
 class FungalShardRegionParityTests(unittest.TestCase):
     def test_real_shard_runner_passes_matching_minlength_to_antismash(self) -> None:
-        pipeline = (REPO_ROOT / "run_annotation_and_detection.sh").read_text(
-            encoding="utf-8"
-        )
+        pipeline = annotation_source()
         shard_function = "run_antismash_record_shard() {" + pipeline.split(
             "run_antismash_record_shard() {", 1
         )[1].split("\n}\n\nmerge_antismash_shard_jsons() {", 1)[0] + "\n}\n"
@@ -196,9 +193,7 @@ class FungalShardRegionParityTests(unittest.TestCase):
             )
 
     def test_real_shard_runner_classifies_exact_no_gene_diagnostic_as_empty(self) -> None:
-        pipeline = (REPO_ROOT / "run_annotation_and_detection.sh").read_text(
-            encoding="utf-8"
-        )
+        pipeline = annotation_source()
         shard_function = "run_antismash_record_shard() {" + pipeline.split(
             "run_antismash_record_shard() {", 1
         )[1].split("\n}\n\nmerge_antismash_shard_jsons() {", 1)[0] + "\n}\n"
@@ -260,9 +255,7 @@ class FungalShardRegionParityTests(unittest.TestCase):
             self.assertEqual(list(shard_dir.iterdir()), [])
 
     def test_sharded_assembly_matches_legacy_fungal_region_set_and_count(self) -> None:
-        pipeline = (REPO_ROOT / "run_annotation_and_detection.sh").read_text(
-            encoding="utf-8"
-        )
+        pipeline = annotation_source()
         record_list_function = "list_genbank_record_ids() {" + pipeline.split(
             "list_genbank_record_ids() {", 1
         )[1].split(
@@ -275,9 +268,9 @@ class FungalShardRegionParityTests(unittest.TestCase):
             "# Per-genome logging sync + manifest",
             1,
         )[0] + "\n}\n"
-        completion_functions = "antismash_outputs_valid() {" + pipeline.split(
-            "antismash_outputs_valid() {", 1
-        )[1].split("\n\nfunbgcex_outputs_valid()", 1)[0]
+        completion_functions = "\n".join(shell_function(pipeline, name) for name in (
+            "antismash_outputs_valid", "antismash_done", "mark_antismash_done",
+        ))
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

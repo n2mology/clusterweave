@@ -315,7 +315,9 @@ def preferred_gene_label(gene: dict[str, object]) -> str:
     candidates = gene_label_candidates(gene)
     if not candidates:
         return "hypothetical protein"
-    return truncate_label(candidates[0][1])
+    names = gene.get("names", {}) or {}
+    symbol = clean(names.get("gene"))
+    return truncate_label(symbol or candidates[0][1], 24)
 
 
 def group_label_options(group: dict[str, object], gene_by_uid: dict[str, dict[str, object]]) -> list[str]:
@@ -463,12 +465,13 @@ def apply_html_defaults(text: str) -> str:
     hide_locus_coordinates = env_bool("CLINKER_HIDE_COORDINATES", True)
     show_gene_labels = env_bool("CLINKER_SHOW_GENE_LABELS", True)
     use_group_colour = env_bool("CLINKER_USE_GROUP_COLOUR", True)
-    show_link_labels = env_bool("CLINKER_SHOW_LINK_LABELS", True)
+    show_link_labels = env_bool("CLINKER_SHOW_LINK_LABELS", False)
 
     config_block = (
         ".config({\n"
-        f"      scaleFactor: {scale_factor},\n"
+        f"      plot: {{scaleFactor: {scale_factor}, transitionDuration: 0}},\n"
         "      cluster: {\n"
+        "        lociFontSize: 11,\n"
         f"        spacing: {vertical_spacing},\n"
         f"        alignLabels: {js_bool(align_labels)},\n"
         f"        hideLocusCoordinates: {js_bool(hide_locus_coordinates)},\n"
@@ -476,12 +479,16 @@ def apply_html_defaults(text: str) -> str:
         "      gene: {\n"
         "        label: {\n"
         f"          show: {js_bool(show_gene_labels)},\n"
+        "          rotation: 45,\n"
+        "          fontSize: 11,\n"
         "        },\n"
         "      },\n"
+        "      legend: {fontSize: 11, entryHeight: 18, marginLeft: 60},\n"
         "      link: {\n"
         f"        groupColour: {js_bool(use_group_colour)},\n"
         "        label: {\n"
         f"          show: {js_bool(show_link_labels)},\n"
+        "          fontSize: 11,\n"
         "        },\n"
         "      },\n"
         "    })\n\n"
@@ -492,6 +499,9 @@ def apply_html_defaults(text: str) -> str:
     for input_id, value in [
         ("input-scale-factor", scale_factor),
         ("input-cluster-spacing", vertical_spacing),
+        ("input-label-rotation", 45),
+        ("input-label-size", 11),
+        ("input-locus-name-size", 11),
     ]:
         text = set_input_defaults(text, input_id, value)
 
@@ -504,6 +514,72 @@ def apply_html_defaults(text: str) -> str:
     ]:
         text = set_checkbox_state(text, input_id, checked)
 
+    # Replace prior injected layout when reprocessing an existing portable panel.
+    text = re.sub(r"<!-- clusterweave-layout-start -->.*?<!-- clusterweave-layout-end -->", "", text, flags=re.S)
+    text = re.sub(r"\n  function layoutClusterWeaveLabels\(\) \{.*?  setTimeout\(layoutClusterWeaveLabels, 600\);\n", "\n", text, count=1, flags=re.S)
+    layout = r'''
+<!-- clusterweave-layout-start -->
+  let clusterWeaveLayoutTimer;
+  function scheduleClusterWeaveLayout() {
+    clearTimeout(clusterWeaveLayoutTimer);
+    clusterWeaveLayoutTimer = setTimeout(() => layoutClusterWeaveLabels(), 100);
+  }
+  function layoutClusterWeaveLabels() {
+    const svg = document.querySelector("svg.clusterMap");
+    if (!svg) return;
+    const group = svg.querySelector("g.clusterMapG");
+    group.setAttribute("transform", "translate(0,0)");
+    // Preserve the native genomic scale and angled labels. Wide loci remain
+    // scrollable/zoomable instead of being compressed into overlapping names.
+    // Keep the legend to the right in the drawing and exported SVG. The
+    // full canvas scrolls horizontally on narrow screens without rescaling loci.
+    const legend = group.querySelector("g.legend");
+    if (legend) {
+      legend.style.display = "none";
+      const drawing = group.getBBox();
+      legend.style.display = "";
+      const box = legend.getBBox();
+      legend.setAttribute("transform", `translate(${drawing.x + drawing.width + 60 - box.x},${drawing.y - box.y})`);
+    }
+    const box = group.getBBox();
+    const transform = d3.zoomIdentity.translate(24 - box.x, 24 - box.y);
+    group.setAttribute("transform", transform);
+    // Keep D3 navigation synchronized with the framed view.
+    d3.select(svg).property("__zoom", transform);
+    svg.setAttribute("width", Math.max(div.node().clientWidth, Math.ceil(box.width + 48)));
+    svg.setAttribute("height", Math.max(div.node().clientHeight, Math.ceil(box.height + 48)));
+  }
+  scheduleClusterWeaveLayout();
+  // Observe the viewport, not the scroll container whose scrollbar is changed
+  // by this layout. This avoids self-triggered resize/fit oscillation.
+  window.addEventListener("resize", () => {
+    scheduleClusterWeaveLayout();
+  });
+<!-- clusterweave-layout-end -->
+'''
+    # HTML comment delimiters are valid JavaScript line comments in classic scripts.
+    text = text.replace('  d3.select("#btn-save-svg")', layout + '\n  d3.select("#btn-save-svg")', 1)
+    if 'layoutClusterWeaveLabels();\n\t\t\tconst blob' not in text:
+        text = text.replace('const blob = serialise(svg)', 'layoutClusterWeaveLabels();\n\t\t\tconst blob = serialise(svg)', 1)
+    text = text.replace('    plot.call(chart)\n  }', '    plot.call(chart)\n    setTimeout(layoutClusterWeaveLabels, 600);\n  }', 1)
+    text = text.replace('setTimeout(layoutClusterWeaveLabels, 600);', 'scheduleClusterWeaveLayout();')
+    # Export bounds need signed offsets and padding, including positive origins.
+    text = text.replace('node.setAttribute("width", bbox.width);', 'node.setAttribute("width", bbox.width + 48);')
+    text = text.replace('node.setAttribute("height", bbox.height);', 'node.setAttribute("height", bbox.height + 48);')
+    text = text.replace('translate(${Math.abs(bbox.x)}, ${Math.abs(bbox.y)})', 'translate(${24 - bbox.x}, ${24 - bbox.y})')
+    text = re.sub(r"\n#plot \{width: calc\(100vw - 370px\);.*?</style>", "</style>", text, count=1, flags=re.S)
+    text = re.sub(r"/\* clusterweave-layout \*/.*?/\* end-clusterweave-layout \*/", "", text, flags=re.S)
+    css = """/* clusterweave-layout */
+div#plot {width: calc(100vw - 370px); height: 100vh; overflow: auto; scrollbar-gutter: stable;}
+#plot .wrapper-svg {width: 100%; height: 100%;}
+#div-floater {box-sizing: border-box; right: 12px; width: 340px;}
+@media(max-width: 800px) {
+  div#plot {width: 100vw; height: 68vh;}
+  #div-floater {width: 100%; right: 0; top: 70vh; max-height: 30vh;}
+}
+/* end-clusterweave-layout */
+"""
+    text = text.replace('</style>', css + '</style>', 1)
     return text
 
 
@@ -515,6 +591,13 @@ def main() -> None:
 
     manifest_rows = read_tsv_rows(args.manifest)
     ordered_rows = sorted(manifest_rows, key=order_key)
+    # A repeated organism is useful as the cluster heading; repeating the same
+    # organism again in brackets adds no identity. Distinct genomes sharing a
+    # display name still receive their original genome qualifier.
+    genomes_by_name = defaultdict(set)
+    scaffold_counts = Counter(friendly_scaffold_name(row) for row in manifest_rows)
+    for row in manifest_rows:
+        genomes_by_name[friendly_cluster_name(row)].add(clean(row.get("genome")))
     row_by_stem = {
         Path(clean(row.get("staged_gbk_path"))).stem: row
         for row in manifest_rows
@@ -533,6 +616,8 @@ def main() -> None:
         if manifest_row is None:
             manifest_row = {}
         friendly_name = friendly_cluster_name(manifest_row)
+        if friendly_name and len(genomes_by_name[friendly_name]) > 1:
+            friendly_name += " [" + clean(manifest_row.get("genome")) + "]"
         if friendly_name:
             cluster["name"] = friendly_name
             cluster["label"] = friendly_name
@@ -540,6 +625,12 @@ def main() -> None:
             locus_name = friendly_scaffold_name(
                 manifest_row, normalize_locus_name(locus.get("name", ""))
             )
+            if locus_name and scaffold_counts[locus_name] > 1:
+                # Multiple regions on the same scaffold must remain distinct.
+                region = clean(manifest_row.get("antismash_region"))
+                region_suffix = re.search(r"\.(?:region|cluster)[0-9]+$", region, re.IGNORECASE)
+                if region_suffix and not locus_name.endswith(region_suffix.group()):
+                    locus_name += region_suffix.group()
             if locus_name:
                 locus["name"] = locus_name
             for gene in locus.get("genes", []):
@@ -563,6 +654,9 @@ def main() -> None:
         label_options_by_uid[clean(group.get("uid"))] = group_label_options(group, gene_by_uid)
     ensure_unique_labels(payload.get("groups", []), label_options_by_uid)
 
+    # Retained panel manifests carry exact identities/provenance. Remove the
+    # old generated presentation from both fresh and reprocessed exports.
+    prefix = re.sub(r'<section id="clusterweave-panel-provenance"[\s\S]*?</section>', '', prefix)
     write_html_payload(args.html, prefix, payload, suffix)
     print(f"Updated clinker HTML labels: {args.html}")
 

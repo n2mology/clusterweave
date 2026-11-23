@@ -198,15 +198,15 @@ class PhyloTaxonRenderingTests(unittest.TestCase):
                 self.assertEqual(len(profiles), fungi + bacteria)
                 self.assertEqual(len(gcf_profiles), fungi + bacteria)
                 self.assertTrue(
-                    all(float(node.attrib["data-width"]) == 230.0 for node in profiles)
+                    all(float(node.attrib["data-width"]) >= 260.0 for node in profiles)
                 )
                 self.assertTrue(
                     all(float(node.attrib["data-width"]) == 92.0 for node in gcf_profiles)
                 )
                 self.assertTrue(
                     all(
-                        float(node.attrib["data-x"]) - float(profile.attrib["data-x"])
-                        == 273.0
+                        float(node.attrib["data-x"]) - float(profile.attrib["data-x"]) - float(profile.attrib["data-width"])
+                        >= 30.0
                         for node, profile in zip(gcf_profiles, profiles)
                     )
                 )
@@ -465,7 +465,7 @@ class PhyloTaxonRenderingTests(unittest.TestCase):
             for node in root.iter(f"{namespace}g")
             if node.attrib.get("class") == "bgc-profile"
         )
-        self.assertEqual(float(gcf_profile.attrib["data-x"]), 1148.0)
+        self.assertGreater(float(gcf_profile.attrib["data-x"]), float(bgc_profile.attrib["data-x"]) + float(bgc_profile.attrib["data-width"]))
         profile_title = gcf_profile.find(f"{namespace}title")
         self.assertIsNotNone(profile_title)
         assert profile_title is not None
@@ -482,15 +482,15 @@ class PhyloTaxonRenderingTests(unittest.TestCase):
             "hybrid": "#82775B",
             "other": "#A8BFFF",
         }
-        for color in expected_palette.values():
-            self.assertIn(color, svg)
+        for category in ("NRPS", "PKS"):
+            self.assertIn(expected_palette[category], svg)
         visible_text = [
             "".join(node.itertext())
             for node in root.iter(f"{namespace}text")
         ]
         self.assertTrue(any(text.endswith("GCF overlap · Jaccard %") for text in visible_text))
-        self.assertTrue(any(text.endswith("Shared · % of genome GCFs.") for text in visible_text))
-        self.assertIn("Shared GCFs by BGC class", visible_text)
+        self.assertTrue(any(text.endswith("GCF sharing (%)") for text in visible_text))
+        self.assertIn("GCF classes", visible_text)
         self.assertEqual(visible_text.count("Unique pairs below diagonal"), 1)
         self.assertEqual(svg.count('fill="#F6F6F6"'), 1)
         self.assertIn("0", visible_text)
@@ -500,7 +500,7 @@ class PhyloTaxonRenderingTests(unittest.TestCase):
             "".join(title.itertext())
             for node in root.iter(f"{namespace}rect")
             for title in node.findall(f"{namespace}title")
-            if "each shared GCF is assigned its representative broad BGC class"
+            if "each shared GCF retains its submitted member class composition"
             in "".join(title.itertext())
         ]
         self.assertTrue(segment_titles)

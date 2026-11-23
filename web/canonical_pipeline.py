@@ -19,13 +19,16 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional
 
+import cohort_gate
+
 from bigscape_public_db import (
     DEFAULT_MAX_SOURCE_BYTES as DEFAULT_PUBLIC_BIGSCAPE_MAX_BYTES,
     prepare_public_bigscape_databases,
 )
 from genbank_readiness import inspect_genbank_translation_stream
+from plant_annotation import inspect_plant_annotation_path
 from result_attestation import write_result_attestation
-from researcher_report import CONFIGURATION, REPORT_FILES, build_report, collect_run_versions, input_fingerprints, package_name, probe_annotation_runtimes, source_fingerprint, taxon_metadata
+from researcher_report import CONFIGURATION, REPORT_FILES, begin_scientific_stage, finish_scientific_stage, build_report, collect_run_versions, input_fingerprints, package_name, probe_annotation_runtimes, source_fingerprint, taxon_metadata
 from resource_usage import controller_image
 from result_policy import (
     PUBLIC_EVIDENCE_MANIFEST_PATH,
@@ -34,6 +37,11 @@ from result_policy import (
     public_archive_entry_name,
     public_evidence_role,
     result_is_public_bigscape_database,
+)
+from scientific_profiles import (
+    default_detector_profile,
+    default_prediction_method,
+    summarize_profiles,
 )
 from taxon_routing import (
     build_taxon_routes,
@@ -251,6 +259,8 @@ class JobStatus(str, Enum):
     RUNNING = "running"
     SUCCESS = "success"
     FAILED = "failed"
+    AWAITING_DECISION = "awaiting_decision"
+    COMPLETED_WITH_EXCLUSIONS = "completed_with_exclusions"
 
 
 @dataclass
@@ -270,6 +280,9 @@ class Job:
     on_change: Optional[Callable[[], None]] = field(default=None, repr=False, compare=False)
     _redacting_private_key: bool = field(default=False, repr=False, compare=False)
     _synced_log_count: int = field(default=0, repr=False, compare=False)
+    cohort_decision: dict[str, Any] | None = None
+    continuation_id: str = ""
+    rerun_count: int = 0
     _researcher: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
     def add_log(self, line: str) -> None:
@@ -300,6 +313,9 @@ class Job:
             "error": self.error,
             "project_name": self.project_name,
             "result_root": self.result_root,
+            "cohort_decision": self.cohort_decision,
+            "continuation_id": self.continuation_id,
+            "rerun_count": self.rerun_count,
         }
 
 
@@ -310,6 +326,7 @@ class ProjectLayout:
     data_root: Path
     fungi_genome_root: Path
     bacteria_genome_root: Path
+    plants_genome_root: Path
     results_root: Path
     software_root: Path
     work_root: Path
@@ -347,6 +364,7 @@ class ProjectLayout:
         self.bacteria_genome_root = bacteria_genome_root or (
             data_root / "genomes" / "bacteria" / project_name
         )
+        self.plants_genome_root = data_root / "genomes" / "plants" / project_name
         self.results_root = results_root
         self.software_root = software_root
         self.work_root = work_root
@@ -364,11 +382,13 @@ class ProjectLayout:
         return self.fungi_genome_root
 
     def root_for_taxon(self, taxon_group: str) -> Path:
+        if taxon_group == "plants":
+            return self.plants_genome_root
         return self.bacteria_genome_root if taxon_group == "bacteria" else self.fungi_genome_root
 
     @property
-    def genome_roots(self) -> tuple[Path, Path]:
-        return self.fungi_genome_root, self.bacteria_genome_root
+    def genome_roots(self) -> tuple[Path, ...]:
+        return self.fungi_genome_root, self.bacteria_genome_root, self.plants_genome_root
 
 
 def _job_cancel_path(job: Job) -> Path:
@@ -568,7 +588,7 @@ def _public_stage_from_stream_line(line: str) -> str | None:
 def _stage_failure_summary(job: Job) -> str:
     for raw in reversed(job.log_lines[-24:]):
         text = re.sub(r"^\[\d{2}:\d{2}:\d{2}\]\s*", "", str(raw or "")).strip()
-        if not text:
+        if not text or text.startswith("COHORT_OUTCOME "):
             continue
         if re.search(r"\b(ERROR|FATAL|FAIL)\b|not found|failed|exit code", text, re.IGNORECASE):
             text = re.sub(r"\s+", " ", text)
@@ -576,11 +596,17 @@ def _stage_failure_summary(job: Job) -> str:
     return ""
 
 
+class DecisionRequired(RuntimeError):
+    pass
+
+
 async def _run_required_stage(job: Job, stage: str, cmd: list[str], cwd: Path, env: dict[str, str]) -> None:
     _raise_if_cancelled(job)
     job.set_stage(stage)
     rc = await _stream_cmd(cmd, cwd=cwd, job=job, env=env)
     _raise_if_cancelled(job)
+    if rc == 75 and env.get("CLUSTERWEAVE_COHORT_CONTROL"):
+        raise DecisionRequired("Explicit genome exclusion decision required")
     if rc != 0:
         summary = _stage_failure_summary(job)
         detail = f": {summary}" if summary else ""
@@ -699,6 +725,19 @@ def _copy_unique(src: Path, dest_dir: Path, dest_name: str | None = None) -> Pat
         idx += 1
 
 
+def _scope_for_retained_taxa(taxa: set[str]) -> str:
+    """Summarize retained routes without changing historical both semantics."""
+    if not taxa:
+        return "fungi"
+    if not taxa <= {"fungi", "bacteria", "plants"}:
+        raise ValueError("Unsupported retained taxon route")
+    if taxa == {"fungi", "bacteria"}:
+        return "both"
+    if len(taxa) == 1:
+        return next(iter(taxa))
+    return "mixed"
+
+
 def _analysis_scope(settings: dict[str, Any]) -> str:
     return normalize_analysis_scope(settings.get("analysis_scope"))
 
@@ -747,17 +786,22 @@ def _normalize_taxon_routes(settings: dict[str, Any]) -> list[dict[str, str]]:
             raise ValueError("Each taxon route must be an object")
         row = {field: _safe_manifest_text(raw.get(field)) for field in TAXON_ROUTE_FIELDS}
         row["taxon_group"] = row["taxon_group"].lower()
-        if row["taxon_group"] not in {"fungi", "bacteria"}:
+        if row["taxon_group"] not in {"fungi", "bacteria", "plants"}:
             raise ValueError(f"Unsupported taxon_group in route: {row['taxon_group'] or 'missing'}")
         row["genome_id"] = _safe_genome_id(row["genome_id"] or row["input_key"])
         row["input_path_key"] = _safe_input_path_key(row["input_path_key"])
         row["taxon_source"] = row["taxon_source"] or "legacy_default"
-        row["prediction_method"] = row["prediction_method"] or (
-            "prodigal" if row["taxon_group"] == "bacteria" else "funannotate"
+        row["prediction_method"] = row["prediction_method"] or default_prediction_method(
+            row["taxon_group"]
         )
-        row["detector_profile"] = row["detector_profile"] or (
-            "antismash" if row["taxon_group"] == "bacteria" else "antismash+funbgcex"
+        row["detector_profile"] = row["detector_profile"] or default_detector_profile(
+            row["taxon_group"]
         )
+        if row["taxon_group"] == "plants" and (row["prediction_method"] not in {"existing_cds", "annotation_required"} or row["detector_profile"] != "plantismash"):
+            raise ValueError("Plant routes require supplied CDS and the plantiSMASH profile")
+        scope = settings.get("analysis_scope")
+        if scope and not (scope == "mixed" or scope == row["taxon_group"] or (scope == "both" and row["taxon_group"] in {"fungi", "bacteria"})):
+            raise ValueError("Taxon route conflicts with analysis scope")
         row["route_status"] = (row["route_status"] or "routed").lower()
         rows.append(row)
 
@@ -785,24 +829,10 @@ def _route_active(row: dict[str, str]) -> bool:
 
 def _route_summaries(routes: list[dict[str, str]]) -> tuple[dict[str, int], dict[str, int]]:
     active = [row for row in routes if _route_active(row)]
-    fungi = sum(1 for row in active if row["taxon_group"] == "fungi")
-    bacteria = sum(1 for row in active if row["taxon_group"] == "bacteria")
-    total = fungi + bacteria
-    taxon_counts = {"fungi": fungi, "bacteria": bacteria, "total": total}
-    applicability_counts = {
-        "funannotate": sum(
-            1 for row in active if row.get("prediction_method") == "funannotate"
-        ),
-        "prodigal": sum(
-            1 for row in active if row.get("prediction_method") == "prodigal"
-        ),
-        "antismash": total,
-        "funbgcex": fungi,
-        "funbgcex_not_applicable_taxon": bacteria,
-        "bigscape": total,
-        "taxon_tree_figure": total,
-    }
-    return taxon_counts, applicability_counts
+    return summarize_profiles(
+        (row["taxon_group"] for row in active),
+        (row.get("prediction_method") for row in active),
+    )
 
 
 def _logical_input_stem(value: object) -> str:
@@ -1113,6 +1143,7 @@ def _taxonomy_metadata_from_mapping_files(
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     mapping_specs = [
+        ("plants", layout.plants_genome_root / "accessions_plantsID_taxonomyID.txt"),
         (
             "fungi",
             layout.fungi_genome_root
@@ -1268,7 +1299,8 @@ def _write_taxon_manifests(
     )
     fungi_count = sum(row["taxon_group"] == "fungi" for row in safe_routes)
     bacteria_count = sum(row["taxon_group"] == "bacteria" for row in safe_routes)
-    unresolved_count = len(safe_routes) - fungi_count - bacteria_count
+    plants_count = sum(row["taxon_group"] == "plants" for row in safe_routes)
+    unresolved_count = len(safe_routes) - fungi_count - bacteria_count - plants_count
     scope = (
         "both"
         if fungi_count and bacteria_count
@@ -1276,6 +1308,7 @@ def _write_taxon_manifests(
         if bacteria_count
         else "fungi"
     )
+    scope = _scope_for_retained_taxa({row["taxon_group"] for row in safe_routes})
     routing_lines = [
         (
             f"TAXON_ROUTE genome={row['genome_id']} taxon={row['taxon_group']} "
@@ -1287,7 +1320,7 @@ def _write_taxon_manifests(
     ]
     routing_lines.append(
         f"TAXON_SUMMARY scope={scope} fungi={fungi_count} "
-        f"bacteria={bacteria_count} unresolved={unresolved_count}"
+        f"bacteria={bacteria_count} " + (f"plants={plants_count} " if plants_count else "") + f"unresolved={unresolved_count}"
     )
     routing_log.write_text("\n".join(routing_lines) + "\n", encoding="utf-8")
 
@@ -1365,6 +1398,25 @@ def _stage_uploaded_inputs(input_files: list[Path], layout: ProjectLayout, setti
     scope_was_explicit = bool(str(settings.get("analysis_scope") or "").strip())
     routes = _normalize_taxon_routes(settings)
     routes_locked = bool(routes)
+    seen_genome_kinds: set[tuple[str, str]] = set()
+    for src in input_files:
+        suffix = src.suffix.lower()
+        if suffix not in GENOME_EXTS:
+            continue
+        genome_id = _logical_input_stem(src.name)
+        if routes_locked:
+            frozen_route = _route_for_input(src, routes)
+            if frozen_route is None or not _route_active(frozen_route):
+                continue
+            genome_id = frozen_route["genome_id"]
+        kind = "GenBank" if suffix in {".gb", ".gbk", ".gbff"} else "FASTA"
+        identity = (genome_id.casefold(), kind)
+        if identity in seen_genome_kinds:
+            raise ValueError(
+                f"Genome input '{genome_id}' has duplicate {kind} files; "
+                "provide at most one FASTA and one GenBank file per logical genome"
+            )
+        seen_genome_kinds.add(identity)
     if not routes_locked:
         routes = _direct_upload_taxon_routes(
             input_files,
@@ -1440,6 +1492,16 @@ def _stage_uploaded_inputs(input_files: list[Path], layout: ProjectLayout, setti
         raise ValueError(
             "Bacterial or Both-mode accession preparation requires authoritative immutable taxon routes"
         )
+    for route in routes:
+        if route["taxon_group"] != "plants" or route.get("taxon_source") == "ncbi":
+            continue
+        root = layout.root_for_taxon("plants")
+        gbks = [root / (route["genome_id"] + ext) for ext in (".gb", ".gbk", ".gbff") if (root / (route["genome_id"] + ext)).is_file()]
+        fastas = [root / (route["genome_id"] + ext) for ext in (".fa", ".fna", ".fasta", ".fsa") if (root / (route["genome_id"] + ext)).is_file()]
+        if len(gbks) != 1:
+            raise ValueError("Annotation required: plant inputs need translated GenBank")
+        inspect_plant_annotation_path(gbks[0], fastas[0] if fastas else None)
+        route["prediction_method"] = "existing_cds"
     normalized_routes = _normalize_taxon_routes({"taxon_routes": routes})
     settings["analysis_scope"] = scope
     settings["taxon_routes"] = normalized_routes
@@ -1493,7 +1555,7 @@ def _restore_existing_layout_inputs(
         settings["taxon_routes"] = routes
         taxa = {row["taxon_group"] for row in routes if _route_active(row)}
         settings["analysis_scope"] = (
-            "both" if taxa == {"fungi", "bacteria"} else next(iter(taxa), "fungi")
+            _scope_for_retained_taxa(taxa)
         )
         settings["taxon_counts"], settings["applicability_counts"] = _route_summaries(
             routes
@@ -1594,6 +1656,9 @@ def _base_env(layout: ProjectLayout, settings: dict[str, Any], cpus: int) -> dic
         "GENOME_ROOT": str(layout.fungi_genome_root),
         "FUNGI_GENOME_ROOT": str(layout.fungi_genome_root),
         "BACTERIA_GENOME_ROOT": str(layout.bacteria_genome_root),
+        "PLANTS_GENOME_ROOT": str(layout.plants_genome_root),
+        "PLANTISMASH_SIF": (os.environ.get("PLANTISMASH_SIF") or str(layout.software_root / "plantismash/plant.sif")),
+        "PLANTISMASH_ENGINE": os.environ.get("PLANTISMASH_ENGINE", "apptainer"),
         "GENOME_TAXON_MANIFEST": str(
             layout.results_root / "summary_tables" / "genome_taxon_manifest.tsv"
         ),
@@ -1838,7 +1903,7 @@ def _base_env(layout: ProjectLayout, settings: dict[str, Any], cpus: int) -> dic
         "BIGSCAPE_DOCKER_IMAGE": os.environ.get("BIGSCAPE_DOCKER_IMAGE", "ghcr.io/medema-group/big-scape:2.0.0-beta.6"),
         "BIGSCAPE_DOCKER_DATA_VOLUME": os.environ.get("BIGSCAPE_DOCKER_DATA_VOLUME", os.environ.get("DOCKER_DATA_VOLUME", "")),
         "BIGSCAPE_DOCKER_PFAM_VOLUME": os.environ.get("BIGSCAPE_DOCKER_PFAM_VOLUME", os.environ.get("DOCKER_PFAM_VOLUME", "")),
-        "CLINKER_USE_DOCKER_IMAGE": "1" if _cfg_bool(settings, "clinker_use_docker_image", os.environ.get("ENGINE") == "docker") else "0",
+        "CLINKER_USE_DOCKER_IMAGE": os.environ.get("CLINKER_USE_DOCKER_IMAGE", "1" if _cfg_bool(settings, "clinker_use_docker_image", os.environ.get("ENGINE") == "docker") else "0"),
         "CLINKER_DOCKER_IMAGE": _cfg_str(settings, "clinker_docker_image", os.environ.get("CLINKER_DOCKER_IMAGE", "quay.io/biocontainers/clinker-py:0.0.32--pyhdfd78af_0")),
         "CLINKER_DOCKER_DATA_VOLUME": _cfg_str(settings, "clinker_docker_data_volume", os.environ.get("CLINKER_DOCKER_DATA_VOLUME", os.environ.get("DOCKER_DATA_VOLUME", ""))),
         "NPLINKER_USE_DOCKER_IMAGE": os.environ.get("NPLINKER_USE_DOCKER_IMAGE", "1" if os.environ.get("ENGINE") == "docker" else "0"),
@@ -1949,6 +2014,12 @@ def _is_public_result_file(path: Path, layout: ProjectLayout) -> bool:
         rel = path.relative_to(layout.results_root).as_posix()
     except ValueError:
         return False
+    parts = Path(rel).parts
+    if len(parts) >= 3 and parts[0] == 'plantismash':
+        tool_root = layout.results_root / parts[0] / parts[1]
+        if (tool_root / 'index.html').is_file() and (tool_root / 'provenance.json').is_file():
+            if parts[2] == 'native' or (len(parts) == 3 and parts[2] in {'complete-native.zip', 'original.gbk', 'original-identity.json', 'native-completion.json'}):
+                return False
     cursor = layout.results_root
     for part in Path(rel).parts:
         cursor = cursor / part
@@ -1958,6 +2029,21 @@ def _is_public_result_file(path: Path, layout: ProjectLayout) -> bool:
         path.resolve(strict=True).relative_to(layout.results_root.resolve(strict=True))
     except (OSError, ValueError):
         return False
+    if Path(rel).parts[0] in {'clinker', 'clinker_shared_family', 'synteny'}:
+        panel = path.parent
+        while panel != layout.results_root and panel != panel.parent:
+            manifest = panel / 'panel_manifest.tsv'
+            if manifest.is_symlink():
+                return False
+            if manifest.is_file():
+                if manifest.stat().st_size > 1024 * 1024:
+                    return False
+                with manifest.open() as handle:
+                    members = list(csv.DictReader(handle, delimiter='\t'))
+                if not any(r.get('role') == 'target' for r in members) or not any(r.get('role') in {'comparator', 'mibig_reference'} for r in members):
+                    return False
+                break
+            panel = panel.parent
     return is_public_analysis_relative_path(rel)
 
 
@@ -2021,13 +2107,13 @@ def _evidence_genome_id(rel_path: str, role: str) -> str:
     parts = rel_path.split("/")
     if role == "staged_genome_genbank" and len(parts) == 2:
         return Path(parts[1]).stem
-    if role in {"antismash_region_genbank", "funbgcex_bgc_genbank"} and len(parts) >= 2:
+    if role in {"antismash_region_genbank", "funbgcex_bgc_genbank", "native_bgc_genbank", "complete_native_plant_archive", "native_plant_record_download", "native_plant_tfbs_download", "native_plant_scientific_export"} and len(parts) >= 2:
         return parts[1]
     return ""
 
 
 def _evidence_taxon_metadata(layout: ProjectLayout) -> dict[str, tuple[str, str]]:
-    return {label.casefold(): (record["taxon_group"] if record["taxon_group"] in {"bacteria", "fungi"} else "",
+    return {label.casefold(): (record["taxon_group"] if record["taxon_group"] in {"bacteria", "fungi", "plants"} else "",
                                record["accession"] or "")
             for label, record in taxon_metadata(layout.results_root).items()}
 
@@ -2174,7 +2260,69 @@ def _prepare_public_bigscape_results(
                 "PUBLICATION: compact BiG-SCAPE web viewer ready "
                 f"({viewer_bytes} bytes)."
             )
+    native_map = layout.results_root / "summary/native_reporting_keys.json"
+    if native_map.is_file():
+        from importlib.util import spec_from_file_location, module_from_spec
+        spec = spec_from_file_location("native_reporting_view", layout.repo_root / "bin/native_reporting_view.py")
+        module = module_from_spec(spec)
+        spec.loader.exec_module(module)
+        view = json.loads(native_map.read_text())
+        if view.get("records"):
+            if len(preparation.databases) != 1:
+                raise ValueError("Native reporting requires exactly one sanitized BiG-SCAPE database")
+            database = preparation.databases[0]
+            from bigscape_public_db import find_raw_bigscape_databases
+            matches = [path for path in find_raw_bigscape_databases(layout.results_root) if path.name == database.source_name]
+            if len(matches) != 1:
+                raise ValueError("Ambiguous native raw database source")
+            raw = matches[0]
+            view = module.bind_public_records(view, raw, database.public_path, layout.results_root)
+            native_map.write_text(json.dumps(view, indent=2) + "\n")
     return {database.public_path.resolve() for database in preparation.databases}
+
+
+def _prepare_public_tables(layout: ProjectLayout) -> list[str]:
+    """Remove execution-only columns from public tables, retaining exact sources.
+
+    This runs only after scientific consumers, before manifest/attestation.
+    Missing fields and numeric zeros are unchanged in the retained columns.
+    """
+    import io
+    changed = []
+    for path in sorted(layout.results_root.rglob("*")):
+        if path.suffix.lower() not in {".csv", ".tsv"} or not _is_public_result_file(path, layout):
+            continue
+        if any(p.is_symlink() for p in (path, *path.parents)):
+            raise ValueError("Unsafe public table source")
+        raw = path.read_bytes()
+        delimiter = "\t" if path.suffix.lower() == ".tsv" else ","
+        reader = csv.DictReader(io.StringIO(raw.decode("utf-8-sig")), delimiter=delimiter)
+        fields = reader.fieldnames or []
+        private = {"producer", "native_profile"}.intersection(fields)
+        if not private:
+            continue
+        if len(set(fields)) != len(fields):
+            raise ValueError("Duplicate public table columns")
+        rows = list(reader)
+        if any(None in row or any(value is None for value in row.values()) for row in rows):
+            raise ValueError("Malformed public table")
+        retained = layout.results_root / "reproducibility" / "private_table_sources" / (hashlib.sha256(raw).hexdigest() + path.suffix)
+        retained.parent.mkdir(parents=True, exist_ok=True)
+        if any(p.is_symlink() for p in (retained, *retained.parents)):
+            raise ValueError("Unsafe private table destination")
+        if retained.exists():
+            if retained.read_bytes() != raw:
+                raise ValueError("Private table source identity mismatch")
+        else:
+            with retained.open("xb") as handle:
+                os.chmod(retained, 0o600)
+                handle.write(raw)
+        out = io.StringIO(newline="")
+        writer = csv.DictWriter(out, fieldnames=[f for f in fields if f not in private], delimiter=delimiter, lineterminator="\n", extrasaction="ignore")
+        writer.writeheader(); writer.writerows(rows)
+        path.write_text(out.getvalue(), encoding="utf-8")
+        changed.append(path.relative_to(layout.results_root).as_posix())
+    return changed
 
 
 def _collect_result_files(
@@ -2192,12 +2340,17 @@ def _collect_result_files(
 
     if attested_bigscape_databases is None:
         attested_bigscape_databases = _prepare_public_bigscape_results(job, layout)
+    if any((layout.results_root / name).is_dir() for name in ("clinker", "clinker_shared_family")):
+        import runpy
+        helpers = runpy.run_path(str(layout.repo_root / "bin/package_result_portables.py"))
+        helpers["package_panels"](layout.results_root)
+    _prepare_public_tables(layout)
     token = secrets.token_hex(8)
     report_temporaries = []
     try:
         layout.results_root.mkdir(parents=True, exist_ok=True)
         for name, data in build_report(layout.results_root, state=job._researcher, root=layout.repo_root,
-                                       status="failed" if job.error else "processing_complete").items():
+                                       status="completed_with_exclusions" if job.continuation_id and not job.error else "failed" if job.error else "processing_complete").items():
             target = layout.results_root / name
             if any(p.is_symlink() for p in (target, *target.parents)):
                 raise ValueError("Unsafe researcher report destination")
@@ -2340,34 +2493,56 @@ async def run_pipeline(
     layout.work_root.mkdir(parents=True, exist_ok=True)
     job.project_name = project_name
     job.result_root = str(layout.results_root.relative_to(job_dir))
+    control = job_dir / "cohort/current.json"
+    resuming = bool(job.continuation_id)
+    original_results = layout.results_root
+    closed_gate = None
+    if not resuming and control.is_file():
+        prior_gate = cohort_gate.load_gate(control)
+        if (prior_gate['identity'].get('job_id') == job.id
+                and prior_gate['identity'].get('rerun_count') == job.rerun_count
+                and prior_gate['state'] == 'awaiting_decision'):
+            closed_gate = prior_gate
     processing_start = time.monotonic()
     job._researcher = {"started_at_utc": datetime.now(timezone.utc).isoformat(),
-                       "metrics_dir": str(layout.work_root / "resource_usage"), "resources": []}
+                       "metrics_dir": str(layout.work_root / "resource_usage"), "resources": [],
+                       "scientific_attempt": {"annotation_selected": None, "stage_outcome": "not_started"}}
 
     try:
         job.status = JobStatus.RUNNING
         notify()
 
         job.set_stage("Preparing ClusterWeave project layout")
-        if _cfg_bool(cfg, "reuse_existing_layout", False) and (
+        if resuming or closed_gate:
+            job.add_log("Resuming validated cohort; annotation and detection are retained.")
+        elif _cfg_bool(cfg, "reuse_existing_layout", False) and (
             any(root.exists() for root in layout.genome_roots) or layout.results_root.exists()
         ):
             _restore_existing_layout_inputs(layout, job, cfg)
         else:
             _stage_uploaded_inputs(input_files, layout, cfg, job)
         env = _base_env(layout, cfg, cpus)
+        # Match the existing wrapper's exact flag and legacy-default semantics.
+        job._researcher["scientific_attempt"]["annotation_selected"] = (
+            env.get("RUN_STAGE_ANNOTATION") or env.get("RUN_STAGE_NEW", os.environ.get("RUN_STAGE_NEW")) or "1"
+        ) == "1"
         env["CLUSTERWEAVE_JOB_ID"] = job.id
         env["CLUSTERWEAVE_CANCEL_FILE"] = str(_job_cancel_path(job))
         job._researcher["configuration"] = {key: value for key, value in env.items()
             if key in CONFIGURATION and re.fullmatch(r"[A-Za-z0-9_.+-]{1,64}", str(value))}
         job._researcher["observation_run"] = secrets.token_hex(16)
         env["CLUSTERWEAVE_OBSERVATION_RUN"] = job._researcher["observation_run"]
+        job.add_log("Recording selected runtime identities and version observations.")
+        notify()
+        identity_start = time.monotonic()
         job._researcher["annotation_observations"] = await asyncio.to_thread(probe_annotation_runtimes, env)
         observation_path = layout.work_root / "annotation_runtime_observations.json"
         observation_path.write_text(json.dumps(job._researcher["annotation_observations"], sort_keys=True))
         env["CLUSTERWEAVE_ANNOTATION_OBSERVATIONS"] = str(observation_path)
         job._researcher["source_sha256"] = await asyncio.to_thread(source_fingerprint, layout.repo_root)
         job._researcher["controller_image_sha256"] = await asyncio.to_thread(controller_image)
+        job._researcher["startup_identity_seconds"] = round(time.monotonic() - identity_start, 6)
+        job.add_log(f"Runtime identity observations complete in {job._researcher['startup_identity_seconds']:.3f} seconds.")
         _raise_if_cancelled(job)
         notify()
 
@@ -2399,7 +2574,7 @@ async def run_pipeline(
                 "run the worker prepare-runtime command before submitting jobs."
             )
 
-        if layout.accession_file is not None and run_genome_prep:
+        if not resuming and not closed_gate and layout.accession_file is not None and run_genome_prep:
             await _run_required_stage(
                 job,
                 "Preparing genomes from accessions",
@@ -2412,7 +2587,7 @@ async def run_pipeline(
                 cfg["taxon_routes"] = prepared_routes
                 taxa = {row["taxon_group"] for row in prepared_routes if _route_active(row)}
                 cfg["analysis_scope"] = (
-                    "both" if taxa == {"fungi", "bacteria"} else next(iter(taxa), "fungi")
+                    _scope_for_retained_taxa(taxa)
                 )
                 cfg["taxon_counts"], cfg["applicability_counts"] = _route_summaries(
                     prepared_routes
@@ -2440,13 +2615,100 @@ async def run_pipeline(
 
         job.add_log("Input preparation complete.")
         job._researcher["source_inputs"] = await asyncio.to_thread(input_fingerprints, layout.genome_roots)
-        await _run_required_stage(
-            job,
-            "Running canonical ClusterWeave workflow",
-            ["bash", str(_script(layout, "run_clusterweave.sh"))],
-            cwd=layout.repo_root,
-            env=env,
-        )
+        identity = {
+            "job_id": job.id, "rerun_count": job.rerun_count,
+            "source_sha256": job._researcher["source_sha256"],
+            "controller_image_sha256": job._researcher["controller_image_sha256"],
+            "inputs": job._researcher["source_inputs"],
+            "configuration_sha256": cohort_gate.fingerprint(job._researcher["configuration"]),
+            "runtimes": job._researcher["annotation_observations"],
+            "plant_runtime_sha256": await asyncio.to_thread(cohort_gate.digest, Path(env["PLANTISMASH_SIF"])) if Path(env["PLANTISMASH_SIF"]).is_file() else None,
+        }
+        context_path = job_dir / "cohort/context.json"
+        if closed_gate:
+            if closed_gate['identity'] != identity:
+                raise cohort_gate.GateError('Closed attempt identities changed during recovery')
+            cohort_gate.verify_gate(closed_gate)
+            raise DecisionRequired('Recovered closed attempt awaiting explicit decision')
+        if resuming:
+            gate = cohort_gate.load_gate(control)
+            if (gate["decision_id"] != job.continuation_id or gate["identity"] != identity
+                    or "acceptance" not in gate):
+                raise cohort_gate.GateError("Stale continuation: attempt, input or runtime identity changed")
+            await asyncio.to_thread(cohort_gate.verify_assets, gate.get("assets", {}))
+            destination = original_results.with_name(original_results.name + ".cohort-" + gate["attempt"])
+            await asyncio.to_thread(cohort_gate.materialize, gate, destination)
+            layout.results_root = destination
+            layout.work_root = job_dir / "work" / ("cohort-" + gate["attempt"])
+            layout.work_root.mkdir(parents=True, exist_ok=True)
+            job.result_root = str(destination.relative_to(job_dir))
+            retained_routes = _read_taxon_manifest(layout)
+            input_destination = job_dir / "cohort" / gate["attempt"] / "genomes"
+            for taxon in ("fungi", "bacteria", "plants"):
+                old_root = layout.root_for_taxon(taxon)
+                new_root = input_destination / taxon
+                new_root.mkdir(parents=True, exist_ok=True)
+                for genome in gate["included"]:
+                    for source in old_root.glob(genome + ".*"):
+                        if source.suffix.lower() in GENOME_EXTS | {".gff", ".gff3"}:
+                            if source.is_symlink() or not source.is_file():
+                                raise cohort_gate.GateError("Unsafe retained input")
+                            target = new_root / source.name
+                            if target.exists():
+                                if cohort_gate.digest(target) != cohort_gate.digest(source):
+                                    raise cohort_gate.GateError("Retained cohort input differs")
+                            else:
+                                shutil.copy2(source, target)
+                setattr(layout, taxon + "_genome_root", new_root)
+            for name in ("ecofun_metadata_normalized.tsv", "ecobac_metadata_normalized.tsv"):
+                candidate = destination / "summary_tables" / name
+                if candidate.is_file():
+                    layout.metadata_file = candidate
+                    break
+
+            # All downstream roots and denominator metadata use the same exact
+            # included IDs. Original inputs and failed attempts remain untouched.
+            cfg = dict(cfg)
+            cfg.update(run_annotation=False, run_genome_prep=False,
+                       taxon_routes=retained_routes,
+                       analysis_scope=_scope_for_retained_taxa({r["taxon_group"] for r in retained_routes}))
+            cfg["taxon_counts"], cfg["applicability_counts"] = _route_summaries(retained_routes)
+            for key, disposition in gate["plan"].items():
+                if not disposition.startswith("will run"):
+                    cfg["run_" + key] = False
+            _write_taxon_manifests(layout, retained_routes, cfg.get("taxonomy_metadata"),
+                                  ecology_enabled=_cfg_bool(cfg, "run_ecology_analysis", False))
+            env = _base_env(layout, cfg, cpus)
+            env["CLUSTERWEAVE_JOB_ID"] = job.id
+            env["CLUSTERWEAVE_CANCEL_FILE"] = str(_job_cancel_path(job))
+            env["RUN_STAGE_ANNOTATION"] = "0"
+            job._researcher["scientific_attempt"]["annotation_selected"] = False
+            run_figures = _cfg_bool(cfg, "run_figures", True)
+            run_phylogeny = _cfg_bool(cfg, "run_phylogeny", False)
+            run_nplinker = _cfg_bool(cfg, "run_nplinker", False)
+            run_cross_kingdom_evidence = _cfg_bool(cfg, "run_cross_kingdom_evidence", False)
+            job.cohort_decision = cohort_gate.public_gate(gate)
+            job.add_log("COHORT_CONTINUATION included=" + ",".join(gate["included"]) + " excluded=" + ",".join(gate["excluded"]))
+        else:
+            cohort_gate.atomic_json(context_path, {"identity": identity, "settings": cfg})
+            env["CLUSTERWEAVE_COHORT_CONTEXT"] = str(context_path)
+            env["CLUSTERWEAVE_COHORT_CONTROL"] = str(control)
+        await asyncio.to_thread(begin_scientific_stage, layout.results_root, job._researcher)
+        scientific_stage_outcome = "failed"
+        try:
+            await _run_required_stage(
+                job,
+                "Running canonical ClusterWeave workflow",
+                ["bash", str(_script(layout, "run_clusterweave.sh"))],
+                cwd=layout.repo_root,
+                env=env,
+            )
+            scientific_stage_outcome = "complete"
+        except asyncio.CancelledError:
+            scientific_stage_outcome = "cancelled"
+            raise
+        finally:
+            await asyncio.to_thread(finish_scientific_stage, layout.results_root, job._researcher, scientific_stage_outcome)
 
         if run_figures:
             figure_cmd = ["bash", str(_script(layout, "run_figures.sh"))]
@@ -2589,6 +2851,7 @@ async def run_pipeline(
                     else "Cross-kingdom evidence follow-up complete with warning."
                 )
 
+        job.error = None
         job.set_stage("Collecting result files")
         job._researcher["finished_at_utc"] = datetime.now(timezone.utc).isoformat()
         job._researcher["wall_seconds"] = round(time.monotonic() - processing_start, 6)
@@ -2597,10 +2860,24 @@ async def run_pipeline(
         except Exception:
             job.add_log("WARN: Version evidence could not be completed; unavailable fields are retained.")
         _collect_result_files(job, job_dir, layout)
-        job.status = JobStatus.SUCCESS
-        job.stage = "complete"
-        job.add_log("Canonical ClusterWeave workflow finished successfully.")
+        job.status = JobStatus.COMPLETED_WITH_EXCLUSIONS if resuming else JobStatus.SUCCESS
+        job.stage = "completed_with_exclusions" if resuming else "complete"
+        job.error = None
+        job.add_log("Completed with exclusions; failed genome attempts remain failed." if resuming else "Canonical ClusterWeave workflow finished successfully.")
 
+    except DecisionRequired:
+        gate = cohort_gate.load_gate(control)
+        if gate["state"] != "awaiting_decision" or gate["identity"] != identity:
+            raise cohort_gate.GateError("Invalid waiting decision")
+        job.cohort_decision = cohort_gate.public_gate(gate)
+        job.error = "Annotation/detection failed for excluded genomes; explicit continuation decision required."
+        try:
+            _collect_result_files(job, job_dir, layout)
+        except Exception as collect_exc:
+            job.add_log(f"WARN: partial result collection failed: {collect_exc}")
+        job.status = JobStatus.AWAITING_DECISION
+        job.stage = "awaiting_decision"
+        job.add_log("Waiting for an explicit exclusion decision; scientific worker slot released.")
     except asyncio.CancelledError:
         job.status = JobStatus.FAILED
         job.stage = "cancelled"
@@ -2610,6 +2887,13 @@ async def run_pipeline(
     except Exception as exc:
         job.status = JobStatus.FAILED
         job.error = str(exc)
+        if control.is_file():
+            try:
+                failed_gate = cohort_gate.load_gate(control)
+                if failed_gate["identity"].get("rerun_count") == job.rerun_count:
+                    job.cohort_decision = cohort_gate.public_gate(failed_gate)
+            except (OSError, ValueError, KeyError):
+                pass
         job._researcher["finished_at_utc"] = datetime.now(timezone.utc).isoformat()
         job._researcher["wall_seconds"] = round(time.monotonic() - processing_start, 6)
         job.add_log(f"FATAL: {exc}")

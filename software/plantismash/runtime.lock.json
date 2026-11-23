@@ -1,0 +1,13 @@
+{
+  "schema": "plantismash-runtime-v1",
+  "preferred_sif_sha256": "91b31f064585370abd1eff3f845c8cecf84537ad57b07bb2fd611137d6825679",
+  "legacy_sif_sha256": "6c057b048752333a1860a1dcbcd9a44b285b7f4717c8e705f0b10215a5522406",
+  "profile_sha256": "f8bce449f75d78eddb5d9a15faf95de73625c9936af41d3e7faa52f7949dd0d3",
+  "source_date_epoch": 315532800,
+  "platform": "linux/amd64",
+  "recipe_source_lock_sha256": "cc98e4730585a406c1576a7d04ed8ddf10a7b05f25bbf9ee6f242bea0184525d",
+  "identity_change": "Distinct extras-v3 scientific profile with pinned analysis resources and ten checksum-bound compatibility modifications. Immutable positive and successful-empty inputs, the retained complete Populus genome, and fresh mixed-output BiG-SCAPE/summary/Clinker/figure/package replay pass. Original sequences, supplied CDS and core detection thresholds remain protected. This is bounded real-output validation, not broad biological accuracy or a claim of identity to an external pre-calculated run. Independent complete-build byte reproducibility has not been established for this new SIF.",
+  "resources_lock_sha256": "e66e9250ce64babb1a7f0e9a0e3f31815acf2e16096f69a0b011fd3bcd2abeaa",
+  "historical_reduced_profile_sif_sha256": "288660c80d58743b6415931d3a891b2213d9f1aff90dafb4def3e805bb991a46",
+  "historical_reduced_profile_sha256": "1d83d1685003784f99b924b220b9d30c0903d2abc6ed6e2c6ac057de303ffc2d"
+}

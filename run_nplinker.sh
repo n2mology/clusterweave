@@ -48,12 +48,12 @@ MASSIVE_USERNAME="${MASSIVE_USERNAME:-}"
 MASSIVE_PASSWORD="${MASSIVE_PASSWORD:-}"
 
 # Container + environment
-SIF_PATH="${SIF_PATH:-${SOFTWARE_ROOT}/nplinker_python3.11.sif}"
+SIF_PATH="${SIF_PATH:-${NPLINKER_SIF_PATH:-${SOFTWARE_ROOT}/nplinker_python3.11.sif}}"
 SIF_SOURCE="${SIF_SOURCE:-docker://python:3.11-slim}"
 NPLINKER_USE_DOCKER_IMAGE="${NPLINKER_USE_DOCKER_IMAGE:-0}"
 NPLINKER_DOCKER_IMAGE="${NPLINKER_DOCKER_IMAGE:-python:3.11-slim}"
 NPLINKER_DOCKER_DATA_VOLUME="${NPLINKER_DOCKER_DATA_VOLUME:-${DOCKER_DATA_VOLUME:-}}"
-VENV_DIR="${VENV_DIR:-${SOFTWARE_ROOT}/venv}"
+VENV_DIR="${VENV_DIR:-${NPLINKER_VENV_DIR:-${SOFTWARE_ROOT}/venv}}"
 PIP_CACHE="${PIP_CACHE:-${SOFTWARE_ROOT}/pip_cache}"
 AUTO_PULL_NPLINKER_SIF="${AUTO_PULL_NPLINKER_SIF:-1}"
 
@@ -390,7 +390,6 @@ BIND_ARGS=(
   --bind "${SOFTWARE_ROOT}:${SOFTWARE_ROOT}"
   --bind "${RUN_DIR}:${RUN_DIR}"
   --bind "${WORK_ROOT}:${WORK_ROOT}"
-  --bind "/tmp:/tmp"
 )
 
 docker_run_args() {
@@ -449,8 +448,8 @@ fi
 if [[ "${RUNNER_PY}" != "${TRACKED_RUNNER_PY}" ]]; then
   mkdir -p "$(dirname "${RUNNER_PY}")"
   cp -f "${TRACKED_RUNNER_PY}" "${RUNNER_PY}"
+  chmod +x "${RUNNER_PY}"
 fi
-chmod +x "${RUNNER_PY}"
 
 ###############################################################################
 # Helpers to select NPLinker mode and generate config

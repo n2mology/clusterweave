@@ -12,6 +12,11 @@ import os
 from pathlib import Path
 import re
 import signal
+import queue
+import threading
+import shutil
+import textwrap
+import termios
 import subprocess
 import sys
 from typing import Any, Iterable, TextIO
@@ -79,6 +84,7 @@ def normalize_tool(value: object) -> str:
     key = raw.lower().replace("_", "").replace("-", "")
     return {
         "antismash": "antiSMASH",
+        "plantismash": "plantiSMASH",
         "funbgcex": "FunBGCeX",
         "funannotate": "funannotate",
         "prodigal": "Prodigal",
@@ -145,6 +151,9 @@ def classify_progress_line(
         "stage_transition": False,
     }
 
+    if any(re.search(pattern, message, re.I) for pattern in contract.get("ignored_patterns", [])):
+        return dict(base, kind="diagnostic")
+
     for rule in contract.get("records") or []:
         match = re.search(str(rule.get("pattern") or r"(?!x)x"), message, re.IGNORECASE)
         if not match:
@@ -188,10 +197,10 @@ def classify_progress_line(
         allow_complete = bool(rule.get("terminal_on_percent"))
         pattern_state, pattern_permanent = _state_from_patterns(
             contract,
-            f"{raw} {event['display_message']}",
+            event["display_message"],
             allow_complete=allow_complete,
         )
-        if pattern_state and pattern_state != "complete" and event["kind"] != "genome_excluded":
+        if pattern_state and pattern_state != "complete" and event["kind"] in {"genome_progress", "tool_progress", "antismash_record"}:
             event["state"] = pattern_state
             event["permanent"] = event["permanent"] or pattern_permanent
         if (
@@ -201,10 +210,27 @@ def classify_progress_line(
         ):
             event["state"] = "complete"
             event["permanent"] = True
+        if event["kind"] == "genome_progress" and event["percentage"] == 0 and event["state"] == "rerun":
+            event["state"], event["permanent"] = "running", False
         if event["state"] in TERMINAL_STATES:
             event["permanent"] = True
         code = rule.get("progress_status") or ("complete" if event["state"] == "complete" and rule.get("progress_status_by_tool") else (rule.get("progress_status_by_tool") or {}).get(str(values.get("record_stage") or values.get("tool") or event["tool"]).lower()))
         event["progress_label"] = (contract.get("progress_statuses", {}).get(code) or {}).get("label", "")
+        if event["kind"] in {"antismash_record", "plant_record"}:
+            event["record"] = values.get("record") or values["ordinal"]
+            event["record_total"] = int(values["total"])
+            record_message = values.get("record_state") or event["display_message"]
+            event["record_state"] = "failed" if re.search("failed|invalid|cancelled", record_message, re.I) else "complete" if "complete" in record_message.lower() else "active"
+            event["state"], event["permanent"] = "running", False
+            event["percentage"] = None
+            event["display_message"] = f"Record {values['ordinal']}/{values['total']}: {event['display_message']}"
+        if event["kind"] == "genome_progress" and event["state"] == "complete" and event["tool"] == "plantiSMASH":
+            event["node_level"] = "genome"
+            event["display_message"] = "Genome workflow complete"
+        if event["kind"] == "taxon_route":
+            event["display_message"] = "Preparing genome"
+        if event["kind"] == "annotation_decision" and values.get("required") == "no":
+            event.update(node_level="genome", tool="", display_message="Using supplied gene annotations")
         event["preserve_progress_status"] = bool(rule.get("preserve_progress_status"))
         return event
 
@@ -230,6 +256,9 @@ def classify_progress_line(
             "permanent": True,
             "stage_transition": True,
         }
+
+    if not re.match(r"^NCBI_DOWNLOAD_SUMMARY\b", message) and (re.match(r"^(?:[A-Z][A-Z0-9_]+\s+)?[\[{]", message) or re.match(r"^[A-Z][A-Z0-9_]+\s+\w+=", message)):
+        return dict(base, kind="diagnostic")
 
     for rule in contract.get("legacy_records") or []:
         match = re.search(str(rule.get("pattern") or r"(?!x)x"), message, re.IGNORECASE)
@@ -257,6 +286,9 @@ def classify_progress_line(
     if pattern_state:
         base["state"] = pattern_state
         base["permanent"] = pattern_permanent
+    if base["state"] in {"complete", "skipped"}:
+        base["permanent"] = False
+    base["display_message"] = {"failed": "Workflow error; see Raw for diagnostics", "warning": "Workflow warning; see Raw for details", "complete": "Step complete", "skipped": "Step not applicable"}.get(base["state"], "Processing analysis output")
     return base
 
 
@@ -298,6 +330,7 @@ class ProgressTreeModel:
     observed_optional_stages: set[str] = field(default_factory=set)
     current_stage: str = "prep"
     next_order: int = 0
+    shard_states: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         for item in self.contract.get("workflow") or []:
@@ -358,6 +391,9 @@ class ProgressTreeModel:
         return f"stage:{stage}"
 
     def _reset_stage(self, stage: str) -> None:
+        for key in list(self.shard_states):
+            if key[0] == stage:
+                del self.shard_states[key]
         for key in [
             key
             for key, node in self.nodes.items()
@@ -371,6 +407,10 @@ class ProgressTreeModel:
         stage_node.elapsed = None
 
     def apply(self, event: dict[str, Any]) -> None:
+        if event.get("kind") == "workflow_complete":
+            packaged = self._ensure_stage("package")
+            if packaged.state not in {"failed", "warning_terminal", "skipped"}:
+                packaged.state, packaged.percentage, packaged.message = "complete", 100, "Complete"
         stage = str(event.get("workflow_stage") or self.current_stage or "prep")
         event["workflow_stage"] = stage
         stage_node = self._ensure_stage(stage)
@@ -389,6 +429,10 @@ class ProgressTreeModel:
             self._append_permanent_event(event)
             return
 
+        if event.get("kind") == "genome_progress" and event.get("state") == "complete" and event.get("tool") == "plantiSMASH":
+            tool = self.nodes.get(f"tool:{stage}:{event['genome']}:plantiSMASH")
+            if tool and tool.state not in {"failed", "warning_terminal"}:
+                tool.state, tool.percentage, tool.message, tool.elapsed = "complete", 100, "Complete", None
         key = event_node_key(event)
         node = self.nodes.get(key)
         if node is None:
@@ -408,6 +452,9 @@ class ProgressTreeModel:
         if event.get("kind") == "genome_progress" and event.get("node_level") == "genome" and event.get("percentage") == 0:
             node.state = "running"
             node.progress_label = ""
+            for shard_key in list(self.shard_states):
+                if shard_key[:2] == (stage, event.get("genome")):
+                    del self.shard_states[shard_key]
             if stage_node.state in TERMINAL_STATES:
                 stage_node.state = "running"
                 stage_node.percentage = None
@@ -426,8 +473,18 @@ class ProgressTreeModel:
             node.progress_label = ""
         elif not (event.get("preserve_progress_status") and node.progress_label) and not (node.progress_label == "CACHED" and incoming_state == "complete"):
             node.progress_label = label
+        if event.get("kind") in {"antismash_record", "plant_record"}:
+            shard_key = (stage, event.get("genome"), event.get("tool"))
+            shards = self.shard_states.setdefault(shard_key, {"total": 0, "records": {}})
+            shards["total"] = max(shards["total"], event["record_total"])
+            if event["record"] not in shards["records"] or event["record_state"] != "active":
+                shards["records"][event["record"]] = event["record_state"]
+            completed = sum(value == "complete" for value in shards["records"].values())
+            failed = sum(value == "failed" for value in shards["records"].values())
+            event["percentage"] = 35 + min(34, ((completed + failed) * 34 + shards["total"] // 2) // shards["total"])
+            event["display_message"] = f"{event['tool']} record shards: {completed}/{shards['total']} complete; genome processing continues"
         if event.get("percentage") is not None:
-            node.percentage = int(event["percentage"])
+            node.percentage = 0 if event["percentage"] == 0 else max(node.percentage or 0, int(event["percentage"]))
         display_message = str(event.get("display_message") or "").strip()
         if event.get("heartbeat") and previous_message not in {"", "Waiting", "Running"}:
             display_message = previous_message
@@ -436,10 +493,16 @@ class ProgressTreeModel:
             node.elapsed = int(event["elapsed_activity"])
         node.raw_index = int(event.get("canonical_raw_line_index") or 0)
 
+        if node.level == "tool" and node.parent_key and stage == "annotation" and event.get("percentage") is not None:
+            parent = self.nodes.get(node.parent_key)
+            if parent and parent.state not in TERMINAL_STATES:
+                parent.percentage = max(parent.percentage or 0, node.percentage)
         if node.level == "tool" and node.parent_key and incoming_state == "running" and node.progress_label:
             parent = self.nodes.get(node.parent_key)
             if parent and parent.state not in TERMINAL_STATES:
                 parent.progress_label = node.progress_label
+                if parent.percentage == 0 and incoming_state == "running":
+                    parent.percentage = None
 
         if (
             event.get("kind") == "download"
@@ -501,6 +564,18 @@ class ProgressTreeModel:
             if stage_node is None:
                 continue
             output.append(stage_node)
+            output.extend(
+                sorted(
+                    (
+                        node
+                        for node in self.nodes.values()
+                        if node.stage == stage
+                        and node.level in {"tool", "activity"}
+                        and node.parent_key == stage_key
+                    ),
+                    key=lambda node: node.order,
+                )
+            )
             genomes = sorted(
                 (
                     node
@@ -525,18 +600,6 @@ class ProgressTreeModel:
                 sorted(
                     (
                         node
-                        for node in self.nodes.values()
-                        if node.stage == stage
-                        and node.level in {"tool", "activity"}
-                        and node.parent_key == stage_key
-                    ),
-                    key=lambda node: node.order,
-                )
-            )
-            output.extend(
-                sorted(
-                    (
-                        node
                         for node in all_events.values()
                         if node.stage == stage
                     ),
@@ -553,7 +616,8 @@ def build_progress_tree(
     model = ProgressTreeModel(contract)
     for raw_index, line in records:
         event = classify_progress_line(contract, line, raw_index, model.current_stage)
-        model.apply(event)
+        if event["kind"] != "diagnostic":
+            model.apply(event)
     return model
 
 
@@ -578,14 +642,15 @@ def progress_status(node: TreeNode) -> str:
         "running": node.message or "Running",
     }
     progress_label = node.progress_label if node.level != "tool" or node.progress_label in {"GENOME DOWNLOADED", "GENOME READY"} else ""
+    progress_label = {"GENOME DOWNLOADED": "Genome downloaded", "GENOME READY": "Genome ready", "ANNOTATING": "Annotating genes", "DETECTING": "Detecting BGCs", "COMPLETE": "Complete", "CACHED": "Cached results"}.get(progress_label, progress_label)
     label = progress_label or state_labels.get(node.state, node.message or "Running")
-    if node.level == "genome" and node.message.startswith("Excluded from detection and downstream analysis"):
+    if node.level == "genome" and node.message.startswith(("Excluded from detection and downstream analysis", "Validating supplied plant CDS", "Preparing genome", "Queued genome")):
         label = node.message
     elapsed = format_elapsed(node.elapsed)
     if elapsed and elapsed.lower() not in label.lower():
         label = f"{label} · {elapsed}"
     if node.state == "complete":
-        return "[##########] 100% - " + (progress_label or "Complete")
+        return "[##########] 100% - " + ("Genome workflow complete" + (" · Cached results" if node.progress_label == "CACHED" else "") if node.level == "genome" and node.stage == "annotation" else progress_label or "Complete")
     if node.state == "skipped":
         return "[----------]   -- - Skipped"
     if node.percentage is not None:
@@ -632,6 +697,8 @@ class TerminalTreeRenderer:
     ) -> None:
         self.contract = contract
         self.project_name = project_name
+        self.mode = "tree"
+        self.model = ProgressTreeModel(contract)
         self.stream = stream
         self.unicode = unicode_terminal_supported(stream)
         self.records: list[tuple[int, str]] = []
@@ -656,28 +723,57 @@ class TerminalTreeRenderer:
 
     def accept(self, line: str) -> None:
         self.records.append((len(self.records), line.rstrip("\r\n")))
-        self.render()
+        event = classify_progress_line(self.contract, line, len(self.records) - 1, self.model.current_stage)
+        if event["kind"] != "diagnostic":
+            self.model.apply(event)
+        if self.mode == "raw":
+            self.stream.write(line.rstrip("\r\n") + "\n")
+            self.stream.flush()
+        else:
+            self.render()
+
+    def command(self, command: str) -> None:
+        command = command.strip().lower()
+        self.body_lines = 0
+        if command == "/raw":
+            self.mode = "raw"
+            self.stream.write("\x1b[?25h\nRaw output (/tree returns to progress):\n")
+            for _, line in self.records[-500:]:
+                self.stream.write(line + "\n")
+        elif command == "/tree":
+            self.mode = "tree"
+            self.stream.write("\x1b[?25l\n")
+            self.render()
+        else:
+            self.stream.write("\nCommands: /raw (recent diagnostics), /tree (progress), /help\n")
+        self.stream.flush()
 
     def render(self) -> None:
-        model = build_progress_tree(self.contract, self.records)
-        branch = {
-            "stage_live": "├─" if self.unicode else "|-",
-            "stage_terminal": "└─" if self.unicode else "`-",
-            "child_live": "│  ├─" if self.unicode else "|  |-",
-            "child_terminal": "│  └─" if self.unicode else "|  `-",
-            "tool_live": "│     ├─" if self.unicode else "|     |-",
-            "tool_terminal": "│     └─" if self.unicode else "|     `-",
-        }
+        if self.mode == "raw":
+            return
+        ordered = self.model.ordered_nodes()
+        by_key = {node.key: node for node in ordered}
+        last_child = {node.parent_key: node.key for node in ordered}
         lines: list[str] = []
-        for node in model.ordered_nodes():
-            terminal = node.state in TERMINAL_STATES
-            if node.level == "stage":
-                glyph = branch["stage_terminal" if terminal else "stage_live"]
-            elif node.level == "tool":
-                glyph = branch["tool_terminal" if terminal else "tool_live"]
-            else:
-                glyph = branch["child_terminal" if terminal else "child_live"]
-            lines.append(f"{glyph} {node.label} {progress_status(node)}")
+        for node in ordered:
+            ancestors = []
+            parent = by_key.get(node.parent_key)
+            while parent:
+                ancestors.insert(0, "   " if last_child[parent.parent_key] == parent.key else ("│  " if self.unicode else "|  "))
+                parent = by_key.get(parent.parent_key)
+            last = last_child[node.parent_key] == node.key
+            corner = ("└─" if last else "├─") if self.unicode else ("`-" if last else "|-")
+            glyph = "".join(ancestors) + corner
+            # Count physical rows explicitly so long readable names cannot move
+            # the redraw cursor into an earlier branch. Leave the last terminal
+            # column unused to avoid automatic-wrap ambiguity.
+            columns = max(20, shutil.get_terminal_size((120, 24)).columns - 1)
+            continuation = "".join(ancestors) + ("   " if last else ("│  " if self.unicode else "|  "))
+            lines.extend(textwrap.wrap(
+                f"{glyph} {node.label} {progress_status(node)}", width=columns,
+                subsequent_indent=continuation, break_long_words=True,
+                break_on_hyphens=False, replace_whitespace=False,
+            ))
         if not lines:
             lines = ["Waiting for canonical workflow output."]
         if self.body_lines:
@@ -706,6 +802,8 @@ def run_rendered(
     proc: subprocess.Popen[str] | None = None
     presentation_active = False
     raw_output_available = True
+    saved_terminal = None
+    events = queue.Queue()
 
     def forward_signal(signum: int, _frame: object) -> None:
         if proc is not None and proc.poll() is None:
@@ -728,8 +826,19 @@ def run_rendered(
                 sys.stdout.flush()
             except (BrokenPipeError, OSError):
                 raw_output_available = False
+        if sys.stdin.isatty():
+            saved_terminal = termios.tcgetattr(sys.stdin.fileno())
+            settings = list(saved_terminal)
+            settings[3] &= ~termios.ECHO
+            termios.tcsetattr(sys.stdin.fileno(), termios.TCSANOW, settings)
+            def read_commands():
+                for command in sys.stdin:
+                    events.put(("command", command))
+            threading.Thread(target=read_commands, daemon=True).start()
+            renderer.command("/help")
         proc = subprocess.Popen(
             command,
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -739,7 +848,21 @@ def run_rendered(
             start_new_session=True,
         )
         assert proc.stdout is not None
-        for line in proc.stdout:
+        def read_output():
+            try:
+                for line in proc.stdout:
+                    events.put(("output", line))
+            finally:
+                events.put(("eof", ""))
+        threading.Thread(target=read_output, daemon=True).start()
+        while True:
+            kind, line = events.get()
+            if kind == "eof":
+                break
+            if kind == "command":
+                if presentation_active:
+                    renderer.command(line)
+                continue
             if presentation_active:
                 try:
                     renderer.accept(line)
@@ -763,6 +886,8 @@ def run_rendered(
         proc.stdout.close()
         return proc.wait()
     finally:
+        if saved_terminal is not None:
+            termios.tcsetattr(sys.stdin.fileno(), termios.TCSANOW, saved_terminal)
         if presentation_active:
             try:
                 renderer.finish()

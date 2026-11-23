@@ -17,7 +17,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "web"))
 from canonical_pipeline import Job, ProjectLayout, _collect_result_files, _stream_cmd
-from researcher_report import build_report, package_name, taxon_metadata
+from researcher_report import build_report, package_name, taxon_metadata, begin_scientific_stage, finish_scientific_stage
 from resource_usage import StageSampler
 
 
@@ -53,6 +53,88 @@ class ResearcherReportTests(unittest.TestCase):
             for row in evidence:
                 self.assertEqual(hashlib.sha256(archive.read(row["package_path"])).hexdigest(), row["sha256"])
             self.assertTrue({"METHODS.md", "run_metadata.json", "resources.tsv", "CITATIONS.bib", "CITATION.cff"}.issubset(archive.namelist()))
+
+    def _run_outcome_pipeline(self, mode, override=None):
+        import canonical_pipeline as pipeline
+        selected = mode != "disabled"
+        job = Job(id="d1-fixture", name="example")
+        manifest = self.result / "summary_tables/run_manifest.tsv"
+        header = "genome_id\ttaxon_group\tprediction_method\tgbk_status\tantismash_status\tfunbgcex_status\n"
+        success = header + "Fungus\tfungi\texisting_cds\toriginal_ok\tran_ok\tran_ok\n"
+        for detector in ("antismash", "funbgcex"):
+            directory = self.result / detector / "Fungus"; directory.mkdir(parents=True)
+            (directory / ".done").touch()
+        (self.result / "antismash/Fungus/index.html").write_text("complete")
+        (self.result / "antismash/Fungus/Fungus.antismash.json").write_text('{"records":[{"areas":[]}]}')
+        (self.result / "funbgcex/Fungus/allBGCs.csv").write_text("BGC no.,Scaffold,Start position,End position\n")
+        if mode in {"disabled", "early_failure"}:
+            manifest.write_text(success)
+
+        async def stage(_job, title, command, **kwargs):
+            self.assertEqual(title, "Running canonical ClusterWeave workflow")
+            self.assertEqual(kwargs["env"]["RUN_STAGE_ANNOTATION"], "1" if selected else "0")
+            if mode == "early_failure":
+                raise RuntimeError("synthetic pre-row failure")
+            if mode == "disabled":
+                return
+            manifest.write_text(success if mode == "success" else header +
+                "Fungus\tfungi\tfunannotate\tannotation_fallbacks_failed\tskipped\tskipped\n")
+            if mode == "failure":
+                raise RuntimeError("synthetic annotation failure")
+            if mode == "cancelled":
+                raise asyncio.CancelledError()
+
+        with mock.patch.object(pipeline, "GLOBAL_SOFTWARE_ROOT", self.base / "software"), \
+             mock.patch.object(pipeline, "_stage_uploaded_inputs"), \
+             mock.patch.object(pipeline, "_has_genome_inputs", return_value=True), \
+             mock.patch.object(pipeline, "probe_annotation_runtimes", return_value=[]), \
+             mock.patch.object(pipeline, "controller_image", return_value=None), \
+             mock.patch.object(pipeline, "source_fingerprint", return_value="a" * 64), \
+             mock.patch.object(pipeline, "_run_required_stage", side_effect=stage):
+            coroutine = pipeline.run_pipeline(job, [], self.base, settings={"project_name": "example",
+                "clusterweave_root": str(ROOT), "run_annotation": selected if override is None else not selected,
+                "env_overrides": "" if override is None else "RUN_STAGE_ANNOTATION=" + override, "run_figures": False})
+            if mode == "cancelled":
+                with self.assertRaises(asyncio.CancelledError):
+                    asyncio.run(coroutine)
+            else:
+                asyncio.run(coroutine)
+        expected_stage = "failed" if mode in {"failure", "early_failure"} else "cancelled" if mode == "cancelled" else "complete"
+        self.assertEqual(job._researcher["scientific_attempt"]["stage_outcome"], expected_stage)
+        if mode == "cancelled":
+            self.assertFalse((self.base / "downloads/example_public_results.zip").exists())
+            return
+        with zipfile.ZipFile(self.base / "downloads/example_public_results.zip") as archive:
+            value = json.loads(archive.read("run_metadata.json"))["scientific_outcomes"]
+            self.assertEqual(value["canonical_stage_outcome"], expected_stage)
+            genome = next(g for g in value["genomes"] if g["genome_id"] == "Fungus")
+            expected = {"success": "zero_reported", "disabled": "not_run", "failure": "blocked", "early_failure": "unknown"}[mode]
+            self.assertEqual(genome["antismash"]["current_outcome"], expected)
+            self.assertIn(b"## Scientific outcomes", archive.read("METHODS.md"))
+            manifest_rows = csv.DictReader(io.StringIO(archive.read("downloads/public_results_manifest.tsv").decode()), delimiter="\t")
+            for row in manifest_rows:
+                self.assertEqual(hashlib.sha256(archive.read(row["path"])).hexdigest(), row["sha256"])
+
+    def test_canonical_stage_binds_zero_outcomes_in_actual_package(self):
+        self._run_outcome_pipeline("success")
+
+    def test_canonical_disabled_rerun_keeps_retained_scope(self):
+        self._run_outcome_pipeline("disabled")
+
+    def test_canonical_environment_override_disables_selected_annotation(self):
+        self._run_outcome_pipeline("disabled", override="0")
+
+    def test_canonical_environment_override_enables_annotation(self):
+        self._run_outcome_pipeline("success", override="1")
+
+    def test_canonical_failed_stage_finalizes_partial_outcome_evidence(self):
+        self._run_outcome_pipeline("failure")
+
+    def test_canonical_failure_before_new_rows_cannot_borrow_prior_success(self):
+        self._run_outcome_pipeline("early_failure")
+
+    def test_canonical_cancellation_finalizes_evidence_without_changing_publication(self):
+        self._run_outcome_pipeline("cancelled")
 
     def test_historical_report_does_not_invent_versions_release_or_resources(self):
         (self.result / "antismash/Bacterium").mkdir(parents=True)
@@ -181,14 +263,16 @@ class ResearcherReportTests(unittest.TestCase):
         self.assertIsNone(historical["tools"][0]["version"])
 
     def test_cached_tools_keep_producer_version_and_do_not_use_current_executable(self):
+        attempt = {"scientific_attempt": {"annotation_selected": True}}
+        begin_scientific_stage(self.result, attempt)
         from test_cached_accession import identity
         from tool_runtime import safe_observation
         directory = self.result / "reproducibility/accession_cache"; directory.mkdir(parents=True)
         producer = safe_observation({"tool": "antiSMASH", "backend": "native", "version": "8.0.4", "executable_sha256": "c" * 64})
-        record = {"identity": identity(), "outcome": "hit", "producer_execution": {"worker_image": "b" * 64, "tool_versions": [producer]}}
-        (directory / "Bacterium.detection.json").write_text(json.dumps(record))
-        (self.result / "summary_tables/run_manifest.tsv").write_text("genome_id\tprediction_method\tantismash_status\nBacterium\tprodigal\tskipped_done\n")
-        state = {"versions": {"antiSMASH": "99.0.0"}, "annotation_observations": [{"tool": "antiSMASH", "backend": "native", "version": "99.0.0"}]}
+        record = self._write_cache_identity(identity(), producer_execution={"worker_image": "b" * 64, "tool_versions": [producer]})
+        (self.result / "summary_tables/run_manifest.tsv").write_text("genome_id\tprediction_method\tgbk_status\tantismash_status\tfunbgcex_status\nBacterium\tprodigal\tbacterial_sequence_sanitized\tskipped_done\tnot_applicable_taxon\n")
+        state = {**attempt, "versions": {"antiSMASH": "99.0.0"}, "annotation_observations": [{"tool": "antiSMASH", "backend": "native", "version": "99.0.0"}]}
+        finish_scientific_stage(self.result, state, "complete")
         tools = {t["name"]: t for t in json.loads(build_report(self.result, state=state, root=ROOT)["run_metadata.json"])["tools"]}
         self.assertEqual(tools["antiSMASH"]["version"], "8.0.4")
         self.assertEqual(tools["antiSMASH"]["use"], "analysis reused from verified cache")
@@ -204,17 +288,20 @@ class ResearcherReportTests(unittest.TestCase):
         return record
 
     def test_original_producer_recovery_is_bound_to_cache_and_immutable_runtime(self):
+        attempt = {"scientific_attempt": {"annotation_selected": True}}
+        begin_scientific_stage(self.result, attempt)
         from test_cached_accession import identity
         from researcher_report import collect_run_versions
         value = identity()
         producer = {"worker_image": "b" * 64, "native_runtime_sha256": value["runtime_sha256"], "producer_source_sha256": value["source_sha256"]}
         record = self._write_cache_identity(value, producer_execution=producer)
-        (self.result / "summary_tables/run_manifest.tsv").write_text("genome_id\tprediction_method\tantismash_status\nBacterium\tprodigal\tskipped_done\n")
+        (self.result / "summary_tables/run_manifest.tsv").write_text("genome_id\tprediction_method\tgbk_status\tantismash_status\tfunbgcex_status\nBacterium\tprodigal\tbacterial_sequence_sanitized\tskipped_done\tnot_applicable_taxon\n")
         original = (self.result / "reproducibility/accession_cache/Bacterium.detection.json").read_bytes()
         def probe(tool, backend, runtime):
             self.assertEqual((backend, runtime), ("docker", "sha256:" + "b" * 64))
             return {"tool": tool, "backend": backend, "runtime_sha256": runtime, "version": "2.6.3" if tool == "Prodigal" else "8.0.4", "path": "/private/job", "token": "secret"}
-        state = {}
+        state = attempt
+        finish_scientific_stage(self.result, state, "complete")
         with mock.patch("researcher_report.observe", side_effect=probe) as calls:
             collect_run_versions(self.result, self.layout.work_root, {}, state)
         self.assertEqual(calls.call_count, 2)
@@ -236,15 +323,20 @@ class ResearcherReportTests(unittest.TestCase):
             self.assertTrue(all(row["version"] is None for row in rows))
 
     def test_partial_cached_version_evidence_keeps_each_producer_gap_visible(self):
+        attempt = {"scientific_attempt": {"annotation_selected": True}}
+        begin_scientific_stage(self.result, attempt)
         from test_cached_accession import identity
         from tool_runtime import safe_observation
+        with (self.result / "summary_tables/genome_taxon_manifest.tsv").open("a") as handle:
+            handle.write("Other\tbacteria\tGCF_999999998.1\n")
         first = identity()
         observed = safe_observation({"tool": "antiSMASH", "backend": "native", "version": "8.0.4", "executable_sha256": "c" * 64})
         self._write_cache_identity(first, producer_execution={"tool_versions": [observed]})
         second = identity(); second["accession"] = "GCF_999999998.1"
         self._write_cache_identity(second, label="Other", producer_execution={})
-        (self.result / "summary_tables/run_manifest.tsv").write_text("genome_id\tprediction_method\tantismash_status\nBacterium\tprodigal\tskipped_done\nOther\tprodigal\tskipped_done\n")
-        files = build_report(self.result, root=ROOT)
+        (self.result / "summary_tables/run_manifest.tsv").write_text("genome_id\tprediction_method\tgbk_status\tantismash_status\tfunbgcex_status\nBacterium\tprodigal\tbacterial_sequence_sanitized\tskipped_done\tnot_applicable_taxon\nOther\tprodigal\tbacterial_sequence_sanitized\tskipped_done\tnot_applicable_taxon\n")
+        finish_scientific_stage(self.result, attempt, "complete")
+        files = build_report(self.result, state=attempt, root=ROOT)
         tools = {r["name"]: r for r in json.loads(files["run_metadata.json"])["tools"]}
         self.assertEqual(sorted(r["status"] for r in tools["antiSMASH"]["producer_version_coverage"]), ["unavailable", "verified"])
         self.assertIn(b"producer versions verified for 1/2 cache entries", files["METHODS.md"])
@@ -266,11 +358,14 @@ class ResearcherReportTests(unittest.TestCase):
         self.assertIsNone(json.loads(build_report(self.result, state=state, root=ROOT)["run_metadata.json"])["tools"][0]["version"])
 
     def test_dependency_versions_require_annotation_use_and_execution_records(self):
+        attempt = {"scientific_attempt": {"annotation_selected": True}}
+        begin_scientific_stage(self.result, attempt)
         from researcher_report import collect_run_versions
-        (self.result / "summary_tables/run_manifest.tsv").write_text("genome_id\tprediction_method\tgbk_status\nFungus\tfunannotate\tfunannotate_fixed\n")
+        (self.result / "summary_tables/run_manifest.tsv").write_text("genome_id\tprediction_method\tgbk_status\tantismash_status\tfunbgcex_status\nFungus\tfunannotate\tfunannotate_fixed\tskipped\tskipped\n")
         logs = self.layout.work_root / "logs"; logs.mkdir(parents=True)
         (logs / "Fungus.funannotate.log").write_text("Installed BUSCO: 5.0.0\nAUGUSTUS: 3.5.0\n[01/01/26 10:00:00]: /opt/bin/augustus --species=fixture sequence.fa\n[DEBUG] busco --version\n")
-        state = {"annotation_observations": [{"tool": "funannotate", "backend": "docker", "version": "1.8.17", "runtime_sha256": "sha256:" + "a" * 64}]}
+        state = {**attempt, "annotation_observations": [{"tool": "funannotate", "backend": "docker", "version": "1.8.17", "runtime_sha256": "sha256:" + "a" * 64}]}
+        finish_scientific_stage(self.result, state, "complete")
         with mock.patch("researcher_report.observe", return_value={"tool": "AUGUSTUS", "backend": "docker", "version": "3.5.0", "runtime_sha256": "sha256:" + "a" * 64}) as calls:
             collect_run_versions(self.result, self.layout.work_root, {}, state)
         self.assertEqual(calls.call_args.args, ("AUGUSTUS", "docker", "sha256:" + "a" * 64))
@@ -356,16 +451,21 @@ class ResearcherReportTests(unittest.TestCase):
         self.assertIn(b"version evidence unavailable for current execution", files["METHODS.md"])
 
     def test_failed_fresh_annotation_preserves_other_cached_producer_version(self):
+        attempt = {"scientific_attempt": {"annotation_selected": True}}
+        begin_scientific_stage(self.result, attempt)
         from researcher_report import collect_run_versions
         from test_cached_accession import identity
+        with (self.result / "summary_tables/genome_taxon_manifest.tsv").open("a") as handle:
+            handle.write("Cached\tbacteria\tGCF_999999999.1\n")
         cached = {"tool": "funannotate", "backend": "docker", "version": "1.8.16", "runtime_sha256": "sha256:" + "b" * 64}
         record = self._write_cache_identity(identity(), label="Cached", producer_execution={"tool_versions": [cached]})
         path = self.result / "reproducibility/accession_cache/Cached.detection.json"; original = path.read_bytes()
         (self.result / "summary_tables/run_manifest.tsv").write_text(
-            "genome_id\tprediction_method\tgbk_status\tantismash_status\n"
-            "Cached\tfunannotate\tfunannotate_fixed\tskipped_done\n"
-            "Fungus\tfunannotate\tfunannotate_busco_training_insufficient\tskipped\n")
-        state = {"annotation_observations": [{"tool": "funannotate", "backend": "docker", "version": "1.8.17", "runtime_sha256": "sha256:" + "a" * 64}]}
+            "genome_id\tprediction_method\tgbk_status\tantismash_status\tfunbgcex_status\n"
+            "Cached\tfunannotate\tfunannotate_fixed\tskipped_done\tnot_applicable_taxon\n"
+            "Fungus\tfunannotate\tfunannotate_busco_training_insufficient\tskipped\tskipped\n")
+        state = {**attempt, "annotation_observations": [{"tool": "funannotate", "backend": "docker", "version": "1.8.17", "runtime_sha256": "sha256:" + "a" * 64}]}
+        finish_scientific_stage(self.result, state, "complete")
         with mock.patch("researcher_report.observe", return_value=None):
             collect_run_versions(self.result, self.layout.work_root, {}, state,
                 ['TOOL_PROGRESS genome=Fungus tool=funannotate phase=predict message="Started funannotate"'])

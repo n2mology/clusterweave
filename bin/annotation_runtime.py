@@ -16,7 +16,7 @@ WEB_ROOT = REPO_ROOT / "web"
 if str(WEB_ROOT) not in sys.path:
     sys.path.insert(0, str(WEB_ROOT))
 
-from resource_policy import ResourcePlan, ResourceRequest  # noqa: E402
+from resource_policy import MemoryFormula, ResourcePlan, ResourceRequest, memory_bounded_resource_plan  # noqa: E402
 
 
 def positive_int(value: object, default: int = 1) -> int:
@@ -243,8 +243,8 @@ def build_annotation_resource_plan(
         target_shard_cpus = cpus
         target_legacy_cpus = cpus
     else:
-        if not cpus_explicit:
-            cpus = min(cpus, effective)
+        # Explicit requests are still bounded by the actual cgroup/affinity ceiling.
+        cpus = min(cpus, effective)
         target_shard_cpus = (
             positive_int(antismash_shard_cpus)
             if str(antismash_shard_cpus or "").strip()
@@ -256,7 +256,7 @@ def build_annotation_resource_plan(
             else cpus
         )
 
-    plan = ResourceRequest(
+    request = ResourceRequest(
         job_cpus=cpus,
         genome_count=genomes,
         target_genome_parallelism=target_genomes,
@@ -265,7 +265,13 @@ def build_annotation_resource_plan(
         target_antismash_legacy_cpus=target_legacy_cpus,
         target_anno_cpus=target_anno,
         target_funbgcex_workers=target_workers,
-    ).bounded_plan()
+    )
+    plan = request.bounded_plan()
+    if normalized_mode == "auto" and selected_memory_budget:
+        usable_memory = selected_memory_budget * memory_percent // 100
+        plan = memory_bounded_resource_plan(request, usable_memory)
+        if MemoryFormula().estimate_mb(plan) > usable_memory:
+            raise ValueError("annotation resource plan cannot fit the available memory budget")
     return AnnotationResourcePlan(
         plan=plan,
         effective_cpus=effective,

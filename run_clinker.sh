@@ -867,4 +867,5 @@ else
   log "RUN_CLINKER=0, so clinker execution was skipped after staging."
 fi
 
+"${PYTHON_BIN}" "${PROJECT_DIR}/bin/package_result_portables.py" "${RESULTS_ROOT}"
 log "run_clinker.sh complete."

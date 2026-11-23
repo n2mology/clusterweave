@@ -144,13 +144,14 @@ def parse_consensus(
     antismash_region: str,
     funbgcex_cluster: str,
     funbgcex_applicability: str = "applicable",
+    detector: str = "antismash",
 ) -> tuple[str, int]:
     has_antismash = bool(clean(antismash_region))
     has_funbgcex = bool(clean(funbgcex_cluster))
     if has_antismash and clean(funbgcex_applicability) == "not_applicable_taxon":
         # Bacteria have satisfied their full applicable detector set. Do not
         # score them like a fungal cluster that unexpectedly lacks FunBGCeX.
-        return "antiSMASH (complete applicable detector set)", 4
+        return ("plantiSMASH" if detector == "plantismash" else "antiSMASH") + " (complete applicable detector set)", 4
     if has_antismash and has_funbgcex:
         return "antiSMASH+FunBGCeX", 4
     if has_antismash:
@@ -556,7 +557,7 @@ def main() -> None:
         tool = clean(row.get("tool"))
         entity_type = clean(row.get("entity_type"))
         class_norm = clean(row.get("class_norm")) or "UNCLASSIFIED"
-        if tool != "antismash" or entity_type != "GCF":
+        if tool not in {"antismash", "plantismash", "imported-reference"} or entity_type != "GCF":
             continue
         meta = metadata_by_genome.setdefault(genome, fallback_metadata_row(genome))
 
@@ -654,6 +655,7 @@ def main() -> None:
             clean(row.get("antismash_region")),
             clean(row.get("funbgcex_cluster")),
             clean(row.get("funbgcex_applicability")) or "applicable",
+            clean(row.get("detector")) or "antismash",
         )
         class_norm = clean(row.get("antismash_class")) or "UNCLASSIFIED"
         annotation = clean(row.get("nearest_mibig_or_annotation_if_available"))
@@ -744,6 +746,7 @@ def main() -> None:
             antismash_region,
             funbgcex_cluster,
             funbgcex_applicability,
+            clean(row.get("detector")) or clean(comparison.get("detector")) or "antismash",
         )
         gcf_points = 0
         if selected_id:
@@ -759,6 +762,9 @@ def main() -> None:
             if gcf_other_count == 0 and gcf_focus_count >= 2:
                 ecology_points += 1
 
+        detector_name = clean(comparison.get("detector"))
+        if detector_name in {"plantismash", "imported-reference"}:
+            consensus_label = re.sub(r"\bantiSMASH\b", "plantiSMASH" if detector_name == "plantismash" else "Imported reference", consensus_label)
         antismash_classes = classes_from_terms(split_multi(antismash_class))
         funbgcex_classes = funbgcex_classes_from_evidence(
             clean(comparison.get("funbgcex_core_enzymes")),
@@ -840,6 +846,8 @@ def main() -> None:
                 "genome": genome,
                 "taxon_group": clean(row.get("taxon_group")) or clean(comparison.get("taxon_group")) or "fungi",
                 "prediction_method": clean(row.get("prediction_method")) or clean(comparison.get("prediction_method")),
+                "detector": clean(row.get("detector")) or clean(comparison.get("detector")),
+                "producer": clean(row.get("producer")) or clean(comparison.get("producer")),
                 "funbgcex_applicability": funbgcex_applicability,
                 "accession": meta["accession"],
                 "ecofun_primary": meta["ecofun_primary"],
@@ -925,6 +933,8 @@ def main() -> None:
                 "genome": clean(row.get("genome")),
                 "taxon_group": clean(row.get("taxon_group")) or "fungi",
                 "prediction_method": clean(row.get("prediction_method")),
+                "detector": clean(row.get("detector")),
+                "producer": clean(row.get("producer")),
                 "funbgcex_applicability": clean(row.get("funbgcex_applicability")) or "applicable",
                 "antismash_region": antismash_region,
                 "region_gbk_path": str(region_gbk_path) if antismash_region else "",
@@ -1038,6 +1048,8 @@ def main() -> None:
             "genome",
             "taxon_group",
             "prediction_method",
+            "detector",
+            "producer",
             "funbgcex_applicability",
             "accession",
             "ecofun_primary",
@@ -1091,6 +1103,8 @@ def main() -> None:
                 "genome",
                 "taxon_group",
                 "prediction_method",
+            "detector",
+            "producer",
                 "funbgcex_applicability",
                 "antismash_region",
                 "region_gbk_path",

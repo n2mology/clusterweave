@@ -125,6 +125,7 @@ async function treeGeometry(wrap) {
     const wrapRect = element.getBoundingClientRect();
     const svgRect = svg.getBoundingClientRect();
     const stageRect = stage.getBoundingClientRect();
+    const controlsRect = element.closest('.figure-panel').querySelector('.figure-zoom-controls').getBoundingClientRect();
     const viewBox = svg.viewBox.baseVal;
     return {
       wrapHeight: wrapRect.height,
@@ -132,6 +133,8 @@ async function treeGeometry(wrap) {
       svgWidth: svgRect.width,
       stageHeight: stageRect.height,
       whiteSpaceBelow: wrapRect.bottom - svgRect.bottom,
+      controlsHeight: controlsRect.height,
+      controlsOverlapSvg: controlsRect.top < Math.min(svgRect.bottom, wrapRect.bottom),
       clientWidth: element.clientWidth,
       scrollWidth: element.scrollWidth,
       scrollLeft: element.scrollLeft,
@@ -161,20 +164,21 @@ for (const viewport of [
     const base = await treeGeometry(wrap);
     expect(base.minHeight).toBe('0px');
     expect(Math.abs(base.stageHeight - base.svgHeight)).toBeLessThanOrEqual(1);
+    expect(base.controlsOverlapSvg).toBe(false);
     expect(base.whiteSpaceBelow).toBeLessThanOrEqual(4);
     expect(base.wrapHeight - base.svgHeight).toBeLessThanOrEqual(8);
 
     await wrap.focus();
     await expect(wrap).toBeFocused();
     await page.keyboard.press('+');
-    await expect(wrap.locator('.figure-zoom-reset')).toHaveText('120%');
+    await expect(page.locator('.figure-zoom-reset')).toHaveText('120%');
     const zoomed = await treeGeometry(wrap);
     expect(zoomed.svgWidth).toBeGreaterThan(base.svgWidth * 1.15);
     expect(zoomed.svgHeight).toBeGreaterThan(base.svgHeight * 1.15);
     expect(zoomed.viewBox).toEqual(base.viewBox);
 
     for (let index = 0; index < 12; index += 1) await page.keyboard.press('+');
-    await expect(wrap.locator('.figure-zoom-reset')).toHaveText('800%');
+    await expect(page.locator('.figure-zoom-reset')).toHaveText('800%');
     const maximumZoom = await treeGeometry(wrap);
     expect(maximumZoom.scrollWidth).toBeGreaterThan(maximumZoom.clientWidth);
     expect(maximumZoom.scrollHeight).toBeGreaterThan(maximumZoom.clientHeight);
@@ -193,11 +197,19 @@ for (const viewport of [
     expect(panned.scrollLeft).toBeGreaterThan(maximumZoom.scrollLeft);
     await wrap.focus();
     await page.keyboard.press('Escape');
-    await expect(wrap.locator('.figure-zoom-reset')).toHaveText('100%');
+    await expect(page.locator('.figure-zoom-reset')).toHaveText('100%');
     const reset = await treeGeometry(wrap);
     expect(Math.abs(reset.svgWidth - base.svgWidth)).toBeLessThanOrEqual(1);
     expect(reset.scrollTop).toBe(0);
     expect(reset.scrollLeft).toBe(0);
+    await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
+    await expect(page.locator('.figure-zoom-reset')).toHaveText('120%');
+    expect((await treeGeometry(wrap)).controlsOverlapSvg).toBe(false);
+    await page.getByRole('button', { name: 'Zoom out', exact: true }).click();
+    await expect(page.locator('.figure-zoom-reset')).toHaveText('100%');
+    await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
+    await page.getByRole('button', { name: 'Reset zoom', exact: true }).click();
+    await expect(page.locator('.figure-zoom-reset')).toHaveText('100%');
     expect(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(true);
     expect(state.artifactRequests).toBe(1);
     expect(state.artifactAuthorized).toBe(true);

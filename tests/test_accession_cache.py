@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from annotation_source import annotation_source, shell_function
+
 import io
 import json
 import multiprocessing
@@ -510,8 +512,7 @@ class PreparationAdapterTests(unittest.TestCase):
     def test_custom_helper_keeps_original_arguments(self):
         helper = self.root / "custom sanitizer.py"
         helper.write_text("import json, sys; print(json.dumps(sys.argv[1:]))\n")
-        runner = (ROOT / "run_annotation_and_detection.sh").read_text()
-        function = "bacterial_genbank_prepare() {" + runner.split("bacterial_genbank_prepare() {", 1)[1].split("\n}", 1)[0] + "\n}\n"
+        function = shell_function(annotation_source(), "bacterial_genbank_prepare")
         command = (function + '\nbacterial_genbank_prepare "$1" "$2" ignored ignored ignored '
                    '--input "source with spaces" --output "destination with spaces" --genome-id Public\n')
         result = subprocess.run(["bash", "-c", command, "test", sys.executable, str(helper)],
@@ -519,8 +520,7 @@ class PreparationAdapterTests(unittest.TestCase):
         self.assertEqual(json.loads(result.stdout), ["--input", "source with spaces", "--output", "destination with spaces", "--genome-id", "Public"])
 
     def test_shell_adapter_retains_bytes_and_summary_on_hit(self):
-        runner = (ROOT / "run_annotation_and_detection.sh").read_text()
-        function = "bacterial_genbank_prepare() {" + runner.split("bacterial_genbank_prepare() {", 1)[1].split("\n}", 1)[0] + "\n}\n"
+        function = shell_function(annotation_source(), "bacterial_genbank_prepare")
         outputs = []
         for job in ("one", "two", "forced"):
             args = self.args(job)

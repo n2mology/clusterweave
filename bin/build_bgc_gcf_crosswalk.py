@@ -289,7 +289,7 @@ def build_notes(
     if not funbgcex_applicability:
         funbgcex_applicability = (
             "not_applicable_taxon"
-            if clean(row.get("taxon_group")) == "bacteria"
+            if clean(row.get("taxon_group")) in {"bacteria", "plants"}
             else "applicable"
         )
     if funbgcex_applicability == "not_applicable_taxon":
@@ -522,8 +522,10 @@ def main() -> None:
             "genome": genome,
             "taxon_group": taxon_group,
             "prediction_method": clean(row.get("prediction_method")),
+            "detector": clean(row.get("detector")),
+            "producer": clean(row.get("producer")),
             "funbgcex_applicability": clean(row.get("funbgcex_applicability")) or (
-                "not_applicable_taxon" if taxon_group == "bacteria" else "applicable"
+                "not_applicable_taxon" if taxon_group in {"bacteria", "plants"} else "applicable"
             ),
             "antismash_region": antismash_region,
             "antismash_class": antismash_class,
@@ -559,6 +561,8 @@ def main() -> None:
         "genome",
         "taxon_group",
         "prediction_method",
+        "detector",
+        "producer",
         "funbgcex_applicability",
         "antismash_region",
         "antismash_class",

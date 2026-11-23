@@ -190,8 +190,8 @@ def _seed_admin_fixture() -> None:
         str(job["id"]),
         [
             "[13:00:01] Preparing administrator fixture",
-            "[13:00:02] GENOME_PROGRESS genome=admin_fungus stage=annotation percent=25 bar=[#####---------------] message=Annotating",
-            "[13:00:03] TOOL_PROGRESS genome=admin_fungus tool=funannotate phase=predict message=Calling genes",
+            "[13:00:02] GENOME_PROGRESS genome=admin_fungus stage=annotation percent=25 bar=[#####---------------] message=\"Annotating\"",
+            "[13:00:03] TOOL_PROGRESS genome=admin_fungus tool=funannotate phase=predict message=\"Calling genes\"",
         ],
     )
 
@@ -235,6 +235,11 @@ def main() -> None:
     if fixture == "local":
         os.environ["CLUSTERWEAVE_PUBLIC_BASE_URL"] = f"http://127.0.0.1:{port}/"
         os.environ["CLUSTERWEAVE_BIND_ADDRESS"] = "127.0.0.1"
+        os.environ["HOST_PORT"] = str(port)
+        os.environ["CLUSTERWEAVE_WORKER_CPU_LIMIT"] = "4"
+        os.environ["CLUSTERWEAVE_WORKER_MEM_LIMIT"] = "16g"
+        os.environ["CLUSTERWEAVE_ACCESSION_CACHE_ROOT"] = "/var/cache/clusterweave/accessions"
+        os.environ["CLUSTERWEAVE_LOCAL_RESTART_POLICY"] = "no"
         os.environ["CLUSTERWEAVE_JOB_TOKEN_SECRET"] = "synthetic-local-instance-secret-for-browser-tests"
     sys.path.insert(0, str(WEB_DIR))
 
@@ -246,8 +251,18 @@ def main() -> None:
             from datetime import datetime
             worker = data_dir / "worker"
             worker.mkdir(exist_ok=True)
-            (worker / "status.json").write_text(json.dumps({"ready": True, "state": "idle", "phase": "ready",
-                "progress": 100, "updated_at": datetime.now().isoformat(), "runtime": {}, "worker": {}, "capabilities": {}}))
+            import threading
+            import time
+
+            def heartbeat():
+                while True:
+                    pending = worker / "status.tmp"
+                    pending.write_text(json.dumps({"ready": True, "state": "idle", "phase": "ready",
+                        "progress": 100, "updated_at": datetime.now().isoformat(), "runtime": {}, "worker": {}, "capabilities": {}}))
+                    pending.replace(worker / "status.json")
+                    time.sleep(5)
+
+            threading.Thread(target=heartbeat, daemon=True).start()
     elif fixture == "admin":
         _seed_admin_fixture()
     signal.signal(signal.SIGINT, _interrupt_server)

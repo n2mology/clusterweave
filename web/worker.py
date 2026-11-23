@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+from cohort_resume import recover_accepted_decision
+
+
 import asyncio
 import argparse
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from datetime import datetime
 import json
 import math
@@ -29,6 +32,8 @@ try:
         atomic_write_text,
         job_cancel_requested,
         job_delete_path,
+        job_needs_scheduler_confirmation,
+        queue_admission_lock,
         job_dir,
         list_jobs,
         now_iso,
@@ -54,6 +59,8 @@ except ImportError:  # pragma: no cover - package-style imports in local tests
         atomic_write_text,
         job_cancel_requested,
         job_delete_path,
+        job_needs_scheduler_confirmation,
+        queue_admission_lock,
         job_dir,
         list_jobs,
         now_iso,
@@ -330,6 +337,7 @@ class ResourceAdmission:
         return {
             "cpu_budget": self.cpu_budget,
             "memory_budget_mb": self.memory_budget_mb,
+            "memory_formula": asdict(WORKER_MEMORY_FORMULA),
             "allocated_cpu_slots": allocated_cpu,
             "allocated_memory_mb": allocated_memory,
             "available_cpu_slots": max(0, self.cpu_budget - allocated_cpu),
@@ -402,8 +410,11 @@ def finalize_cancelled_job(job_id: str, cpus: int, settings: dict[str, Any], det
         job.error = detail
         job.add_log(f"Cancelled: {detail}.")
         persist_job(job, cpus, settings)
-    if job_delete_path(job_id).exists():
-        shutil.rmtree(job_dir(job_id), ignore_errors=True)
+        maybe_send_terminal_notification(job_id, cancellation_confirmed=True)
+    with queue_admission_lock():
+        current = read_job(job_id)
+        if current and job_delete_path(job_id).exists() and not job_needs_scheduler_confirmation(current):
+            shutil.rmtree(job_dir(job_id), ignore_errors=True)
 
 
 def state_progress(state: str) -> int:
@@ -448,6 +459,7 @@ def write_worker_status(
             "resource_admission": admission.snapshot() if admission else {
                 "cpu_budget": WORKER_CPU_BUDGET,
                 "memory_budget_mb": WORKER_MEMORY_BUDGET_MB,
+                "memory_formula": asdict(WORKER_MEMORY_FORMULA),
                 "allocated_cpu_slots": 0,
                 "allocated_memory_mb": 0,
                 "available_cpu_slots": WORKER_CPU_BUDGET,
@@ -557,6 +569,8 @@ def _terminalize_queue_rejection(job_id: str, reason: str) -> None:
     if str(meta.get("status") or "").lower() in {
         JobStatus.SUCCESS.value,
         JobStatus.FAILED.value,
+        JobStatus.AWAITING_DECISION.value,
+        JobStatus.COMPLETED_WITH_EXCLUSIONS.value,
     }:
         return
     append_log(job_id, f"Scheduler rejected queued job: {reason}.")
@@ -762,6 +776,8 @@ def recover_stale_working_leases() -> list[str]:
         if meta is None or str(meta.get("status") or "").lower() in {
             JobStatus.SUCCESS.value,
             JobStatus.FAILED.value,
+            JobStatus.AWAITING_DECISION.value,
+            JobStatus.COMPLETED_WITH_EXCLUSIONS.value,
         }:
             working.unlink(missing_ok=True)
             continue
@@ -858,6 +874,9 @@ def recover_stranded_pending_jobs() -> list[str]:
 
     recovered: list[str] = []
     for meta in list_jobs():
+        if recover_accepted_decision(meta):
+            recovered.append(str(meta["id"]))
+            continue
         job_id = str(meta.get("id") or "")
         if not job_id or str(meta.get("status") or "").lower() != JobStatus.PENDING.value:
             continue
@@ -926,6 +945,9 @@ def build_job_from_meta(meta: dict) -> Job:
         project_name=str(meta.get("project_name", "")),
         result_root=str(meta.get("result_root", "")),
         _synced_log_count=len(log_lines),
+        cohort_decision=meta.get("cohort_decision"),
+        continuation_id=str(meta.get("continuation_id") or ""),
+        rerun_count=int(meta.get("rerun_count") or 0),
     )
     return job
 
@@ -978,18 +1000,18 @@ def sync_job_logs(job: Job) -> None:
 
 def persist_job(job: Job, cpus: int, settings: dict[str, Any]) -> None:
     sync_job_logs(job)
-    payload = dict(read_job(job.id) or {})
-    payload.update(job.to_dict())
-    payload["status"] = job.status.value
-    payload["log_count"] = len(job.log_lines)
-    payload["cpus"] = cpus
-    payload["settings"] = settings
-    payload["updated_at"] = now_iso()
-    if job.status in {JobStatus.SUCCESS, JobStatus.FAILED}:
-        payload.pop("worker_reservation", None)
-    apply_runtime_scheduler_metadata(payload)
-    write_job(payload)
-
+    with queue_admission_lock():
+        payload = dict(read_job(job.id) or {})
+        payload.update(job.to_dict())
+        payload["status"] = job.status.value
+        payload["log_count"] = len(job.log_lines)
+        payload["cpus"] = cpus
+        payload["settings"] = settings
+        payload["updated_at"] = now_iso()
+        if job.status in {JobStatus.SUCCESS, JobStatus.FAILED, JobStatus.AWAITING_DECISION, JobStatus.COMPLETED_WITH_EXCLUSIONS}:
+            payload.pop("worker_reservation", None)
+        apply_runtime_scheduler_metadata(payload)
+        write_job(payload)
 
 async def process_one(job_id: str, cpus: int, queued_settings: dict[str, Any]) -> None:
     meta = read_job(job_id)

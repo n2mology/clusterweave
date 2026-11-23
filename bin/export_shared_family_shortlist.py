@@ -25,6 +25,7 @@ from gcf_view import (
     preferred_family_source as report_preferred_family_source,
 )
 
+from export_dataset_family_atlas import canonical_record_key
 
 def clean(value: object) -> str:
     if value is None:
@@ -355,21 +356,23 @@ def main() -> None:
             annot_row = annotation_by_record.get(record, {})
             organism = clean(annot_row.get("Organism"))
             class_name = clean(annot_row.get("Class"))
-            if organism:
-                ecology_by_genome.setdefault(organism, ecology_group(""))
-                bucket["organisms"].add(organism)
-                bucket["dataset_genomes"].add(organism)
-                if matches_focus_ecology(ecology_by_genome[organism], focus_ecology_label):
-                    bucket["focus_genomes"].add(organism)
+            genome_id, mapped_region = canonical_record_key(record, gbk)
+            dataset_id = genome_id or organism
+            if dataset_id and not record.startswith("BGC"):
+                ecology_by_genome.setdefault(dataset_id, ecology_group(""))
+                if organism: bucket["organisms"].add(organism)
+                bucket["dataset_genomes"].add(dataset_id)
+                if matches_focus_ecology(ecology_by_genome[dataset_id], focus_ecology_label):
+                    bucket["focus_genomes"].add(dataset_id)
                 else:
-                    bucket["other_genomes"].add(organism)
+                    bucket["other_genomes"].add(dataset_id)
             if class_name:
                 bucket["classes"].add(class_name)
             if record.startswith("BGC"):
                 bucket["mibig_records"].add(record)
 
-            if organism == args.genome or gbk.startswith(f"{args.genome}__"):
-                region = region_from_gbk(gbk)
+            if genome_id == args.genome or (not genome_id and organism == args.genome):
+                region = mapped_region or region_from_gbk(gbk)
                 if region:
                     bucket["target_regions"].add(region)
                 bucket["target_records"].add(record)

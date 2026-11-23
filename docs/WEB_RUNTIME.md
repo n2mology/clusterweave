@@ -7,7 +7,10 @@ queue metadata, one worker/admission layer claims a job, and
 Python helpers transform or render declared outputs. The shipped runtime does
 not contain a second scientific implementation.
 
-Project-hosted access is coming soon. ClusterWeave v1.0.5 is currently
+For contributor changes, see [Extending ClusterWeave](EXTENDING.md), including
+the current modules, preparation boundary, consumer contracts and validation.
+
+Project-hosted access is coming soon. ClusterWeave v1.1.0 is currently
 available only for local use through the trusted single-user profile.
 
 ## Shipped execution profiles
@@ -38,6 +41,44 @@ Fresh local setups keep jobs until manually deleted. The initializer sets
 deadlines are preserved. Hosted installations use an explicit retention period
 (30 days by default). Cache storage limits apply independently.
 
+Configuration happens in the CLI before runtime preparation.
+`./bin/init_local_instance.sh --defaults` accepts Conservative budgets, bounded
+cache, startup/browser choices and preparation without questions. Run the same
+command without `--defaults` for interactive customization. The initializer's
+host scan offers Conservative and Maximum available budgets plus Customize.
+After explicit **READY TO WEAVE?** confirmation, image builds run in the CLI. The
+web service then starts and the CLI offers its existing initialization screen
+before runtime preparation. The CLI runs `prepare-runtime --status-file
+/data/worker/status.json`, checks all prepared assets, and starts worker. Progress
+continues in both views. Keep the setup terminal open until completion.
+The banner names the active build and released citation separately. Bootstrap
+version lines distinguish configured pins, observations from selected installed
+runtimes, and unavailable versions/dataset releases; no missing version is guessed.
+Version probes never pull images or prepare scientific assets.
+The admin drawer's **Local setup** tab is a compact read-only settings reference.
+It shows applied budgets, URL, cache/return choices and terminal commands for a
+fresh host scan or reviewed reconfiguration. Hosted/anonymous status responses
+omit local settings. The browser does not measure host capacity from inside its
+web-service limits or offer a second configuration wizard. Changes require
+`./bin/init_local_instance.sh --reconfigure`, review/apply, then service recreation.
+Source/image updates also need a separate rebuild.
+
+Recommended fresh setup enables the accession cache in a separate worker-only
+volume with 10-GiB/256-entry/30-day bounds. The web receives configuration and
+read-only catalog metadata, not the scientific cache volume. Actual reuse still
+requires complete identity and content validation. Existing caches, credentials
+and job retention remain unchanged until explicit configuration review. See
+[cache storage](ACCESSION_CACHE.md).
+
+Fresh configuration sets `CLUSTERWEAVE_LOCAL_PREPARED_ONLY=1`; worker startup
+checks the existing startup subset using the established preparation command and
+status phases, without acquiring missing assets. Older configurations retain their
+startup policy. The return launcher checks all prepared assets before starting
+with no builds/pulls and waits for current worker readiness. Optional Docker
+restart policy operates only after Docker is available; browser opening is a
+separate explicit launcher action in a signed-in session. No host startup hooks
+are installed. See [return and disable instructions](BEGINNER_SETUP.md#return-after-machine-shutdown).
+
 `docker-compose.yml` uses `CLUSTERWEAVE_RUNTIME_MODE=lab-docker` and
 `ENGINE=docker`. Its worker contains the pinned Docker 29.6.1 CLI, mounts the
 host Docker socket, and launches sibling scientific-tool containers with the
@@ -57,8 +98,10 @@ also reserves CPU and estimated memory for every active job and can hold queued
 work until capacity returns. Each job has an isolated `/data/jobs/<job-id>`
 workspace, while `/data/software` and the database volumes are shared caches.
 
-After building the local images, run `docker compose run --rm --no-deps worker
-prepare-runtime` once to acquire every supported runtime asset. Run the same
+The explicit first-run CLI flow (`./bin/local_instance.sh weave` to resume)
+builds local images and runs `docker compose run --rm --no-deps worker
+prepare-runtime` to acquire the standard local runtime assets. plantiSMASH
+requires separate [plant runtime preparation](PLANTISMASH_RUNTIME.md). Run the same
 command again or use `check-runtime` to verify the warm state; a complete warm
 state performs no pull, download, build, installation, or manifest rewrite.
 Normal worker startup delegates its established startup subset to this same
@@ -73,9 +116,11 @@ before its check-only preflight can pass. Scientific input acquisition such as
 requested NCBI genomes or PODP data remains part of the declared analysis and is
 not runtime installation.
 
-The initialized profile gives the worker 4 CPUs and 16 GiB. It also writes
-`CLUSTERWEAVE_MAX_CPUS_PER_JOB=4`, so the local web service cannot accept a
-public job above the default `CLUSTERWEAVE_WORKER_CPU_LIMIT=4`. Keep
+Conservative setup chooses up to four worker CPUs and 16–32 GiB from the
+host/Docker scan. Maximum available uses the observed safe ceiling. Both leave
+CPU/RAM headroom for web and the host. The per-job
+CPU limit matches the selected worker budget, so the local web service cannot
+accept a public job above that budget. Keep
 `CLUSTERWEAVE_MAX_CPUS_PER_JOB` at or below the worker limit. A deliberate
 larger installation must also reconcile `PIPELINE_CPUS`, `WORKER_CPU_BUDGET`,
 worker memory, process limits, disk floors, and measured stage behavior.
@@ -93,6 +138,15 @@ Current Docker paths use the same shell scripts as direct runs:
   taxonomy/BGC/GCF, and graph-ready outputs.
 - `run_phylogeny.sh` is an optional, bounded sequence-inference follow-up using
   a prebuilt runtime; it never installs or pulls tools from a job.
+
+The annotation entrypoint sources `annotation_prepare.sh` for GenBank readiness,
+staged/original CDS reuse, input preparation and configured fallback ordering.
+`annotation_funannotate.sh` owns Funannotate policy, runtime dispatch and prediction;
+`annotation_braker3.sh` owns BRAKER3 execution and conversion. Both use
+`bin/annotation_runtime.py` to construct scientific arguments. The worker image
+copies these modules alongside the root entrypoint; portable copies must retain
+them together. Runtime preparation reuses provisioned assets and does not acquire
+them during a job.
 
 ### Socket-free external executor profile
 
@@ -146,7 +200,7 @@ not expand a running job or bypass worker admission.
 Funannotate remains a whole-assembly operation because its training, evidence
 integration, reconciliation, and locus assignment are genome-wide. The safe CPU
 relationship is `GENOME_PARALLELISM * ANNO_CPUS <= CPUS`. Throughput comes from
-independent whole-genome lanes and native funannotate CPUs, not record-level
+independent whole-genome lanes and funannotate CPUs, not record-level
 reassembly that could change biological output and identifiers.
 
 The memory estimator uses configurable base, per-genome, antiSMASH-shard,
@@ -183,8 +237,10 @@ unless an operator explicitly set the optional stage as required.
 A concurrency value is not a queue-size setting. Operators must measure
 aggregate CPU, memory, process, and disk reservations on representative fungal,
 bacterial, and mixed jobs before increasing active work. The portable local
-profile deliberately begins with one job, one genome/record lane, a four-CPU
-worker, and no retained raw shard work.
+profile defaults to one active job and targets two genome and two detector-record
+lanes, bounded by the configured worker and per-job budgets. Initialization
+sets those budgets from the selected resource configuration. Raw shard work
+is not retained by default.
 
 Streaming shard compaction reduces temporary antiSMASH growth but does not
 replace retention planning. Final antiSMASH regions, FunBGCeX outputs,
@@ -252,9 +308,11 @@ interactive summaries. Therefore, the authenticated full package retains the
 following sequence-bearing files:
 
 - `input_gbks/<taxon>/<genome>.gbk` is the exported staged genome used by
-  downstream analysis. `<taxon>` is `bacteria`, `fungi` or `unclassified`;
+  downstream analysis. `<taxon>` is `bacteria`, `fungi`, `plants` or `unclassified`;
   internal runtime paths remain flat. For a bacterial genome, this is the retained feature-free GenBank
   file prepared for antiSMASH and Prodigal.
+- `plantismash/<genome>/*.cluster<number>.gbk` contains native plantiSMASH
+  cluster records from supplied translated plant CDS.
 - `antismash/<genome>/*region<number>.gbk` contains the final antiSMASH region
   records.
 - `funbgcex/<genome>/results/*.funbgcex_results/BGCs/*.gbk` contains the
@@ -315,10 +373,38 @@ link according to the sensitivity of the submitted genomes.
   guarantee. Synthetic acceptance and figure checks cover 75 genomes; they do
   not replace an operator capacity review.
 - `CLUSTERWEAVE_MAX_CPUS_PER_JOB` clamps all CPU-related request fields; in the
-  initialized local profile its value is 4.
+  initialized local profile its value follows the selected worker budget.
 - Hosted terminal jobs receive a retention deadline (30 days by default). Optional
   completion email is enabled only through the SMTP settings and sends a private
   fragment result link. Externally served links require a reviewed HTTPS base URL.
 - `python3 web/maintenance.py sweep-expired-jobs` removes expired terminal job
   data and retains only aggregate deletion counters. A never-expire policy
   requires the explicit allow setting and operator documentation.
+
+### Explicit genome exclusions
+
+A closed mixed annotation/detection attempt can enter `awaiting_decision` when
+at least one genome has complete validated outputs and the other failures can
+be excluded. The job details retain every genome's outcome, failure category,
+counts and downstream plan. A successful zero-BGC genome remains successful.
+Integrity, identity, confinement and invalid-output failures cannot be waived.
+An all-failed cohort cannot continue.
+
+The **Continue with N genomes; exclude M** action accepts the exact current
+outcome receipts. It queues downstream work through normal resource admission
+and releases the worker while waiting. It does not rerun successful annotation
+or detection. Failed attempts remain preserved; downstream outputs use a
+separate included-only workspace. The terminal status is
+`completed_with_exclusions`, distinct from `success`.
+
+API clients use the owner-authenticated
+`POST /api/results/<public-run-id>/continue` endpoint with `decision_id`,
+`included` and `excluded` from the current `cohort_decision`. The server rejects
+stale or altered decisions. Repeated identical requests return the existing
+continuation without creating another queue entry. The supported CLI client
+is `python3 scripts/continue_job.py --help`; it prompts for the access code or
+reads `CLUSTERWEAVE_JOB_ACCESS_CODE` without putting credentials in command
+arguments. A new annotation rerun invalidates prior decisions. A changed runtime
+or changed scientific payload blocks continuation and requires operator review.
+
+For standalone local runs, a mixed failure exits with code 75 after saving the exact decision under `results/.cohort-decisions/<project>/`. Review its outcomes, then rerun the same command and settings with `--continue-with-exclusions=<decision_id>`. The local process lock prevents concurrent continuations; input, source, configuration, resource and output identities must still match. Hosted jobs must use the authenticated queue API instead. A completed local decision is idempotent.
