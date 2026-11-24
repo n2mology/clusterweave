@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 from datetime import datetime
+from dataclasses import asdict
 import json
 import os
 from pathlib import Path
@@ -15,7 +16,6 @@ from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WEB_DIR = REPO_ROOT / "web"
-INIT_SCRIPT = REPO_ROOT / "bin" / "init_local_instance.sh"
 COMPOSE_FILE = REPO_ROOT / "docker-compose.yml"
 
 
@@ -37,26 +37,39 @@ class LocalProfileCpuCompositionTests(unittest.TestCase):
             local_root = Path(tmp) / "clusterweave"
             local_bin = local_root / "bin"
             local_bin.mkdir(parents=True)
-            local_init = local_bin / INIT_SCRIPT.name
-            shutil.copy2(INIT_SCRIPT, local_init)
             shutil.copy2(REPO_ROOT / "bin/local_instance.py", local_bin / "local_instance.py")
             shutil.copy2(REPO_ROOT / "bin/local_resources.py", local_bin / "local_resources.py")
             shutil.copy2(REPO_ROOT / "bin/bootstrap_versions.py", local_bin / "bootstrap_versions.py")
             (local_root / "web").mkdir()
             shutil.copy2(REPO_ROOT / "web/local_setup.py", local_root / "web/local_setup.py")
-            subprocess.run(
-                ["bash", str(local_init)],
-                cwd=local_root,
-                check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
+            # Test configuration/admission composition, independent of the CI
+            # runner's CPU, free RAM, Docker allocation and disk capacity.
+            initialize = [sys.executable, "-c", """
+import sys
+from unittest import mock
+sys.path.insert(0, sys.argv[1])
+import local_instance as cli
+from local_setup import assess_resources
+report = assess_resources({
+    "host": {"effective_cpus": 8, "logical_cpus": 8,
+             "total_memory_bytes": 32 * 1024**3,
+             "effective_memory_bytes": 32 * 1024**3,
+             "available_memory_bytes": 32 * 1024**3,
+             "availability_source": "controlled fixture"},
+    "docker": {"state": "available", "cpus": 8, "memory_bytes": 32 * 1024**3},
+    "disk_free_bytes": 100 * 1024**3, "observed_at": 1,
+})
+sys.argv = [sys.argv[0], "init", "--non-interactive"]
+with mock.patch.object(cli, "resources", return_value=report):
+    raise SystemExit(cli.main())
+""", str(local_bin)]
+            completed = subprocess.run(initialize, cwd=local_root, capture_output=True, text=True, timeout=10)
+            self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
             generated_env = local_root / ".env"
             initialized = read_dotenv(generated_env)
             original_env = generated_env.read_bytes()
-            subprocess.run(["bash", str(local_init)], cwd=local_root, check=True,
-                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            completed = subprocess.run(initialize, cwd=local_root, capture_output=True, text=True, timeout=10)
+            self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
             self.assertEqual(generated_env.read_bytes(), original_env)
             compose_environment = os.environ.copy()
             for key in initialized:
@@ -199,7 +212,16 @@ class LocalProfileCpuCompositionTests(unittest.TestCase):
                 for status in ("success", "failed"):
                     result_path = job_store.job_dir(f"synthetic-local-{status}") / "results" / "example.txt"
                     self.assertEqual(result_path.read_text(), "retained scientific result\n")
-                with mock.patch.object(app.os, "cpu_count", return_value=64):
+                status = {"ready": True, "stale": False, "worker": {
+                    "concurrency": 1,
+                    "resource_admission": {
+                        "cpu_budget": worker_cpu_limit,
+                        "memory_budget_mb": worker_memory_limit_mb,
+                        "memory_formula": asdict(worker.WORKER_MEMORY_FORMULA),
+                    },
+                }}
+                with mock.patch.object(app.os, "cpu_count", return_value=64), \
+                        mock.patch.object(app, "worker_status", return_value=status):
                     accepted_cpu_limit = app.public_cpu_limit()
                     self.assertEqual(accepted_cpu_limit, worker_cpu_limit)
 

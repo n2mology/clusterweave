@@ -14,6 +14,23 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def wait_for_process_group(pgid: int, timeout: float = 5) -> None:
+    # Grandchildren may still write EXIT receipts after the parent is reaped.
+    # Zombies cannot write and may await reaping by the runner's init process.
+    deadline = time.monotonic() + timeout
+    while True:
+        listing = subprocess.run(["ps", "-eo", "pgid=,stat="],
+                                 capture_output=True, text=True, check=True, timeout=3)
+        active = [line for line in listing.stdout.splitlines()
+                  if len(fields := line.split()) == 2 and fields[0] == str(pgid)
+                  and not fields[1].startswith(("Z", "X"))]
+        if not active:
+            return
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"Test process group {pgid} is still active: {active}")
+        time.sleep(.02)
+
+
 @unittest.skipUnless(importlib.util.find_spec("Bio"), "Biopython is required")
 class AnnotationSchedulingTests(unittest.TestCase):
     def test_entrypoint_keeps_record_partition_and_scientific_results_across_allocations(self):
@@ -39,6 +56,8 @@ if os.environ.get('TEST_CANCEL') == '1':
     folder = pathlib.Path(os.environ['TEST_TIMING_DIR'])
     def stop(signum, frame):
         (folder / (record.id + '.stopped')).write_text('terminated')
+        time.sleep(.2)  # Model output finalization after receiving cancellation.
+        (folder / (record.id + '.finished')).write_text('finalized')
         raise SystemExit(143)
     signal.signal(signal.SIGTERM, stop)
     (folder / (record.id + '.started')).write_text(str(os.getpid()))
@@ -95,10 +114,9 @@ if os.environ.get('TEST_DETECTOR_FAILURE') == '1':
                             self.assertEqual(len(list(timings.glob('*.started'))), 2, (base / 'cancel.log').read_text())
                             os.killpg(process.pid, signal.SIGTERM)
                             process.wait(timeout=5)
-                            deadline = time.monotonic() + 3
-                            while len(list(timings.glob('*.stopped'))) < 2 and time.monotonic() < deadline:
-                                time.sleep(.02)
+                            wait_for_process_group(process.pid)
                             self.assertEqual(len(list(timings.glob('*.stopped'))), 2)
+                            self.assertEqual(len(list(timings.glob('*.finished'))), 2)
                             self.assertNotEqual(process.returncode, 0)
                             self.assertFalse((result / 'antismash/Public/.done').exists())
                             if os.environ.get('CLUSTERWEAVE_SCHEDULING_EVIDENCE'):
@@ -109,9 +127,13 @@ if os.environ.get('TEST_DETECTOR_FAILURE') == '1':
                                     'exit': process.returncode, 'completion_marker': False,
                                     'log': (base / 'cancel.log').read_text()}, indent=2))
                         finally:
-                            if process.poll() is None:
+                            # The parent can exit before its descendants do.
+                            try:
                                 os.killpg(process.pid, signal.SIGKILL)
-                                process.wait(timeout=5)
+                            except ProcessLookupError:
+                                pass
+                            process.wait(timeout=5)
+                            wait_for_process_group(process.pid)
                     continue
                 completed = subprocess.run(["bash", str(ROOT / "run_annotation_and_detection.sh"), "-g", "Public"],
                     env=env, cwd=ROOT, capture_output=True, text=True, timeout=60)
